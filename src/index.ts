@@ -7,7 +7,7 @@ import { Connect, ViteDevServer } from 'vite';
 import { devExternalsMixin } from './dev-externals-mixin';
 import { filterExternals } from './externals-skip-list';
 
-export const federation = async (params: BuildHelperParams) => {
+export const federation = (params: BuildHelperParams) => {
   return {
     name: '@module-federation/vite', // required, will show up in warnings and errors
     async options(o: unknown) {
