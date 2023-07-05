@@ -9,9 +9,13 @@ import { filterExternals } from './externals-skip-list';
 
 export const federation = (params: BuildHelperParams) => {
   return {
+    ...devExternalsMixin,
     name: '@module-federation/vite', // required, will show up in warnings and errors
-    async options(o: unknown) {
+    async config(...args) {
       await federationBuilder.init(params);
+      devExternalsMixin.config(...args);
+    },
+    options(o: unknown) {
       o!['external'] = filterExternals(federationBuilder.externals);
     },
     async closeBundle() {
@@ -23,7 +27,6 @@ export const federation = (params: BuildHelperParams) => {
     transformIndexHtml(html: string) {
       return html.replace(/type="module"/g, 'type="module-shim"');
     },
-    ...devExternalsMixin,
   };
 };
 
