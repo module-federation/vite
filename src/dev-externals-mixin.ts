@@ -16,10 +16,16 @@ export const devExternalsMixin = {
   },
   configResolved(resolvedConfig) {
     const VALID_ID_PREFIX = `/@id/`;
-    const reg = new RegExp(`${VALID_ID_PREFIX}(${federationBuilder.externals.join('|')})`, 'g');
+    const reg = new RegExp(
+      `(?<quote>["\'])[^\'"]*?${VALID_ID_PREFIX}(${federationBuilder.externals.join(
+        '|'
+      )})\\k<quote>`,
+      'g'
+    );
     resolvedConfig.plugins.push({
       name: 'vite-plugin-ignore-static-import-replace-idprefix',
-      transform: (code) => (reg.test(code) ? code.replace(reg, (m, s1) => s1) : code),
+      transform: (code) =>
+        reg.test(code) ? code.replace(reg, (_m, quote, libName) => quote + libName + quote) : code,
     });
   },
   resolveId: (id) => {
