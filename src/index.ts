@@ -38,17 +38,17 @@ const configureDevServer = async (server: ViteDevServer, params: BuildHelperPara
 
   const op = params.options;
   const dist = path.join(op.workspaceRoot, op.outputPath);
-  server.middlewares.use(serveFromDist(dist));
+  server.middlewares.use(serveFromDist(dist, server.config.base));
 };
 
-const serveFromDist = (dist: string): Connect.NextHandleFunction => {
+const serveFromDist = (dist: string, baseUrl: string): Connect.NextHandleFunction => {
   return (req, res, next) => {
     if (!req.url || req.url.endsWith('/index.html')) {
       next();
       return;
     }
 
-    const file = path.join(dist, req.url);
+    const file = path.join(dist, req.url.replace(baseUrl, ''));
     if (fs.existsSync(file) && fs.lstatSync(file).isFile()) {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Type', mime.lookup(req.url));
