@@ -13,7 +13,7 @@
     "prepare": "husky install",
     "format": "pretty-quick",
     "dev": "microbundle watch",
-    "build": "rimraf lib && microbundle --no-sourcemap"
+    "build": "rimraf lib && microbundle --no-sourcemap --compress=false"
   },
   "repository": {
     "type": "git",
