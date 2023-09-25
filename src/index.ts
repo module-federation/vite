@@ -31,10 +31,7 @@ export const federation = (params: BuildHelperParams) => {
 };
 
 const configureDevServer = async (server: ViteDevServer, params: BuildHelperParams) => {
-  await federationBuilder.build({
-    skipExposed: true,
-    skipMappings: true,
-  });
+  await federationBuilder.build({ skipMappingsAndExposed: true });
 
   const op = params.options;
   const dist = path.join(op.workspaceRoot, op.outputPath);
