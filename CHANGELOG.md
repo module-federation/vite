@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.8]
+
+### Chores
+
+- upgrade peerDependencies `"@softarc/native-federation": "^2.0.2"`
+
 ## [0.2.7]
 
 ### Features
