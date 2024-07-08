@@ -1,0 +1,22 @@
+{
+  "name": "layout-esbuild-vite",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@module-federation/esbuild": "^0.0.4",
+    "@module-federation/webpack-bundler-runtime": "^0.2.3",
+    "esbuild": "0.21.5",
+    "vite-plugin-inspect": "^0.8.4",
+    "vue": "^3.4.29"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.5",
+    "vite": "^5.3.1"
+  }
+}
