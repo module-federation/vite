@@ -1,11 +1,24 @@
 <script setup>
-import HelloWorld from './components/HelloWorld.vue'
+import _Mfapp01App from "mfapp01/App"
+import R from "react"
+import _Remote2App from "remote2/App"
+import _Button from "remote3/button"
+import { applyReactInVue } from "veaury"
+import { ref } from 'vue'
+const Button = applyReactInVue(_Button)
+const Remote2App = applyReactInVue(_Remote2App)
+const Mfapp01App = applyReactInVue(_Mfapp01App)
+
+console.log("share vue", ref)
+console.log("share React", R)
 </script>
 
 <template>
   <div>
     vite vue
-    <router-view />
+    <Button />
+    <Remote2App />
+    <Mfapp01App />
   </div>
 </template>
 
