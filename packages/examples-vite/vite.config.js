@@ -27,7 +27,8 @@ export default defineConfig({
         },
         react: {
           requiredVersion: "18"
-        }
+        },
+        "react-dom": {}
       },
     }),
     // If you set build.target: "chrome89", you can remove this plugin

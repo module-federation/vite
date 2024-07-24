@@ -1,6 +1,7 @@
 <script setup>
 import _Mfapp01App from "mfapp01/App"
 import R from "react"
+import RD from "react-dom"
 import _Remote2App from "remote2/App"
 import _Button from "remote3/button"
 import { applyReactInVue } from "veaury"
@@ -10,7 +11,7 @@ const Remote2App = applyReactInVue(_Remote2App)
 const Mfapp01App = applyReactInVue(_Mfapp01App)
 
 console.log("share vue", ref)
-console.log("share React", R)
+console.log("share React", R, RD)
 </script>
 
 <template>
