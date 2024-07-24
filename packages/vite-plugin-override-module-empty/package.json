@@ -1,0 +1,14 @@
+{
+  "name": "vite-plugin-override-module-empty",
+  "version": "1.0.1",
+  "description": "",
+  "main": "src/empty.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

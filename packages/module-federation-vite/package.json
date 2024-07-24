@@ -1,6 +1,6 @@
 {
-  "name": "@module-federation/vite-demo",
-  "version": "0.2.8",
+  "name": "module-federation-vite",
+  "version": "1.0.0",
   "description": "Vite plugin for Module Federation",
   "scripts": {
     "dev:examples-vite": "cd packages/examples-vite && npm run dev",
@@ -9,7 +9,15 @@
     "build:examples-vite": "cd packages/examples-vite && npm run build",
     "build:examples-rust": "cd packages/examples-rust && npm run build",
     "build": "npx -y npm-run-all --parallel build:examples-vite build:examples-rust",
-    "preview": "cd packages/examples-vite && npm run preview"
+    "preview": "cd packages/examples && npm run preview"
+  },
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "dependencies": {
+    "vite-plugin-override-module": "workspace: *",
+    "vite-plugin-add-entry": "workspace: *",
+    "vite-plugin-override-module-empty": "^1.0.1",
+    "@module-federation/runtime": "^0.2.8"
   },
   "author": {
     "name": "Giorgio Boa",
@@ -29,8 +37,5 @@
   "bugs": {
     "url": "https://github.com/module-federation/vite/issues"
   },
-  "homepage": "https://github.com/module-federation/vite#readme",
-  "devDependencies": {
-    "husky": "^8.0.3"
-  }
+  "homepage": "https://github.com/module-federation/vite#readme"
 }
