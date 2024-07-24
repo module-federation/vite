@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import react from '@vitejs/plugin-react'
 import mf from "module-federation-vite"
 import topLevelAwait from "vite-plugin-top-level-await";
 
@@ -10,7 +10,7 @@ export default defineConfig({
     open: true
   },
   plugins: [
-    vue(),
+    react(),
     mf({
       name: "viteRemote",
       remotes: {
@@ -19,7 +19,7 @@ export default defineConfig({
         remote3: "remote1@https://unpkg.com/react-manifest-example_remote1@1.0.6/dist/mf-manifest.json"
       },
       exposes: {
-        "App": "./src/App.vue"
+        "App": "./src/App.jsx"
       },
       filename: "dd/remoteEntry.js",
       shared: {

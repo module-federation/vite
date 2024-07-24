@@ -25,7 +25,7 @@ module.exports = function addEntry(entryName, entryPath, fileName) {
       })
     },
     transformIndexHtml(c) {
-      if (command !== "build") return c.replace("<head>", `<head><script type="module" src=${JSON.stringify(entryPath)}></script>`)
+      if (command !== "build") return c.replace("<head>", `<head><script type="module" src=${JSON.stringify(entryPath.replace(/.+?\:([/\\])[/\\]?/, "$1").replace(/\\/g, "/"))}></script>`)
         return c.replace("<head>", `<head><script type="module" src=${fileName}></script>`)
 
     },

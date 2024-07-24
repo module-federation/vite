@@ -11,12 +11,12 @@
     "module-federation-vite": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.2.0",
-    "veaury": "^2.4.2",
     "vue": "^3.4.29",
     "vue-router": "^4.4.0"
   },
   "devDependencies": {
     "@swc/core": "~1.6.0",
+    "@vitejs/plugin-react": "^4.3.1",
     "@vitejs/plugin-vue": "^5.0.5",
     "vite": "^5.3.1",
     "vite-plugin-top-level-await": "^1.4.1"
