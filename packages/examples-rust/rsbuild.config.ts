@@ -30,6 +30,7 @@ export default defineConfig({
           shared: [
             'react',
             'react-dom',
+            'vue'
             // 'antd'
           ],
         }),
