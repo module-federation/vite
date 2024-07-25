@@ -72,6 +72,7 @@ export default defineConfig({
 
 ## roadmap
 
+- fix: remoteEntry and hostInit file names support hash generation
 - feat: generate mf-manifest.json
 - feat: support chrome plugin
 - feat: support runtime plugins
