@@ -1,6 +1,6 @@
 {
   "name": "module-federation-vite",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Vite plugin for Module Federation",
   "scripts": {
     "dev:examples-vite": "cd packages/examples-vite && npm run dev",
@@ -14,10 +14,11 @@
   "main": "src/index.js",
   "types": "src/index.d.ts",
   "dependencies": {
-    "vite-plugin-override-module": "workspace: *",
-    "vite-plugin-add-entry": "workspace: *",
-    "vite-plugin-override-module-empty": "^1.0.1",
-    "@module-federation/runtime": "^0.2.8"
+    "@module-federation/runtime": "^0.2.8",
+    "@rollup/pluginutils": "^5.1.0",
+    "an-empty-js-file": "1.0.0",
+    "estree-walker": "^2",
+    "magic-string": "^0.30.10"
   },
   "author": {
     "name": "Giorgio Boa",

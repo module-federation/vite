@@ -1,7 +1,7 @@
 const {createFilter} = require('@rollup/pluginutils');
-const {overrideModule} = require("vite-plugin-override-module")
-const addEntry = require("vite-plugin-add-entry")
-const emptyPath = require.resolve("vite-plugin-override-module-empty")
+const {overrideModule} = require("./utils/vitePluginOverrideModule")
+const addEntry = require("./utils/vitePluginAddEntry")
+const emptyPath = require.resolve("an-empty-js-file")
 const {normalizeModuleFederationOptions} = require("./utils/normalizeModuleFederationOptions")
 const aliasToArrayPlugin = require("./utils/aliasToArrayPlugin")
 const normalizeOptimizeDepsPlugin = require("./utils/normalizeOptimizeDeps")
@@ -142,7 +142,7 @@ module.exports = function federation(
         if (!con.optimizeDeps) con.optimizeDeps = {}
         if (!con.optimizeDeps.needsInterop) con.optimizeDeps.needsInterop = []
         if (con.optimizeDeps.needsInterop.indexOf(source) === -1) con.optimizeDeps.needsInterop.push(source)
-        return this.resolve(require.resolve("vite-plugin-override-module-empty") + "?__moduleRemote__=" + encodeURIComponent(source))
+        return this.resolve(require.resolve("an-empty-js-file") + "?__moduleRemote__=" + encodeURIComponent(source))
       }
     }, 
     )
