@@ -34,8 +34,12 @@
     "url": "https://github.com/module-federation/vite/issues"
   },
   "homepage": "https://github.com/module-federation/vite#readme",
-  "peerDependencies": {
-    "@softarc/native-federation": "^2.0.2"
+  "dependencies": {
+    "@module-federation/runtime": "^0.2.8",
+    "@rollup/pluginutils": "^5.1.0",
+    "an-empty-js-file": "1.0.0",
+    "estree-walker": "^2",
+    "magic-string": "^0.30.10"
   },
   "devDependencies": {
     "husky": "^8.0.3",
