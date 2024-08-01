@@ -1,20 +1,19 @@
 {
-  "name": "@module-federation/vite-demo",
+  "name": "@module-federation/vite",
   "version": "0.2.8",
-  "description": "Vite plugin for Module Federation",
+  "description": "Vite/Rollup plugin for Module Federation",
+  "type": "module",
+  "source": "src/index.ts",
+  "main": "./lib/index.cjs",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib/**/*"
+  ],
   "scripts": {
-    "dev:examples-vite": "cd packages/examples-vite && npm run dev",
-    "dev:examples-rust": "cd packages/examples-rust && npm run dev",
-    "dev": "npx -y npm-run-all --parallel dev:examples-vite dev:examples-rust",
-    "build:examples-vite": "cd packages/examples-vite && npm run build",
-    "build:examples-rust": "cd packages/examples-rust && npm run build",
-    "build": "npx -y npm-run-all --parallel build:examples-vite build:examples-rust",
-    "preview": "cd packages/examples-vite && npm run preview"
-  },
-  "author": {
-    "name": "Giorgio Boa",
-    "email": "giorgiob.boa@gmail.com",
-    "url": "https://github.com/gioboa"
+    "prepare": "husky install",
+    "format": "pretty-quick",
+    "dev": "microbundle watch",
+    "build": "rimraf lib && microbundle --no-sourcemap --compress=false"
   },
   "repository": {
     "type": "git",
@@ -25,12 +24,29 @@
     "module federation",
     "microfrontend"
   ],
+  "author": {
+    "name": "Giorgio Boa",
+    "email": "giorgiob.boa@gmail.com",
+    "url": "https://github.com/gioboa"
+  },
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/module-federation/vite/issues"
   },
   "homepage": "https://github.com/module-federation/vite#readme",
+  "dependencies": {
+    "@module-federation/runtime": "^0.2.8",
+    "@rollup/pluginutils": "^5.1.0",
+    "an-empty-js-file": "1.0.0",
+    "estree-walker": "^2",
+    "magic-string": "^0.30.10"
+  },
   "devDependencies": {
-    "husky": "^8.0.3"
+    "husky": "^8.0.3",
+    "microbundle": "^0.15.1",
+    "mime-types": "^2.1.35",
+    "pretty-quick": "^3.1.3",
+    "rimraf": "^5.0.1",
+    "vite": "^4.4.9"
   }
 }

@@ -1,4 +1,3 @@
-
 import { Plugin } from 'vite';
 
 interface AddEntryOptions {
@@ -14,7 +13,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin =
     name: 'add-entry',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (req.url && req.url.startsWith(fileName.replace(/^\/?/, "/"))) {
+        if (req.url && req.url.startsWith(fileName.replace(/^\/?/, '/'))) {
           req.url = entryPath;
         }
         next();
@@ -24,18 +23,24 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin =
       command = _command;
     },
     buildStart() {
-      if (command !== "build") return;
+      if (command !== 'build') return;
       // if we don't expose any modules, there is no need to emit file
       this.emitFile({
         fileName: `${fileName}`,
         type: 'chunk',
         id: entryPath,
-        preserveSignature: 'strict'
+        preserveSignature: 'strict',
       });
     },
     transformIndexHtml(c) {
-      if (command !== "build") return c.replace("<head>", `<head><script type="module" src=${JSON.stringify(entryPath.replace(/.+?\:([/\\])[/\\]?/, "$1").replace(/\\/g, "/"))}></script>`);
-      return c.replace("<head>", `<head><script type="module" src=${fileName}></script>`);
+      if (command !== 'build')
+        return c.replace(
+          '<head>',
+          `<head><script type="module" src=${JSON.stringify(
+            entryPath.replace(/.+?\:([/\\])[/\\]?/, '$1').replace(/\\/g, '/')
+          )}></script>`
+        );
+      return c.replace('<head>', `<head><script type="module" src=${fileName}></script>`);
     },
   };
 };

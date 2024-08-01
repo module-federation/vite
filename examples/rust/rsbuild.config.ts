@@ -5,7 +5,7 @@ import { ModuleFederationPlugin } from '@module-federation/enhanced/rspack';
 export default defineConfig({
   server: {
     port: 5176,
-    open: true
+    open: true,
   },
   dev: {
     // It is necessary to configure assetPrefix, and in the production environment, you need to configure output.assetPrefix
@@ -18,9 +18,9 @@ export default defineConfig({
         new ModuleFederationPlugin({
           name: 'examples_rust',
           remotes: {
-            viteRemote: "http://localhost:5173/dd/remoteEntry.js",
+            viteRemote: 'http://localhost:5173/dd/remoteEntry.js',
           },
-          remoteType: "module",
+          remoteType: 'module',
           exposes: {
             './app': './src/app.tsx',
           },
@@ -30,7 +30,7 @@ export default defineConfig({
           shared: [
             'react',
             'react-dom',
-            'vue'
+            'vue',
             // 'antd'
           ],
         }),

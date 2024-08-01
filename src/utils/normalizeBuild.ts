@@ -1,4 +1,4 @@
-import { UserConfig } from "vite";
+import { UserConfig } from 'vite';
 
 interface Shared {
   [key: string]: any;
@@ -18,23 +18,25 @@ export default (shared: Shared) => ({
     let { rollupOptions } = config.build;
     if (!rollupOptions.output) rollupOptions.output = {};
     normalizeManualChunks(rollupOptions.output as any, shared);
-  }
+  },
 });
 
 function normalizeManualChunks(output: Output, shared: Shared = {}): void {
-  const pattern = new RegExp(`node_modules/(${Object.keys(shared).join("|")})/`);
+  const pattern = new RegExp(`node_modules/(${Object.keys(shared).join('|')})/`);
   if (!output.manualChunks) output.manualChunks = {};
-  const wrapManualChunks = (original: any) => (id: string, ...args: any[]) => {
-    const [_, moduleName] = id.match(pattern) || [];
-    if (moduleName) {
-      return moduleName;
-    }
-    if (typeof original === 'function') {
-      return original(id, ...args);
-    }
-    if (typeof original === "object" && original) {
-      return original[id];
-    }
-  };
+  const wrapManualChunks =
+    (original: any) =>
+    (id: string, ...args: any[]) => {
+      const [_, moduleName] = id.match(pattern) || [];
+      if (moduleName) {
+        return moduleName;
+      }
+      if (typeof original === 'function') {
+        return original(id, ...args);
+      }
+      if (typeof original === 'object' && original) {
+        return original[id];
+      }
+    };
   output.manualChunks = wrapManualChunks(output.manualChunks);
 }

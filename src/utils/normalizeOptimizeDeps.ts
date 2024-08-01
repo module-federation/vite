@@ -1,4 +1,4 @@
-import { UserConfig } from "vite";
+import { UserConfig } from 'vite';
 
 export interface Command {
   command: string;
@@ -14,5 +14,5 @@ export default {
     }
     if (!optimizeDeps.include) optimizeDeps.include = [];
     if (!optimizeDeps.needsInterop) optimizeDeps.needsInterop = [];
-  }
+  },
 };

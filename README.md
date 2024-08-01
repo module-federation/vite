@@ -15,13 +15,6 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ### [Vue](https://github.com/module-federation/module-federation-examples/tree/master/vite-vue-microfrontends)
 
-## preview
-
-```shell
-pnpm install && pnpm run dev
-pnpm install && pnpm run build
-```
-
 ## Getting started 🚀
 
 https://module-federation.io/guide/basic/webpack.html
@@ -36,7 +29,6 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    vue(),
     federation({
       name: 'bbc',
       remotes: {
@@ -83,11 +75,3 @@ export default defineConfig({
 ### So far so good 🎉
 
 Now you are ready to use Module Federation in Vite!
-
-## Thanks 🤝
-
-Big thanks to:
-
-[Manfred Steyer](https://twitter.com/manfredsteyer), Speaker, Trainer, Consultant and Author with focus on Angular. Google Developer Expert (GDE) and Microsoft MVP.
-
-who collaborate with me to make this possible.

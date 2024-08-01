@@ -1,4 +1,4 @@
-import { UserConfig } from "vite";
+import { UserConfig } from 'vite';
 
 export interface Command {
   // define command properties here
@@ -13,8 +13,8 @@ export default {
     if (typeof alias === 'object' && !Array.isArray(alias)) {
       config.resolve.alias = Object.entries(alias).map(([find, replacement]) => ({
         find,
-        replacement
+        replacement,
       }));
     }
-  }
+  },
 };
