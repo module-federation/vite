@@ -1,5 +1,5 @@
+import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
-import { federation } from 'module-federation-vite';
 import { defineConfig } from 'vite';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
