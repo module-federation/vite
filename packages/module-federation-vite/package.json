@@ -3,16 +3,14 @@
   "version": "1.0.3",
   "description": "Vite plugin for Module Federation",
   "scripts": {
-    "dev:examples-vite": "cd packages/examples-vite && npm run dev",
-    "dev:examples-rust": "cd packages/examples-rust && npm run dev",
-    "dev": "npx -y npm-run-all --parallel dev:examples-vite dev:examples-rust",
-    "build:examples-vite": "cd packages/examples-vite && npm run build",
-    "build:examples-rust": "cd packages/examples-rust && npm run build",
-    "build": "npx -y npm-run-all --parallel build:examples-vite build:examples-rust",
-    "preview": "cd packages/examples && npm run preview"
+    "clean": "rimraf ./dist",
+    "build": "npm run clean && tsc"
   },
-  "main": "src/index.js",
-  "types": "src/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
   "dependencies": {
     "@module-federation/runtime": "^0.2.8",
     "@rollup/pluginutils": "^5.1.0",
@@ -38,5 +36,11 @@
   "bugs": {
     "url": "https://github.com/module-federation/vite/issues"
   },
-  "homepage": "https://github.com/module-federation/vite#readme"
+  "homepage": "https://github.com/module-federation/vite#readme",
+  "devDependencies": {
+    "@types/node": "^22.0.2",
+    "rimraf": "^6.0.1",
+    "typescript": "5.5.3",
+    "vite": "^5.3.1"
+  }
 }
