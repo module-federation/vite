@@ -39,7 +39,7 @@ function normalizeExposesItem(key: string, item: string | { import: string }): E
     importPath = item.import;
   }
   return {
-    import: importPath
+    import: importPath,
   };
 }
 
@@ -49,7 +49,7 @@ function normalizeExposes(
   if (!exposes) return {};
   const res: Record<string, ExposesItem> = {};
   Object.keys(exposes).forEach((key) => {
-    res[key.replace(/^\.?\/?/, "./")] = normalizeExposesItem(key, exposes[key]);
+    res[key.replace(/^\.?\/?/, './')] = normalizeExposesItem(key, exposes[key]);
   });
   return res;
 }
@@ -228,7 +228,7 @@ export type ModuleFederationOptions = {
           }
       >
     | undefined;
-  runtimePlugins: any;
+  runtimePlugins?: string[];
   getPublicPath: any;
   implementation: any;
   manifest: any;
@@ -249,7 +249,7 @@ export interface NormalizedModuleFederationOptions {
   runtime: any;
   shareScope: string;
   shared: NormalizedShared;
-  runtimePlugins: any;
+  runtimePlugins: string[];
   getPublicPath: any;
   implementation: any;
   manifest: any;
@@ -270,7 +270,7 @@ export function normalizeModuleFederationOptions(
     runtime: options.runtime,
     shareScope: options.shareScope || 'default',
     shared: normalizeShared(options.shared),
-    runtimePlugins: options.runtimePlugins,
+    runtimePlugins: options.runtimePlugins || [],
     getPublicPath: options.getPublicPath,
     implementation: options.implementation,
     manifest: options.manifest,

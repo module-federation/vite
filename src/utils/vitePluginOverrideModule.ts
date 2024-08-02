@@ -10,10 +10,10 @@ export function overrideModule(
   const override = new Set(_override);
   const filterFunction = createFilter(include, exclude);
   const alias: { [key: string]: string } = {};
-  const keys = override.keys()
+  const keys = override.keys();
   for (const key of keys) {
     alias['__overrideModule__' + key] =
-      require.resolve(`an-empty-js-file`) + `?__overrideModule__=${encodeURIComponent(key)}`; 
+      require.resolve(`an-empty-js-file`) + `?__overrideModule__=${encodeURIComponent(key)}`;
   }
 
   return {

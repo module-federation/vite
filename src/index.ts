@@ -29,8 +29,15 @@ function wrapHostInit(): string {
     `;
 }
 function generateRemoteEntry(options: NormalizedModuleFederationOptions): string {
+  const pluginImportNames = options.runtimePlugins.map((p, i) => [
+    `$runtimePlugin_${i}`,
+    `import $runtimePlugin_${i} from "${p}";`,
+  ]);
+
   return `
-  import {init as runtimeInit, loadRemote} from "@module-federation/runtime"
+  import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
+  
+  ${pluginImportNames.map((item) => item[1]).join('\n')}
 
   const exposesMap = {
     ${Object.keys(options.exposes)
@@ -85,7 +92,8 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
         })
         .join(',')}
       ],
-      shared: localShared
+      shared: localShared,
+      plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}]
     });
     initRes.initShareScopeMap('${options.shareScope}', shared);
     return initRes
@@ -168,7 +176,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const remotePrefixList = Object.keys(remotes);
   // pkgname will be escaped, and matching path also needs to be processed in the same way:
   // @json2csv/plainjs --> .vite/deps/@json2csv_plainjs
-  const sharedKeyMatchList = Object.keys(shared).map(item => `__overrideModule__${item.replace("/", "_")}`)
+  const sharedKeyMatchList = Object.keys(shared).map(
+    (item) => `__overrideModule__${item.replace('/', '_')}`
+  );
 
   return [
     aliasToArrayPlugin,
@@ -223,9 +233,18 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         if (id.indexOf('__mf__cwdRemoteEntry') > -1) {
           return generateRemoteEntry(options);
         }
-        let [devSharedModuleName] = (sharedKeyMatchList.length && id.match(new RegExp(`\/(${sharedKeyMatchList.join("|")})(\_.*\.js|\.js)`))) || []
+        let [devSharedModuleName] =
+          (sharedKeyMatchList.length &&
+            id.match(new RegExp(`\/(${sharedKeyMatchList.join('|')})(\_.*\.js|\.js)`))) ||
+          [];
         if (devSharedModuleName) {
-          return wrapShare(devSharedModuleName.replace("/__overrideModule__", "").replace(/_/g, "/").replace(".js", ""), shared)
+          return wrapShare(
+            devSharedModuleName
+              .replace('/__overrideModule__', '')
+              .replace(/_/g, '/')
+              .replace('.js', ''),
+            shared
+          );
         }
         let [prodSharedName] = id.match(/\_\_overrideModule\_\_=[^&]+/) || [];
         if (prodSharedName) {
@@ -234,9 +253,14 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             shared
           );
         }
-        let [devRemoteModuleName] = (remotePrefixList.length && id.match(new RegExp(`\/(${remotePrefixList.join("|")})(\_.*\.js|\.js)`))) || []
+        let [devRemoteModuleName] =
+          (remotePrefixList.length &&
+            id.match(new RegExp(`\/(${remotePrefixList.join('|')})(\_.*\.js|\.js)`))) ||
+          [];
         if (devRemoteModuleName) {
-          return wrapRemote(devRemoteModuleName.replace("/", "").replace(/_/g, "/").replace(".js", ""))
+          return wrapRemote(
+            devRemoteModuleName.replace('/', '').replace(/_/g, '/').replace('.js', '')
+          );
         }
         let [prodRemoteName] = id.match(/\_\_moduleRemote\_\_=[^&]+/) || [];
         if (prodRemoteName) {
