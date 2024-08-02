@@ -29,8 +29,16 @@ function wrapHostInit(): string {
     `;
 }
 function generateRemoteEntry(options: NormalizedModuleFederationOptions): string {
+  const pluginImportNames = options.runtimePlugins.map((p, i) => [
+    `$runtimePlugin_${i}`,
+    `import $runtimePlugin_${i} from "${p}";`,
+  ]);
+
   return `
-  import {init as runtimeInit, loadRemote} from "@module-federation/runtime"
+  import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
+  import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
+  
+  ${pluginImportNames.map((item) => item[1]).join('\n')}
 
   const exposesMap = {
     ${Object.keys(options.exposes)
@@ -85,7 +93,8 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
         })
         .join(',')}
       ],
-      shared: localShared
+      shared: localShared,
+      plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}]
     });
     initRes.initShareScopeMap('${options.shareScope}', shared);
     return initRes

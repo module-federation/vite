@@ -67,7 +67,9 @@ export default defineConfig({
 - fix: remoteEntry and hostInit file names support hash generation
 - feat: generate mf-manifest.json
 - feat: support chrome plugin
-- feat: support runtime plugins
+
+* ✅ ~~feat: support runtime plugins~~
+
 - feat: download remote d.ts
 - feat: generate d.ts
 - feat: support @vitejs/plugin-legacy
