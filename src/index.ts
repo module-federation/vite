@@ -36,7 +36,6 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
 
   return `
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
-  import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
   
   ${pluginImportNames.map((item) => item[1]).join('\n')}
 
@@ -44,7 +43,7 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
     ${Object.keys(options.exposes)
       .map((key) => {
         return `
-      ${key}: () => import(${JSON.stringify(options.exposes[key].import)})
+        ${JSON.stringify(key)}: () => import(${JSON.stringify(options.exposes[key].import)})
       `;
       })
       .join(',')}
@@ -101,8 +100,7 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
   }
 
   function getExposes(moduleName) {
-    moduleName = moduleName.replace(/(^\\.\\/)?/, "")
-    if (!(moduleName in exposesMap)) throw new Error(\`Module ./\${moduleName} does not exist in container.\`)
+    if (!(moduleName in exposesMap)) throw new Error(\`Module \${moduleName} does not exist in container.\`)
     return (exposesMap[moduleName])().then(res => () => res)
   }
   export {
@@ -176,7 +174,11 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   });
 
   const remotePrefixList = Object.keys(remotes);
-  const sharedKeyList = Object.keys(shared).map((item) => `__overrideModule__${item}`);
+  // pkgname will be escaped, and matching path also needs to be processed in the same way:
+  // @json2csv/plainjs --> .vite/deps/@json2csv_plainjs
+  const sharedKeyMatchList = Object.keys(shared).map(
+    (item) => `__overrideModule__${item.replace('/', '_')}`
+  );
 
   return [
     aliasToArrayPlugin,
@@ -232,11 +234,13 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           return generateRemoteEntry(options);
         }
         let [devSharedModuleName] =
-          id.match(new RegExp(`\.vite\/deps\/(${sharedKeyList.join('|')})(\_.*\.js|\.js)`)) || [];
+          (sharedKeyMatchList.length &&
+            id.match(new RegExp(`\/(${sharedKeyMatchList.join('|')})(\_.*\.js|\.js)`))) ||
+          [];
         if (devSharedModuleName) {
           return wrapShare(
             devSharedModuleName
-              .replace('.vite/deps/__overrideModule__', '')
+              .replace('/__overrideModule__', '')
               .replace(/_/g, '/')
               .replace('.js', ''),
             shared
@@ -250,11 +254,12 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           );
         }
         let [devRemoteModuleName] =
-          id.match(new RegExp(`\.vite\/deps\/(${remotePrefixList.join('|')})(\_.*\.js|\.js)`)) ||
+          (remotePrefixList.length &&
+            id.match(new RegExp(`\/(${remotePrefixList.join('|')})(\_.*\.js|\.js)`))) ||
           [];
         if (devRemoteModuleName) {
           return wrapRemote(
-            devRemoteModuleName.replace('.vite/deps/', '').replace(/_/g, '/').replace('.js', '')
+            devRemoteModuleName.replace('/', '').replace(/_/g, '/').replace('.js', '')
           );
         }
         let [prodRemoteName] = id.match(/\_\_moduleRemote\_\_=[^&]+/) || [];
@@ -267,4 +272,3 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
 }
 
 export { federation };
-export default federation;

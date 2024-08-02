@@ -1,22 +1,13 @@
 {
-  "compileOnSave": false,
   "compilerOptions": {
-    "rootDir": ".",
-    "sourceMap": true,
+    "outDir": "./dist",
+    "module": "commonjs",
+    "target": "es6",
+    "strict": true,
     "esModuleInterop": true,
-    "declaration": false,
-    "moduleResolution": "node",
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "importHelpers": false,
-    "target": "es2021",
-    "allowJs": true,
-    "module": "esnext",
-    "lib": ["es2021", "dom"],
     "skipLibCheck": true,
-    "skipDefaultLibCheck": true,
-    "baseUrl": ".",
-    "strict": true
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true
   },
-  "exclude": ["node_modules/**", "tmp", "**/node_modules/**", "**/dist/**", "dist/**"]
+  "include": ["src"]
 }

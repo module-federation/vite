@@ -49,7 +49,7 @@ function normalizeExposes(
   if (!exposes) return {};
   const res: Record<string, ExposesItem> = {};
   Object.keys(exposes).forEach((key) => {
-    res[key] = normalizeExposesItem(key, exposes[key]);
+    res[key.replace(/^\.?\/?/, './')] = normalizeExposesItem(key, exposes[key]);
   });
   return res;
 }
