@@ -1,28 +1,24 @@
 import { UserConfig } from 'vite';
 
-interface Shared {
-  [key: string]: any;
-}
-
 interface Output {
   manualChunks?: {
     [key: string]: any;
   };
 }
 
-export default (shared: Shared) => ({
+export default (singleChunkModules: string[]) => ({
   name: 'normalizeBuild',
   config: (config: UserConfig, { command }: { command: string }) => {
     if (!config.build) config.build = {};
     if (!config.build.rollupOptions) config.build.rollupOptions = {};
     let { rollupOptions } = config.build;
     if (!rollupOptions.output) rollupOptions.output = {};
-    normalizeManualChunks(rollupOptions.output as any, shared);
+    normalizeManualChunks(rollupOptions.output as any, singleChunkModules);
   },
 });
 
-function normalizeManualChunks(output: Output, shared: Shared = {}): void {
-  const pattern = new RegExp(`node_modules/(${Object.keys(shared).join('|')})/`);
+function normalizeManualChunks(output: Output, singleChunkModules: string[]): void {
+  const pattern = new RegExp(`node_modules/(${singleChunkModules.join('|')})/`);
   if (!output.manualChunks) output.manualChunks = {};
   const wrapManualChunks =
     (original: any) =>

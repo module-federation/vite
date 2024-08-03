@@ -65,7 +65,6 @@ export default defineConfig({
 ## roadmap
 
 - fix: vitePluginAddEntry.ts This plugin may need to support the case where base in vite.config.js is not configured as "/"
-- fix: Ensure @module-federation/runtime is a singleton, split it into a separate chunk
 - fix: remoteEntry and hostInit file names support hash generation
 - feat: generate mf-manifest.json
 - feat: support chrome plugin

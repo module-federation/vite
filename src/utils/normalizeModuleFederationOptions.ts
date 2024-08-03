@@ -166,7 +166,7 @@ function normalizeShared(
         string,
         | string
         | {
-            name: string;
+            name?: string;
             version?: string;
             shareScope?: string;
             singleton?: boolean;
@@ -186,7 +186,7 @@ function normalizeShared(
   }
   if (typeof shared === 'object') {
     Object.keys(shared).forEach((key) => {
-      result[key] = normalizeShareItem(key, shared[key]);
+      result[key] = normalizeShareItem(key, shared[key] as any);
     });
   }
 
@@ -199,21 +199,21 @@ function normalizeLibrary(library: any): any {
 }
 
 export type ModuleFederationOptions = {
-  exposes: Record<string, string | { import: string }> | undefined;
+  exposes?: Record<string, string | { import: string }> | undefined;
   filename?: string;
-  library: any;
+  library?: any;
   name: string;
-  remoteType: string;
-  remotes:
+  // remoteType?: string;
+  remotes?:
     | Record<
         string,
         | string
         | { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
       >
     | undefined;
-  runtime: any;
+  runtime?: any;
   shareScope?: string;
-  shared:
+  shared?:
     | string[]
     | Record<
         string,
@@ -229,11 +229,11 @@ export type ModuleFederationOptions = {
       >
     | undefined;
   runtimePlugins?: string[];
-  getPublicPath: any;
-  implementation: any;
-  manifest: any;
-  dev: any;
-  dts: any;
+  getPublicPath?: any;
+  implementation?: any;
+  manifest?: any;
+  dev?: any;
+  dts?: any;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -241,7 +241,7 @@ export interface NormalizedModuleFederationOptions {
   filename: string;
   library: any;
   name: string;
-  remoteType: string;
+  // remoteType: string;
   remotes: Record<
     string,
     { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
@@ -265,7 +265,7 @@ export function normalizeModuleFederationOptions(
     filename: options.filename || 'remoteEntry.js',
     library: normalizeLibrary(options.library),
     name: options.name,
-    remoteType: options.remoteType,
+    // remoteType: options.remoteType,
     remotes: normalizeRemotes(options.remotes),
     runtime: options.runtime,
     shareScope: options.shareScope || 'default',
