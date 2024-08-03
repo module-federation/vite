@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     open: true,
   },
+  base: 'http://localhost:5173',
   plugins: [
     react(),
     federation({

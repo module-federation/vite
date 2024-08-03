@@ -183,7 +183,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   return [
     aliasToArrayPlugin,
     normalizeOptimizeDepsPlugin,
-    normalizeBuildPlugin(shared),
+    normalizeBuildPlugin([...Object.keys(shared), "@module-federation/runtime"]),
     addEntry({
       entryName: 'remoteEntry',
       entryPath: emptyPath + '?__mf__wrapRemoteEntry__',
@@ -272,3 +272,4 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
 }
 
 export { federation };
+export default federation
