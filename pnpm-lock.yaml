@@ -111,7 +111,7 @@ importers:
         version: 5.3.5(@types/node@22.0.2)(terser@5.20.0)
       vite-plugin-top-level-await:
         specifier: ^1.4.1
-        version: 1.4.2(@swc/helpers@0.5.3)(rollup@3.29.4)(vite@5.3.5(@types/node@22.0.2)(terser@5.20.0))
+        version: 1.4.2(@swc/helpers@0.5.3)(rollup@4.19.2)(vite@5.3.5(@types/node@22.0.2)(terser@5.20.0))
 
 packages:
   '@ampproject/remapping@2.3.0':
@@ -7965,9 +7965,9 @@ snapshots:
       resolve: 1.22.8
       rollup: 2.79.1
 
-  '@rollup/plugin-virtual@3.0.2(rollup@3.29.4)':
+  '@rollup/plugin-virtual@3.0.2(rollup@4.19.2)':
     optionalDependencies:
-      rollup: 3.29.4
+      rollup: 4.19.2
 
   '@rollup/pluginutils@3.1.0(rollup@2.79.1)':
     dependencies:
@@ -10777,9 +10777,9 @@ snapshots:
 
   vary@1.1.2: {}
 
-  vite-plugin-top-level-await@1.4.2(@swc/helpers@0.5.3)(rollup@3.29.4)(vite@5.3.5(@types/node@22.0.2)(terser@5.20.0)):
+  vite-plugin-top-level-await@1.4.2(@swc/helpers@0.5.3)(rollup@4.19.2)(vite@5.3.5(@types/node@22.0.2)(terser@5.20.0)):
     dependencies:
-      '@rollup/plugin-virtual': 3.0.2(rollup@3.29.4)
+      '@rollup/plugin-virtual': 3.0.2(rollup@4.19.2)
       '@swc/core': 1.7.4(@swc/helpers@0.5.3)
       uuid: 10.0.0
       vite: 5.3.5(@types/node@22.0.2)(terser@5.20.0)
