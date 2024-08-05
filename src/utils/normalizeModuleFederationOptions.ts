@@ -142,7 +142,7 @@ function normalizeShareItem(
       from: '',
       shareConfig: {
         singleton: false,
-        requiredVersion: version || '*',
+        requiredVersion: `^${version}` || '*',
       },
     };
   }
@@ -153,7 +153,7 @@ function normalizeShareItem(
     scope: shareItem.shareScope || 'default',
     shareConfig: {
       singleton: shareItem.singleton || false,
-      requiredVersion: shareItem.requiredVersion || version || '*',
+      requiredVersion: shareItem.requiredVersion || `^${version}` || '*',
       strictVersion: !!shareItem.strictVersion,
     },
   };
@@ -262,7 +262,7 @@ export function normalizeModuleFederationOptions(
 ): NormalizedModuleFederationOptions {
   return {
     exposes: normalizeExposes(options.exposes),
-    filename: options.filename || 'remoteEntry.js',
+    filename: options.filename || 'remoteEntry-[hash]',
     library: normalizeLibrary(options.library),
     name: options.name,
     // remoteType: options.remoteType,

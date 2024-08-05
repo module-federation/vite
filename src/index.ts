@@ -43,7 +43,16 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
     ${Object.keys(options.exposes)
       .map((key) => {
         return `
-        ${JSON.stringify(key)}: () => import(${JSON.stringify(options.exposes[key].import)})
+        ${JSON.stringify(key)}: async () => {
+          const importModule = await import(${JSON.stringify(options.exposes[key].import)})
+          const exportModule = {}
+          Object.assign(exportModule, importModule)
+          Object.defineProperty(exportModule, "__esModule", {
+            value: true,
+            enumerable: false
+          })
+          return exportModule
+        }
       `;
       })
       .join(',')}
@@ -76,7 +85,7 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
         })
         .join(',')}
     }
-    const initRes = await runtimeInit({
+    const initRes = runtimeInit({
       name: ${JSON.stringify(options.name)},
       remotes: [${Object.keys(options.remotes)
         .map((key) => {
@@ -124,10 +133,10 @@ function wrapShare(
           strictVersion: ${JSON.stringify(shareConfig.strictVersion)},
           requiredVersion: ${JSON.stringify(shareConfig.requiredVersion)}
         }}})
-        export ${command !== 'build' ? 'default' : 'const dynamicExport = '} res()
+        export default res()
       `,
     map: null,
-    syntheticNamedExports: 'dynamicExport',
+    syntheticNamedExports: 'default',
   };
 }
 
@@ -184,15 +193,14 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     aliasToArrayPlugin,
     normalizeOptimizeDepsPlugin,
     normalizeBuildPlugin([...Object.keys(shared), "@module-federation/runtime"]),
-    addEntry({
+    ...addEntry({
       entryName: 'remoteEntry',
       entryPath: emptyPath + '?__mf__wrapRemoteEntry__',
       fileName: filename,
     }),
-    addEntry({
+    ...addEntry({
       entryName: 'hostInit',
       entryPath: emptyPath + '?__mf__isHostInit',
-      fileName: 'hostInit.js',
     }),
     overrideModule({
       override: Object.keys(shared),
