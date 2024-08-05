@@ -1,13 +1,11 @@
-import { applyVueInReact } from 'veaury';
-import App from 'viteRemote/App';
-const AppComponent = App.default;
+import ViteApp from 'viteRemote/App';
 
 export default function Button() {
   return (
     <div>
       rust host
       <hr />
-      <AppComponent />
+      <ViteApp />
     </div>
   );
 }
