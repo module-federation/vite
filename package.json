@@ -1,7 +1,7 @@
 {
   "name": "@module-federation/vite",
-  "version": "0.2.8",
-  "description": "Vite/Rollup plugin for Module Federation",
+  "version": "1.0.0-alpha-7c3ba59",
+  "description": "Vite plugin for Module Federation",
   "type": "module",
   "source": "src/index.ts",
   "main": "./lib/index.cjs",
