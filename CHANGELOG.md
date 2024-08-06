@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0-alpha-7c3ba59]
+
+### Features
+
+- new configuration based on Module Federation 2.0 via @module-federation/runtime library
+
+# Changelog
+
 ## [0.2.8]
 
 ### Chores
