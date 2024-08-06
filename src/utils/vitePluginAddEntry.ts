@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import * as path from 'path';
+import * as path from 'pathe';
 import { Plugin } from 'vite';
 
 interface AddEntryOptions {
@@ -19,7 +19,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
       configureServer(server) {
         server.httpServer?.once?.('listening', () => {
           const { port } = server.config.server;
-          fetch(`http://localhost:${port}${entryPath}`)
+          fetch(path.join(`http://localhost:${port}`, `${entryPath}`)).catch(e => {})
         });
         server.middlewares.use((req, res, next) => {
           if (!fileName) {
@@ -36,7 +36,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
         return c.replace(
           '<head>',
           `<head><script type="module" src=${JSON.stringify(
-            entryPath.replace(/.+?\:([/\\])[/\\]?/, '$1').replace(/\\\\/g, '/')
+            entryPath.replace(/.+?\:([/\\])[/\\]?/, '$1').replace(/\\\\?/g, '/')
           )}></script>`
         );
       },
