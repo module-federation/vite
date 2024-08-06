@@ -21,7 +21,7 @@ export type RemoteEntryType =
   | 'system'
   | string;
 
-import path from 'path';
+import * as path from 'pathe';
 
 interface ExposesItem {
   import: string;
