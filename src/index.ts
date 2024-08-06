@@ -280,4 +280,3 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
 }
 
 export { federation };
-export default federation
