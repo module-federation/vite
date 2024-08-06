@@ -66,14 +66,10 @@ export function overrideModule(
             if (node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') {
               replaceIfMatch(node.source);
             }
-
             if (
-              node.type === 'CallExpression' &&
-              node.callee.type === 'Import' &&
-              node.arguments.length &&
-              node.arguments[0].type === 'Literal'
+              node.type === 'ImportExpression'
             ) {
-              replaceIfMatch(node.arguments[0]);
+              replaceIfMatch(node.source);
             }
 
             if (

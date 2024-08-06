@@ -60,9 +60,9 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
   async function init(shared = {}) {
     const localShared = {
       ${Object.keys(options.shared)
-        .map((key) => {
-          const shareItem = options.shared[key];
-          return `
+      .map((key) => {
+        const shareItem = options.shared[key];
+        return `
           ${JSON.stringify(key)}: {
             name: ${JSON.stringify(shareItem.name)},
             version: ${JSON.stringify(shareItem.version)},
@@ -82,15 +82,15 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
             }
           }
         `;
-        })
-        .join(',')}
+      })
+      .join(',')}
     }
     const initRes = runtimeInit({
       name: ${JSON.stringify(options.name)},
       remotes: [${Object.keys(options.remotes)
-        .map((key) => {
-          const remote = options.remotes[key];
-          return `
+      .map((key) => {
+        const remote = options.remotes[key];
+        return `
                 {
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
                   name: ${JSON.stringify(remote.name)},
@@ -98,8 +98,8 @@ function generateRemoteEntry(options: NormalizedModuleFederationOptions): string
                   entry: ${JSON.stringify(remote.entry)},
                 }
           `;
-        })
-        .join(',')}
+      })
+      .join(',')}
       ],
       shared: localShared,
       plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}]
@@ -133,10 +133,22 @@ function wrapShare(
           strictVersion: ${JSON.stringify(shareConfig.strictVersion)},
           requiredVersion: ${JSON.stringify(shareConfig.requiredVersion)}
         }}})
-        export default res()
+        const exportModule = res()
+        ${(command === "build" &&
+        `
+          export default 'default' in (exportModule || {}) ? exportModule.default : exportModule
+          export const __mf__dynamicExports = exportModule
+          `
+      ) || ""}
+        ${(command !== "build" &&
+        `
+          export default exportModule
+          `
+      ) || ""}
       `,
     map: null,
-    syntheticNamedExports: 'default',
+    // TODO: vite dev mode invalid, use optimizeDeps.needsInterop
+    syntheticNamedExports: '__mf__dynamicExports',
   };
 }
 
@@ -145,12 +157,22 @@ function wrapRemote(id: string): { code: string; map: null; syntheticNamedExport
   return {
     code: `
     import {loadRemote} from "@module-federation/runtime"
-    export ${
-      command !== 'build' ? 'default' : 'const dynamicExport = '
-    } await loadRemote(${JSON.stringify(id)})
+    const exportModule = await loadRemote(${JSON.stringify(id)})
+    ${(command === "build" &&
+        `
+        export default 'default' in (exportModule || {}) ? exportModule.default : undefined
+        export const __mf__dynamicExports = exportModule
+        `
+      ) || ""}
+      ${(command !== "build" &&
+        `
+        export default exportModule
+        `
+      ) || ""}
   `,
     map: null,
-    syntheticNamedExports: 'dynamicExport',
+    // TODO: vite dev mode invalid, use optimizeDeps.needsInterop
+    syntheticNamedExports: '__mf__dynamicExports',
   };
 }
 
