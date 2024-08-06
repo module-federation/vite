@@ -1,6 +1,6 @@
 {
   "name": "@module-federation/vite",
-  "version": "1.0.0-alpha-7c3ba59",
+  "version": "1.0.0-alpha-ffc6e23",
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "source": "src/index.ts",
