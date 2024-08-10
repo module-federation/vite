@@ -1,5 +1,5 @@
 {
-  "name": "examples-rust",
+  "name": "examples-rust-vite-rust",
   "version": "1.0.0",
   "scripts": {
     "dev": "rsbuild dev",
