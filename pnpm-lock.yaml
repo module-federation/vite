@@ -114,6 +114,40 @@ importers:
         specifier: ^1.4.1
         version: 1.4.2(@swc/helpers@0.5.3)(rollup@4.19.2)(vite@5.3.5(@types/node@22.0.2)(terser@5.20.0))
 
+  examples/vite2:
+    dependencies:
+      '@module-federation/vite':
+        specifier: workspace:*
+        version: link:../..
+      ag-grid-react:
+        specifier: ^32.0.2
+        version: 32.0.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.3.1(react@18.3.1)
+      vue:
+        specifier: ^3.4.35
+        version: 3.4.35(typescript@5.5.3)
+      vue-router:
+        specifier: ^4.4.0
+        version: 4.4.2(vue@3.4.35(typescript@5.5.3))
+    devDependencies:
+      '@swc/core':
+        specifier: ~1.6.0
+        version: 1.6.13(@swc/helpers@0.5.3)
+      '@vitejs/plugin-react':
+        specifier: ^4.3.1
+        version: 4.3.1(vite@5.3.5(@types/node@22.0.2)(terser@5.20.0))
+      vite:
+        specifier: ^5.3.1
+        version: 5.3.5(@types/node@22.0.2)(terser@5.20.0)
+      vite-plugin-top-level-await:
+        specifier: ^1.4.1
+        version: 1.4.2(@swc/helpers@0.5.3)(rollup@4.19.2)(vite@5.3.5(@types/node@22.0.2)(terser@5.20.0))
+
 packages:
 
   '@ampproject/remapping@2.3.0':
@@ -1754,6 +1788,18 @@ packages:
     resolution: {integrity: sha512-DnyqqifT4Jrcvb8USYjp6FHtBpEIz1mnXu6pTRHZ0RL69LbQYiO+0lDFg5+OKA7U29oWSs3a/i8fhn8ZcceIWg==}
     engines: {node: '>=12.0'}
 
+  ag-charts-types@10.0.2:
+    resolution: {integrity: sha512-Nxo5slHOXlaeg0gRIsVnovAosQzzlYfWJtdDy0Aq/VvpJru/PJ+5i2c9aCyEhgRxhBjImsoegwkgRj7gNOWV6Q==}
+
+  ag-grid-community@32.0.2:
+    resolution: {integrity: sha512-vLJJUjnsG9hNK41GNuW2EHu1W264kxA/poOpcX4kmyrjU5Uzvelsbj3HdKAO9POV28iqyRdKGYfAWdn8QzA7KA==}
+
+  ag-grid-react@32.0.2:
+    resolution: {integrity: sha512-IWYsoyJ/Z763rWbE5/9SaT1n5xwIKrm/QzOG14l7i8z5J6JdJwfV0aQFATmEE8Xws2H48vlLcLdW1cv4hwV3eg==}
+    peerDependencies:
+      react: ^16.3.0 || ^17.0.0 || ^18.0.0
+      react-dom: ^16.3.0 || ^17.0.0 || ^18.0.0
+
   an-empty-js-file@1.0.0:
     resolution: {integrity: sha512-+X5YJUkEpbKakspaPUbdKgLgE6ygx2+g1uKpuiPgc4yvRav6HygkRirmojU40tcmVEqdtI8ocMWzej8MgzBwyA==}
 
@@ -3227,6 +3273,9 @@ packages:
     resolution: {integrity: sha512-VWQJyU2bcDTgZw8kpfBpB/ejZASlCrzwz5f2hjb/zlujOEB4oeiAhHygAWq8ubsX2GVkD4kCU5V2dwOTaCY5EQ==}
     engines: {node: '>=0.12'}
 
+  prop-types@15.8.1:
+    resolution: {integrity: sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg==}
+
   proxy-from-env@1.1.0:
     resolution: {integrity: sha512-D+zkORCbA9f1tdWRK0RaCR3GPv50cMxcrz4X8k5LTSUD1Dkw47mKJEZQNunItRTkWwgtaUSo1RVFRIG9ZXiFYg==}
 
@@ -3471,6 +3520,9 @@ packages:
     resolution: {integrity: sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw==}
     peerDependencies:
       react: ^18.3.1
+
+  react-is@16.13.1:
+    resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
 
   react-is@18.3.1:
     resolution: {integrity: sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==}
@@ -5818,6 +5870,19 @@ snapshots:
 
   adm-zip@0.5.14: {}
 
+  ag-charts-types@10.0.2: {}
+
+  ag-grid-community@32.0.2:
+    dependencies:
+      ag-charts-types: 10.0.2
+
+  ag-grid-react@32.0.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      ag-grid-community: 32.0.2
+      prop-types: 15.8.1
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
   an-empty-js-file@1.0.0: {}
 
   ansi-colors@4.1.3: {}
@@ -7437,6 +7502,12 @@ snapshots:
 
   promise.series@0.2.0: {}
 
+  prop-types@15.8.1:
+    dependencies:
+      loose-envify: 1.4.0
+      object-assign: 4.1.1
+      react-is: 16.13.1
+
   proxy-from-env@1.1.0: {}
 
   pump@3.0.0:
@@ -7775,6 +7846,8 @@ snapshots:
       loose-envify: 1.4.0
       react: 18.3.1
       scheduler: 0.23.2
+
+  react-is@16.13.1: {}
 
   react-is@18.3.1: {}
 

@@ -107,7 +107,7 @@ function normalizeRemoteItem(
   );
 }
 
-interface ShareItem {
+export interface ShareItem {
   name: string;
   version: string | undefined;
   scope: string;
@@ -257,10 +257,15 @@ export interface NormalizedModuleFederationOptions {
   dts: any;
 }
 
+let config: NormalizedModuleFederationOptions
+export function getNormalizeModuleFederationOptions() {
+  return config
+}
+
 export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
-  return {
+  return config = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
     library: normalizeLibrary(options.library),
