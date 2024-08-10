@@ -4,12 +4,12 @@ import { pluginReact } from '@rsbuild/plugin-react';
 
 export default defineConfig({
   server: {
-    port: 5176,
+    port: 5172,
     open: true,
   },
   dev: {
     // It is necessary to configure assetPrefix, and in the production environment, you need to configure output.assetPrefix
-    assetPrefix: 'http://localhost:5176',
+    assetPrefix: 'http://localhost:5172',
   },
   tools: {
     rspack: (config, { appendPlugins }) => {

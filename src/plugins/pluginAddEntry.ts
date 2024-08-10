@@ -19,7 +19,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
       configureServer(server) {
         server.httpServer?.once?.('listening', () => {
           const { port } = server.config.server;
-          fetch(path.join(`http://localhost:${port}`, `${entryPath}`)).catch(e => {})
+          fetch(path.join(`http://localhost:${port}`, `${entryPath}`)).catch(e => { })
         });
         server.middlewares.use((req, res, next) => {
           if (!fileName) {

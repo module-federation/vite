@@ -49,7 +49,7 @@ function normalizeExposes(
   if (!exposes) return {};
   const res: Record<string, ExposesItem> = {};
   Object.keys(exposes).forEach((key) => {
-    res[key.replace(/^\.?\/?/, './')] = normalizeExposesItem(key, exposes[key]);
+    res[key] = normalizeExposesItem(key, exposes[key]);
   });
   return res;
 }
@@ -57,10 +57,10 @@ function normalizeExposes(
 export function normalizeRemotes(
   remotes:
     | Record<
-        string,
-        | string
-        | { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
-      >
+      string,
+      | string
+      | { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
+    >
     | undefined
 ): Record<
   string,
@@ -107,7 +107,7 @@ function normalizeRemoteItem(
   );
 }
 
-interface ShareItem {
+export interface ShareItem {
   name: string;
   version: string | undefined;
   scope: string;
@@ -120,13 +120,13 @@ function normalizeShareItem(
   shareItem:
     | string
     | {
-        name: string;
-        version?: string;
-        shareScope?: string;
-        singleton?: boolean;
-        requiredVersion?: string;
-        strictVersion?: boolean;
-      }
+      name: string;
+      version?: string;
+      shareScope?: string;
+      singleton?: boolean;
+      requiredVersion?: string;
+      strictVersion?: boolean;
+    }
 ): ShareItem {
   let version: string | undefined;
   try {
@@ -163,17 +163,17 @@ function normalizeShared(
   shared:
     | string[]
     | Record<
-        string,
-        | string
-        | {
-            name?: string;
-            version?: string;
-            shareScope?: string;
-            singleton?: boolean;
-            requiredVersion?: string;
-            strictVersion?: boolean;
-          }
-      >
+      string,
+      | string
+      | {
+        name?: string;
+        version?: string;
+        shareScope?: string;
+        singleton?: boolean;
+        requiredVersion?: string;
+        strictVersion?: boolean;
+      }
+    >
     | undefined
 ): NormalizedShared {
   if (!shared) return {};
@@ -205,29 +205,29 @@ export type ModuleFederationOptions = {
   name: string;
   // remoteType?: string;
   remotes?:
-    | Record<
-        string,
-        | string
-        | { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
-      >
-    | undefined;
+  | Record<
+    string,
+    | string
+    | { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
+  >
+  | undefined;
   runtime?: any;
   shareScope?: string;
   shared?:
-    | string[]
-    | Record<
-        string,
-        | string
-        | {
-            name: string;
-            version?: string;
-            shareScope?: string;
-            singleton?: boolean;
-            requiredVersion?: string;
-            strictVersion?: boolean;
-          }
-      >
-    | undefined;
+  | string[]
+  | Record<
+    string,
+    | string
+    | {
+      name: string;
+      version?: string;
+      shareScope?: string;
+      singleton?: boolean;
+      requiredVersion?: string;
+      strictVersion?: boolean;
+    }
+  >
+  | undefined;
   runtimePlugins?: string[];
   getPublicPath?: any;
   implementation?: any;
@@ -257,10 +257,15 @@ export interface NormalizedModuleFederationOptions {
   dts: any;
 }
 
+let config: NormalizedModuleFederationOptions
+export function getNormalizeModuleFederationOptions() {
+  return config
+}
+
 export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
-  return {
+  return config = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
     library: normalizeLibrary(options.library),

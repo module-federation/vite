@@ -13,7 +13,9 @@
     "prepare": "husky install",
     "format": "pretty-quick",
     "dev": "microbundle watch",
-    "build": "rimraf lib && microbundle --no-sourcemap --compress=false"
+    "build": "rimraf lib && microbundle --no-sourcemap --compress=false",
+    "dev-rust-vite": "pnpm -filter 'examples-rust-vite*' run dev",
+    "dev-vite-vite": "pnpm -filter 'examples-vite-vite*' run dev"
   },
   "repository": {
     "type": "git",
