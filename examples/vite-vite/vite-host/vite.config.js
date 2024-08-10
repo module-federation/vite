@@ -15,7 +15,7 @@ export default defineConfig({
     federation({
       name: 'viteViteHost',
       remotes: {
-        viteViteRemote: {
+        '@namespace/viteViteRemote': {
           entry: 'http://localhost:5176/remoteEntry.js',
           type: 'module',
         },

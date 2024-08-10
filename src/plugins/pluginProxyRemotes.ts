@@ -7,7 +7,7 @@ const filter: (id: string) => boolean = createFilter();
 export default function (options: NormalizedModuleFederationOptions): Plugin {
   let command: string
   const { remotes } = options
-  const remotePrefixList = Object.keys(remotes);
+  const matchRemotesList = Object.keys(remotes).map(item => item.replace(/\//g, "_"));
   return {
     name: "proxyRemotes",
     config(config, { command: _command }) {
@@ -32,8 +32,8 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     async transform(code: string, id: string) {
       if (!filter(id)) return;
       let [devRemoteModuleName] =
-        (remotePrefixList.length &&
-          id.match(new RegExp(`\/(${remotePrefixList.join('|')})(\_.*\.js|\.js)`))) ||
+        (matchRemotesList.length &&
+          id.match(new RegExp(`\/(${matchRemotesList.join('|')})(\_.*\.js|\.js)`))) ||
         [];
       if (devRemoteModuleName) {
         return generateRemotes(

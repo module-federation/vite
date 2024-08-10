@@ -13,7 +13,7 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
-      name: 'viteViteRemote',
+      name: '@namespace/viteViteRemote',
       exposes: {
         './App': './src/App.jsx',
         '.': './src/App.jsx',

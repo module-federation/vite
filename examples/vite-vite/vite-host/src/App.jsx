@@ -1,4 +1,4 @@
-import RemoteApp from "viteViteRemote";
+import RemoteApp from "@namespace/viteViteRemote";
 
 export default function () {
   return (
