@@ -20,9 +20,6 @@ export default defineConfig({
           type: 'module',
         },
       },
-      exposes: {
-        App: './src/App.jsx',
-      },
       filename: 'remoteEntry.js',
       shared: {
         vue: {},

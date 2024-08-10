@@ -20,7 +20,7 @@ export default defineConfig({
           'remote1@https://unpkg.com/react-manifest-example_remote1@1.0.6/dist/mf-manifest.json',
       },
       exposes: {
-        App: './src/App.jsx',
+        './App': './src/App.jsx',
       },
       filename: 'dd/remoteEntry.js',
       shared: {

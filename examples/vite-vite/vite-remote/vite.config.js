@@ -15,7 +15,8 @@ export default defineConfig({
     federation({
       name: 'viteViteRemote',
       exposes: {
-        App: './src/App.jsx',
+        './App': './src/App.jsx',
+        '.': './src/App.jsx',
       },
       filename: 'remoteEntry.js',
       shared: {
