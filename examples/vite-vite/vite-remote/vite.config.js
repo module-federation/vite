@@ -14,7 +14,6 @@ export default defineConfig({
     react(),
     federation({
       name: '@namespace/viteViteRemote',
-      // name: 'viteViteRemote',
       exposes: {
         './App1': './src/App1.jsx',
         './App2': './src/App2.jsx',

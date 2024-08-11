@@ -19,22 +19,21 @@ export default defineConfig({
         remote2: 'mfapp02@https://unpkg.com/mf-app-02/dist/remoteEntry.js',
         remote3:
           'remote1@https://unpkg.com/react-manifest-example_remote1@1.0.6/dist/mf-manifest.json',
-        'viteViteRemote': {
-          '@namespace/viteViteRemote': {
-            entry: 'http://localhost:5176/remoteEntry.js',
-            type: 'module',
-          },
+        '@namespace/viteViteRemote': {
+          entry: 'http://localhost:5176/remoteEntry.js',
+          type: 'module',
         },
-        filename: 'remoteEntry.js',
-        shared: {
-          vue: {},
-          react: {
-            requiredVersion: '18',
-          },
-          'react-dom': {},
+      },
+      filename: 'remoteEntry.js',
+      shared: {
+        vue: {},
+        react: {
+          requiredVersion: '18',
         },
-        runtimePlugins: ['./src/mfPlugins'],
-      }),
+        'react-dom': {},
+      },
+      runtimePlugins: ['./src/mfPlugins'],
+    }),
     // If you set build.target: "chrome89", you can remove this plugin
     false && topLevelAwait(),
   ],

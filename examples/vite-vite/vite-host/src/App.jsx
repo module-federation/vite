@@ -4,13 +4,13 @@ import RD from 'react-dom/client';
 import Remote2App from 'remote2/App';
 import Button from 'remote3/button';
 
-import { AgGridDemo } from 'viteViteRemote/AgGridDemo';
-import App1 from 'viteViteRemote/App1';
-import { App2 } from 'viteViteRemote/App2';
+import { AgGridDemo } from '@namespace/viteViteRemote/AgGridDemo';
+import App1 from '@namespace/viteViteRemote/App1';
+import { App2 } from '@namespace/viteViteRemote/App2';
 import { ref } from 'vue';
 
-console.log('share vue', ref);
-console.log('share React', R, RD);
+console.log('Share vue', ref);
+console.log('Share React', R, RD);
 
 export default function () {
   return (
