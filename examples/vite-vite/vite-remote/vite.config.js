@@ -14,9 +14,12 @@ export default defineConfig({
     react(),
     federation({
       name: '@namespace/viteViteRemote',
+      // name: 'viteViteRemote',
       exposes: {
-        './App': './src/App.jsx',
-        '.': './src/App.jsx',
+        './App1': './src/App1.jsx',
+        './App2': './src/App2.jsx',
+        './AgGridDemo': './src/AgGridDemo.jsx',
+        '.': './src/App1.jsx',
       },
       filename: 'remoteEntry.js',
       shared: {

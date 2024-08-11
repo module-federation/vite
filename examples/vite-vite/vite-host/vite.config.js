@@ -9,27 +9,32 @@ export default defineConfig({
     open: true,
     port: 5175,
   },
-  base: 'http://localhost:5175',
+  // base: 'http://localhost:5175',
   plugins: [
     react(),
     federation({
       name: 'viteViteHost',
       remotes: {
-        '@namespace/viteViteRemote': {
-          entry: 'http://localhost:5176/remoteEntry.js',
-          type: 'module',
+        mfapp01: 'mfapp01@https://unpkg.com/mf-app-01@1.0.11/dist/remoteEntry.js',
+        remote2: 'mfapp02@https://unpkg.com/mf-app-02/dist/remoteEntry.js',
+        remote3:
+          'remote1@https://unpkg.com/react-manifest-example_remote1@1.0.6/dist/mf-manifest.json',
+        'viteViteRemote': {
+          '@namespace/viteViteRemote': {
+            entry: 'http://localhost:5176/remoteEntry.js',
+            type: 'module',
+          },
         },
-      },
-      filename: 'remoteEntry.js',
-      shared: {
-        vue: {},
-        react: {
-          requiredVersion: '18',
+        filename: 'remoteEntry.js',
+        shared: {
+          vue: {},
+          react: {
+            requiredVersion: '18',
+          },
+          'react-dom': {},
         },
-        'react-dom': {},
-      },
-      runtimePlugins: ['./src/mfPlugins'],
-    }),
+        runtimePlugins: ['./src/mfPlugins'],
+      }),
     // If you set build.target: "chrome89", you can remove this plugin
     false && topLevelAwait(),
   ],
