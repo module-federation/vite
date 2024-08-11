@@ -10,7 +10,7 @@ import {
   normalizeModuleFederationOptions
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { HOST_AUTO_INIT, WRAP_REMOTE_ENTRY_PATH } from './virtualModules/virtualRemoteEntry';
+import { HOST_AUTO_INIT_PATH, WRAP_REMOTE_ENTRY_PATH } from './virtualModules/virtualRemoteEntry';
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
@@ -28,7 +28,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     }),
     ...addEntry({
       entryName: 'hostInit',
-      entryPath: HOST_AUTO_INIT,
+      entryPath: HOST_AUTO_INIT_PATH,
     }),
     pluginProxyRemoteEntry(),
     pluginProxyRemotes(options),
