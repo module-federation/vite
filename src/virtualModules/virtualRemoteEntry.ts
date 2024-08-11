@@ -96,7 +96,8 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   `;
 }
 
-export const WRAP_REMOTE_ENTRY_PATH = emptyPath + '?__mf__wrapRemoteEntry__'
+export const WRAP_REMOTE_ENTRY_QUERY_STR = "__mf__wrapRemoteEntry__"
+export const WRAP_REMOTE_ENTRY_PATH = emptyPath + '?' + WRAP_REMOTE_ENTRY_QUERY_STR
 export function generateWrapRemoteEntry(): string {
   return `
   import {init, get} from "${REMOTE_ENTRY_ID}"
@@ -108,7 +109,8 @@ export function generateWrapRemoteEntry(): string {
  * Inject entry file, automatically init when used as host, 
  * and will not inject remoteEntry
  */
-export const HOST_AUTO_INIT = emptyPath + '?__mf__isHostInit'
+export const HOST_AUTO_INIT_QUERY_STR = "__mf__isHostInit"
+export const HOST_AUTO_INIT_PATH = emptyPath + '?' + HOST_AUTO_INIT_QUERY_STR
 export function generateWrapHostInit(): string {
   return `
     import {init} from "${REMOTE_ENTRY_ID}"
