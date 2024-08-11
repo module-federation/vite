@@ -3,22 +3,22 @@
   "version": "0.0.3",
   "type": "module",
   "scripts": {
-    "dev": "vite --force",
+    "dev": "vite --force --port 5175",
     "build": "vite build",
-    "preview": "vite build && http-server --cors -p 5173 dist"
+    "preview": "vite build && http-server --cors -p 5175 dist"
   },
   "dependencies": {
     "@module-federation/vite": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.2.0",
-    "vue": "^3.4.35",
-    "vue-router": "^4.4.0"
+    "vue": "^3.4.37",
+    "vue-router": "^4.4.3"
   },
   "devDependencies": {
-    "@swc/core": "~1.6.0",
+    "@swc/core": "~1.7.10",
     "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.3.1",
-    "vite-plugin-top-level-await": "^1.4.1",
+    "vite": "^5.4.0",
+    "vite-plugin-top-level-await": "^1.4.4",
     "http-server": "^14.1.1"
   }
 }

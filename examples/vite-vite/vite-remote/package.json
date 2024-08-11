@@ -3,23 +3,25 @@
   "version": "0.0.3",
   "type": "module",
   "scripts": {
-    "dev": "vite --force",
+    "dev": "vite --force --port 5176",
     "build": "vite build",
     "preview": "vite build && http-server --cors -p 5176 dist"
   },
   "dependencies": {
     "@module-federation/vite": "workspace:*",
-    "ag-grid-react": "^32.1.0",
+    "ag-grid-community": "^30.2.0",
+    "ag-grid-react": "^30.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.2.0",
-    "vue": "^3.4.35",
-    "vue-router": "^4.4.0"
+    "sass-embedded": "^1.77.8",
+    "vue": "^3.4.37",
+    "vue-router": "^4.4.3"
   },
   "devDependencies": {
-    "@swc/core": "~1.6.0",
+    "@swc/core": "~1.7.10",
     "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.3.1",
-    "vite-plugin-top-level-await": "^1.4.1",
-    "http-server": "^14.1.1"
+    "http-server": "^14.1.1",
+    "vite": "^5.4.0",
+    "vite-plugin-top-level-await": "^1.4.4"
   }
 }
