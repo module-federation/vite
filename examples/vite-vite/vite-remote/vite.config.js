@@ -8,16 +8,21 @@ export default defineConfig({
   server: {
     open: true,
     port: 5176,
+    origin: 'http://localhost:5176',
+  },
+  preview: {
+    port: 5176,
   },
   base: 'http://localhost:5176',
   plugins: [
-    react(),
+    react({ jsxImportSource: '@emotion/react' }),
     federation({
       name: '@namespace/viteViteRemote',
       exposes: {
         './App1': './src/App1.jsx',
         './App2': './src/App2.jsx',
         './AgGridDemo': './src/AgGridDemo.jsx',
+        './MuiDemo': './src/MuiDemo.jsx',
         '.': './src/App1.jsx',
       },
       filename: 'remoteEntry.js',

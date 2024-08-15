@@ -7,15 +7,20 @@ import Button from 'remote3/button';
 import { AgGridDemo } from '@namespace/viteViteRemote/AgGridDemo';
 import App1 from '@namespace/viteViteRemote/App1';
 import { App2 } from '@namespace/viteViteRemote/App2';
+import { MuiDemo } from '@namespace/viteViteRemote/MuiDemo';
 import { ref } from 'vue';
 
-console.log('Share vue', ref);
+console.log('Share Vue', ref);
 console.log('Share React', R, RD);
 
 export default function () {
   return (
     <div>
-      Vite React
+      <p>
+        Vite React (v {R.version}) app running from Host in{' '}
+        <i> {import.meta.env.DEV ? ' Dev ' : ' prod '} mode </i>
+      </p>
+      <hr />
       <h2>Button</h2>
       <Button />
       <h2>Remote2App</h2>
@@ -28,6 +33,8 @@ export default function () {
       <App2 />
       <h2>Vite Remote AgGridDemo</h2>
       <AgGridDemo />
+      <h3>Vite Remote MuiDemo</h3>
+      <MuiDemo />
     </div>
   );
 }

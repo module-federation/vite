@@ -1,0 +1,12 @@
+.container {
+    padding: 20px;
+    border: 2px;
+    border-style: solid;
+    border-color: cadetblue;
+  }
+  
+  .myButton {
+    color: black;
+    background-color: blueviolet;
+    font-size: 10px;
+  }

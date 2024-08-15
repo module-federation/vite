@@ -9,6 +9,9 @@ export default defineConfig({
     open: true,
     port: 5175,
   },
+  preview: {
+    port: 5175,
+  },
   // base: 'http://localhost:5175',
   plugins: [
     react(),
