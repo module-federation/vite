@@ -56,6 +56,11 @@ export default defineConfig({
     // If you set build.target: "chrome89", you can remove this plugin
     // topLevelAwait(),
   ],
+  server: {
+    port: 5173,
+    // dev mode please set origin
+    origin: "http://localhost:5173"
+  },
   build: {
     target: 'chrome89',
   },
@@ -72,6 +77,7 @@ export default defineConfig({
 - feat: download remote d.ts
 - feat: generate d.ts
 - feat: support @vitejs/plugin-legacy
+- feat: Another plugin, when only some remote modules are started, automatically completes HMR[（#54）](https://github.com/module-federation/vite/issues/54)
 
 ### So far so good 🎉
 
