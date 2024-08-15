@@ -3,9 +3,9 @@
   "version": "0.0.3",
   "type": "module",
   "scripts": {
-    "dev": "vite --force --port 5175",
+    "dev": "vite --force",
     "build": "vite build",
-    "preview": "vite build && http-server --cors -p 5175 dist"
+    "preview": "vite build && vite preview"
   },
   "dependencies": {
     "@module-federation/vite": "workspace:*",

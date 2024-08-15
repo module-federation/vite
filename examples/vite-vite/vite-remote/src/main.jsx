@@ -1,8 +1,10 @@
 import React from 'react';
-import ReactDOM from 'react-dom';
+import ReactDOM from 'react-dom/client';
 import { AgGridDemo } from './AgGridDemo';
 import App1 from './App1';
 import { App2 } from './App2';
+import { MuiDemo } from './MuiDemo';
+
 
 const root = ReactDOM.createRoot(document.getElementById('app'));
 root.render(
@@ -18,5 +20,7 @@ root.render(
     <h2>AgGridDemo</h2>
     <AgGridDemo />
 
+    <h2>MuiDemo</h2>
+    <MuiDemo />
   </React.StrictMode>
 );

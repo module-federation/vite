@@ -3,16 +3,19 @@
   "version": "0.0.3",
   "type": "module",
   "scripts": {
-    "dev": "vite --force --port 5176",
+    "dev": "vite --force",
     "build": "vite build",
-    "preview": "vite build && http-server --cors -p 5176 dist"
+    "preview": "vite build&&vite preview"
   },
   "dependencies": {
+    "@emotion/react": "^11.13.0",
+    "@emotion/styled": "^11.13.0",
     "@module-federation/vite": "workspace:*",
+    "@mui/material": "^5.13.4",
     "ag-grid-community": "^30.2.0",
     "ag-grid-react": "^30.2.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.2.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
     "sass-embedded": "^1.77.8",
     "vue": "^3.4.37",
     "vue-router": "^4.4.3"

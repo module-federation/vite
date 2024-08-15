@@ -2,9 +2,10 @@ import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { AgGridReact } from 'ag-grid-react';
 import { useState } from 'react';
+import './agGrid.css';
 
 
-export const AgGridDemo = ({  }) => {
+export const AgGridDemo = ({ }) => {
   const [rowData] = useState([
     { make: 'Toyota', model: 'Celica', price: 35000 },
     { make: 'Ford', model: 'Mondeo', price: 32000 },
