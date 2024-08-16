@@ -3,7 +3,9 @@ import ReactDOM from 'react-dom/client';
 import { AgGridDemo } from './AgGridDemo';
 import App1 from './App1';
 import { App2 } from './App2';
+import { EmotionDemo } from './EmotionDemo';
 import { MuiDemo } from './MuiDemo';
+import StyledDemo from './StyledDemo';
 
 
 const root = ReactDOM.createRoot(document.getElementById('app'));
@@ -22,5 +24,11 @@ root.render(
 
     <h2>MuiDemo</h2>
     <MuiDemo />
+
+    <h2>Styled Components Demo</h2>
+    <StyledDemo />
+
+    <h2>Emotion Styled Components Demo</h2>
+    <EmotionDemo />
   </React.StrictMode>
 );
