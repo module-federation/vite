@@ -13,6 +13,12 @@ root.render(
   <React.StrictMode>
     <h1>MF Remote as standalone app</h1>
 
+    <p>
+      Vite React (v {React.version}) app running from Remote in{' '}
+      <i> {import.meta.env.DEV ? ' Dev ' : ' prod '} mode </i>
+    </p>
+    <hr />
+
     <h2>App1</h2>
     <App1 />
 

@@ -24,14 +24,7 @@ export default function () {
       </p>
       <hr />
 
-      <h2>Button</h2>
-      <Button />
 
-      <h2>Remote2App</h2>
-      <Remote2App />
-
-      <h2>Mfapp01App</h2>
-      <Mfapp01App />
 
       <h2>Vite Remote App1</h2>
       <App1 />
@@ -48,9 +41,19 @@ export default function () {
       <h2>Styled Components Demo</h2>
       <StyledDemo />
 
-
       <h2>Emotion Styled Components Demo</h2>
       <EmotionDemo />
+
+      <hr />
+
+      <h2>Button</h2>
+      <Button />
+
+      <h2>Remote2App</h2>
+      <Remote2App />
+
+      <h2>Mfapp01App</h2>
+      <Mfapp01App />
     </div>
   );
 }
