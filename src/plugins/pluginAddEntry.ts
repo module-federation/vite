@@ -64,6 +64,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
       buildStart() {
         const hasHash = fileName?.includes?.("[hash")
         this.emitFile({
+          name: entryName,
           [hasHash ? "name" : "fileName"]: fileName,
           type: 'chunk',
           id: entryPath,

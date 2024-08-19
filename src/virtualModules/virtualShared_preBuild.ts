@@ -43,13 +43,14 @@ export function writeLocalSharedImportMap(pkgList: string[]) {
     `)
 }
 
+export const LOAD_SHARE_TAG = "__mf__loadShare_"
 /**
  * generate loadShare virtual module
  */
 const cacheMap1: Record<string, string> = {}
 export function getLoadShareModulePath(pkg: string): string {
   const { name } = getNormalizeModuleFederationOptions()
-  if (!cacheMap1[pkg]) cacheMap1[pkg] = npmPackageNameToFileName(name) + "_" + `__mf__loadShare_${npmPackageNameToFileName(pkg)}.js`
+  if (!cacheMap1[pkg]) cacheMap1[pkg] = npmPackageNameToFileName(name) + "_" + `${LOAD_SHARE_TAG}${npmPackageNameToFileName(pkg)}.js`
   const filename = cacheMap1[pkg]
   return resolve(emptyNpmDir, filename)
 }
