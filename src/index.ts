@@ -4,7 +4,6 @@ import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
-import normalizeBuildPlugin from './utils/normalizeBuild';
 import {
   ModuleFederationOptions,
   normalizeModuleFederationOptions
@@ -20,7 +19,6 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   return [
     aliasToArrayPlugin,
     normalizeOptimizeDepsPlugin,
-    normalizeBuildPlugin([...Object.keys(shared), "@module-federation/runtime"]),
     ...addEntry({
       entryName: 'remoteEntry',
       entryPath: WRAP_REMOTE_ENTRY_PATH,

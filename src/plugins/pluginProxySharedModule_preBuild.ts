@@ -3,7 +3,8 @@ import { walk } from 'estree-walker';
 import MagicString from 'magic-string';
 import { Plugin, UserConfig } from 'vite';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
-import { getLoadShareModulePath, getPreBuildLibPath, writeLoadShareModule, writeLocalSharedImportMap } from '../virtualModules/virtualShared_preBuild';
+import { wrapManualChunks } from '../utils/wrapManualChunks';
+import { getLoadShareModulePath, getPreBuildLibPath, LOAD_SHARE_TAG, writeLoadShareModule, writeLocalSharedImportMap } from '../virtualModules/virtualShared_preBuild';
 export function proxySharedModule(
   options: { shared?: NormalizedShared; include?: string | string[]; exclude?: string | string[] }
 ): Plugin[] {
@@ -15,14 +16,27 @@ export function proxySharedModule(
       name: 'preBuildShared',
       enforce: 'post',
       config(config: UserConfig, { command }) {
+        if (!config.build) config.build = {};
+        if (!config.build.rollupOptions) config.build.rollupOptions = {};
+        let { rollupOptions } = config.build;
+        if (!rollupOptions.output) rollupOptions.output = {};
         // config?.optimizeDeps?.include?.push?.("an-empty-js-file");
         // config.optimizeDeps.needsInterop.push('an-empty-js-file');
-        (config.resolve as any).alias.push(
+        wrapManualChunks(config.build.rollupOptions.output, (id: string) => {
+          if (id.includes("node_modules/@module-federation/runtime")) {
+            return "@module-federation/runtime"
+          }
+          if (id.includes(LOAD_SHARE_TAG) || id.includes("__mf__prebuildwrap_")) {
+            return id.split("/").pop()
+          }
+        });
+        ; (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
             config?.optimizeDeps?.include?.push?.(getPreBuildLibPath(key));
             // write proxyFile
             writeLoadShareModule(key, shared[key], command)
             const preBuildLibPath = getLoadShareModulePath(key)
+            config?.optimizeDeps?.needsInterop?.push(key);
             return {
               // Intercept all dependency requests to the proxy module
               // Dependency requests issued by localSharedImportMap are allowed without proxying.
@@ -30,6 +44,7 @@ export function proxySharedModule(
                 if (importer.includes(`node_modules/${key}/`)) {
                   return (this as any).resolve(key)
                 }
+                config?.optimizeDeps?.needsInterop?.push(preBuildLibPath);
                 return (this as any).resolve(preBuildLibPath)
               }
             }
@@ -37,11 +52,14 @@ export function proxySharedModule(
         );
         (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
-            return {
-              find: new RegExp(`^${getPreBuildLibPath(key)}$`), customResolver(source: string, importer: string) {
-                return (this as any).resolve(key)
+            return command === "build" ?
+              { find: new RegExp(`^${getPreBuildLibPath(key)}$`), replacement: key } :
+              {
+                find: new RegExp(`^${getPreBuildLibPath(key)}$`), customResolver(source: string, importer: string) {
+
+                  return (this as any).resolve(key)
+                }
               }
-            }
           })
         );
       },
