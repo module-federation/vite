@@ -32,7 +32,9 @@ export function getLocalSharedImportMapId() {
 }
 let prevSharedCount = 0
 export async function writeLocalSharedImportMap() {
-  if (prevSharedCount !== Object.keys(shareds).length) {
+  const sharedCount = Object.keys(shareds).length
+  if (prevSharedCount !== sharedCount) {
+    prevSharedCount = sharedCount
     return localSharedImportMapModule.writeSync(await generateLocalSharedImportMap())
   }
 }
