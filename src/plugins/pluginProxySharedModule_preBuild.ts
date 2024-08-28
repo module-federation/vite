@@ -51,12 +51,11 @@ export function proxySharedModule(
         });
         ; (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
-
-            config?.optimizeDeps?.needsInterop?.push(key);
+            const pattern = key.endsWith("/") ? `(^${key.replace(/\/$/, "")}(\/.+)?$)` : `(^${key}$)`
             return {
               // Intercept all dependency requests to the proxy module
               // Dependency requests issued by localSharedImportMap are allowed without proxying.
-              find: new RegExp(`(^${key}(\/.+)?$)`), replacement: "$1", customResolver(source: string, importer: string) {
+              find: new RegExp(pattern), replacement: "$1", customResolver(source: string, importer: string) {
                 const loadSharePath = getLoadShareModulePath(source)
                 config?.optimizeDeps?.needsInterop?.push(loadSharePath);
                 // write proxyFile

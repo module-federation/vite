@@ -15,7 +15,7 @@
     "dev": "microbundle watch",
     "build": "rimraf lib && microbundle --no-sourcemap --compress=false",
     "dev-rust-vite": "pnpm -filter 'examples-rust-vite*' run dev",
-    "dev-vite-vite": "pnpm -filter 'examples-vite-vite*' run dev"
+    "dev-vite-vite": "pnpm -filter 'examples-vite-vite*' run preview"
   },
   "repository": {
     "type": "git",

@@ -31,9 +31,11 @@ export default defineConfig({
       filename: 'remoteEntry.js',
       shared: {
         vue: {},
+        'react/': {},
         react: {
           requiredVersion: '18',
         },
+        'react-dom/': {},
         'react-dom': {},
         'styled-components': { singleton: true },
         'ag-grid-community': {},
