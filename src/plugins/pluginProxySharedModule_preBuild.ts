@@ -3,66 +3,106 @@ import { walk } from 'estree-walker';
 import MagicString from 'magic-string';
 import { Plugin, UserConfig } from 'vite';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
+import { packageNameDecode } from '../utils/packageNameUtils';
+import { PromiseStore } from "../utils/PromiseStore";
+import { virtualPackageName } from '../utils/VirtualModule';
 import { wrapManualChunks } from '../utils/wrapManualChunks';
-import { getLoadShareModulePath, getPreBuildLibPath, LOAD_SHARE_TAG, writeLoadShareModule, writeLocalSharedImportMap } from '../virtualModules/virtualShared_preBuild';
+import { addShare, generateLocalSharedImportMap, getLoadShareModulePath, getLocalSharedImportMapId, LOAD_SHARE_TAG, localSharedImportMapModule, PREBUILD_TAG, writeLoadShareModule, writeLocalSharedImportMap, writePreBuildLibPath } from '../virtualModules/virtualShared_preBuild';
 export function proxySharedModule(
   options: { shared?: NormalizedShared; include?: string | string[]; exclude?: string | string[] }
 ): Plugin[] {
   let { shared = {}, include, exclude } = options;
   const filterFunction = createFilter(include, exclude);
-  writeLocalSharedImportMap(Object.keys(shared))
   return [
     {
-      name: 'preBuildShared',
+      name: "generateLocalSharedImportMap",
+      enforce: "post",
+      resolveId(id) {
+        if (id.includes(getLocalSharedImportMapId()))
+          return id
+      },
+      load(id) {
+        if (id.includes(getLocalSharedImportMapId())) {
+          return generateLocalSharedImportMap()
+        }
+      },
+      transform(code, id) {
+        if (id.includes(getLocalSharedImportMapId())) {
+          return generateLocalSharedImportMap()
+        }
+      }
+    },
+    {
+      name: 'proxyPreBuildShared',
       enforce: 'post',
       config(config: UserConfig, { command }) {
         if (!config.build) config.build = {};
         if (!config.build.rollupOptions) config.build.rollupOptions = {};
         let { rollupOptions } = config.build;
         if (!rollupOptions.output) rollupOptions.output = {};
-        // config?.optimizeDeps?.include?.push?.("an-empty-js-file");
-        // config.optimizeDeps.needsInterop.push('an-empty-js-file');
         wrapManualChunks(config.build.rollupOptions.output, (id: string) => {
+          // https://github.com/module-federation/vite/issues/40#issuecomment-2311434503
+          if (id.includes('/preload-helper.js')) {
+            return "preload-helper"
+          }
           if (id.includes("node_modules/@module-federation/runtime")) {
             return "@module-federation/runtime"
-          }
-          if (id.includes(LOAD_SHARE_TAG) || id.includes("__mf__prebuildwrap_")) {
-            return id.split("/").pop()
           }
         });
         ; (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
-            config?.optimizeDeps?.include?.push?.(getPreBuildLibPath(key));
-            // write proxyFile
-            writeLoadShareModule(key, shared[key], command)
-            const preBuildLibPath = getLoadShareModulePath(key)
+
             config?.optimizeDeps?.needsInterop?.push(key);
             return {
               // Intercept all dependency requests to the proxy module
               // Dependency requests issued by localSharedImportMap are allowed without proxying.
-              find: new RegExp(`^${key}$`), replacement: preBuildLibPath, customResolver(source: string, importer: string) {
-                if (importer.includes(`node_modules/${key}/`)) {
-                  return (this as any).resolve(key)
-                }
-                config?.optimizeDeps?.needsInterop?.push(preBuildLibPath);
-                return (this as any).resolve(preBuildLibPath)
+              find: new RegExp(`(^${key}(\/.+)?$)`), replacement: "$1", customResolver(source: string, importer: string) {
+                const loadSharePath = getLoadShareModulePath(source)
+                config?.optimizeDeps?.needsInterop?.push(loadSharePath);
+                // write proxyFile
+                writeLoadShareModule(source, shared[key], command)
+                writePreBuildLibPath(source)
+                addShare(source)
+                writeLocalSharedImportMap()
+                return (this as any).resolve(loadSharePath)
               }
             }
           })
         );
-        (config.resolve as any).alias.push(
-          ...Object.keys(shared).map((key) => {
-            return command === "build" ?
-              { find: new RegExp(`^${getPreBuildLibPath(key)}$`), replacement: key } :
-              {
-                find: new RegExp(`^${getPreBuildLibPath(key)}$`), customResolver(source: string, importer: string) {
-
-                  return (this as any).resolve(key)
+        const savePrebuild = new PromiseStore<string>()
+        
+          ; (config.resolve as any).alias.push(
+            ...Object.keys(shared).map((key) => {
+              return command === "build" ?
+                {
+                  find: new RegExp(`${virtualPackageName}/${PREBUILD_TAG}(.+)`), replacement: function (_: string, $1: string) {
+                    return packageNameDecode($1)
+                  }
+                } :
+                {
+                  find: new RegExp(`${virtualPackageName}/${PREBUILD_TAG}(.+)`), replacement: "$1", async customResolver(source: string, importer: string) {
+                    if (importer.includes(LOAD_SHARE_TAG)) {
+                      // save pre-bunding module id
+                      savePrebuild.set(source, (this as any).resolve(packageNameDecode(source)).then((item: any) => item.id))
+                    }
+                    // Fix localSharedImportMap import id
+                    return await (this as any).resolve(await savePrebuild.get(source))
+                  }
                 }
-              }
-          })
-        );
+            })
+          );
       },
+    },
+    {
+      name: "watchLocalSharedImportMap",
+      apply: "serve",
+      config(config) {
+        if (!config.server) config.server = {}
+        if (!config.server.watch) config.server.watch = {}
+        if (!config.server.watch.ignored) config.server.watch.ignored = []
+        if (!(config.server.watch.ignored instanceof Array)) config.server.watch.ignored = [config.server.watch.ignored]
+        config.server.watch.ignored.push(`!**/node_modules/${localSharedImportMapModule.getImportId()}.js`)
+      }
     },
     {
       name: "prebuild-top-level-await",

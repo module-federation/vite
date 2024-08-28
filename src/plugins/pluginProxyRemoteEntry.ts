@@ -1,7 +1,7 @@
 import { createFilter } from '@rollup/pluginutils';
 import { Plugin } from 'vite';
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { generateRemoteEntry, generateWrapHostInit, generateWrapRemoteEntry, HOST_AUTO_INIT_QUERY_STR, REMOTE_ENTRY_ID, WRAP_REMOTE_ENTRY_QUERY_STR } from '../virtualModules/virtualRemoteEntry';
+import { generateRemoteEntry, REMOTE_ENTRY_ID } from '../virtualModules/virtualRemoteEntry';
 
 const filter: (id: string) => boolean = createFilter();
 
@@ -24,12 +24,12 @@ export default function (): Plugin {
       if (id.includes(REMOTE_ENTRY_ID)) {
         return generateRemoteEntry(getNormalizeModuleFederationOptions());
       }
-      if (id.includes(WRAP_REMOTE_ENTRY_QUERY_STR)) {
-        return generateWrapRemoteEntry();
-      }
-      if (id.includes(HOST_AUTO_INIT_QUERY_STR)) {
-        return generateWrapHostInit();
-      }
+      // if (id.includes(WRAP_REMOTE_ENTRY_QUERY_STR)) {
+      //   return generateWrapRemoteEntry();
+      // }
+      // if (id.includes(HOST_AUTO_INIT_QUERY_STR)) {
+      //   return generateWrapHostInit();
+      // }
     },
   }
 

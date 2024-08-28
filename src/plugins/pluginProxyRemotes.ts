@@ -1,7 +1,7 @@
 import { createFilter } from "@rollup/pluginutils";
 import { Plugin } from "vite";
 import { NormalizedModuleFederationOptions } from "../utils/normalizeModuleFederationOptions";
-import { generateRemotes } from "../virtualModules/virtualRemotes";
+import { generateRemotes, remoteVirtualModule } from "../virtualModules/virtualRemotes";
 const filter: (id: string) => boolean = createFilter();
 
 export default function (options: NormalizedModuleFederationOptions): Plugin {
@@ -18,12 +18,13 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
           find: new RegExp(`(${remote.name}(\/.*|$)?)`),
           replacement: '$1',
           customResolver(source: string) {
+            const requestPath = remoteVirtualModule.getImportId() + '?__moduleRemote__=' + encodeURIComponent(source)
             if (!config.optimizeDeps) config.optimizeDeps = {};
             if (!config.optimizeDeps.needsInterop) config.optimizeDeps.needsInterop = [];
-            if (config.optimizeDeps.needsInterop.indexOf(source) === -1)
-              config.optimizeDeps.needsInterop.push(source);
+            if (config.optimizeDeps.needsInterop.indexOf(requestPath) === -1)
+              config.optimizeDeps.needsInterop.push(requestPath);
             return this.resolve(
-              require.resolve('an-empty-js-file') + '?__moduleRemote__=' + encodeURIComponent(source)
+              requestPath
             );
           },
         });

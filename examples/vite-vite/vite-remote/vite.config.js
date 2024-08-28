@@ -10,6 +10,7 @@ export default defineConfig({
     port: 5176,
     origin: 'http://localhost:5176',
   },
+
   preview: {
     port: 5176,
   },
