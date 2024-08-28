@@ -34,7 +34,6 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   }
   import localSharedImportMap from "${getLocalSharedImportMapId()}"
   async function init(shared = {}) {
-        console.log(123213, shared)
     const initRes = runtimeInit({
       name: ${JSON.stringify(options.name)},
       remotes: [${Object.keys(options.remotes)
