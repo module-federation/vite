@@ -41,7 +41,6 @@
   "dependencies": {
     "@module-federation/runtime": "^0.5.0",
     "@rollup/pluginutils": "^5.1.0",
-    "an-empty-js-file": "1.0.0",
     "estree-walker": "^2",
     "magic-string": "^0.30.11",
     "pathe": "^1.1.2"
