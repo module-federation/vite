@@ -1,12 +1,24 @@
-import { mkdirSync, writeFile, writeFileSync } from "fs";
-import { resolve } from "pathe";
+import { existsSync, mkdirSync, writeFile, writeFileSync } from "fs";
+import { dirname, join, parse, resolve } from "pathe";
 import { packageNameEncode } from "../utils/packageNameUtils";
 
-const nodeModulesDir = resolve("./node_modules")
+const nodeModulesDir = function findNodeModulesDir(startDir = process.cwd()) {
+  let currentDir = startDir;
+
+  while (currentDir !== parse(currentDir).root) {
+    const nodeModulesPath = join(currentDir, 'node_modules');
+    if (existsSync(nodeModulesPath)) {
+      return nodeModulesPath;
+    }
+    currentDir = dirname(currentDir);
+  }
+
+  return "";
+}()
 export const virtualPackageName = "__mf__virtual"
-try {
+if (!existsSync(resolve(nodeModulesDir, virtualPackageName))) {
   mkdirSync(resolve(nodeModulesDir, virtualPackageName))
-} catch (e) { }
+}
 writeFileSync(resolve(nodeModulesDir, virtualPackageName, "empty.js"), "")
 writeFileSync(resolve(nodeModulesDir, virtualPackageName, "package.json"), JSON.stringify({
   name: virtualPackageName,
