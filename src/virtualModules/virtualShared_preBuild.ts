@@ -60,7 +60,7 @@ export async function generateLocalSharedImportMap() {
       const localShared = {
       ${Array.from(shareds)
       .map((key) => {
-        const shareItem = options.shared[removePathFromNpmPackage(key)];
+        const shareItem = options.shared[removePathFromNpmPackage(key)] || options.shared[removePathFromNpmPackage(key) + "/"];
         return `
           ${JSON.stringify(key)}: {
             name: ${JSON.stringify(key)},
