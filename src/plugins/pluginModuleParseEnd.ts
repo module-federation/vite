@@ -1,3 +1,7 @@
+/**
+ * Dynamic shared modules, such as "react/" and "react-dom/", can only be parsed during the build process;
+ * This plugin allows me to wait until all modules are built, and then expose them together.
+ */
 import { Plugin } from "vite";
 
 let _resolve: any, _reject: any, promise = new Promise((resolve, reject) => {

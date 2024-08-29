@@ -3,28 +3,35 @@
  * and adding query parameter virtual modules will also fail.
  * You can only proxy to the real file through alias
  */
+/**
+* shared will be proxied:
+* 1. __prebuild__: export shareModule (pre-built source code of modules such as vue, react, etc.)
+* 2. __loadShare__: load shareModule (mfRuntime.loadShare('vue'))
+*/
 
-// import { parsePromise } from "../plugins/pluginModuleParseEnd";
 import { parsePromise } from "../plugins/pluginModuleParseEnd";
 import { getNormalizeModuleFederationOptions, ShareItem } from "../utils/normalizeModuleFederationOptions";
 import { removePathFromNpmPackage } from "../utils/packageNameUtils";
 import VirtualModule from "../utils/VirtualModule";
 
-const cacheMap2: Record<string, VirtualModule> = {}
+// *** __prebuild__
+const preBuildCacheMap: Record<string, VirtualModule> = {}
 export const PREBUILD_TAG = "__prebuild__"
-// this is the proxied module, react, vue and other modules
-export function getPreBuildLibPath(pkg: string): string {
-  if (!cacheMap2[pkg]) cacheMap2[pkg] = new VirtualModule(PREBUILD_TAG + pkg)
-  const filepath = cacheMap2[pkg].getPath()
-  return filepath
-}
 export function writePreBuildLibPath(pkg: string) {
-  cacheMap2[pkg].writeSync("")
+  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(PREBUILD_TAG + pkg)
+  preBuildCacheMap[pkg].writeSync("")
+}
+export function getPreBuildLibImportId(pkg: string): string {
+  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(PREBUILD_TAG + pkg)
+  const importId = preBuildCacheMap[pkg].getImportId()
+  return importId
+}
+let shareds: Set<string> = new Set()
+export function addShare(pkg: string) {
+  shareds.add(pkg)
 }
 
-let shareds: Record<string, null> = {}
-
-// All proxied modules are exposed here
+// *** Expose locally provided shared modules here
 export const localSharedImportMapModule = new VirtualModule("localSharedImportMap")
 localSharedImportMapModule.writeSync("")
 export function getLocalSharedImportMapId() {
@@ -32,19 +39,18 @@ export function getLocalSharedImportMapId() {
 }
 let prevSharedCount = 0
 export async function writeLocalSharedImportMap() {
-  const sharedCount = Object.keys(shareds).length
+  const sharedCount = shareds.size
   if (prevSharedCount !== sharedCount) {
     prevSharedCount = sharedCount
     return localSharedImportMapModule.writeSync(await generateLocalSharedImportMap())
   }
 }
-
 export async function generateLocalSharedImportMap() {
   await parsePromise
   const options = getNormalizeModuleFederationOptions()
   return `
     const localSharedImportMap = {
-      ${Object.keys(shareds).map(pkg => `
+      ${Array.from(shareds).map(pkg => `
         ${JSON.stringify(pkg)}: async () => {
           let pkg = await import("${getPreBuildLibImportId(pkg)}")
           return pkg
@@ -52,7 +58,7 @@ export async function generateLocalSharedImportMap() {
       `).join(",")}
     }
       const localShared = {
-      ${Object.keys(shareds)
+      ${Array.from(shareds)
       .map((key) => {
         const shareItem = options.shared[removePathFromNpmPackage(key)];
         return `
@@ -89,23 +95,17 @@ export async function generateLocalSharedImportMap() {
       `
 }
 
+// *** __loadShare__
 export const LOAD_SHARE_TAG = "__loadShare__"
-/**
- * generate loadShare virtual module
- */
-const cacheMap1: Record<string, VirtualModule> = {}
+
+const loadShareCacheMap: Record<string, VirtualModule> = {}
 export function getLoadShareModulePath(pkg: string): string {
-  if (!cacheMap1[pkg]) cacheMap1[pkg] = new VirtualModule(LOAD_SHARE_TAG + pkg)
-  const filepath = cacheMap1[pkg].getPath()
+  if (!loadShareCacheMap[pkg]) loadShareCacheMap[pkg] = new VirtualModule(LOAD_SHARE_TAG + pkg)
+  const filepath = loadShareCacheMap[pkg].getPath()
   return filepath
 }
-export function getPreBuildLibImportId(pkg: string): string {
-  if (!cacheMap2[pkg]) cacheMap2[pkg] = new VirtualModule(PREBUILD_TAG + pkg)
-  const importId = cacheMap2[pkg].getImportId()
-  return importId
-}
 export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command: string) {
-  cacheMap1[pkg].writeSync(`
+  loadShareCacheMap[pkg].writeSync(`
     () => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
     // dev uses dynamic import to separate chunks
     ${command !== "build" ? `;() => import(${JSON.stringify(pkg)}).catch(() => {});` : ''}
@@ -119,9 +119,4 @@ export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command:
     const exportModule = ${command !== "build" ? "/*mf top-level-await placeholder replacement mf*/" : "await "}res.then(factory => factory())
     module.exports = exportModule
   `)
-}
-
-
-export function addShare(pkg: string) {
-  shareds[pkg] = null
 }

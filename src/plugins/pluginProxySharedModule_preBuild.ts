@@ -1,7 +1,8 @@
 import { createFilter } from '@rollup/pluginutils';
+import { defu } from 'defu';
 import { walk } from 'estree-walker';
 import MagicString from 'magic-string';
-import { Plugin, UserConfig } from 'vite';
+import { Plugin, UserConfig, WatchOptions } from 'vite';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { packageNameDecode } from '../utils/packageNameUtils';
 import { PromiseStore } from "../utils/PromiseStore";
@@ -53,12 +54,10 @@ export function proxySharedModule(
           ...Object.keys(shared).map((key) => {
             const pattern = key.endsWith("/") ? `(^${key.replace(/\/$/, "")}(\/.+)?$)` : `(^${key}$)`
             return {
-              // Intercept all dependency requests to the proxy module
-              // Dependency requests issued by localSharedImportMap are allowed without proxying.
+              // Intercept all shared requests and proxy them to loadShare
               find: new RegExp(pattern), replacement: "$1", customResolver(source: string, importer: string) {
                 const loadSharePath = getLoadShareModulePath(source)
                 config?.optimizeDeps?.needsInterop?.push(loadSharePath);
-                // write proxyFile
                 writeLoadShareModule(source, shared[key], command)
                 writePreBuildLibPath(source)
                 addShare(source)
@@ -69,7 +68,7 @@ export function proxySharedModule(
           })
         );
         const savePrebuild = new PromiseStore<string>()
-        
+
           ; (config.resolve as any).alias.push(
             ...Object.keys(shared).map((key) => {
               return command === "build" ?
@@ -96,12 +95,15 @@ export function proxySharedModule(
       name: "watchLocalSharedImportMap",
       apply: "serve",
       config(config) {
-        if (!config.server) config.server = {}
-        if (!config.server.watch) config.server.watch = {}
-        if (!config.server.watch.ignored) config.server.watch.ignored = []
-        if (!(config.server.watch.ignored instanceof Array)) config.server.watch.ignored = [config.server.watch.ignored]
-        config.server.watch.ignored.push(`!**/node_modules/${localSharedImportMapModule.getImportId()}.js`)
-      }
+        config.server = defu(config.server, {
+          watch: {
+            ignored: [],
+          }
+        });
+        const watch = config.server.watch as WatchOptions
+        watch.ignored = [].concat(watch.ignored as any);
+        watch.ignored.push(`!**/node_modules/${localSharedImportMapModule.getImportId()}.js`);
+      },
     },
     {
       name: "prebuild-top-level-await",
@@ -124,7 +126,6 @@ export function proxySharedModule(
 
         walk(ast, {
           enter(node: any) {
-            // 处理命名导出
             if (node.type === 'ExportNamedDeclaration' && node.specifiers) {
               const exportSpecifiers = node.specifiers.map((specifier: any) => specifier.exported.name);
               const proxyStatements = exportSpecifiers.map((name: string) => `
@@ -140,7 +141,6 @@ export function proxySharedModule(
               magicString.overwrite(start, end, replacement);
             }
 
-            // 处理默认导出
             if (node.type === 'ExportDefaultDeclaration') {
               const declaration = node.declaration;
               const start = node.start;
@@ -150,20 +150,20 @@ export function proxySharedModule(
               let exportStatement = 'default';
 
               if (declaration.type === 'Identifier') {
-                // 处理标识符 (如: export default foo;)
+                // example: export default foo;
                 proxyStatement = `
                   const __mfproxy__awaitdefault = await ${declaration.name}();
                   const __mfproxy__default = __mfproxy__awaitdefault;
                 `;
               } else if (declaration.type === 'CallExpression' || declaration.type === 'FunctionDeclaration') {
-                // 处理调用表达式或函数声明 (如: export default someFunction();)
+                // example: export default someFunction();
                 const declarationCode = code.slice(declaration.start, declaration.end);
                 proxyStatement = `
                   const __mfproxy__awaitdefault = await (${declarationCode});
                   const __mfproxy__default = __mfproxy__awaitdefault;
                 `;
               } else {
-                // 其他类型 (可以根据需要添加更多处理逻辑)
+                // other
                 proxyStatement = `
                   const __mfproxy__awaitdefault = await (${code.slice(declaration.start, declaration.end)});
                   const __mfproxy__default = __mfproxy__awaitdefault;

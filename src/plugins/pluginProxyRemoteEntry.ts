@@ -24,14 +24,7 @@ export default function (): Plugin {
       if (id.includes(REMOTE_ENTRY_ID)) {
         return generateRemoteEntry(getNormalizeModuleFederationOptions());
       }
-      // if (id.includes(WRAP_REMOTE_ENTRY_QUERY_STR)) {
-      //   return generateWrapRemoteEntry();
-      // }
-      // if (id.includes(HOST_AUTO_INIT_QUERY_STR)) {
-      //   return generateWrapHostInit();
-      // }
     },
   }
-
 
 }

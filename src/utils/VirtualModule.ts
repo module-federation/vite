@@ -6,7 +6,7 @@ const nodeModulesDir = resolve("./node_modules")
 export const virtualPackageName = "__mf__virtual"
 try {
   mkdirSync(resolve(nodeModulesDir, virtualPackageName))
-}catch(e) {}
+} catch (e) { }
 writeFileSync(resolve(nodeModulesDir, virtualPackageName, "empty.js"), "")
 writeFileSync(resolve(nodeModulesDir, virtualPackageName, "package.json"), JSON.stringify({
   name: virtualPackageName,
@@ -14,8 +14,7 @@ writeFileSync(resolve(nodeModulesDir, virtualPackageName, "package.json"), JSON.
 }))
 
 /**
- * 在node_modules/__mf__virtual/*下物理生成文件作为虚拟模块
- * 因为插件无法干预vite prebunding
+ * Physically generate files as virtual modules under node_modules/__mf__virtual/*
  */
 export default class VirtualModule {
   originName: string
@@ -32,7 +31,7 @@ export default class VirtualModule {
     writeFileSync(this.getPath() + ".js", code)
   }
   write(code: string) {
-    writeFile(this.getPath() + ".js", code, function () {})
+    writeFile(this.getPath() + ".js", code, function () { })
   }
 
 }

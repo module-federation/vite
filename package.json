@@ -43,7 +43,8 @@
     "@rollup/pluginutils": "^5.1.0",
     "estree-walker": "^2",
     "magic-string": "^0.30.11",
-    "pathe": "^1.1.2"
+    "pathe": "^1.1.2",
+    "defu": "^6.1.4"
   },
   "devDependencies": {
     "husky": "^8.0.3",
