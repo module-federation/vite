@@ -1,6 +1,6 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import VirtualModule from '../utils/VirtualModule';
 import { getLocalSharedImportMapId } from './virtualShared_preBuild';
-const emptyPath = require.resolve('an-empty-js-file');
 
 export const REMOTE_ENTRY_ID = 'REMOTE_ENTRY_ID';
 export function generateRemoteEntry(options: NormalizedModuleFederationOptions): string {
@@ -34,40 +34,6 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   }
   import localSharedImportMap from "${getLocalSharedImportMapId()}"
   async function init(shared = {}) {
-    const localShared = {
-      ${Object.keys(options.shared)
-        .map((key) => {
-          const shareItem = options.shared[key];
-          return `
-          ${JSON.stringify(key)}: {
-            name: ${JSON.stringify(shareItem.name)},
-            version: ${JSON.stringify(shareItem.version)},
-            scope: [${JSON.stringify(shareItem.scope)}],
-            loaded: false,
-            from: ${JSON.stringify(options.name)},
-            async get () {
-              localShared[${JSON.stringify(key)}].loaded = true
-              const {${JSON.stringify(key)}: pkgDynamicImport} = localSharedImportMap 
-              const res = await pkgDynamicImport()
-              const exportModule = {...res}
-              // All npm packages pre-built by vite will be converted to esm
-              Object.defineProperty(exportModule, "__esModule", {
-                value: true,
-                enumerable: false
-              })
-              return function () {
-                return exportModule
-              }
-            },
-            shareConfig: {
-              singleton: ${shareItem.shareConfig.singleton},
-              requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
-            }
-          }
-        `;
-        })
-        .join(',')}
-    }
     const initRes = runtimeInit({
       name: ${JSON.stringify(options.name)},
       remotes: [${Object.keys(options.remotes)
@@ -84,7 +50,7 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
         })
         .join(',')}
       ],
-      shared: localShared,
+      shared: localSharedImportMap,
       plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}]
     });
     initRes.initShareScopeMap('${options.shareScope}', shared);
@@ -102,24 +68,22 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   `;
 }
 
-export const WRAP_REMOTE_ENTRY_QUERY_STR = '__mf__wrapRemoteEntry__';
-export const WRAP_REMOTE_ENTRY_PATH = emptyPath + '?' + WRAP_REMOTE_ENTRY_QUERY_STR;
-export function generateWrapRemoteEntry(): string {
-  return `
-  import {init, get} from "${REMOTE_ENTRY_ID}"
-  export {init, get}
-  `;
-}
+const wrapRemoteEntryModule = new VirtualModule("wrapRemoteEntry")
+wrapRemoteEntryModule.writeSync(`
+import {init, get} from "${REMOTE_ENTRY_ID}"
+export {init, get}
+`)
+export const WRAP_REMOTE_ENTRY_QUERY_STR = wrapRemoteEntryModule.getImportId();
+export const WRAP_REMOTE_ENTRY_PATH = wrapRemoteEntryModule.getPath();
 
 /**
  * Inject entry file, automatically init when used as host,
  * and will not inject remoteEntry
  */
-export const HOST_AUTO_INIT_QUERY_STR = '__mf__isHostInit';
-export const HOST_AUTO_INIT_PATH = emptyPath + '?' + HOST_AUTO_INIT_QUERY_STR;
-export function generateWrapHostInit(): string {
-  return `
+const hostAutoInitModule = new VirtualModule("hostAutoInit")
+hostAutoInitModule.writeSync(`
     import {init} from "${REMOTE_ENTRY_ID}"
     init()
-    `;
-}
+    `)
+export const HOST_AUTO_INIT_QUERY_STR = hostAutoInitModule.getImportId();
+export const HOST_AUTO_INIT_PATH = hostAutoInitModule.getPath();

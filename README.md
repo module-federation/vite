@@ -23,7 +23,7 @@ https://module-federation.io/guide/basic/webpack.html
 // vite.config.js
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import { federation } from 'module-federation-vite';
+import { federation } from '@module-federation/vite';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
 // https://vitejs.dev/config/
@@ -43,7 +43,7 @@ export default defineConfig({
         // }
       },
       exposes: {
-        App: './src/App.vue',
+        './App': './src/App.vue',
       },
       filename: 'dd/remoteEntry.js',
       shared: {
@@ -59,7 +59,7 @@ export default defineConfig({
   server: {
     port: 5173,
     // dev mode please set origin
-    origin: "http://localhost:5173"
+    origin: 'http://localhost:5173',
   },
   build: {
     target: 'chrome89',

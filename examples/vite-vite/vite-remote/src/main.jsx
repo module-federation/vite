@@ -7,7 +7,6 @@ import { EmotionDemo } from './EmotionDemo';
 import { MuiDemo } from './MuiDemo';
 import StyledDemo from './StyledDemo';
 
-
 const root = ReactDOM.createRoot(document.getElementById('app'));
 root.render(
   <React.StrictMode>

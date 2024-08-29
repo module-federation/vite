@@ -15,7 +15,8 @@
     "dev": "microbundle watch",
     "build": "rimraf lib && microbundle --no-sourcemap --compress=false",
     "dev-rust-vite": "pnpm -filter 'examples-rust-vite*' run dev",
-    "dev-vite-vite": "pnpm -filter 'examples-vite-vite*' run dev"
+    "dev-vite-vite": "pnpm -filter 'examples-vite-vite*' run dev",
+    "preview-vite-vite": "pnpm -filter 'examples-vite-vite*' run preview"
   },
   "repository": {
     "type": "git",
@@ -40,10 +41,10 @@
   "dependencies": {
     "@module-federation/runtime": "^0.5.0",
     "@rollup/pluginutils": "^5.1.0",
-    "an-empty-js-file": "1.0.0",
     "estree-walker": "^2",
     "magic-string": "^0.30.11",
-    "pathe": "^1.1.2"
+    "pathe": "^1.1.2",
+    "defu": "^6.1.4"
   },
   "devDependencies": {
     "husky": "^8.0.3",

@@ -1,3 +1,7 @@
+import VirtualModule from "../utils/VirtualModule";
+
+export const remoteVirtualModule = new VirtualModule("remoteModule")
+remoteVirtualModule.writeSync("")
 export function generateRemotes(id: string, command: string): { code: string; map: null; syntheticNamedExports: string } {
   return {
     code: `

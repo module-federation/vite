@@ -1,5 +1,6 @@
 import { Plugin } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
+import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
@@ -9,7 +10,8 @@ import {
   normalizeModuleFederationOptions
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { HOST_AUTO_INIT_PATH, WRAP_REMOTE_ENTRY_PATH } from './virtualModules/virtualRemoteEntry';
+import { HOST_AUTO_INIT_PATH, HOST_AUTO_INIT_QUERY_STR, REMOTE_ENTRY_ID, WRAP_REMOTE_ENTRY_PATH, WRAP_REMOTE_ENTRY_QUERY_STR } from './virtualModules/virtualRemoteEntry';
+import { getLocalSharedImportMapId } from './virtualModules/virtualShared_preBuild';
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
@@ -30,6 +32,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     }),
     pluginProxyRemoteEntry(),
     pluginProxyRemotes(options),
+    ...pluginModuleParseEnd(((id: string) => {
+      return id.includes(HOST_AUTO_INIT_QUERY_STR) || id.includes(WRAP_REMOTE_ENTRY_QUERY_STR) || id.includes(REMOTE_ENTRY_ID) || id.includes(getLocalSharedImportMapId())
+    })),
     ...proxySharedModule({
       shared,
     }),

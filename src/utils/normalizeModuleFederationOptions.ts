@@ -118,10 +118,10 @@ export interface ShareItem {
 function removePathFromNpmPackage(packageString: string): string {
   // 匹配npm包名的正则表达式，忽略路径部分
   const regex = /^(?:@[^/]+\/)?[^/]+/;
-  
+
   // 使用正则表达式匹配并提取包名
   const match = packageString.match(regex);
-  
+
   // 返回匹配到的包名，如果没有匹配到则返回原字符串
   return match ? match[0] : packageString;
 }
@@ -230,7 +230,7 @@ export type ModuleFederationOptions = {
     string,
     | string
     | {
-      name: string;
+      name?: string;
       version?: string;
       shareScope?: string;
       singleton?: boolean;
