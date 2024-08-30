@@ -95,6 +95,9 @@ export function proxySharedModule(
       name: "watchLocalSharedImportMap",
       apply: "serve",
       config(config) {
+        config.optimizeDeps = defu(config.optimizeDeps, {
+          exclude: [localSharedImportMapModule.getImportId()]
+        });
         config.server = defu(config.server, {
           watch: {
             ignored: [],
@@ -104,6 +107,15 @@ export function proxySharedModule(
         watch.ignored = [].concat(watch.ignored as any);
         watch.ignored.push(`!**/node_modules/${localSharedImportMapModule.getImportId()}.js`);
       },
+      configureServer: (server): void => {
+        server.watcher.options = {
+          ...server.watcher.options,
+          ignored: [
+            new RegExp(`node_modules\/(?!${virtualPackageName}).*`),
+            '**/.git/**',
+          ]
+        }
+      }
     },
     {
       name: "prebuild-top-level-await",
