@@ -34,7 +34,6 @@ export function addShare(pkg: string) {
 
 // *** Expose locally provided shared modules here
 export const localSharedImportMapModule = new VirtualModule("localSharedImportMap")
-localSharedImportMapModule.writeSync("")
 export function getLocalSharedImportMapPath() {
   if (process.platform === "win32") {
     return getLocalSharedImportMapPath_windows()

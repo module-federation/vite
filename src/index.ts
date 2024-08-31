@@ -10,11 +10,11 @@ import {
   normalizeModuleFederationOptions
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { HOST_AUTO_INIT_PATH, HOST_AUTO_INIT_QUERY_STR, REMOTE_ENTRY_ID, WRAP_REMOTE_ENTRY_PATH, WRAP_REMOTE_ENTRY_QUERY_STR } from './virtualModules/virtualRemoteEntry';
-import { getLocalSharedImportMapPath } from './virtualModules/virtualShared_preBuild';
+import { getHostAutoInitImportId, getHostAutoInitPath, getLocalSharedImportMapPath, getWrapRemoteEntryImportId, getWrapRemoteEntryPath, initVirtualModules, REMOTE_ENTRY_ID } from './virtualModules';
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
+  initVirtualModules()
   const { name, remotes, shared, filename } = options;
   if (!name) throw new Error("name is required")
 
@@ -23,17 +23,17 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     normalizeOptimizeDepsPlugin,
     ...addEntry({
       entryName: 'remoteEntry',
-      entryPath: WRAP_REMOTE_ENTRY_PATH,
+      entryPath: getWrapRemoteEntryPath(),
       fileName: filename,
     }),
     ...addEntry({
       entryName: 'hostInit',
-      entryPath: HOST_AUTO_INIT_PATH,
+      entryPath: getHostAutoInitPath(),
     }),
     pluginProxyRemoteEntry(),
     pluginProxyRemotes(options),
     ...pluginModuleParseEnd(((id: string) => {
-      return id.includes(HOST_AUTO_INIT_QUERY_STR) || id.includes(WRAP_REMOTE_ENTRY_QUERY_STR) || id.includes(REMOTE_ENTRY_ID) || id.includes(getLocalSharedImportMapPath())
+      return id.includes(getHostAutoInitImportId()) || id.includes(getWrapRemoteEntryImportId()) || id.includes(REMOTE_ENTRY_ID) || id.includes(getLocalSharedImportMapPath())
     })),
     ...proxySharedModule({
       shared,

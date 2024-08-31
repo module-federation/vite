@@ -1,7 +1,7 @@
 import { createFilter } from '@rollup/pluginutils';
 import { Plugin } from 'vite';
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { generateRemoteEntry, REMOTE_ENTRY_ID } from '../virtualModules/virtualRemoteEntry';
+import { generateRemoteEntry, REMOTE_ENTRY_ID } from '../virtualModules';
 
 const filter: (id: string) => boolean = createFilter();
 
