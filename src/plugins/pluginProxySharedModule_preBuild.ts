@@ -8,7 +8,7 @@ import { packageNameDecode } from '../utils/packageNameUtils';
 import { PromiseStore } from "../utils/PromiseStore";
 import { virtualPackageName } from '../utils/VirtualModule';
 import { wrapManualChunks } from '../utils/wrapManualChunks';
-import { addShare, generateLocalSharedImportMap, getLoadShareModulePath, getLocalSharedImportMapId, LOAD_SHARE_TAG, localSharedImportMapModule, PREBUILD_TAG, writeLoadShareModule, writeLocalSharedImportMap, writePreBuildLibPath } from '../virtualModules/virtualShared_preBuild';
+import { addShare, generateLocalSharedImportMap, getLoadShareModulePath, getLocalSharedImportMapPath, LOAD_SHARE_TAG, PREBUILD_TAG, writeLoadShareModule, writeLocalSharedImportMap, writePreBuildLibPath } from '../virtualModules/virtualShared_preBuild';
 export function proxySharedModule(
   options: { shared?: NormalizedShared; include?: string | string[]; exclude?: string | string[] }
 ): Plugin[] {
@@ -19,16 +19,16 @@ export function proxySharedModule(
       name: "generateLocalSharedImportMap",
       enforce: "post",
       resolveId(id) {
-        if (id.includes(getLocalSharedImportMapId()))
+        if (id.includes(getLocalSharedImportMapPath()))
           return id
       },
       load(id) {
-        if (id.includes(getLocalSharedImportMapId())) {
+        if (id.includes(getLocalSharedImportMapPath())) {
           return generateLocalSharedImportMap()
         }
       },
       transform(code, id) {
-        if (id.includes(getLocalSharedImportMapId())) {
+        if (id.includes(getLocalSharedImportMapPath())) {
           return generateLocalSharedImportMap()
         }
       }
@@ -96,7 +96,7 @@ export function proxySharedModule(
       apply: "serve",
       config(config) {
         config.optimizeDeps = defu(config.optimizeDeps, {
-          exclude: [localSharedImportMapModule.getImportId()]
+          exclude: [getLocalSharedImportMapPath()]
         });
         config.server = defu(config.server, {
           watch: {
@@ -105,17 +105,8 @@ export function proxySharedModule(
         });
         const watch = config.server.watch as WatchOptions
         watch.ignored = [].concat(watch.ignored as any);
-        watch.ignored.push(`!**/node_modules/${localSharedImportMapModule.getImportId()}.js`);
+        watch.ignored.push(`!**${getLocalSharedImportMapPath()}**`);
       },
-      configureServer: (server): void => {
-        server.watcher.options = {
-          ...server.watcher.options,
-          ignored: [
-            new RegExp(`node_modules\/(?!${virtualPackageName}).*`),
-            '**/.git/**',
-          ]
-        }
-      }
     },
     {
       name: "prebuild-top-level-await",

@@ -1,6 +1,6 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import VirtualModule from '../utils/VirtualModule';
-import { getLocalSharedImportMapId } from './virtualShared_preBuild';
+import { getLocalSharedImportMapPath } from './virtualShared_preBuild';
 
 export const REMOTE_ENTRY_ID = 'REMOTE_ENTRY_ID';
 export function generateRemoteEntry(options: NormalizedModuleFederationOptions): string {
@@ -32,14 +32,14 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
       })
       .join(',')}
   }
-  import localSharedImportMap from "${getLocalSharedImportMapId()}"
+  import localSharedImportMap from "${getLocalSharedImportMapPath()}"
   async function init(shared = {}) {
     const initRes = runtimeInit({
       name: ${JSON.stringify(options.name)},
       remotes: [${Object.keys(options.remotes)
-        .map((key) => {
-          const remote = options.remotes[key];
-          return `
+      .map((key) => {
+        const remote = options.remotes[key];
+        return `
                 {
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
                   name: ${JSON.stringify(remote.name)},
@@ -47,8 +47,8 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
                   entry: ${JSON.stringify(remote.entry)},
                 }
           `;
-        })
-        .join(',')}
+      })
+      .join(',')}
       ],
       shared: localSharedImportMap,
       plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}]
