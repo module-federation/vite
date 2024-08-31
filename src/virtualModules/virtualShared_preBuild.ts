@@ -10,6 +10,7 @@
 */
 
 import { parsePromise } from "../plugins/pluginModuleParseEnd";
+import { getLocalSharedImportMapPath_windows, writeLocalSharedImportMap_windows } from "../utils/localSharedImportMap_windows";
 import { getNormalizeModuleFederationOptions, ShareItem } from "../utils/normalizeModuleFederationOptions";
 import { removePathFromNpmPackage } from "../utils/packageNameUtils";
 import VirtualModule from "../utils/VirtualModule";
@@ -34,7 +35,10 @@ export function addShare(pkg: string) {
 // *** Expose locally provided shared modules here
 export const localSharedImportMapModule = new VirtualModule("localSharedImportMap")
 localSharedImportMapModule.writeSync("")
-export function getLocalSharedImportMapId() {
+export function getLocalSharedImportMapPath() {
+  if (process.platform === "win32") {
+    return getLocalSharedImportMapPath_windows()
+  }
   return localSharedImportMapModule.getPath()
 }
 let prevSharedCount = 0
@@ -42,7 +46,10 @@ export async function writeLocalSharedImportMap() {
   const sharedCount = shareds.size
   if (prevSharedCount !== sharedCount) {
     prevSharedCount = sharedCount
-    return localSharedImportMapModule.writeSync(await generateLocalSharedImportMap())
+    if (process.platform === "win32") {
+      return writeLocalSharedImportMap_windows(await generateLocalSharedImportMap())
+    }
+    return localSharedImportMapModule.writeSync(await generateLocalSharedImportMap(), true)
   }
 }
 export async function generateLocalSharedImportMap() {

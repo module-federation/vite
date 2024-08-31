@@ -30,6 +30,7 @@ writeFileSync(resolve(nodeModulesDir, virtualPackageName, "package.json"), JSON.
  */
 export default class VirtualModule {
   originName: string
+  inited: boolean = false
   constructor(name: string) {
     this.originName = name
   }
@@ -39,7 +40,11 @@ export default class VirtualModule {
   getImportId() {
     return `${virtualPackageName}/${packageNameEncode(this.originName)}`
   }
-  writeSync(code: string) {
+  writeSync(code: string, force?: boolean) {
+    if (!force && this.inited) return
+    if (!this.inited) {
+      this.inited = true
+    }
     writeFileSync(this.getPath() + ".js", code)
   }
   write(code: string) {
