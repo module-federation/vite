@@ -49,7 +49,7 @@ export async function writeLocalSharedImportMap() {
     if (process.platform === "win32") {
       return writeLocalSharedImportMap_windows(localSharedImportMapModule, await generateLocalSharedImportMap())
     }
-    return localSharedImportMapModule.writeSync(await generateLocalSharedImportMap())
+    return localSharedImportMapModule.writeSync(await generateLocalSharedImportMap(), true)
   }
 }
 export async function generateLocalSharedImportMap() {
