@@ -37,7 +37,7 @@ export const localSharedImportMapModule = new VirtualModule("localSharedImportMa
 localSharedImportMapModule.writeSync("")
 export function getLocalSharedImportMapPath() {
   if (process.platform === "win32") {
-    return getLocalSharedImportMapPath_windows(localSharedImportMapModule)
+    return getLocalSharedImportMapPath_windows()
   }
   return localSharedImportMapModule.getPath()
 }
@@ -47,7 +47,7 @@ export async function writeLocalSharedImportMap() {
   if (prevSharedCount !== sharedCount) {
     prevSharedCount = sharedCount
     if (process.platform === "win32") {
-      return writeLocalSharedImportMap_windows(localSharedImportMapModule, await generateLocalSharedImportMap())
+      return writeLocalSharedImportMap_windows(await generateLocalSharedImportMap())
     }
     return localSharedImportMapModule.writeSync(await generateLocalSharedImportMap(), true)
   }
