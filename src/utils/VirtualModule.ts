@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFile, writeFileSync } from "fs";
 import { dirname, join, parse, resolve } from "pathe";
 import { packageNameEncode } from "../utils/packageNameUtils";
+import { getNormalizeModuleFederationOptions } from "./normalizeModuleFederationOptions";
 
 const nodeModulesDir = function findNodeModulesDir(startDir = process.cwd()) {
   let currentDir = startDir;
@@ -38,7 +39,9 @@ export default class VirtualModule {
     return resolve(nodeModulesDir, this.getImportId())
   }
   getImportId() {
-    return `${virtualPackageName}/${packageNameEncode(this.originName)}`
+    const { name } = getNormalizeModuleFederationOptions()
+
+    return `${virtualPackageName}/${packageNameEncode(name)}-${packageNameEncode(this.originName)}`
   }
   writeSync(code: string, force?: boolean) {
     if (!force && this.inited) return

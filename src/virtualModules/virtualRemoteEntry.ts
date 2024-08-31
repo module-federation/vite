@@ -69,21 +69,33 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
 }
 
 const wrapRemoteEntryModule = new VirtualModule("wrapRemoteEntry")
-wrapRemoteEntryModule.writeSync(`
-import {init, get} from "${REMOTE_ENTRY_ID}"
-export {init, get}
-`)
-export const WRAP_REMOTE_ENTRY_QUERY_STR = wrapRemoteEntryModule.getImportId();
-export const WRAP_REMOTE_ENTRY_PATH = wrapRemoteEntryModule.getPath();
+export function writeWrapRemoteEntry() {
+  wrapRemoteEntryModule.writeSync(`
+    import {init, get} from "${REMOTE_ENTRY_ID}"
+    export {init, get}
+    `)
+}
+export function getWrapRemoteEntryImportId() {
+  return wrapRemoteEntryModule.getImportId();
+}
+export function getWrapRemoteEntryPath() {
+  return wrapRemoteEntryModule.getPath();
+}
 
 /**
  * Inject entry file, automatically init when used as host,
  * and will not inject remoteEntry
  */
 const hostAutoInitModule = new VirtualModule("hostAutoInit")
-hostAutoInitModule.writeSync(`
+export function writeHostAutoInit() {
+  hostAutoInitModule.writeSync(`
     import {init} from "${REMOTE_ENTRY_ID}"
     init()
     `)
-export const HOST_AUTO_INIT_QUERY_STR = hostAutoInitModule.getImportId();
-export const HOST_AUTO_INIT_PATH = hostAutoInitModule.getPath();
+}
+export function getHostAutoInitImportId() {
+  return hostAutoInitModule.getImportId();
+}
+export function getHostAutoInitPath() {
+  return hostAutoInitModule.getPath();
+}

@@ -3,17 +3,17 @@ import { defu } from 'defu';
 import { walk } from 'estree-walker';
 import MagicString from 'magic-string';
 import { Plugin, UserConfig, WatchOptions } from 'vite';
-import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
+import { getNormalizeModuleFederationOptions, NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { packageNameDecode } from '../utils/packageNameUtils';
 import { PromiseStore } from "../utils/PromiseStore";
-import { virtualPackageName } from '../utils/VirtualModule';
 import { wrapManualChunks } from '../utils/wrapManualChunks';
-import { addShare, generateLocalSharedImportMap, getLoadShareModulePath, getLocalSharedImportMapPath, LOAD_SHARE_TAG, PREBUILD_TAG, writeLoadShareModule, writeLocalSharedImportMap, writePreBuildLibPath } from '../virtualModules/virtualShared_preBuild';
+import { addShare, generateLocalSharedImportMap, getLoadShareModulePath, getLocalSharedImportMapPath, LOAD_SHARE_TAG, PREBUILD_TAG, writeLoadShareModule, writeLocalSharedImportMap, writePreBuildLibPath } from '../virtualModules';
 export function proxySharedModule(
   options: { shared?: NormalizedShared; include?: string | string[]; exclude?: string | string[] }
 ): Plugin[] {
   let { shared = {}, include, exclude } = options;
   const filterFunction = createFilter(include, exclude);
+  const { name } = getNormalizeModuleFederationOptions()
   return [
     {
       name: "generateLocalSharedImportMap",
@@ -73,18 +73,20 @@ export function proxySharedModule(
             ...Object.keys(shared).map((key) => {
               return command === "build" ?
                 {
-                  find: new RegExp(`${virtualPackageName}/${PREBUILD_TAG}(.+)`), replacement: function (_: string, $1: string) {
-                    return packageNameDecode($1)
+                  find: new RegExp(`(.*${PREBUILD_TAG}(.+))`), replacement: function ($1: string) {
+                    const pkgName = packageNameDecode($1.split(PREBUILD_TAG)[1])
+                    return packageNameDecode(pkgName)
                   }
                 } :
                 {
-                  find: new RegExp(`${virtualPackageName}/${PREBUILD_TAG}(.+)`), replacement: "$1", async customResolver(source: string, importer: string) {
+                  find: new RegExp(`(.*${PREBUILD_TAG}(.+))`), replacement: "$1", async customResolver(source: string, importer: string) {
+                    const pkgName = packageNameDecode(source.split(PREBUILD_TAG)[1])
                     if (importer.includes(LOAD_SHARE_TAG)) {
                       // save pre-bunding module id
-                      savePrebuild.set(source, (this as any).resolve(packageNameDecode(source)).then((item: any) => item.id))
+                      savePrebuild.set(pkgName, (this as any).resolve(pkgName).then((item: any) => item.id))
                     }
                     // Fix localSharedImportMap import id
-                    return await (this as any).resolve(await savePrebuild.get(source))
+                    return await (this as any).resolve(await savePrebuild.get(pkgName))
                   }
                 }
             })
