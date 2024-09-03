@@ -16,7 +16,8 @@
     "build": "rimraf lib && microbundle --no-sourcemap --compress=false",
     "dev-rv": "pnpm -filter 'examples-rust-vite*' run dev",
     "dev-vv": "pnpm -filter 'examples-vite-vite*' run dev",
-    "preview-vv": "pnpm -filter 'examples-vite-vite*' run preview"
+    "dev-nv": "pnpm -filter 'examples-nuxt-vite-host' -filter 'examples-vite-vite-remote' run dev",
+    "preview-vv": "pnpm -filter 'examples-vite-vite*'  run preview"
   },
   "repository": {
     "type": "git",
