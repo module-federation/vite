@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { AgGridDemo } from './AgGridDemo';
+import App from './App';
 import App1 from './App1';
 import { App2 } from './App2';
 import { EmotionDemo } from './EmotionDemo';
@@ -17,6 +18,9 @@ root.render(
       <i> {import.meta.env.DEV ? ' Dev ' : ' prod '} mode </i>
     </p>
     <hr />
+
+    <h2>App</h2>
+    <App />
 
     <h2>App1</h2>
     <App1 />
