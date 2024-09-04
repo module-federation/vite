@@ -12,18 +12,18 @@
 import { parsePromise } from "../plugins/pluginModuleParseEnd";
 import { getLocalSharedImportMapPath_windows, writeLocalSharedImportMap_windows } from "../utils/localSharedImportMap_windows";
 import { getNormalizeModuleFederationOptions, ShareItem } from "../utils/normalizeModuleFederationOptions";
-import { removePathFromNpmPackage } from "../utils/packageNameUtils";
+import { getExtFromNpmPackage, removePathFromNpmPackage } from "../utils/packageNameUtils";
 import VirtualModule from "../utils/VirtualModule";
 
 // *** __prebuild__
 const preBuildCacheMap: Record<string, VirtualModule> = {}
 export const PREBUILD_TAG = "__prebuild__"
 export function writePreBuildLibPath(pkg: string) {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(PREBUILD_TAG + pkg)
+  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(PREBUILD_TAG + pkg, getExtFromNpmPackage(pkg))
   preBuildCacheMap[pkg].writeSync("")
 }
 export function getPreBuildLibImportId(pkg: string): string {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(PREBUILD_TAG + pkg)
+  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(PREBUILD_TAG + pkg, getExtFromNpmPackage(pkg))
   const importId = preBuildCacheMap[pkg].getImportId()
   return importId
 }

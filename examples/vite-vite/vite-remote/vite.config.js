@@ -40,7 +40,7 @@ export default defineConfig({
         'react-dom/': {},
         'react-dom': {},
         'styled-components': { singleton: true },
-        'ag-grid-community': {},
+        'ag-grid-community/': {},
         'ag-grid-react': {},
         '@emotion/react': {},
         '@emotion/styled': { singleton: true },
