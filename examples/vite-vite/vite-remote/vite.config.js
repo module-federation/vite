@@ -13,7 +13,10 @@ export default defineConfig({
   preview: {
     port: 5176,
   },
-  base: 'http://localhost:5176',
+  // base: 'http://localhost:5176',
+  experimental: {
+    renderBuiltUrl() { return { relative: true } }
+  },
   plugins: [
     react({ jsxImportSource: '@emotion/react' }),
     federation({
@@ -25,7 +28,7 @@ export default defineConfig({
         './MuiDemo': './src/MuiDemo.jsx',
         './StyledDemo': './src/StyledDemo.jsx',
         './EmotionDemo': './src/EmotionDemo.jsx',
-        '.': './src/App1.jsx',
+        '.': './src/App.jsx',
       },
       filename: 'remoteEntry.js',
       shared: {

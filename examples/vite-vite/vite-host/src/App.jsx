@@ -4,6 +4,7 @@ import RD from 'react-dom/client';
 import Remote2App from 'remote2/App';
 import Button from 'remote3/button';
 
+import App from '@namespace/viteViteRemote';
 import { AgGridDemo } from '@namespace/viteViteRemote/AgGridDemo';
 import App1 from '@namespace/viteViteRemote/App1';
 import { App2 } from '@namespace/viteViteRemote/App2';
@@ -25,6 +26,9 @@ export default function () {
       <hr />
 
 
+
+      <h2>Vite Remote Default App</h2>
+      <App />
 
       <h2>Vite Remote App1</h2>
       <App1 />
