@@ -74,12 +74,14 @@ export function proxySharedModule(
               return command === "build" ?
                 {
                   find: new RegExp(`(.*${PREBUILD_TAG}(.+))`), replacement: function ($1: string) {
+                    $1 = $1.replace(/\.[^.]+$/, "")
                     const pkgName = packageNameDecode($1.split(PREBUILD_TAG)[1])
                     return packageNameDecode(pkgName)
                   }
                 } :
                 {
                   find: new RegExp(`(.*${PREBUILD_TAG}(.+))`), replacement: "$1", async customResolver(source: string, importer: string) {
+                    source = source.replace(/\.[^.]+$/, "")
                     const pkgName = packageNameDecode(source.split(PREBUILD_TAG)[1])
                     if (importer.includes(LOAD_SHARE_TAG)) {
                       // save pre-bunding module id

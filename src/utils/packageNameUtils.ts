@@ -41,3 +41,11 @@ export function removePathFromNpmPackage(packageString: string): string {
   // Return the matched package name or the original string if no match is found
   return match ? match[0] : packageString;
 }
+
+export function getExtFromNpmPackage(packageString: string) {
+  const pkgName = removePathFromNpmPackage(packageString)
+  const subpath = packageString.replace(pkgName, "")
+  const parts = subpath.split('.');
+  const ext = parts.length > 1 ? "." + parts.pop() : undefined;
+  return ext
+}
