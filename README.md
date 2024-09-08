@@ -11,7 +11,7 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ### [Vue](https://github.com/gioboa/vue-microfrontend-demo)
 
-### [React](https://github.com/module-federation/module-federation-examples/tree/master/vite-react-microfrontends)<br>
+### [React](https://github.com/gioboa/react-microfrontend-demo)<br>
 
 ### [Svelte](https://github.com/module-federation/module-federation-examples/tree/master/vite-svelte-microfrontends)<br>
 
