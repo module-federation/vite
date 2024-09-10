@@ -2,7 +2,7 @@ import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFeder
 import VirtualModule from '../utils/VirtualModule';
 import { getLocalSharedImportMapPath } from './virtualShared_preBuild';
 
-export const REMOTE_ENTRY_ID = 'REMOTE_ENTRY_ID';
+export const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
 export function generateRemoteEntry(options: NormalizedModuleFederationOptions): string {
   const pluginImportNames = options.runtimePlugins.map((p, i) => [
     `$runtimePlugin_${i}`,
@@ -66,20 +66,6 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
       getExposes as get
   }
   `;
-}
-
-const wrapRemoteEntryModule = new VirtualModule("wrapRemoteEntry")
-export function writeWrapRemoteEntry() {
-  wrapRemoteEntryModule.writeSync(`
-    import {init, get} from "${REMOTE_ENTRY_ID}"
-    export {init, get}
-    `)
-}
-export function getWrapRemoteEntryImportId() {
-  return wrapRemoteEntryModule.getImportId();
-}
-export function getWrapRemoteEntryPath() {
-  return wrapRemoteEntryModule.getPath();
 }
 
 /**

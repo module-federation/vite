@@ -9,6 +9,7 @@ interface AddEntryOptions {
 }
 
 const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[] => {
+  const devEntryPath = entryPath.startsWith("virtual:mf") ? "/@id/" + entryPath : entryPath
   let entryFiles: string[] = [];
   let htmlFilePath: string;
 
@@ -19,7 +20,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
       configureServer(server) {
         server.httpServer?.once?.('listening', () => {
           const { port } = server.config.server;
-          fetch(path.join(`http://localhost:${port}`, `${entryPath}`)).catch(e => { })
+          fetch(path.join(`http://localhost:${port}`, `${devEntryPath}`)).catch(e => { })
         });
         server.middlewares.use((req, res, next) => {
           if (!fileName) {
@@ -27,7 +28,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
             return
           }
           if (req.url && req.url.startsWith(fileName.replace(/^\/?/, '/'))) {
-            req.url = entryPath;
+            req.url = devEntryPath;
           }
           next();
         });
@@ -36,7 +37,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
         return c.replace(
           '<head>',
           `<head><script type="module" src=${JSON.stringify(
-            entryPath.replace(/.+?\:([/\\])[/\\]?/, '$1').replace(/\\\\?/g, '/')
+            devEntryPath.replace(/.+?\:([/\\])[/\\]?/, '$1').replace(/\\\\?/g, '/')
           )}></script>`
         );
       },
