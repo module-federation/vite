@@ -1,11 +1,11 @@
-import { writeHostAutoInit, writeWrapRemoteEntry } from "./virtualRemoteEntry";
+import { writeHostAutoInit } from "./virtualRemoteEntry";
 import { writeRemote } from "./virtualRemotes";
 import { writeLocalSharedImportMap } from "./virtualShared_preBuild";
 
 export {
   generateRemoteEntry, getHostAutoInitImportId,
-  getHostAutoInitPath, getWrapRemoteEntryImportId,
-  getWrapRemoteEntryPath, REMOTE_ENTRY_ID
+  getHostAutoInitPath,
+  REMOTE_ENTRY_ID
 } from "./virtualRemoteEntry";
 
 export {
@@ -18,7 +18,6 @@ export {
 
 export function initVirtualModules() {
   writeLocalSharedImportMap()
-  writeWrapRemoteEntry()
   writeHostAutoInit()
   writeRemote()
 }

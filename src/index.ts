@@ -10,7 +10,7 @@ import {
   normalizeModuleFederationOptions
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { getHostAutoInitImportId, getHostAutoInitPath, getLocalSharedImportMapPath, getWrapRemoteEntryImportId, getWrapRemoteEntryPath, initVirtualModules, REMOTE_ENTRY_ID } from './virtualModules';
+import { getHostAutoInitImportId, getHostAutoInitPath, getLocalSharedImportMapPath, initVirtualModules, REMOTE_ENTRY_ID } from './virtualModules';
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
@@ -23,7 +23,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     normalizeOptimizeDepsPlugin,
     ...addEntry({
       entryName: 'remoteEntry',
-      entryPath: getWrapRemoteEntryPath(),
+      entryPath: REMOTE_ENTRY_ID,
       fileName: filename,
     }),
     ...addEntry({
@@ -33,7 +33,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     pluginProxyRemoteEntry(),
     pluginProxyRemotes(options),
     ...pluginModuleParseEnd(((id: string) => {
-      return id.includes(getHostAutoInitImportId()) || id.includes(getWrapRemoteEntryImportId()) || id.includes(REMOTE_ENTRY_ID) || id.includes(getLocalSharedImportMapPath())
+      return id.includes(getHostAutoInitImportId()) || id.includes(REMOTE_ENTRY_ID) || id.includes(getLocalSharedImportMapPath())
     })),
     ...proxySharedModule({
       shared,
