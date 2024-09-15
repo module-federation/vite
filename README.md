@@ -77,10 +77,11 @@ export default defineConfig({
 
 ## roadmap
 
-- feat: generate mf-manifest.json
-- feat: support chrome plugin
+- ✅ ~~feat: generate mf-manifest.json~~
+- ✅ ~~feat: support chrome plugin~~
 
 * ✅ ~~feat: support runtime plugins~~
+* feat: nuxt ssr
 
 - feat: download remote d.ts
 - feat: generate d.ts
