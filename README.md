@@ -1,5 +1,7 @@
 # Vite plugin for Module Federation
 
+[![npm](https://img.shields.io/npm/v/@module-federation/vite.svg)](https://www.npmjs.com/package/@module-federation/vite)
+
 ## Reason why 🤔
 
 [Microservices](https://martinfowler.com/articles/microservices.html) nowadays is a well-known concept and maybe you are using it in your current company.
