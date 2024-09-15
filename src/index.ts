@@ -1,88 +1,61 @@
-import { BuildHelperParams, federationBuilder } from '@softarc/native-federation/build.js';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Plugin } from 'vite';
+import addEntry from './plugins/pluginAddEntry';
+import { PluginDevProxyModuleTopLevelAwait } from "./plugins/pluginDevProxyModuleTopLevelAwait";
+import pluginManifest from "./plugins/pluginMFManifest";
+import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
+import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
+import pluginProxyRemotes from './plugins/pluginProxyRemotes';
+import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
+import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
+import {
+  ModuleFederationOptions,
+  normalizeModuleFederationOptions
+} from './utils/normalizeModuleFederationOptions';
+import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
+import { getHostAutoInitImportId, getHostAutoInitPath, getLocalSharedImportMapPath, initVirtualModules, REMOTE_ENTRY_ID } from './virtualModules';
 
-import mime from 'mime-types';
-import { Connect, ViteDevServer } from 'vite';
-import { devExternalsMixin } from './dev-externals-mixin';
-import { filterExternals } from './externals-skip-list';
+function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
+  const options = normalizeModuleFederationOptions(mfUserOptions);
+  initVirtualModules()
+  const { name, remotes, shared, filename } = options;
+  if (!name) throw new Error("name is required")
 
-export const federation = (params: BuildHelperParams) => {
-  return {
-    ...devExternalsMixin,
-    name: '@module-federation/vite', // required, will show up in warnings and errors
-    async config(...args) {
-      await federationBuilder.init(params);
-      devExternalsMixin.config(...args);
+  return [
+    aliasToArrayPlugin,
+    normalizeOptimizeDepsPlugin,
+    ...addEntry({
+      entryName: 'remoteEntry',
+      entryPath: REMOTE_ENTRY_ID,
+      fileName: filename,
+    }),
+    ...addEntry({
+      entryName: 'hostInit',
+      entryPath: getHostAutoInitPath(),
+    }),
+    pluginProxyRemoteEntry(),
+    pluginProxyRemotes(options),
+    ...pluginModuleParseEnd(((id: string) => {
+      return id.includes(getHostAutoInitImportId()) || id.includes(REMOTE_ENTRY_ID) || id.includes(getLocalSharedImportMapPath())
+    })),
+    ...proxySharedModule({
+      shared,
+    }),
+    PluginDevProxyModuleTopLevelAwait(),
+    {
+      name: 'module-federation-vite',
+      enforce: 'post',
+      config(config, { command: _command }: { command: string }) {
+        // TODO: singleton
+        ; (config.resolve as any).alias.push({
+          find: '@module-federation/runtime',
+          replacement: require.resolve('@module-federation/runtime'),
+        },)
+
+        config.optimizeDeps?.include?.push('@module-federation/runtime');
+      },
     },
-    options(o: unknown) {
-      o!['external'] = filterExternals(federationBuilder.externals);
-    },
-    async closeBundle() {
-      await federationBuilder.build();
-    },
-    async configureServer(server: ViteDevServer) {
-      await configureDevServer(server, params);
-    },
-    transformIndexHtml(html: string) {
-      return html.replace(/type="module"/g, 'type="module-shim"');
-    },
-  };
-};
+    ...pluginManifest(),
+  ];
+}
 
-const configureDevServer = async (server: ViteDevServer, params: BuildHelperParams) => {
-  await federationBuilder.build({ skipMappingsAndExposed: true });
-
-  const op = params.options;
-  const dist = path.join(op.workspaceRoot, op.outputPath);
-  server.middlewares.use(serveFromDist(dist, server.config.base));
-};
-
-const serveFromDist = (dist: string, baseUrl: string): Connect.NextHandleFunction => {
-  return (req, res, next) => {
-    if (!req.url || req.url.endsWith('/index.html')) {
-      next();
-      return;
-    }
-
-    const file = path.join(dist, req.url.replace(baseUrl, ''));
-    if (fs.existsSync(file) && fs.lstatSync(file).isFile()) {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Content-Type', mime.lookup(req.url));
-
-      const content = fs.readFileSync(file, 'utf-8');
-      const modified = enhanceFile(file, content);
-
-      res.write(modified);
-      res.end();
-      return;
-    }
-
-    next();
-  };
-};
-
-const enhanceFile = (fileName: string, src: string): string => {
-  if (fileName.endsWith('remoteEntry.json')) {
-    let remoteEntry = JSON.parse(fs.readFileSync(fileName, 'utf-8'));
-    remoteEntry = {
-      ...remoteEntry,
-      shared: (remoteEntry.shared || []).map((el) => ({
-        ...el,
-        outFileName: el.dev?.entryPoint.includes('/node_modules/')
-          ? el.outFileName
-          : normalize(path.join('@fs', el.dev?.entryPoint || '')),
-      })),
-      exposes: (remoteEntry.exposes || []).map((el) => ({
-        ...el,
-        outFileName: normalize(path.join('@fs', el.dev?.entryPoint || '')),
-      })),
-    };
-    return JSON.stringify(remoteEntry, null, 2);
-  }
-  return src;
-};
-
-const normalize = (path: string): string => {
-  return path.replace(/\\/g, '/');
-};
+export { federation };

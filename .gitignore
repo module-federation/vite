@@ -1,2 +1,5 @@
 node_modules
-/lib
+dist
+.DS_Store
+.idea
+.__mf__win

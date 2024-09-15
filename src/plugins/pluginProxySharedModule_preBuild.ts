@@ -1,0 +1,92 @@
+import { defu } from 'defu';
+import { Plugin, UserConfig, WatchOptions } from 'vite';
+import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
+import { PromiseStore } from "../utils/PromiseStore";
+import VirtualModule from '../utils/VirtualModule';
+import { addUsedShares, generateLocalSharedImportMap, getLoadShareModulePath, getLocalSharedImportMapPath, LOAD_SHARE_TAG, PREBUILD_TAG, writeLoadShareModule, writeLocalSharedImportMap, writePreBuildLibPath } from '../virtualModules';
+import { parsePromise } from './pluginModuleParseEnd';
+export function proxySharedModule(
+  options: { shared?: NormalizedShared; include?: string | string[]; exclude?: string | string[] }
+): Plugin[] {
+  let { shared = {}, include, exclude } = options;
+  return [
+    {
+      name: "generateLocalSharedImportMap",
+      enforce: "post",
+      load(id) {
+        if (id.includes(getLocalSharedImportMapPath())) {
+          return parsePromise.then(_ => generateLocalSharedImportMap())
+        }
+      },
+      transform(code, id) {
+        if (id.includes(getLocalSharedImportMapPath())) {
+          return parsePromise.then(_ => generateLocalSharedImportMap())
+        }
+      },
+    },
+    {
+      name: 'proxyPreBuildShared',
+      enforce: 'post',
+      config(config: UserConfig, { command }) {
+        ; (config.resolve as any).alias.push(
+          ...Object.keys(shared).map((key) => {
+            const pattern = key.endsWith("/") ? `(^${key.replace(/\/$/, "")}(\/.+)?$)` : `(^${key}$)`
+            return {
+              // Intercept all shared requests and proxy them to loadShare
+              find: new RegExp(pattern), replacement: "$1", customResolver(source: string, importer: string) {
+                const loadSharePath = getLoadShareModulePath(source)
+                writeLoadShareModule(source, shared[key], command)
+                writePreBuildLibPath(source)
+                addUsedShares(source)
+                writeLocalSharedImportMap()
+                return (this as any).resolve(loadSharePath)
+              }
+            }
+          })
+        );
+        const savePrebuild = new PromiseStore<string>()
+
+          ; (config.resolve as any).alias.push(
+            ...Object.keys(shared).map((key) => {
+              return command === "build" ?
+                {
+                  find: new RegExp(`(.*${PREBUILD_TAG}.*)`), replacement: function ($1: string) {
+                    const pkgName = (VirtualModule.findModule(PREBUILD_TAG, $1) as VirtualModule).name
+                    return pkgName
+                  },
+                } :
+                {
+                  find: new RegExp(`(.*${PREBUILD_TAG}.*)`), replacement: "$1", async customResolver(source: string, importer: string) {
+                    const pkgName = (VirtualModule.findModule(PREBUILD_TAG, source) as VirtualModule).name
+                    if (importer.includes(LOAD_SHARE_TAG)) {
+                      // save pre-bunding module id
+                      savePrebuild.set(pkgName, (this as any).resolve(pkgName).then((item: any) => item.id))
+                    }
+                    // Fix localSharedImportMap import id
+                    return await (this as any).resolve(await savePrebuild.get(pkgName))
+                  }
+                }
+            })
+          );
+      },
+    },
+    {
+      name: "watchLocalSharedImportMap",
+      apply: "serve",
+      config(config) {
+        config.optimizeDeps = defu(config.optimizeDeps, {
+          exclude: [getLocalSharedImportMapPath()]
+        });
+        config.server = defu(config.server, {
+          watch: {
+            ignored: [],
+          }
+        });
+        const watch = config.server.watch as WatchOptions
+        watch.ignored = [].concat(watch.ignored as any);
+        watch.ignored.push(`!**${getLocalSharedImportMapPath()}**`);
+      },
+    },
+
+  ]
+}
