@@ -1,18 +1,18 @@
 {
-  "name": "examples-nuxt-vite-host",
+  "name": "examples-nuxt-vite-remote",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "nuxt build",
-    "dev": "NODE_OPTIONS=--experimental-vm-modules nuxt dev --experimental-vm-modules --port=3001",
+    "dev": "NODE_OPTIONS=--experimental-vm-modules nuxt dev --experimental-vm-modules",
     "generate": "nuxt generate",
-    "preview": "NITRO_PORT=3001 nuxt preview",
+    "preview": "nuxt preview --port=3001",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@module-federation/vite": "workspace:*",
     "nuxt": "^3.13.0",
-    "vue": "latest",
-    "@module-federation/vite": "workspace:*"
+    "vue": "latest"
   },
   "devDependencies": {
     "vite-plugin-top-level-await": "^1.4.4"

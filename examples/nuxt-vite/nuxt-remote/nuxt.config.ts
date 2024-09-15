@@ -8,21 +8,18 @@ export default defineNuxtConfig({
   vite: {
     plugins: [
       federation({
-        name: 'nuxhost',
-        remotes: {
-          '@namespace/viteViteRemote': 'viteRemote@http://localhost:3000/_nuxt/mf-manifest.json',
-        },
+        name: 'nuxremote',
         filename: 'remoteEntry.js',
         shared: {
           // vue: {},
         },
         runtimePlugins: ['./utils/mfPlugins'],
-        // exposes: {
-        //   "./App": "./App.vue"
-        // }
-        // manifest: {
-        //   fileName: "_nuxt/mf-manifest.json",
-        // }
+        exposes: {
+          './app': './app.vue',
+        },
+        manifest: {
+          fileName: '_nuxt/mf-manifest.json',
+        },
       }),
       new TopAwait(),
     ],
