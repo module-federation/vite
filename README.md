@@ -15,6 +15,14 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ### [More examples here](https://github.com/module-federation/vite/tree/main/examples)<br>
 
+```
+pnpm install && pnpm run dev-vv # vite+vite dev demo
+```
+
+```
+pnpm install && pnpm run preview-vv # vite+vite build demo
+```
+
 ## Getting started 🚀
 
 https://module-federation.io/guide/basic/webpack.html
