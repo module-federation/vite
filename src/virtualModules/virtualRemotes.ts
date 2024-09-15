@@ -1,28 +1,37 @@
-import VirtualModule from "../utils/VirtualModule";
+import VirtualModule from '../utils/VirtualModule';
+import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 
-export const remoteVirtualModule = new VirtualModule("remoteModule")
-export function writeRemote() {
-  remoteVirtualModule.writeSync("")
+const cacheRemoteMap: {
+  [remote: string]: VirtualModule
+} = {}
+export const LOAD_REMOTE_TAG = '__loadRemote__';
+export function getRemoteVirtualModule(remote: string, command: string) {
+  if (!cacheRemoteMap[remote]) {
+    cacheRemoteMap[remote] = new VirtualModule(remote, LOAD_REMOTE_TAG, ".js")
+    cacheRemoteMap[remote].writeSync(generateRemotes(remote, command));
+  }
+  const virtual = cacheRemoteMap[remote]
+  return virtual;
 }
-export function generateRemotes(id: string, command: string): { code: string; map: null; syntheticNamedExports: string } {
-  return {
-    code: `
-    import {loadRemote} from "@module-federation/runtime"
-    const exportModule = await loadRemote(${JSON.stringify(id)})
-    ${(command === "build" &&
-        `
-        export default 'default' in (exportModule || {}) ? exportModule.default : undefined
-        export const __mf__dynamicExports = exportModule
-        `
-      ) || ""}
-      ${(command !== "build" &&
-        `
-        export default exportModule
-        `
-      ) || ""}
-  `,
-    map: null,
-    // TODO: vite dev mode invalid, use optimizeDeps.needsInterop
-    syntheticNamedExports: '__mf__dynamicExports',
-  };
+const usedRemotesMap: Record<string, Set<string>> = {
+  // remote1: {remote1/App, remote1, remote1/Button}
+};
+export function addUsedRemote(remoteKey: string, remoteModule: string) {
+  if (!usedRemotesMap[remoteKey]) usedRemotesMap[remoteKey] = new Set();
+  usedRemotesMap[remoteKey].add(remoteModule);
+}
+export function getUsedRemotesMap() {
+  return usedRemotesMap;
+}
+export function generateRemotes(
+  id: string,
+  command: string
+) {
+  return `
+    const {loadRemote} = require("@module-federation/runtime")
+    const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
+    const res = initPromise.then(_ => loadRemote(${JSON.stringify(id)}))
+    const exportModule = ${command !== "build" ? "/*mf top-level-await placeholder replacement mf*/" : "await "}initPromise.then(_ => res)
+    module.exports = exportModule
+  `
 }

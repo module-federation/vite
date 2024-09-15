@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFile, writeFileSync } from "fs";
 import { dirname, join, parse, resolve } from "pathe";
-import { packageNameEncode } from "../utils/packageNameUtils";
+import { packageNameDecode, packageNameEncode } from "../utils/packageNameUtils";
 import { getNormalizeModuleFederationOptions } from "./normalizeModuleFederationOptions";
 
 const nodeModulesDir = function findNodeModulesDir(startDir = process.cwd()) {
@@ -26,24 +26,43 @@ writeFileSync(resolve(nodeModulesDir, virtualPackageName, "package.json"), JSON.
   main: "empty.js"
 }))
 
+const patternMap: {
+  [tag: string]: RegExp
+} = {}
+
+const cacheMap: {
+  [tag: string]: {
+    [name: string]: VirtualModule
+  }
+} = {}
 /**
  * Physically generate files as virtual modules under node_modules/__mf__virtual/*
  */
 export default class VirtualModule {
-  originName: string
+  name: string
+  tag: string
+  suffix: string
   inited: boolean = false
-  ext: string
-  constructor(name: string, ext: string = ".js") {
-    this.originName = name
-    this.ext = ext
+  static findModule(tag: string, str: string = ""): VirtualModule | undefined {
+    if (!patternMap[tag]) patternMap[tag] = new RegExp(`(.*${packageNameEncode(tag)}(.+?)${packageNameEncode(tag)}.*)`)
+    const moduleName = (str.match(patternMap[tag]) || [])[2]
+    if (moduleName) return cacheMap[tag][packageNameDecode(moduleName)] as VirtualModule | undefined
+    return undefined
+  }
+  constructor(name: string, tag: string = '__mf_v__', suffix = "") {
+    this.name = name
+    this.tag = tag
+    this.suffix = suffix || name.split(".").slice(1).pop()?.replace(/(.)/, ".$1") || ".js"
+    if (!cacheMap[this.tag]) cacheMap[this.tag] = {}
+    cacheMap[this.tag][this.name] = this
   }
   getPath() {
     return resolve(nodeModulesDir, this.getImportId())
   }
   getImportId() {
-    const { name } = getNormalizeModuleFederationOptions()
+    const { name: mfName } = getNormalizeModuleFederationOptions()
 
-    return `${virtualPackageName}/${packageNameEncode(name)}-${packageNameEncode(this.originName)}${this.ext}`
+    return `${virtualPackageName}/${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`
   }
   writeSync(code: string, force?: boolean) {
     if (!force && this.inited) return

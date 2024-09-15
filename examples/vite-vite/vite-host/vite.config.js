@@ -22,15 +22,13 @@ export default defineConfig({
         remote2: 'mfapp02@https://unpkg.com/mf-app-02/dist/remoteEntry.js',
         remote3:
           'remote1@https://unpkg.com/react-manifest-example_remote1@1.0.6/dist/mf-manifest.json',
-        '@namespace/viteViteRemote': {
-          entry: 'http://localhost:5176/remoteEntry.js',
-          type: 'module',
-        },
+        '@namespace/viteViteRemote': 'http://localhost:5176/mf-manifest.json',
       },
-      filename: 'remoteEntry.js',
+      filename: 'remoteEntry-[hash].js',
+      manifest: true,
       shared: {
         vue: {},
-        react: {
+        'react/': {
           requiredVersion: '18',
         },
         'react-dom': {},

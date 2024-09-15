@@ -8,27 +8,31 @@
  */
 
 /**
- * @param {*} name "@scope/xx-xx.xx" => "__$1__scope__$2__xx__$3__xx$__4__xx"
+ * Encodes a package name into a valid file name.
+ * @param {string} name - The package name, e.g., "@scope/xx-xx.xx".
+ * @returns {string} - The encoded file name.
  */
 export function packageNameEncode(name: string) {
   if (typeof name !== "string") throw new Error("A string package name is required");
   return name
-    .replace(/\@/g, "__$1__")
-    .replace(/\//g, "__$2__")
-    .replace(/\-/g, "__$3__")
-    .replace(/\./g, "__$4__");
+    .replace(/@/g, "_mf_0_")
+    .replace(/\//g, "_mf_1_")
+    .replace(/-/g, "_mf_2_")
+    .replace(/\./g, "_mf_3_");
 }
 
 /**
- * @param {*} global "__$1__scope__$2__xx__$3__xx$__4__xx" => "@scope/xx-xx.xx"
+ * Decodes an encoded file name back to the original package name.
+ * @param {string} encoded - The encoded file name, e.g., "_mf_0_scope_mf_1_xx_mf_2_xx_mf_3_xx".
+ * @returns {string} - The decoded package name.
  */
-export function packageNameDecode(global: string) {
-  if (typeof global !== "string") throw new Error("A string global variable name is required");
-  return global
-    .replace(/\_\_\$1\_\_/g, "@")
-    .replace(/\_\_\$2\_\_/g, "/")
-    .replace(/\_\_\$3\_\_/g, "-")
-    .replace(/\_\_\$4\_\_/g, ".");
+export function packageNameDecode(encoded: string) {
+  if (typeof encoded !== "string") throw new Error("A string encoded file name is required");
+  return encoded
+    .replace(/_mf_0_/g, "@")
+    .replace(/_mf_1_/g, "/")
+    .replace(/_mf_2_/g, "-")
+    .replace(/_mf_3_/g, ".");
 }
 
 export function removePathFromNpmPackage(packageString: string): string {

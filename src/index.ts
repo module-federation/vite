@@ -1,5 +1,7 @@
 import { Plugin } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
+import { PluginDevProxyModuleTopLevelAwait } from "./plugins/pluginDevProxyModuleTopLevelAwait";
+import pluginManifest from "./plugins/pluginMFManifest";
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
@@ -38,21 +40,21 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     ...proxySharedModule({
       shared,
     }),
+    PluginDevProxyModuleTopLevelAwait(),
     {
       name: 'module-federation-vite',
       enforce: 'post',
       config(config, { command: _command }: { command: string }) {
+        // TODO: singleton
         ; (config.resolve as any).alias.push({
           find: '@module-federation/runtime',
           replacement: require.resolve('@module-federation/runtime'),
         },)
 
         config.optimizeDeps?.include?.push('@module-federation/runtime');
-        // Object.keys(shared).forEach((key) => {
-        //   config.optimizeDeps?.include?.push(key);
-        // });
       },
     },
+    ...pluginManifest(),
   ];
 }
 
