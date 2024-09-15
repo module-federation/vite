@@ -12,7 +12,7 @@
   "scripts": {
     "prepare": "husky install",
     "format": "pretty-quick",
-    "dev": "microbundle watch",
+    "dev": "microbundle watch --no-sourcemap --compress=false",
     "build": "rimraf lib && microbundle --no-sourcemap --compress=false",
     "dev-rv": "pnpm -filter 'examples-rust-vite*' run dev",
     "dev-vv": "pnpm -filter 'examples-vite-vite*' run dev",

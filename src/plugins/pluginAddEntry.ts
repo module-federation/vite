@@ -12,11 +12,15 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
   const devEntryPath = entryPath.startsWith("virtual:mf") ? "/@id/" + entryPath : entryPath
   let entryFiles: string[] = [];
   let htmlFilePath: string;
+  let _command: string
 
   return [
     {
       name: 'add-entry',
       apply: "serve",
+      config(config, { command }) {
+        _command = command
+      },
       configureServer(server) {
         server.httpServer?.once?.('listening', () => {
           const { port } = server.config.server;
@@ -45,7 +49,6 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
     {
       name: "add-entry",
       enforce: "post",
-      apply: "build",
       configResolved(config) {
         const inputOptions = config.build.rollupOptions.input;
 
@@ -63,6 +66,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
         }
       },
       buildStart() {
+        if (_command === "serve") return
         const hasHash = fileName?.includes?.("[hash")
         this.emitFile({
           name: entryName,

@@ -1,5 +1,7 @@
 # Vite plugin for Module Federation
 
+[![npm](https://img.shields.io/npm/v/@module-federation/vite.svg)](https://www.npmjs.com/package/@module-federation/vite)
+
 ## Reason why 🤔
 
 [Microservices](https://martinfowler.com/articles/microservices.html) nowadays is a well-known concept and maybe you are using it in your current company.
@@ -14,6 +16,14 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 ### [React](https://github.com/gioboa/react-microfrontend-demo)<br>
 
 ### [More examples here](https://github.com/module-federation/vite/tree/main/examples)<br>
+
+```
+pnpm install && pnpm run dev-vv # vite+vite dev demo
+```
+
+```
+pnpm install && pnpm run preview-vv # vite+vite build demo
+```
 
 ## Getting started 🚀
 
@@ -69,10 +79,11 @@ export default defineConfig({
 
 ## roadmap
 
-- feat: generate mf-manifest.json
-- feat: support chrome plugin
+- ✅ ~~feat: generate mf-manifest.json~~
+- ✅ ~~feat: support chrome plugin~~
 
 * ✅ ~~feat: support runtime plugins~~
+* feat: nuxt ssr
 
 - feat: download remote d.ts
 - feat: generate d.ts

@@ -1,6 +1,102 @@
-import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { getLocalSharedImportMapPath_windows, writeLocalSharedImportMap_windows } from '../utils/localSharedImportMap_windows';
+import { getNormalizeModuleFederationOptions, getNormalizeShareItem, NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import VirtualModule from '../utils/VirtualModule';
-import { getLocalSharedImportMapPath } from './virtualShared_preBuild';
+import { getUsedRemotesMap } from './virtualRemotes';
+import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
+import { getPreBuildLibImportId } from './virtualShared_preBuild';
+
+let usedShares: Set<string> = new Set()
+export function getUsedShares() {
+  return usedShares
+}
+export function addUsedShares(pkg: string) {
+  usedShares.add(pkg)
+}
+// *** Expose locally provided shared modules here
+const localSharedImportMapModule = new VirtualModule("localSharedImportMap")
+export function getLocalSharedImportMapPath() {
+  if (process.platform === "win32") {
+    return getLocalSharedImportMapPath_windows()
+  }
+  return localSharedImportMapModule.getPath()
+}
+let prevSharedCount: number | undefined
+export function writeLocalSharedImportMap() {
+  const sharedCount = getUsedShares().size
+  if (prevSharedCount !== sharedCount) {
+    prevSharedCount = sharedCount
+    if (process.platform === "win32") {
+      writeLocalSharedImportMap_windows(generateLocalSharedImportMap())
+    } else {
+      localSharedImportMapModule.writeSync(generateLocalSharedImportMap(), true)
+    }
+  }
+}
+export function generateLocalSharedImportMap() {
+  const options = getNormalizeModuleFederationOptions()
+  return `
+    const importMap = {
+      ${Array.from(getUsedShares()).map(pkg => `
+        ${JSON.stringify(pkg)}: async () => {
+          let pkg = await import("${getPreBuildLibImportId(pkg)}")
+          return pkg
+        }
+      `).join(",")}
+    }
+      const usedShared = {
+      ${Array.from(getUsedShares())
+      .map((key) => {
+        const shareItem = getNormalizeShareItem(key);
+        return `
+          ${JSON.stringify(key)}: {
+            name: ${JSON.stringify(key)},
+            version: ${JSON.stringify(shareItem.version)},
+            scope: [${JSON.stringify(shareItem.scope)}],
+            loaded: false,
+            from: ${JSON.stringify(options.name)},
+            async get () {
+              usedShared[${JSON.stringify(key)}].loaded = true
+              const {${JSON.stringify(key)}: pkgDynamicImport} = importMap 
+              const res = await pkgDynamicImport()
+              const exportModule = {...res}
+              // All npm packages pre-built by vite will be converted to esm
+              Object.defineProperty(exportModule, "__esModule", {
+                value: true,
+                enumerable: false
+              })
+              return function () {
+                return exportModule
+              }
+            },
+            shareConfig: {
+              singleton: ${shareItem.shareConfig.singleton},
+              requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
+            }
+          }
+        `;
+      })
+      .join(',')}
+    }
+      const usedRemotes = [${Object.keys(getUsedRemotesMap())
+      .map((key) => {
+        const remote = options.remotes[key];
+        return `
+                {
+                  entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
+                  name: ${JSON.stringify(remote.name)},
+                  type: ${JSON.stringify(remote.type)},
+                  entry: ${JSON.stringify(remote.entry)},
+                }
+          `;
+      })
+      .join(',')}
+      ]
+      export {
+        usedShared,
+        usedRemotes
+      }
+      `
+}
 
 export const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
 export function generateRemoteEntry(options: NormalizedModuleFederationOptions): string {
@@ -11,7 +107,6 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
 
   return `
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
-  
   ${pluginImportNames.map((item) => item[1]).join('\n')}
 
   const exposesMap = {
@@ -32,28 +127,19 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
       })
       .join(',')}
   }
-  import localSharedImportMap from "${getLocalSharedImportMapPath()}"
+  import {usedShared, usedRemotes} from "${getLocalSharedImportMapPath()}"
+  import {
+    initResolve
+  } from "${virtualRuntimeInitStatus.getImportId()}"
   async function init(shared = {}) {
     const initRes = runtimeInit({
       name: ${JSON.stringify(options.name)},
-      remotes: [${Object.keys(options.remotes)
-      .map((key) => {
-        const remote = options.remotes[key];
-        return `
-                {
-                  entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
-                  name: ${JSON.stringify(remote.name)},
-                  type: ${JSON.stringify(remote.type)},
-                  entry: ${JSON.stringify(remote.entry)},
-                }
-          `;
-      })
-      .join(',')}
-      ],
-      shared: localSharedImportMap,
+      remotes: usedRemotes,
+      shared: usedShared,
       plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}]
     });
     initRes.initShareScopeMap('${options.shareScope}', shared);
+    initResolve(initRes)
     return initRes
   }
 

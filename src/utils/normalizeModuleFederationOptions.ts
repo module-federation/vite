@@ -209,6 +209,22 @@ function normalizeLibrary(library: any): any {
   return library;
 }
 
+interface ManifestOptions {
+  filePath?: string;
+  disableAssetsAnalyze?: boolean;
+  fileName?: string;
+}
+function normalizeManifest(manifest: ModuleFederationOptions['manifest'] = false) {
+  if (typeof manifest === "boolean") {
+    return manifest
+  }
+  return Object.assign({
+    filePath: "",
+    disableAssetsAnalyze: false,
+    fileName: "mf-manifest.json"
+  }, manifest)
+}
+
 export type ModuleFederationOptions = {
   exposes?: Record<string, string | { import: string }> | undefined;
   filename?: string;
@@ -242,7 +258,7 @@ export type ModuleFederationOptions = {
   runtimePlugins?: string[];
   getPublicPath?: any;
   implementation?: any;
-  manifest?: any;
+  manifest?: ManifestOptions | boolean;
   dev?: any;
   dts?: any;
 };
@@ -263,7 +279,7 @@ export interface NormalizedModuleFederationOptions {
   runtimePlugins: string[];
   getPublicPath: any;
   implementation: any;
-  manifest: any;
+  manifest: ManifestOptions | boolean;
   dev: any;
   dts: any;
 }
@@ -271,6 +287,12 @@ export interface NormalizedModuleFederationOptions {
 let config: NormalizedModuleFederationOptions
 export function getNormalizeModuleFederationOptions() {
   return config
+}
+
+export function getNormalizeShareItem(key: string) {
+  const options = getNormalizeModuleFederationOptions()
+  const shareItem = options.shared[removePathFromNpmPackage(key)] || options.shared[removePathFromNpmPackage(key) + "/"]
+  return shareItem
 }
 
 export function normalizeModuleFederationOptions(
@@ -289,7 +311,7 @@ export function normalizeModuleFederationOptions(
     runtimePlugins: options.runtimePlugins || [],
     getPublicPath: options.getPublicPath,
     implementation: options.implementation,
-    manifest: options.manifest,
+    manifest: normalizeManifest(options.manifest),
     dev: options.dev,
     dts: options.dts,
   };
