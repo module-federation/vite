@@ -15,21 +15,21 @@ export function addUsedShares(pkg: string) {
 // *** Expose locally provided shared modules here
 const localSharedImportMapModule = new VirtualModule("localSharedImportMap")
 export function getLocalSharedImportMapPath() {
-  if (process.platform === "win32") {
+  // if (process.platform === "win32") {
     return getLocalSharedImportMapPath_windows()
-  }
-  return localSharedImportMapModule.getPath()
+  // }
+  // return localSharedImportMapModule.getPath()
 }
 let prevSharedCount: number | undefined
 export function writeLocalSharedImportMap() {
   const sharedCount = getUsedShares().size
   if (prevSharedCount !== sharedCount) {
     prevSharedCount = sharedCount
-    if (process.platform === "win32") {
+    // if (process.platform === "win32") {
       writeLocalSharedImportMap_windows(generateLocalSharedImportMap())
-    } else {
-      localSharedImportMapModule.writeSync(generateLocalSharedImportMap(), true)
-    }
+    // } else {
+    //   localSharedImportMapModule.writeSync(generateLocalSharedImportMap(), true)
+    // }
   }
 }
 export function generateLocalSharedImportMap() {
