@@ -7,12 +7,12 @@ import { getNormalizeModuleFederationOptions } from './normalizeModuleFederation
 import { packageNameEncode } from './packageNameUtils';
 
 
-export function getLocalSharedImportMapPath_windows() {
+export function getLocalSharedImportMapPath_temp() {
   const { name } = getNormalizeModuleFederationOptions()
-  return path.resolve(".__mf__win", packageNameEncode(name), "localSharedImportMap")
+  return path.resolve(".__mf__temp", packageNameEncode(name), "localSharedImportMap")
 }
-export function writeLocalSharedImportMap_windows(content: string) {
-  const localSharedImportMapId = getLocalSharedImportMapPath_windows()
+export function writeLocalSharedImportMap_temp(content: string) {
+  const localSharedImportMapId = getLocalSharedImportMapPath_temp()
   createFile(localSharedImportMapId + ".js", "\n// Windows temporarily needs this file, https://github.com/module-federation/vite/issues/68\n" + content)
 }
 function createFile(filePath: string, content: string) {

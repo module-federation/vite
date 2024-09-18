@@ -1,4 +1,4 @@
-import { getLocalSharedImportMapPath_windows, writeLocalSharedImportMap_windows } from '../utils/localSharedImportMap_windows';
+import { getLocalSharedImportMapPath_temp, writeLocalSharedImportMap_temp } from '../utils/localSharedImportMap_temp';
 import { getNormalizeModuleFederationOptions, getNormalizeShareItem, NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { getUsedRemotesMap } from './virtualRemotes';
@@ -15,21 +15,16 @@ export function addUsedShares(pkg: string) {
 // *** Expose locally provided shared modules here
 const localSharedImportMapModule = new VirtualModule("localSharedImportMap")
 export function getLocalSharedImportMapPath() {
-  if (process.platform === "win32") {
-    return getLocalSharedImportMapPath_windows()
-  }
-  return localSharedImportMapModule.getPath()
+  return getLocalSharedImportMapPath_temp()
+  // return localSharedImportMapModule.getPath()
 }
 let prevSharedCount: number | undefined
 export function writeLocalSharedImportMap() {
   const sharedCount = getUsedShares().size
   if (prevSharedCount !== sharedCount) {
     prevSharedCount = sharedCount
-    if (process.platform === "win32") {
-      writeLocalSharedImportMap_windows(generateLocalSharedImportMap())
-    } else {
-      localSharedImportMapModule.writeSync(generateLocalSharedImportMap(), true)
-    }
+    writeLocalSharedImportMap_temp(generateLocalSharedImportMap())
+    //   localSharedImportMapModule.writeSync(generateLocalSharedImportMap(), true)
   }
 }
 export function generateLocalSharedImportMap() {

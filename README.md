@@ -47,15 +47,17 @@ export default defineConfig({
         remote3:
           'remote1@https://unpkg.com/react-manifest-example_remote1@1.0.6/dist/mf-manifest.json',
         // "remote4": {
-        //   entry: "http://localhost:5174/dd/remoteEntry.js",
-        //   globalEntryName: "bb",
-        //   type: "esm"
+        //   entry: "http://localhost:xxxx/remoteEntry.js",
+        //   globalEntryName: "xxxx",
+        //   type: "module"
         // }
       },
       exposes: {
         './App': './src/App.vue',
       },
-      filename: 'dd/remoteEntry.js',
+      filename: 'remoteEntry-[hash].js',
+      // https://github.com/module-federation/vite/issues/87
+      manifest: true,
       shared: {
         vue: {},
         react: {
