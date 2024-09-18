@@ -3,3 +3,5 @@ dist
 .DS_Store
 .idea
 .__mf__win
+lib
+**/.__mf__temp
