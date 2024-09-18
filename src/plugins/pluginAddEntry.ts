@@ -68,13 +68,16 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
       buildStart() {
         if (_command === "serve") return
         const hasHash = fileName?.includes?.("[hash")
-        this.emitFile({
+        const emitFileOptions: any = {
           name: entryName,
-          [hasHash ? "name" : "fileName"]: fileName,
           type: 'chunk',
           id: entryPath,
           preserveSignature: 'strict',
-        });
+        }
+        if (!hasHash) {
+          emitFileOptions.fileName = fileName
+        }
+        this.emitFile(emitFileOptions);
         if (htmlFilePath) {
           const htmlContent = fs.readFileSync(htmlFilePath, 'utf-8');
           const scriptRegex = /<script\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;

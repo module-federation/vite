@@ -23,6 +23,8 @@ const Manifest = (): Plugin[] => {
     async: string[]
   }>; // 保存模块和文件的映射关系
   let remoteEntryFile: string
+  let publicPath: string
+  let _command: string
   return [
     {
       name: 'moddule-federation-manifest',
@@ -57,7 +59,7 @@ const Manifest = (): Plugin[] => {
                   types: { path: '', name: '' },
                   globalName: name,
                   pluginVersion: '0.2.5',
-                  publicPath: 'auto',
+                  publicPath
                 },
                 shared: Array.from(getUsedShares()).map(shareKey => {
                   const shareItem = getNormalizeShareItem(shareKey);
@@ -124,13 +126,19 @@ const Manifest = (): Plugin[] => {
     {
       name: 'moddule-federation-manifest',
       enforce: 'post',
-      config(config) {
+      config(config, { command }) {
         if (!config.build) config.build = {}
         if (!config.build.manifest) config.build.manifest = config.build.manifest || !!manifestOptions
+        _command = command
       },
       configResolved(config) {
         root = config.root
         extensions = config.resolve.extensions || ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json']
+        publicPath = config.base ? config.base.replace(/\/?$/, "/") : "auto"
+        if (_command === "serve") {
+          const origin = config.server.origin
+          publicPath = origin ? origin.replace(/\/?$/, "/") : "auto"
+        }
       },
       async generateBundle(options, bundle) {
         if (!mfManifestName) return
@@ -152,7 +160,7 @@ const Manifest = (): Plugin[] => {
 
         // 遍历打包生成的每个文件
         for (const [fileName, fileData] of Object.entries(bundle)) {
-          if (mfOptions.filename.replace(/[\[\]]/g, "_") === fileData.name) {
+          if (mfOptions.filename.replace(/[\[\]]/g, "_") === fileData.name || fileData.name === "remoteEntry") {
             remoteEntryFile = fileData.fileName
           }
           if (fileData.type === 'chunk') {
@@ -343,7 +351,7 @@ const Manifest = (): Plugin[] => {
         },
         globalName: name,
         pluginVersion: '0.2.5',
-        publicPath: 'auto',
+        publicPath
       },
       shared,
       remotes,

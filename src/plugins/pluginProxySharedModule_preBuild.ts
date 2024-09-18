@@ -3,12 +3,13 @@ import { Plugin, UserConfig, WatchOptions } from 'vite';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { PromiseStore } from "../utils/PromiseStore";
 import VirtualModule from '../utils/VirtualModule';
-import { addUsedShares, generateLocalSharedImportMap, getLoadShareModulePath, getLocalSharedImportMapPath, LOAD_SHARE_TAG, PREBUILD_TAG, writeLoadShareModule, writeLocalSharedImportMap, writePreBuildLibPath } from '../virtualModules';
+import { addUsedShares, generateLocalSharedImportMap, getLoadShareModulePath, getLocalSharedImportMapPath, PREBUILD_TAG, writeLoadShareModule, writeLocalSharedImportMap, writePreBuildLibPath } from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
 export function proxySharedModule(
   options: { shared?: NormalizedShared; include?: string | string[]; exclude?: string | string[] }
 ): Plugin[] {
   let { shared = {}, include, exclude } = options;
+  let _config: UserConfig
   return [
     {
       name: "generateLocalSharedImportMap",
@@ -27,6 +28,9 @@ export function proxySharedModule(
     {
       name: 'proxyPreBuildShared',
       enforce: 'post',
+      configResolved(config) {
+        _config = config as any
+      },
       config(config: UserConfig, { command }) {
         ; (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
@@ -34,6 +38,7 @@ export function proxySharedModule(
             return {
               // Intercept all shared requests and proxy them to loadShare
               find: new RegExp(pattern), replacement: "$1", customResolver(source: string, importer: string) {
+                if (/\.css$/.test(source)) return
                 const loadSharePath = getLoadShareModulePath(source)
                 writeLoadShareModule(source, shared[key], command)
                 writePreBuildLibPath(source)
@@ -58,9 +63,10 @@ export function proxySharedModule(
                 {
                   find: new RegExp(`(.*${PREBUILD_TAG}.*)`), replacement: "$1", async customResolver(source: string, importer: string) {
                     const pkgName = (VirtualModule.findModule(PREBUILD_TAG, source) as VirtualModule).name
-                    if (importer.includes(LOAD_SHARE_TAG)) {
+                    const result = await (this as any).resolve(pkgName).then((item: any) => item.id)
+                    if (!result.includes(_config.cacheDir)) {
                       // save pre-bunding module id
-                      savePrebuild.set(pkgName, (this as any).resolve(pkgName).then((item: any) => item.id))
+                      savePrebuild.set(pkgName, Promise.resolve(result))
                     }
                     // Fix localSharedImportMap import id
                     return await (this as any).resolve(await savePrebuild.get(pkgName))
