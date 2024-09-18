@@ -10,7 +10,7 @@
     "lib/**/*"
   ],
   "scripts": {
-    "postinstall": "pnpm run build",
+    "postinstall": "npm run build",
     "prepare": "husky install",
     "format": "pretty-quick",
     "dev": "microbundle watch --no-sourcemap --compress=false",
