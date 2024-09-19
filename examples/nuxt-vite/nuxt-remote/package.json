@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "nuxt prepare",
     "build": "nuxt build",
+    "predev": "nuxt prepare",
     "dev": "NODE_OPTIONS=--experimental-vm-modules nuxt dev --experimental-vm-modules",
     "generate": "nuxt generate",
-    "preview": "nuxt preview --port=3001",
-    "postinstall": "nuxt prepare"
+    "preview": "nuxt preview --port=3001"
   },
   "dependencies": {
     "@module-federation/vite": "workspace:*",
