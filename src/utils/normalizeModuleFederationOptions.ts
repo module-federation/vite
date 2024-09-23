@@ -29,7 +29,7 @@ interface ExposesItem {
 export interface NormalizedShared {
   [key: string]: ShareItem;
 }
-export interface RemoteObjectConfig { type?: string; name?: string; entry?: string; entryGlobalName?: string; shareScope?: string }
+export interface RemoteObjectConfig { type?: string; name: string; entry: string; entryGlobalName?: string; shareScope?: string }
 
 function normalizeExposesItem(key: string, item: string | { import: string }): ExposesItem {
   let importPath: string = '';
