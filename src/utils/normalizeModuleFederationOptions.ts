@@ -29,6 +29,7 @@ interface ExposesItem {
 export interface NormalizedShared {
   [key: string]: ShareItem;
 }
+export interface RemoteObjectConfig { type?: string; name?: string; entry?: string; entryGlobalName?: string; shareScope?: string }
 
 function normalizeExposesItem(key: string, item: string | { import: string }): ExposesItem {
   let importPath: string = '';
@@ -59,17 +60,17 @@ export function normalizeRemotes(
     | Record<
       string,
       | string
-      | { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
+      | RemoteObjectConfig
     >
     | undefined
 ): Record<
   string,
-  { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
+  RemoteObjectConfig
 > {
   if (!remotes) return {};
   const result: Record<
     string,
-    { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
+    RemoteObjectConfig
   > = {};
   if (typeof remotes === 'object') {
     Object.keys(remotes).forEach((key) => {
@@ -83,8 +84,8 @@ function normalizeRemoteItem(
   key: string,
   remote:
     | string
-    | { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
-): { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string } {
+    | RemoteObjectConfig
+): RemoteObjectConfig {
   if (typeof remote === 'string') {
     const [entryGlobalName] = remote.split('@');
     const entry = remote.replace(entryGlobalName + '@', '');
@@ -235,7 +236,7 @@ export type ModuleFederationOptions = {
   | Record<
     string,
     | string
-    | { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
+    | RemoteObjectConfig
   >
   | undefined;
   runtime?: any;
@@ -271,7 +272,7 @@ export interface NormalizedModuleFederationOptions {
   // remoteType: string;
   remotes: Record<
     string,
-    { type: string; name: string; entry: string; entryGlobalName: string; shareScope: string }
+    RemoteObjectConfig
   >;
   runtime: any;
   shareScope: string;
