@@ -35,6 +35,9 @@ importers:
       mime-types:
         specifier: ^2.1.35
         version: 2.1.35
+      prettier:
+        specifier: 3.3.3
+        version: 3.3.3
       pretty-quick:
         specifier: ^4.0.0
         version: 4.0.0(prettier@3.3.3)
@@ -395,13 +398,13 @@ importers:
         version: 8.4.1(@babel/core@7.25.2)(webpack@5.94.0(webpack-cli@4.10.0))
       css-loader:
         specifier: ^6.3.0
-        version: 6.11.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.94.0(webpack-cli@4.10.0))
+        version: 6.11.0(@rspack/core@1.0.4)(webpack@5.94.0(webpack-cli@4.10.0))
       dotenv-webpack:
         specifier: ^8.0.1
         version: 8.1.0(webpack@5.94.0(webpack-cli@4.10.0))
       html-webpack-plugin:
         specifier: ^5.3.2
-        version: 5.6.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.94.0(webpack-cli@4.10.0))
+        version: 5.6.0(@rspack/core@1.0.4)(webpack@5.94.0(webpack-cli@4.10.0))
       postcss:
         specifier: ^8.2.1
         version: 8.4.44
@@ -16217,7 +16220,7 @@ snapshots:
     dependencies:
       postcss: 8.4.44
 
-  css-loader@6.11.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.94.0(webpack-cli@4.10.0)):
+  css-loader@6.11.0(@rspack/core@1.0.4)(webpack@5.94.0(webpack-cli@4.10.0)):
     dependencies:
       icss-utils: 5.1.0(postcss@8.4.44)
       postcss: 8.4.44
@@ -17279,7 +17282,7 @@ snapshots:
 
   html-tags@3.3.1: {}
 
-  html-webpack-plugin@5.6.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.94.0(webpack-cli@4.10.0)):
+  html-webpack-plugin@5.6.0(@rspack/core@1.0.4)(webpack@5.94.0(webpack-cli@4.10.0)):
     dependencies:
       '@types/html-minifier-terser': 6.1.0
       html-minifier-terser: 6.1.0

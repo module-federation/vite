@@ -1,19 +1,19 @@
 /**
  * Solve the problem that dev mode dependency prebunding does not support top-level await syntax
  */
-import { createFilter } from "@rollup/pluginutils";
+import { createFilter } from '@rollup/pluginutils';
 import { walk } from 'estree-walker';
-import MagicString from "magic-string";
-import { Plugin } from "vite";
+import MagicString from 'magic-string';
+import { Plugin } from 'vite';
 
 export function PluginDevProxyModuleTopLevelAwait(): Plugin {
   const filterFunction = createFilter();
   return {
-    name: "dev-proxy-module-top-level-await",
-    apply: "serve",
+    name: 'dev-proxy-module-top-level-await',
+    apply: 'serve',
     transform(code: string, id: string): { code: string; map: any } | null {
-      if (!(code.includes("/*mf top-level-await placeholder replacement mf*/"))) {
-        return null
+      if (!code.includes('/*mf top-level-await placeholder replacement mf*/')) {
+        return null;
       }
       if (!filterFunction(id)) return null;
       let ast: any;
@@ -30,12 +30,20 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
       walk(ast, {
         enter(node: any) {
           if (node.type === 'ExportNamedDeclaration' && node.specifiers) {
-            const exportSpecifiers = node.specifiers.map((specifier: any) => specifier.exported.name);
-            const proxyStatements = exportSpecifiers.map((name: string) => `
+            const exportSpecifiers = node.specifiers.map(
+              (specifier: any) => specifier.exported.name
+            );
+            const proxyStatements = exportSpecifiers
+              .map(
+                (name: string) => `
               const __mfproxy__await${name} = await ${name}();
               const __mfproxy__${name} = () => __mfproxy__await${name};
-            `).join('\n');
-            const exportStatements = exportSpecifiers.map((name: string) => `__mfproxy__${name} as ${name}`).join(', ');
+            `
+              )
+              .join('\n');
+            const exportStatements = exportSpecifiers
+              .map((name: string) => `__mfproxy__${name} as ${name}`)
+              .join(', ');
 
             const start = node.start;
             const end = node.end;
@@ -58,7 +66,10 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
                 const __mfproxy__awaitdefault = await ${declaration.name}();
                 const __mfproxy__default = __mfproxy__awaitdefault;
               `;
-            } else if (declaration.type === 'CallExpression' || declaration.type === 'FunctionDeclaration') {
+            } else if (
+              declaration.type === 'CallExpression' ||
+              declaration.type === 'FunctionDeclaration'
+            ) {
               // example: export default someFunction();
               const declarationCode = code.slice(declaration.start, declaration.end);
               proxyStatement = `
@@ -77,12 +88,12 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
 
             magicString.overwrite(start, end, replacement);
           }
-        }
+        },
       });
       return {
         code: magicString.toString(),
         map: magicString.generateMap({ hires: true }),
       };
     },
-  }
+  };
 }

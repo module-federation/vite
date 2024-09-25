@@ -1,4 +1,4 @@
-import { SharedConfig } from '@module-federation/runtime/types';
+import { SharedConfig, ShareStrategy } from '@module-federation/runtime/types';
 
 export type RemoteEntryType =
   | 'var'
@@ -29,7 +29,13 @@ interface ExposesItem {
 export interface NormalizedShared {
   [key: string]: ShareItem;
 }
-export interface RemoteObjectConfig { type?: string; name: string; entry: string; entryGlobalName?: string; shareScope?: string }
+export interface RemoteObjectConfig {
+  type?: string;
+  name: string;
+  entry: string;
+  entryGlobalName?: string;
+  shareScope?: string;
+}
 
 function normalizeExposesItem(key: string, item: string | { import: string }): ExposesItem {
   let importPath: string = '';
@@ -56,22 +62,10 @@ function normalizeExposes(
 }
 
 export function normalizeRemotes(
-  remotes:
-    | Record<
-      string,
-      | string
-      | RemoteObjectConfig
-    >
-    | undefined
-): Record<
-  string,
-  RemoteObjectConfig
-> {
+  remotes: Record<string, string | RemoteObjectConfig> | undefined
+): Record<string, RemoteObjectConfig> {
   if (!remotes) return {};
-  const result: Record<
-    string,
-    RemoteObjectConfig
-  > = {};
+  const result: Record<string, RemoteObjectConfig> = {};
   if (typeof remotes === 'object') {
     Object.keys(remotes).forEach((key) => {
       result[key] = normalizeRemoteItem(key, remotes[key]);
@@ -80,12 +74,7 @@ export function normalizeRemotes(
   return result;
 }
 
-function normalizeRemoteItem(
-  key: string,
-  remote:
-    | string
-    | RemoteObjectConfig
-): RemoteObjectConfig {
+function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): RemoteObjectConfig {
   if (typeof remote === 'string') {
     const [entryGlobalName] = remote.split('@');
     const entry = remote.replace(entryGlobalName + '@', '');
@@ -132,13 +121,13 @@ function normalizeShareItem(
   shareItem:
     | string
     | {
-      name: string;
-      version?: string;
-      shareScope?: string;
-      singleton?: boolean;
-      requiredVersion?: string;
-      strictVersion?: boolean;
-    }
+        name: string;
+        version?: string;
+        shareScope?: string;
+        singleton?: boolean;
+        requiredVersion?: string;
+        strictVersion?: boolean;
+      }
 ): ShareItem {
   let version: string | undefined;
   try {
@@ -175,17 +164,17 @@ function normalizeShared(
   shared:
     | string[]
     | Record<
-      string,
-      | string
-      | {
-        name?: string;
-        version?: string;
-        shareScope?: string;
-        singleton?: boolean;
-        requiredVersion?: string;
-        strictVersion?: boolean;
-      }
-    >
+        string,
+        | string
+        | {
+            name?: string;
+            version?: string;
+            shareScope?: string;
+            singleton?: boolean;
+            requiredVersion?: string;
+            strictVersion?: boolean;
+          }
+      >
     | undefined
 ): NormalizedShared {
   if (!shared) return {};
@@ -216,14 +205,17 @@ interface ManifestOptions {
   fileName?: string;
 }
 function normalizeManifest(manifest: ModuleFederationOptions['manifest'] = false) {
-  if (typeof manifest === "boolean") {
-    return manifest
+  if (typeof manifest === 'boolean') {
+    return manifest;
   }
-  return Object.assign({
-    filePath: "",
-    disableAssetsAnalyze: false,
-    fileName: "mf-manifest.json"
-  }, manifest)
+  return Object.assign(
+    {
+      filePath: '',
+      disableAssetsAnalyze: false,
+      fileName: 'mf-manifest.json',
+    },
+    manifest
+  );
 }
 
 export type ModuleFederationOptions = {
@@ -232,36 +224,31 @@ export type ModuleFederationOptions = {
   library?: any;
   name: string;
   // remoteType?: string;
-  remotes?:
-  | Record<
-    string,
-    | string
-    | RemoteObjectConfig
-  >
-  | undefined;
+  remotes?: Record<string, string | RemoteObjectConfig> | undefined;
   runtime?: any;
   shareScope?: string;
   shared?:
-  | string[]
-  | Record<
-    string,
-    | string
-    | {
-      name?: string;
-      version?: string;
-      shareScope?: string;
-      singleton?: boolean;
-      requiredVersion?: string;
-      strictVersion?: boolean;
-    }
-  >
-  | undefined;
+    | string[]
+    | Record<
+        string,
+        | string
+        | {
+            name?: string;
+            version?: string;
+            shareScope?: string;
+            singleton?: boolean;
+            requiredVersion?: string;
+            strictVersion?: boolean;
+          }
+      >
+    | undefined;
   runtimePlugins?: string[];
   getPublicPath?: any;
   implementation?: any;
   manifest?: ManifestOptions | boolean;
   dev?: any;
   dts?: any;
+  shareStrategy: ShareStrategy;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -270,10 +257,7 @@ export interface NormalizedModuleFederationOptions {
   library: any;
   name: string;
   // remoteType: string;
-  remotes: Record<
-    string,
-    RemoteObjectConfig
-  >;
+  remotes: Record<string, RemoteObjectConfig>;
   runtime: any;
   shareScope: string;
   shared: NormalizedShared;
@@ -283,23 +267,26 @@ export interface NormalizedModuleFederationOptions {
   manifest: ManifestOptions | boolean;
   dev: any;
   dts: any;
+  shareStrategy?: ShareStrategy;
 }
 
-let config: NormalizedModuleFederationOptions
+let config: NormalizedModuleFederationOptions;
 export function getNormalizeModuleFederationOptions() {
-  return config
+  return config;
 }
 
 export function getNormalizeShareItem(key: string) {
-  const options = getNormalizeModuleFederationOptions()
-  const shareItem = options.shared[removePathFromNpmPackage(key)] || options.shared[removePathFromNpmPackage(key) + "/"]
-  return shareItem
+  const options = getNormalizeModuleFederationOptions();
+  const shareItem =
+    options.shared[removePathFromNpmPackage(key)] ||
+    options.shared[removePathFromNpmPackage(key) + '/'];
+  return shareItem;
 }
 
 export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
-  return config = {
+  return (config = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
     library: normalizeLibrary(options.library),
@@ -315,5 +302,6 @@ export function normalizeModuleFederationOptions(
     manifest: normalizeManifest(options.manifest),
     dev: options.dev,
     dts: options.dts,
-  };
+    shareStrategy: options.shareStrategy,
+  });
 }
