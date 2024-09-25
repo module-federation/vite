@@ -8,7 +8,7 @@ import { getPreBuildLibImportId, getUsedRemotesMap, getUsedShares } from '../vir
 
 const Manifest = (): Plugin[] => {
   const mfOptions = getNormalizeModuleFederationOptions();
-  const { name, filename, manifest: manifestOptions } = mfOptions;
+  const { name, filename, getPublicPath, manifest: manifestOptions } = mfOptions;
   let mfManifestName: string = '';
   if (manifestOptions === true) {
     mfManifestName = 'mf-manifest.json';
@@ -62,7 +62,7 @@ const Manifest = (): Plugin[] => {
                   types: { path: '', name: '' },
                   globalName: name,
                   pluginVersion: '0.2.5',
-                  publicPath,
+                  ...(!!getPublicPath ? { getPublicPath } : { publicPath }),
                 },
                 shared: Array.from(getUsedShares()).map((shareKey) => {
                   const shareItem = getNormalizeShareItem(shareKey);
@@ -378,7 +378,7 @@ const Manifest = (): Plugin[] => {
         },
         globalName: name,
         pluginVersion: '0.2.5',
-        publicPath,
+        ...(!!getPublicPath ? { getPublicPath } : { publicPath }),
       },
       shared,
       remotes,

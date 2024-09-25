@@ -243,7 +243,7 @@ export type ModuleFederationOptions = {
       >
     | undefined;
   runtimePlugins?: string[];
-  getPublicPath?: any;
+  getPublicPath?: string;
   implementation?: any;
   manifest?: ManifestOptions | boolean;
   dev?: any;
@@ -262,7 +262,7 @@ export interface NormalizedModuleFederationOptions {
   shareScope: string;
   shared: NormalizedShared;
   runtimePlugins: string[];
-  getPublicPath: any;
+  getPublicPath?: string;
   implementation: any;
   manifest: ManifestOptions | boolean;
   dev: any;
