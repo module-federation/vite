@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "install:deps": "pnpm --filter \"vite-multi-example-*\" install",
     "start": "pnpm --filter \"vite-multi-example-*\" run start"
   },
   "author": "",
