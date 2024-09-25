@@ -13,12 +13,12 @@
  * @returns {string} - The encoded file name.
  */
 export function packageNameEncode(name: string) {
-  if (typeof name !== "string") throw new Error("A string package name is required");
+  if (typeof name !== 'string') throw new Error('A string package name is required');
   return name
-    .replace(/@/g, "_mf_0_")
-    .replace(/\//g, "_mf_1_")
-    .replace(/-/g, "_mf_2_")
-    .replace(/\./g, "_mf_3_");
+    .replace(/@/g, '_mf_0_')
+    .replace(/\//g, '_mf_1_')
+    .replace(/-/g, '_mf_2_')
+    .replace(/\./g, '_mf_3_');
 }
 
 /**
@@ -27,12 +27,12 @@ export function packageNameEncode(name: string) {
  * @returns {string} - The decoded package name.
  */
 export function packageNameDecode(encoded: string) {
-  if (typeof encoded !== "string") throw new Error("A string encoded file name is required");
+  if (typeof encoded !== 'string') throw new Error('A string encoded file name is required');
   return encoded
-    .replace(/_mf_0_/g, "@")
-    .replace(/_mf_1_/g, "/")
-    .replace(/_mf_2_/g, "-")
-    .replace(/_mf_3_/g, ".");
+    .replace(/_mf_0_/g, '@')
+    .replace(/_mf_1_/g, '/')
+    .replace(/_mf_2_/g, '-')
+    .replace(/_mf_3_/g, '.');
 }
 
 export function removePathFromNpmPackage(packageString: string): string {
@@ -47,9 +47,9 @@ export function removePathFromNpmPackage(packageString: string): string {
 }
 
 export function getExtFromNpmPackage(packageString: string) {
-  const pkgName = removePathFromNpmPackage(packageString)
-  const subpath = packageString.replace(pkgName, "")
+  const pkgName = removePathFromNpmPackage(packageString);
+  const subpath = packageString.replace(pkgName, '');
   const parts = subpath.split('.');
-  const ext = parts.length > 1 ? "." + parts.pop() : undefined;
-  return ext
+  const ext = parts.length > 1 ? '.' + parts.pop() : undefined;
+  return ext;
 }
