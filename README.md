@@ -17,12 +17,17 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ### [More examples here](https://github.com/module-federation/vite/tree/main/examples)<br>
 
-```
-pnpm install && pnpm run dev-vv # vite+vite dev demo
-```
+## Try this crazy example with all these bundlers together
 
-```
-pnpm install && pnpm run preview-vv # vite+vite build demo
+<p float="left">
+  <img src="./docs/vite.webp" width="150" />
+  <img src="./docs/webpack.webp" width="160" /> 
+  <img src="./docs/rspack.webp" width="200" />
+</p>
+
+```bash
+pnpm install
+pnpm run multi-example
 ```
 
 ## Getting started 🚀
@@ -31,7 +36,7 @@ https://module-federation.io/guide/basic/webpack.html
 
 With **@module-federation/vite**, the process becomes delightfully simple, you will only find the differences from a normal Vite configuration.
 
-> This example is with Vue.js
+> This example is with [Vue.js](https://vuejs.org/)</br>
 > The @module-federation/vite configuration remains the same for different frameworks.
 
 ## The Remote Application configuration

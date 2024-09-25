@@ -1,5 +1,5 @@
 {
-  "name": "vite-multi-example-webpack",
+  "name": "multi-example-webpack",
   "version": "1.0.0",
   "scripts": {
     "build": "webpack --mode production",

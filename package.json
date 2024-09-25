@@ -19,7 +19,8 @@
     "dev-rv": "pnpm -filter 'examples-rust-vite*' run dev",
     "dev-vv": "pnpm -filter 'examples-vite-vite*' run dev",
     "dev-nv": "pnpm -filter 'examples-nuxt-vite-host' -filter 'examples-vite-vite-remote' run dev",
-    "preview-vv": "pnpm -filter 'examples-vite-vite*'  run preview"
+    "preview-vv": "pnpm -filter 'examples-vite-vite*'  run preview",
+    "multi-example": "pnpm --filter \"multi-example-*\" run start"
   },
   "repository": {
     "type": "git",

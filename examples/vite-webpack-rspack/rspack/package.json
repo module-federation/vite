@@ -1,5 +1,5 @@
 {
-  "name": "vite-multi-example-rspack",
+  "name": "multi-example-rspack",
   "version": "1.0.0",
   "scripts": {
     "build": "NODE_ENV=production rspack build",
