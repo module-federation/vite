@@ -1,0 +1,11 @@
+{
+  "name": "vite-multi-example",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "pnpm --filter \"vite-multi-example-*\" run start"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
