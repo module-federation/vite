@@ -1,5 +1,5 @@
-import VirtualModule from "../utils/VirtualModule"
-export const virtualRuntimeInitStatus = new VirtualModule("runtimeInit")
+import VirtualModule from '../utils/VirtualModule';
+export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 export function writeRuntimeInitStatus() {
   virtualRuntimeInitStatus.writeSync(`
     let initResolve, initReject
@@ -12,5 +12,5 @@ export function writeRuntimeInitStatus() {
       initResolve,
       initReject
     }
-    `)
+    `);
 }

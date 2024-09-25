@@ -17,15 +17,14 @@ export default function (): Plugin {
     },
     load(id: string) {
       if (id === REMOTE_ENTRY_ID) {
-        return parsePromise.then(_ => generateRemoteEntry(getNormalizeModuleFederationOptions()))
+        return parsePromise.then((_) => generateRemoteEntry(getNormalizeModuleFederationOptions()));
       }
     },
     async transform(code: string, id: string) {
       if (!filter(id)) return;
       if (id.includes(REMOTE_ENTRY_ID)) {
-        return parsePromise.then(_ => generateRemoteEntry(getNormalizeModuleFederationOptions()))
+        return parsePromise.then((_) => generateRemoteEntry(getNormalizeModuleFederationOptions()));
       }
     },
-  }
-
+  };
 }

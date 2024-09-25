@@ -11,6 +11,8 @@
   ],
   "scripts": {
     "prepare": "husky install",
+    "fmt": "prettier --write src",
+    "fmt.check": "prettier --check src",
     "format": "pretty-quick",
     "dev": "microbundle watch --no-sourcemap --compress=false",
     "build": "rimraf lib && microbundle --no-sourcemap --compress=false",
@@ -51,6 +53,7 @@
     "husky": "^8.0.3",
     "microbundle": "^0.15.1",
     "mime-types": "^2.1.35",
+    "prettier": "3.3.3",
     "pretty-quick": "^4.0.0",
     "rimraf": "^6.0.1",
     "vite": "^5.4.3"
