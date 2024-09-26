@@ -60,7 +60,7 @@ export default defineConfig({
       shared: ["vue"],
     }),
   ],
-  // Do you need to support different build targets?
+  // Do you need to support build targets lower than chrome89?
   // You can use 'vite-plugin-top-level-await' plugin for that.
   build: {
     target: 'chrome89',
@@ -99,7 +99,7 @@ export default defineConfig({
       shared: ["vue"],
     }),
   ],
-  // Do you need to support different build targets?
+  // Do you need to support build targets lower than chrome89?
   // You can use 'vite-plugin-top-level-await' plugin for that.
   build: {
     target: 'chrome89',
