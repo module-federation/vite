@@ -81,9 +81,9 @@ module.exports = {
         },
       },
       dev: {
-        disableLiveReload: true,
-        disableHotTypesReload: true,
-        disableDynamicRemoteTypeHints: true,
+        disableLiveReload: false,
+        disableHotTypesReload: false,
+        disableDynamicRemoteTypeHints: false,
       },
       exposes: {
         './Image': './src/Image.tsx',
