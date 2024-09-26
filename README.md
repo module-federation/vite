@@ -17,86 +17,117 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ### [More examples here](https://github.com/module-federation/vite/tree/main/examples)<br>
 
-```
-pnpm install && pnpm run dev-vv # vite+vite dev demo
-```
+## Try this crazy example with all these bundlers together
 
-```
-pnpm install && pnpm run preview-vv # vite+vite build demo
+<p float="left">
+  <img src="./docs/vite.webp" width="150" />
+  <img src="./docs/webpack.webp" width="160" /> 
+  <img src="./docs/rspack.webp" width="200" />
+</p>
+
+```bash
+pnpm install
+pnpm run multi-example
 ```
 
 ## Getting started 🚀
 
 https://module-federation.io/guide/basic/webpack.html
 
-```js
-// vite.config.js
-import { defineConfig } from 'vite';
-import vue from '@vitejs/plugin-vue';
-import { federation } from '@module-federation/vite';
-import topLevelAwait from 'vite-plugin-top-level-await';
+With **@module-federation/vite**, the process becomes delightfully simple, you will only find the differences from a normal Vite configuration.
 
-// https://vitejs.dev/config/
+> This example is with [Vue.js](https://vuejs.org/)</br>
+> The @module-federation/vite configuration remains the same for different frameworks.
+
+## The Remote Application configuration
+
+file: **remote/vite.config.ts**
+
+```ts
+import { defineConfig } from 'vite';
+import { federation } from '@module-federation/vite'; 👈
+
 export default defineConfig({
+  [...]
   plugins: [
-    federation({
-      name: 'bbc',
-      remotes: {
-        mfapp01: 'mfapp01@https://unpkg.com/mf-app-01@1.0.9/dist/remoteEntry.js',
-        remote2: 'mfapp02@https://unpkg.com/mf-app-02/dist/remoteEntry.js',
-        remote3:
-          'remote1@https://unpkg.com/react-manifest-example_remote1@1.0.6/dist/mf-manifest.json',
-        // "remote4": {
-        //   entry: "http://localhost:xxxx/remoteEntry.js",
-        //   globalEntryName: "xxxx",
-        //   type: "module"
-        // }
-      },
+    [...]
+    federation({ 👈
+      name: "remote",
+      filename: "remoteEntry.js",
       exposes: {
-        './App': './src/App.vue',
+        "./remote-app": "./src/App.vue",
       },
-      filename: 'remoteEntry-[hash].js',
-      // https://github.com/module-federation/vite/issues/87
-      manifest: true,
-      shared: {
-        vue: {},
-        react: {
-          requiredVersion: '18',
-        },
-        'react-dom': {
-          requiredVersion: '18',
-        },
-        'react-dom/': {
-          requiredVersion: '18',
-        },
-      },
+      shared: ["vue"],
     }),
-    // If you set build.target: "chrome89", you can remove this plugin
-    // topLevelAwait(),
   ],
-  server: {
-    port: 5173,
-    // dev mode please set origin
-    origin: 'http://localhost:5173',
-  },
+  // Do you need to support build targets lower than chrome89?
+  // You can use 'vite-plugin-top-level-await' plugin for that.
   build: {
     target: 'chrome89',
   },
+  [...]
 });
 ```
 
-## roadmap
+In this remote app configuration, we define a remoteEntry.js file that will expose the App component.
+The shared property ensures that both host and remote applications use the same vue library.
 
-- ✅ ~~feat: generate mf-manifest.json~~
-- ✅ ~~feat: support chrome plugin~~
+## The Host Application configuration
 
-* ✅ ~~feat: support runtime plugins~~
-* feat: nuxt ssr
+file **host/vite.config.ts**
 
-- feat: download remote d.ts
-- feat: generate d.ts
-- feat: support @vitejs/plugin-legacy
-- feat: Another plugin, when only some remote modules are started, automatically completes HMR[（#54）](https://github.com/module-federation/vite/issues/54)
+```ts
+import { defineConfig } from 'vite';
+import { federation } from '@module-federation/vite'; 👈
+
+export default defineConfig({
+  [...]
+  plugins: [
+    [...]
+    federation({ 👈
+      name: "host",
+      remotes: {
+        remote: {
+          type: "module",
+          name: "remote",
+          entry: "https://[...]/remoteEntry.js",
+          entryGlobalName: "remote",
+          shareScope: "default",
+        },
+      },
+      filename: "remoteEntry.js",
+      shared: ["vue"],
+    }),
+  ],
+  // Do you need to support build targets lower than chrome89?
+  // You can use 'vite-plugin-top-level-await' plugin for that.
+  build: {
+    target: 'chrome89',
+  },
+  [...]
+});
+```
+
+The host app configuration specifies its name, the filename of its exposed remote entry remoteEntry.js, and importantly, the configuration of the remote application to load.
+
+## Load the Remote App
+
+In your host app, you can now import and use the remote app with **defineAsyncComponent**
+
+file **host/src/App.vue**
+
+```ts
+<script setup lang="ts">
+import { defineAsyncComponent } from "vue";
+const RemoteMFE = defineAsyncComponent( 👈
+  () => import("remote/remote-app")
+);
+</script>
+
+<template>
+  <RemoteMFE v-if="!!RemoteMFE" /> 👈
+</template>
+```
 
 ### So far so good 🎉
 

@@ -1,0 +1,32 @@
+{
+  "name": "multi-example-rspack",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "NODE_ENV=production rspack build",
+    "build:dev": "NODE_ENV=development rspack build",
+    "build:start": "cd dist && rspack serve",
+    "start": "NODE_ENV=development rspack serve"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Jack Herrington",
+    "email": "jherr@pobox.com"
+  },
+  "devDependencies": {
+    "@rspack/cli": "1.0.4",
+    "@rspack/core": "1.0.4",
+    "@rspack/plugin-react-refresh": "1.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "autoprefixer": "^10.1.0",
+    "postcss": "^8.2.1",
+    "postcss-loader": "^8.0.0",
+    "react-refresh": "^0.14.0",
+    "tailwindcss": "^3.4.11"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@module-federation/vite": "workspace:*"
+  }
+}
