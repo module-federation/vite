@@ -1,9 +1,10 @@
-import React from 'react';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import logo from './assets/webpack-logo.png';
 
-const WebpackImage = () => {
+const WebpackImage = ({ foo }: { foo: number }) => {
   const [count, setCount] = useState(0);
+  console.log(foo);
+
   return (
     <div>
       <p className="text-white text-base">This is a component from Webpack.</p>{' '}

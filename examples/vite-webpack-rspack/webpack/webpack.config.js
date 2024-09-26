@@ -1,5 +1,5 @@
 const HtmlWebPackPlugin = require('html-webpack-plugin');
-const ModuleFederationPlugin = require('webpack/lib/container/ModuleFederationPlugin');
+const { ModuleFederationPlugin } = require('@module-federation/enhanced');
 const path = require('path');
 const Dotenv = require('dotenv-webpack');
 const deps = require('./package.json').dependencies;
@@ -69,6 +69,22 @@ module.exports = {
       name: 'webpack',
       filename: 'remoteEntry.js',
       remotes: {},
+      dts: {
+        generateTypes: {
+          extractRemoteTypes: true,
+        },
+        consumeTypes: {
+          typesFolder: '@mf-types/',
+          abortOnError: true,
+          deleteTypesFolder: false,
+          consumeAPITypes: true,
+        },
+      },
+      dev: {
+        disableLiveReload: true,
+        disableHotTypesReload: true,
+        disableDynamicRemoteTypeHints: true,
+      },
       exposes: {
         './Image': './src/Image.tsx',
       },
