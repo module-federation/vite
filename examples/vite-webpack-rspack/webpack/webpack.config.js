@@ -70,15 +70,7 @@ module.exports = {
       filename: 'remoteEntry.js',
       remotes: {},
       dts: {
-        generateTypes: {
-          extractRemoteTypes: true,
-        },
-        consumeTypes: {
-          typesFolder: '@mf-types/',
-          abortOnError: true,
-          deleteTypesFolder: false,
-          consumeAPITypes: true,
-        },
+        generateTypes: true,
       },
       dev: {
         disableLiveReload: false,
