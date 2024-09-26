@@ -27,6 +27,7 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ```bash
 pnpm install
+pnpm run build
 pnpm run multi-example
 ```
 
