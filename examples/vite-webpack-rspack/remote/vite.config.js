@@ -11,9 +11,9 @@ export default defineConfig({
       filename: 'remoteEntry.js',
       // Modules to expose
       exposes: {
-        './Button': './src/Button.jsx',
+        './Product': './src/Product.jsx',
       },
-      //shared: ["react", "react-dom"],
+      shared: ['react', 'react-dom'],
     }),
   ],
   server: {

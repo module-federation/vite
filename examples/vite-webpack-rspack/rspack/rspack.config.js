@@ -95,7 +95,7 @@ module.exports = {
       name: 'rspack',
       filename: 'remoteEntry.js',
       exposes: {
-        './Image': './src/Image',
+        './Reviews': './src/Reviews',
       },
       shared: ['react', 'react-dom'],
     }),

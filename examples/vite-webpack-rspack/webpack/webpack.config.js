@@ -70,7 +70,7 @@ module.exports = {
       filename: 'remoteEntry.js',
       remotes: {},
       exposes: {
-        './Image': './src/Image.tsx',
+        './Related': './src/Related.tsx',
       },
       shared: {
         ...deps,
