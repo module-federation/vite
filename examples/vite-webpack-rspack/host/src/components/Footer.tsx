@@ -5,9 +5,7 @@ const year = new Date().getFullYear();
 export const Footer: React.FC = () => {
   return (
     <footer aria-labelledby="footer-heading">
-      <h2 id="footer-heading" className="sr-only">
-        Footer
-      </h2>
+      <h2 className="sr-only">Footer</h2>
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="border-t border-gray-200 py-20">
           <div className="grid grid-cols-1 md:grid-flow-col md:auto-rows-min md:grid-cols-12 md:gap-x-8 md:gap-y-16">
@@ -146,7 +144,6 @@ export const Footer: React.FC = () => {
               <form className="mt-2 flex sm:max-w-md">
                 <label className="sr-only">Email address</label>
                 <input
-                  id="email-address"
                   type="text"
                   auto-complete="email"
                   className="w-full min-w-0 appearance-none rounded-md border border-gray-300 bg-white px-4 py-2 text-base text-gray-900 placeholder-gray-500 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"

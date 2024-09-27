@@ -3,9 +3,7 @@ import React from 'react';
 export default () => {
   return (
     <section aria-labelledby="related-heading" className="mt-16 sm:mt-24">
-      <h2 id="related-heading" className="text-lg font-medium text-gray-900">
-        Customers also purchased
-      </h2>
+      <h2 className="text-lg font-medium text-gray-900">Customers also purchased</h2>
       <div className="mt-6 grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4 xl:gap-x-8 text-left">
         <div className="group relative">
           <div className="aspect-h-1 aspect-w-1 w-full overflow-hidden rounded-md lg:aspect-none group-hover:opacity-75 lg:h-80">
