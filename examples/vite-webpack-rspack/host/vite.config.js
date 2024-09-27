@@ -4,6 +4,10 @@ import { defineConfig } from 'vite';
 
 const mfConfig = {
   name: 'host',
+  dts: {
+    consumeTypes: true,
+  },
+  dev: true,
   remotes: {
     remote: {
       entry: 'http://localhost:4001/remoteEntry.js',

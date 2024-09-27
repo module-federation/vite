@@ -1,3 +1,4 @@
+import { loadRemote } from '@module-federation/runtime';
 import { lazy, StrictMode, Suspense, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './App.css';
@@ -6,7 +7,7 @@ import './index.css';
 import viteLogo from '/vite.svg';
 
 const RemoteButton = lazy(() => import('remote/Button'));
-const WebpackButton = lazy(() => import('webpack/Image'));
+const WebpackButton = lazy(() => loadRemote('webpack/Image'));
 const RspackImage = lazy(() => import('rspack/Image'));
 
 function App() {
