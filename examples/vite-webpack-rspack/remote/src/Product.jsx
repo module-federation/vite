@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import './App.css';
 import ProductHeader from './ProductHeader';
 import ProductImage from './ProductImage';
 
