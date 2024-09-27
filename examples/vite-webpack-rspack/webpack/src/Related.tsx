@@ -12,10 +12,7 @@ export default () => {
             <img
               alt="Front of men's Basic Tee in white."
               loading="lazy"
-              width="1216"
-              height="1680"
               decoding="async"
-              data-nimg="1"
               className="h-full w-full object-cover object-center lg:h-full lg:w-full"
               style={{ color: 'transparent' }}
               src="http://localhost:8080/product1.webp"

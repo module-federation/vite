@@ -17,7 +17,6 @@ export default () => {
                     viewBox="0 0 24 24"
                     fill="currentColor"
                     aria-hidden="true"
-                    data-slot="icon"
                     className="text-yellow-400 h-5 w-5 flex-shrink-0"
                   >
                     <path
