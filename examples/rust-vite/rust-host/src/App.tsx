@@ -3,7 +3,7 @@ import ViteApp from 'viteRemote/App';
 export default function Button() {
   return (
     <div>
-      rust host
+      <h1>Rust Host</h1>
       <hr />
       <ViteApp />
     </div>
