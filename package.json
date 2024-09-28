@@ -50,10 +50,12 @@
     "defu": "^6.1.4",
     "estree-walker": "^2",
     "magic-string": "^0.30.11",
-    "pathe": "^1.1.2",
-    "vitest": "^2.1.1"
+    "vitest": "^2.1.1",
+    "pathe": "^1.1.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.47.2",
+    "@types/node": "^22.7.4",
     "husky": "^8.0.3",
     "microbundle": "^0.15.1",
     "mime-types": "^2.1.35",
