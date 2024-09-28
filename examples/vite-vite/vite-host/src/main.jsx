@@ -7,7 +7,7 @@ import './style.css';
 const root = ReactDOM.createRoot(document.getElementById('app'));
 root.render(
   <React.StrictMode>
-    <h1>MF HOST Demo</h1>
+    <h1>Vite Host</h1>
     <App />
   </React.StrictMode>
 );

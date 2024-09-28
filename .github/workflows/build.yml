@@ -9,7 +9,6 @@ permissions:
   pull-requests: read
 
 jobs:
-  ########### BUILD PACKAGE ############
   build-package:
     name: Build Package
     runs-on: ubuntu-latest

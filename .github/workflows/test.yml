@@ -16,25 +16,19 @@ jobs:
     name: Run Playwright Tests
     runs-on: ubuntu-latest
     container: node:20
+    strategy:
+      matrix:
+        project: [vite-vite, vite-webpack-rspack]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: PNPM Install
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.1.3
+      - name: Enable Corepack and Setup PNPM
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.1.3 --activate
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.10.0
-          cache: 'pnpm'
-          registry-url: https://registry.npmjs.org/
-
-      - run: corepack enable
-
-      - name: Install NPM Dependencies
+      - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Install Chromium Browser
@@ -43,40 +37,22 @@ jobs:
       - name: Build Projects
         run: pnpm build
 
-      # - name: Start Vite Application
-      #   run: |
-      #     nohup pnpm run dev-vv &
-
-      # - name: Wait for Vite to be Ready
-      #   run: pnpm exec wait-on http://localhost:5175
-
-      # - name: Run Playwright Tests
-      #   run: pnpm playwright test --project=vite-vite
-
-      # Although the server starts, Playwright is unable to access it; the network is not reachable.
-      # - name: Start Rust-Vite Application
-      #   run: |
-      #     nohup pnpm run dev-rv &
-
-      # - name: Wait for Vite to be Ready
-      #   run: pnpm exec wait-on http://localhost:5172
-
-      # - name: Run Playwright Tests
-      #   run: pnpm playwright test --project=rust-vite
-
-      - name: Start Multi Example Application
+      - name: Start Application (${{ matrix.project }})
         run: |
-          nohup pnpm run multi-example &
+          if [ "${{ matrix.project }}" = "vite-vite" ]; then
+            nohup pnpm run dev-vv & 
+            pnpm exec wait-on http://localhost:5175;
+          else
+            nohup pnpm run multi-example & 
+            pnpm exec wait-on http://localhost:5173;
+          fi
 
-      - name: Wait for Application to be Ready
-        run: pnpm exec wait-on http://localhost:5173
-
-      - name: Run Playwright Tests
-        run: pnpm playwright test --project=vite-webpack-rspack
+      - name: Run Playwright Tests (${{ matrix.project }})
+        run: pnpm playwright test --project=${{ matrix.project }}
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: test-results
+          name: test-results-${{ matrix.project }}
           path: reports/e2e/output
           retention-days: 30

@@ -37,59 +37,14 @@ test.describe('Vite Host Tests', () => {
   });
 });
 
-test.skip('test vite remote', async ({ page, baseURL }) => {
-  // Go to example.com
+test.fixme('test vite remote', async ({ page, baseURL }) => {
   await page.goto(baseURL!);
-
-  // Get the buttons with exact text
-  const womenButton = page.getByRole('button', { name: 'Women', exact: true });
-  const manButton = page.getByRole('button', { name: 'Man', exact: true });
-  const companyButton = page.getByRole('button', { name: 'Company', exact: true });
-  const storesButton = page.getByRole('button', { name: 'Stores', exact: true });
-
-  // Assert that all buttons are visible using Promise.all
-  await Promise.all([
-    expect(womenButton).toBeVisible(),
-    expect(manButton).toBeVisible(),
-    expect(companyButton).toBeVisible(),
-    expect(storesButton).toBeVisible(),
-  ]);
 });
 
-test.skip('test rspack remote', async ({ page, baseURL }) => {
-  // Go to example.com
+test.fixme('test rspack remote', async ({ page, baseURL }) => {
   await page.goto(baseURL!);
-
-  // Get the buttons with exact text
-  const womenButton = page.getByRole('button', { name: 'Women', exact: true });
-  const manButton = page.getByRole('button', { name: 'Man', exact: true });
-  const companyButton = page.getByRole('button', { name: 'Company', exact: true });
-  const storesButton = page.getByRole('button', { name: 'Stores', exact: true });
-
-  // Assert that all buttons are visible using Promise.all
-  await Promise.all([
-    expect(womenButton).toBeVisible(),
-    expect(manButton).toBeVisible(),
-    expect(companyButton).toBeVisible(),
-    expect(storesButton).toBeVisible(),
-  ]);
 });
 
-test.skip('test webpack remote', async ({ page, baseURL }) => {
-  // Go to example.com
+test.fixme('test webpack remote', async ({ page, baseURL }) => {
   await page.goto(baseURL!);
-
-  // Get the buttons with exact text
-  const womenButton = page.getByRole('button', { name: 'Women', exact: true });
-  const manButton = page.getByRole('button', { name: 'Man', exact: true });
-  const companyButton = page.getByRole('button', { name: 'Company', exact: true });
-  const storesButton = page.getByRole('button', { name: 'Stores', exact: true });
-
-  // Assert that all buttons are visible using Promise.all
-  await Promise.all([
-    expect(womenButton).toBeVisible(),
-    expect(manButton).toBeVisible(),
-    expect(companyButton).toBeVisible(),
-    expect(storesButton).toBeVisible(),
-  ]);
 });
