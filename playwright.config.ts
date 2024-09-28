@@ -39,7 +39,7 @@ export default defineConfig({
       name: 'vite-webpack-rspack',
       testDir: 'e2e/vite-webpack-rspack',
       use: {
-        baseURL: 'http://localhost:3004',
+        baseURL: 'http://localhost:5173',
         browserName: 'chromium',
       },
     },

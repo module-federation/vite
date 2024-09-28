@@ -43,15 +43,15 @@ jobs:
       - name: Build Projects
         run: pnpm build
 
-      - name: Start Vite Application
-        run: |
-          nohup pnpm run dev-vv &
+      # - name: Start Vite Application
+      #   run: |
+      #     nohup pnpm run dev-vv &
 
-      - name: Wait for Vite to be Ready
-        run: pnpm exec wait-on http://localhost:5175
+      # - name: Wait for Vite to be Ready
+      #   run: pnpm exec wait-on http://localhost:5175
 
-      - name: Run Playwright Tests
-        run: pnpm playwright test --project=vite-vite
+      # - name: Run Playwright Tests
+      #   run: pnpm playwright test --project=vite-vite
 
       # Although the server starts, Playwright is unable to access it; the network is not reachable.
       # - name: Start Rust-Vite Application
@@ -63,6 +63,16 @@ jobs:
 
       # - name: Run Playwright Tests
       #   run: pnpm playwright test --project=rust-vite
+
+      - name: Start Multi Example Application
+        run: |
+          nohup pnpm run multi-example &
+
+      - name: Wait for Application to be Ready
+        run: pnpm exec wait-on http://localhost:5173
+
+      - name: Run Playwright Tests
+        run: pnpm playwright test --project=vite-webpack-rspack
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
