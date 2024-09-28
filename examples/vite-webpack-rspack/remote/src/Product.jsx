@@ -4,6 +4,7 @@ import ProductImage from './ProductImage';
 
 export default () => {
   const [size, setSize] = useState('M');
+  const [color, setColor] = useState('black');
   return (
     <div className="lg:grid lg:auto-rows-min lg:grid-cols-12 lg:gap-x-8">
       <ProductHeader />
@@ -12,19 +13,16 @@ export default () => {
         <form>
           <div>
             <h2 className="text-sm font-medium text-gray-900">Color</h2>
-            <div
-              className="mt-2"
-              role="radiogroup"
-              aria-labelledby="headlessui-label-:R1m9r4v5uba:"
-            >
+            <div className="mt-2" role="radiogroup">
               <label className="sr-only" role="none">
                 Choose a color
               </label>
               <div className="flex items-center space-x-3" role="none">
                 <div
-                  className="ring-gray-900 ring-2 relative -m-0.5 flex cursor-pointer items-center justify-center rounded-full p-0.5 focus:outline-none"
+                  className={`ring-gray-900 ${color === 'black' ? 'ring-2' : ''} relative -m-0.5 flex cursor-pointer items-center justify-center rounded-full p-0.5 focus:outline-none`}
                   role="radio"
                   aria-checked="true"
+                  onClick={() => setColor('black')}
                 >
                   <span className="sr-only">Black</span>
                   <span
@@ -33,9 +31,10 @@ export default () => {
                   ></span>
                 </div>
                 <div
-                  className="ring-gray-400 relative -m-0.5 flex cursor-pointer items-center justify-center rounded-full p-0.5 focus:outline-none"
+                  className={`ring-gray-400 ${color === 'grey' ? 'ring-2' : ''} relative -m-0.5 flex cursor-pointer items-center justify-center rounded-full p-0.5 focus:outline-none`}
                   role="radio"
                   aria-checked="false"
+                  onClick={() => setColor('grey')}
                 >
                   <span className="sr-only">Heather Grey</span>
                   <span
@@ -79,6 +78,9 @@ export default () => {
           <button
             type="submit"
             className="mt-8 flex w-full items-center justify-center rounded-md border border-transparent bg-slate-600 px-8 py-3 text-base font-medium text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('ADD_CART'));
+            }}
           >
             Add to cart
           </button>
