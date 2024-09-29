@@ -30,7 +30,7 @@ const Manifest = (): Plugin[] => {
   let _command: string;
   return [
     {
-      name: 'moddule-federation-manifest',
+      name: 'module-federation-manifest',
       apply: 'serve',
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
@@ -127,7 +127,7 @@ const Manifest = (): Plugin[] => {
       },
     },
     {
-      name: 'moddule-federation-manifest',
+      name: 'module-federation-manifest',
       enforce: 'post',
       config(config, { command }) {
         if (!config.build) config.build = {};
