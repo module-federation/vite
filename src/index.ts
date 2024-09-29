@@ -19,6 +19,7 @@ import {
   initVirtualModules,
   REMOTE_ENTRY_ID,
 } from './virtualModules';
+import { VIRTUAL_EXPOSES } from './virtualModules/virtualExposes';
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
@@ -37,6 +38,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     ...addEntry({
       entryName: 'hostInit',
       entryPath: getHostAutoInitPath(),
+    }),
+    ...addEntry({
+      entryName: 'virtualExposes',
+      entryPath: VIRTUAL_EXPOSES,
     }),
     pluginProxyRemoteEntry(),
     pluginProxyRemotes(options),

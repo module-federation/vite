@@ -8,6 +8,7 @@ import {
   NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import VirtualModule from '../utils/VirtualModule';
+import { VIRTUAL_EXPOSES } from './virtualExposes';
 import { getUsedRemotesMap } from './virtualRemotes';
 import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 import { getPreBuildLibImportId } from './virtualShared_preBuild';
@@ -39,21 +40,21 @@ export function generateLocalSharedImportMap() {
   return `
     const importMap = {
       ${Array.from(getUsedShares())
-        .map(
-          (pkg) => `
+      .map(
+        (pkg) => `
         ${JSON.stringify(pkg)}: async () => {
           let pkg = await import("${getPreBuildLibImportId(pkg)}")
           return pkg
         }
       `
-        )
-        .join(',')}
+      )
+      .join(',')}
     }
       const usedShared = {
       ${Array.from(getUsedShares())
-        .map((key) => {
-          const shareItem = getNormalizeShareItem(key);
-          return `
+      .map((key) => {
+        const shareItem = getNormalizeShareItem(key);
+        return `
           ${JSON.stringify(key)}: {
             name: ${JSON.stringify(key)},
             version: ${JSON.stringify(shareItem.version)},
@@ -80,13 +81,13 @@ export function generateLocalSharedImportMap() {
             }
           }
         `;
-        })
-        .join(',')}
+      })
+      .join(',')}
     }
       const usedRemotes = [${Object.keys(getUsedRemotesMap())
-        .map((key) => {
-          const remote = options.remotes[key];
-          return `
+      .map((key) => {
+        const remote = options.remotes[key];
+        return `
                 {
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
                   name: ${JSON.stringify(remote.name)},
@@ -94,8 +95,8 @@ export function generateLocalSharedImportMap() {
                   entry: ${JSON.stringify(remote.entry)},
                 }
           `;
-        })
-        .join(',')}
+      })
+      .join(',')}
       ]
       export {
         usedShared,
@@ -114,25 +115,7 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   return `
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
   ${pluginImportNames.map((item) => item[1]).join('\n')}
-
-  const exposesMap = {
-    ${Object.keys(options.exposes)
-      .map((key) => {
-        return `
-        ${JSON.stringify(key)}: async () => {
-          const importModule = await import(${JSON.stringify(options.exposes[key].import)})
-          const exportModule = {}
-          Object.assign(exportModule, importModule)
-          Object.defineProperty(exportModule, "__esModule", {
-            value: true,
-            enumerable: false
-          })
-          return exportModule
-        }
-      `;
-      })
-      .join(',')}
-  }
+  import exposesMap from "${VIRTUAL_EXPOSES}"
   import {usedShared, usedRemotes} from "${getLocalSharedImportMapPath()}"
   import {
     initResolve

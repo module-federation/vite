@@ -10,14 +10,14 @@ export {
   getLocalSharedImportMapPath,
   getUsedShares,
   REMOTE_ENTRY_ID,
-  writeLocalSharedImportMap,
+  writeLocalSharedImportMap
 } from './virtualRemoteEntry';
 
 export {
   addUsedRemote,
   generateRemotes,
   getRemoteVirtualModule,
-  getUsedRemotesMap,
+  getUsedRemotesMap
 } from './virtualRemotes';
 
 export {
@@ -26,8 +26,10 @@ export {
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
   writeLoadShareModule,
-  writePreBuildLibPath,
+  writePreBuildLibPath
 } from './virtualShared_preBuild';
+
+export { generateExposes, VIRTUAL_EXPOSES } from "./virtualExposes";
 
 export { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 
