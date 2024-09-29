@@ -143,7 +143,7 @@ function normalizeShareItem(
       from: '',
       shareConfig: {
         singleton: false,
-        requiredVersion: `^${version}` || '*',
+        requiredVersion: version ? `^${version}` : '*',
       },
     };
   }
@@ -154,7 +154,7 @@ function normalizeShareItem(
     scope: shareItem.shareScope || 'default',
     shareConfig: {
       singleton: shareItem.singleton || false,
-      requiredVersion: shareItem.requiredVersion || `^${version}` || '*',
+      requiredVersion: shareItem.requiredVersion || (version ? `^${version}` : '*'),
       strictVersion: !!shareItem.strictVersion,
     },
   };
@@ -305,6 +305,7 @@ interface DtsHostOptions {
 }
 
 let config: NormalizedModuleFederationOptions;
+
 export function getNormalizeModuleFederationOptions() {
   return config;
 }
