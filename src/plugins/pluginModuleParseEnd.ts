@@ -12,7 +12,7 @@ let _resolve: any,
     _reject = reject;
   });
 let parsePromise = promise;
-let exposesParseEnd = false
+let exposesParseEnd = false;
 
 const parseStartSet = new Set();
 const parseEndSet = new Set();
@@ -48,7 +48,7 @@ export default function (excludeFn: Function): Plugin[] {
         }
         if (id === VIRTUAL_EXPOSES) {
           // When the entry JS file is empty and only contains exposes export code, it’s necessary to wait for the exposes modules to be resolved in order to collect the dependencies being used.
-          exposesParseEnd = true
+          exposesParseEnd = true;
         }
         parseEndSet.add(id);
         if (exposesParseEnd && parseStartSet.size === parseEndSet.size) {

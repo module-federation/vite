@@ -1,8 +1,8 @@
-import { getNormalizeModuleFederationOptions } from "../utils/normalizeModuleFederationOptions";
+import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 export const VIRTUAL_EXPOSES = 'virtual:mf-exposes';
 export function generateExposes() {
-  const options = getNormalizeModuleFederationOptions()
+  const options = getNormalizeModuleFederationOptions();
   return `
     export default {
     ${Object.keys(options.exposes)
