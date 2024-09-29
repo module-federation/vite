@@ -8,6 +8,7 @@ import {
   NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import VirtualModule from '../utils/VirtualModule';
+import { VIRTUAL_EXPOSES } from './virtualExposes';
 import { getUsedRemotesMap } from './virtualRemotes';
 import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 import { getPreBuildLibImportId } from './virtualShared_preBuild';
@@ -114,25 +115,7 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   return `
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
   ${pluginImportNames.map((item) => item[1]).join('\n')}
-
-  const exposesMap = {
-    ${Object.keys(options.exposes)
-      .map((key) => {
-        return `
-        ${JSON.stringify(key)}: async () => {
-          const importModule = await import(${JSON.stringify(options.exposes[key].import)})
-          const exportModule = {}
-          Object.assign(exportModule, importModule)
-          Object.defineProperty(exportModule, "__esModule", {
-            value: true,
-            enumerable: false
-          })
-          return exportModule
-        }
-      `;
-      })
-      .join(',')}
-  }
+  import exposesMap from "${VIRTUAL_EXPOSES}"
   import {usedShared, usedRemotes} from "${getLocalSharedImportMapPath()}"
   import {
     initResolve
