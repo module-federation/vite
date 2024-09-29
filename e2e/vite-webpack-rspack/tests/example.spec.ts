@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('Vite Host Tests', () => {
-  test('test header - vite host', async ({ page, baseURL }) => {
+  test.beforeEach(async ({ page, baseURL }) => {
     await page.goto(baseURL!);
+  });
 
+  test('test header - vite host', async ({ page }) => {
     const womenButton = page.getByRole('button', { name: 'Women', exact: true });
     const manButton = page.getByRole('button', { name: 'Man', exact: true });
     const companyButton = page.getByRole('button', { name: 'Company', exact: true });
@@ -17,10 +19,7 @@ test.describe('Vite Host Tests', () => {
     ]);
   });
 
-  test('test footer - vite host', async ({ page, baseURL }) => {
-    // Go to example.com
-    await page.goto(baseURL!);
-
+  test('test footer - vite host', async ({ page }) => {
     const productsHeading = page.getByRole('heading', { level: 3, name: 'Products', exact: true });
     const companyHeading = page.getByRole('heading', { level: 3, name: 'Company', exact: true });
     const customerServiceHeading = page.getByRole('heading', {
@@ -37,14 +36,32 @@ test.describe('Vite Host Tests', () => {
   });
 });
 
-test.fixme('test vite remote', async ({ page, baseURL }) => {
-  await page.goto(baseURL!);
+test.describe('Vite remote', () => {});
+
+test.describe('Rspack remote', () => {
+  test('has title', async ({ page, baseURL }) => {
+    await page.goto(baseURL!);
+    const recentReviews = page.getByRole('heading', {
+      level: 2,
+      name: 'Customers also purchased',
+      exact: true,
+    });
+    await expect(recentReviews).toBeVisible();
+  });
 });
 
-test.fixme('test rspack remote', async ({ page, baseURL }) => {
-  await page.goto(baseURL!);
-});
+test.describe('Webpack remote', () => {
+  test('has title', async ({ page, baseURL }) => {
+    await page.goto(baseURL!);
+    const furtherRecommendations = page.getByRole('heading', {
+      level: 2,
+      name: 'Customers also purchased',
+      exact: true,
+    });
+    await expect(furtherRecommendations).toBeVisible();
+  });
 
-test.fixme('test webpack remote', async ({ page, baseURL }) => {
-  await page.goto(baseURL!);
+  test('navigates to product page onclick', async () => {
+    // !TODO: to test proper navigation in the host!
+  });
 });
