@@ -50,9 +50,10 @@ jobs:
       - name: Run Playwright Tests (${{ matrix.project }})
         run: pnpm playwright test --project=${{ matrix.project }}
 
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+      - name: Upload Artifacts on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.project }}
           path: reports/e2e/output
-          retention-days: 30
+          retention-days: 3

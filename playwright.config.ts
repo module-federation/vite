@@ -5,8 +5,9 @@ export default defineConfig({
   timeout: 30 * 1000,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
+  forbidOnly: Boolean(process.env.CI),
   use: {
-    trace: 'on',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
