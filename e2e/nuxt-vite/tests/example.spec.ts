@@ -1,13 +1,11 @@
 import { expect, test } from '@playwright/test';
 
-test('example.com basic test', async ({ page }) => {
-  // Go to example.com
-  await page.goto('https://example.com');
+test('basic test', async ({ page, baseURL }) => {
+  await page.goto(baseURL!);
 
-  // Check the title of the page
-  await expect(page).toHaveTitle('Example Domain');
+  // Get the heading by role with exact name 'Rust Host'
+  const heading = page.getByRole('heading', { name: 'Nuxt host', exact: true });
 
-  // Check if the heading exists on the page
-  const heading = page.locator('h1');
-  await expect(heading).toHaveText('Example Domain');
+  // Expect the heading to be visible
+  await expect(heading).toBeVisible();
 });

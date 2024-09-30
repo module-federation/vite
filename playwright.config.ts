@@ -37,7 +37,7 @@ export default defineConfig({
       },
     },
     {
-      name: 'vite-webpack-rspack',
+      name: 'multi-example',
       testDir: 'e2e/vite-webpack-rspack',
       use: {
         baseURL: 'http://localhost:5173',
@@ -48,7 +48,7 @@ export default defineConfig({
   outputDir: 'reports/e2e/output',
   reporter: [
     ['list'],
-    ['html', { outputFolder: 'playwright-report', open: 'never' }],
-    ['json', { outputFile: 'test-results.json' }],
+    ['html', { outputFolder: 'reports/e2e/playwright-report', open: 'never' }],
+    ['json', { outputFile: 'reports/e2e/test-results.json' }],
   ],
 });

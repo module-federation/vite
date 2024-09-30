@@ -5,3 +5,5 @@ dist
 .__mf__win
 lib
 **/.__mf__temp
+reports/*
+nohup.out

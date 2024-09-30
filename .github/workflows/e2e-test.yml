@@ -18,7 +18,7 @@ jobs:
     container: node:20
     strategy:
       matrix:
-        project: [vite-vite, vite-webpack-rspack]
+        project: [nuxt-vite, rust-vite, vite-vite, multi-example]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +42,12 @@ jobs:
           if [ "${{ matrix.project }}" = "vite-vite" ]; then
             nohup pnpm run dev-vv & 
             pnpm exec wait-on http://localhost:5175;
+          elif [ "${{ matrix.project }}" = "nuxt-vite" ]; then
+            nohup pnpm run dev-nv & 
+            pnpm exec wait-on http://localhost:3001;
+          elif [ "${{ matrix.project }}" = "rust-vite" ]; then
+            nohup pnpm run dev-rv & 
+            pnpm exec wait-on http://localhost:5172;
           else
             nohup pnpm run multi-example & 
             pnpm exec wait-on http://localhost:5173;
