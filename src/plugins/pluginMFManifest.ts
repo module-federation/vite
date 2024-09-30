@@ -43,6 +43,7 @@ const Manifest = (): Plugin[] => {
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.end(
               JSON.stringify({
+                ...generateMFManifest({}),
                 id: name,
                 name: name,
                 metaData: {
@@ -64,60 +65,6 @@ const Manifest = (): Plugin[] => {
                   pluginVersion: '0.2.5',
                   publicPath,
                 },
-                shared: Array.from(getUsedShares()).map((shareKey) => {
-                  const shareItem = getNormalizeShareItem(shareKey);
-
-                  return {
-                    id: `${name}:${shareKey}`,
-                    name: shareKey,
-                    version: shareItem.version,
-                    requiredVersion: shareItem.shareConfig.requiredVersion,
-                    assets: {
-                      js: {
-                        async: [],
-                        sync: [],
-                      },
-                      css: {
-                        async: [],
-                        sync: [],
-                      },
-                    },
-                  };
-                }),
-                remotes: (function () {
-                  const remotes = [] as any;
-                  const usedRemotesMap = getUsedRemotesMap();
-                  Object.keys(usedRemotesMap).forEach((remoteKey) => {
-                    const usedModules = Array.from(usedRemotesMap[remoteKey]);
-                    usedModules.forEach((moduleKey) => {
-                      remotes.push({
-                        federationContainerName: mfOptions.remotes[remoteKey].entry,
-                        moduleName: moduleKey.replace(remoteKey, '').replace('/', ''),
-                        alias: remoteKey,
-                        entry: '*',
-                      });
-                    });
-                  });
-                  return remotes;
-                })(),
-                exposes: Object.keys(mfOptions.exposes).map((key) => {
-                  const formatKey = key.replace('./', '');
-                  return {
-                    id: name + ':' + formatKey,
-                    name: formatKey,
-                    assets: {
-                      js: {
-                        async: [],
-                        sync: [],
-                      },
-                      css: {
-                        sync: [],
-                        async: [],
-                      },
-                    },
-                    path: key,
-                  };
-                }),
               })
             );
           } else {
@@ -262,7 +209,7 @@ const Manifest = (): Plugin[] => {
         this.emitFile({
           type: 'asset',
           fileName: mfManifestName,
-          source: generateMFManifest(filesContainingModules),
+          source: JSON.stringify(generateMFManifest(filesContainingModules)),
         });
       },
     },
@@ -312,8 +259,6 @@ const Manifest = (): Plugin[] => {
     // @ts-ignore
     const shared: ManifestItem[] = Array.from(getUsedShares())
       .map((shareKey) => {
-        // assets(.css, .jpg, .svg等)其他资源, 不重要, 暂未处理
-        if (!preloadMap[shareKey]) return;
         const shareItem = getNormalizeShareItem(shareKey);
 
         return {
@@ -323,8 +268,8 @@ const Manifest = (): Plugin[] => {
           requiredVersion: shareItem.shareConfig.requiredVersion,
           assets: {
             js: {
-              async: preloadMap[shareKey].async,
-              sync: preloadMap[shareKey].sync,
+              async: preloadMap?.[shareKey]?.async || [],
+              sync: preloadMap?.[shareKey]?.sync || [],
             },
             css: {
               async: [],
@@ -339,14 +284,13 @@ const Manifest = (): Plugin[] => {
         // assets(.css, .jpg, .svg等)其他资源, 不重要, 暂未处理
         const formatKey = key.replace('./', '');
         const sourceFile = options.exposes[key].import;
-        if (!preloadMap[sourceFile]) return;
         return {
           id: name + ':' + formatKey,
           name: formatKey,
           assets: {
             js: {
-              async: preloadMap[sourceFile].async,
-              sync: preloadMap[sourceFile].sync,
+              async: preloadMap?.[sourceFile]?.async || [],
+              sync: preloadMap?.[sourceFile]?.sync || [],
             },
             css: {
               sync: [],
@@ -384,7 +328,7 @@ const Manifest = (): Plugin[] => {
       remotes,
       exposes,
     };
-    return JSON.stringify(result);
+    return result;
   }
 };
 
