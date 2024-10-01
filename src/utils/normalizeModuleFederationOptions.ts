@@ -143,7 +143,7 @@ function normalizeShareItem(
       from: '',
       shareConfig: {
         singleton: false,
-        requiredVersion: `^${version}` || '*',
+        requiredVersion: version ? `^${version}` : '*',
       },
     };
   }
@@ -154,7 +154,7 @@ function normalizeShareItem(
     scope: shareItem.shareScope || 'default',
     shareConfig: {
       singleton: shareItem.singleton || false,
-      requiredVersion: shareItem.requiredVersion || `^${version}` || '*',
+      requiredVersion: shareItem.requiredVersion || (version ? `^${version}` : '*'),
       strictVersion: !!shareItem.strictVersion,
     },
   };
@@ -246,8 +246,8 @@ export type ModuleFederationOptions = {
   getPublicPath?: string;
   implementation?: any;
   manifest?: ManifestOptions | boolean;
-  dev?: any;
-  dts?: any;
+  dev?: boolean | PluginDevOptions;
+  dts?: boolean | PluginDtsOptions;
   shareStrategy: ShareStrategy;
 };
 
@@ -265,12 +265,47 @@ export interface NormalizedModuleFederationOptions {
   getPublicPath?: string;
   implementation: any;
   manifest: ManifestOptions | boolean;
-  dev: any;
-  dts: any;
+  dev?: boolean | PluginDevOptions;
+  dts?: boolean | PluginDtsOptions;
   shareStrategy?: ShareStrategy;
 }
 
+interface PluginDevOptions {
+  disableLiveReload?: boolean;
+  disableHotTypesReload?: boolean;
+  disableDynamicRemoteTypeHints?: boolean;
+}
+
+interface PluginDtsOptions {
+  generateTypes?: boolean | DtsRemoteOptions;
+  consumeTypes?: boolean | DtsHostOptions;
+  tsConfigPath?: string;
+}
+
+interface DtsRemoteOptions {
+  tsConfigPath?: string;
+  typesFolder?: string;
+  deleteTypesFolder?: boolean;
+  additionalFilesToCompile?: string[];
+  compilerInstance?: 'tsc' | 'vue-tsc';
+  compileInChildProcess?: boolean;
+  generateAPITypes?: boolean;
+  extractThirdParty?: boolean;
+  extractRemoteTypes?: boolean;
+  abortOnError?: boolean;
+}
+
+interface DtsHostOptions {
+  typesFolder?: string;
+  abortOnError?: boolean;
+  remoteTypesFolder?: string;
+  deleteTypesFolder?: boolean;
+  maxRetries?: number;
+  consumeAPITypes?: boolean;
+}
+
 let config: NormalizedModuleFederationOptions;
+
 export function getNormalizeModuleFederationOptions() {
   return config;
 }

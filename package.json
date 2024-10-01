@@ -17,10 +17,12 @@
     "dev": "microbundle watch --no-sourcemap --compress=false",
     "build": "rimraf lib && microbundle --no-sourcemap --compress=false",
     "dev-rv": "pnpm -filter 'examples-rust-vite*' run dev",
+    "preview-rv": "pnpm -filter 'examples-rust-vite*' run preview",
     "dev-vv": "pnpm -filter 'examples-vite-vite*' run dev",
     "dev-nv": "pnpm -filter 'examples-nuxt-vite-host' -filter 'examples-vite-vite-remote' run dev",
     "preview-vv": "pnpm -filter 'examples-vite-vite*'  run preview",
-    "multi-example": "pnpm --filter \"multi-example-*\" run start"
+    "multi-example": "pnpm --filter \"multi-example-*\" run start",
+    "test": "vitest"
   },
   "repository": {
     "type": "git",
@@ -45,10 +47,11 @@
   "dependencies": {
     "@module-federation/runtime": "^0.6.0",
     "@rollup/pluginutils": "^5.1.0",
+    "defu": "^6.1.4",
     "estree-walker": "^2",
     "magic-string": "^0.30.11",
     "pathe": "^1.1.2",
-    "defu": "^6.1.4"
+    "vitest": "^2.1.1"
   },
   "devDependencies": {
     "husky": "^8.0.3",

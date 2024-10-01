@@ -3,6 +3,7 @@
  * This plugin allows me to wait until all modules are built, and then expose them together.
  */
 import { Plugin } from 'vite';
+import { VIRTUAL_EXPOSES } from '../virtualModules';
 
 let _resolve: any,
   _reject: any,
@@ -11,6 +12,7 @@ let _resolve: any,
     _reject = reject;
   });
 let parsePromise = promise;
+let exposesParseEnd = false;
 
 const parseStartSet = new Set();
 const parseEndSet = new Set();
@@ -44,8 +46,12 @@ export default function (excludeFn: Function): Plugin[] {
         if (excludeFn(id)) {
           return;
         }
+        if (id === VIRTUAL_EXPOSES) {
+          // When the entry JS file is empty and only contains exposes export code, it’s necessary to wait for the exposes modules to be resolved in order to collect the dependencies being used.
+          exposesParseEnd = true;
+        }
         parseEndSet.add(id);
-        if (parseStartSet.size === parseEndSet.size) {
+        if (exposesParseEnd && parseStartSet.size === parseEndSet.size) {
           _resolve(1);
         }
       },

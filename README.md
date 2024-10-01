@@ -19,6 +19,8 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ## Try this crazy example with all these bundlers together
 
+<img src="./docs/multi-example.png"/>
+
 <p float="left">
   <img src="./docs/vite.webp" width="150" />
   <img src="./docs/webpack.webp" width="160" /> 
@@ -27,6 +29,7 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ```bash
 pnpm install
+pnpm run build
 pnpm run multi-example
 ```
 
