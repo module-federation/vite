@@ -250,7 +250,7 @@ export type ModuleFederationOptions = {
   manifest?: ManifestOptions | boolean;
   dev?: boolean | PluginDevOptions;
   dts?: boolean | PluginDtsOptions;
-  shareStrategy: ShareStrategy;
+  shareStrategy?: ShareStrategy;
 };
 
 export interface NormalizedModuleFederationOptions {
