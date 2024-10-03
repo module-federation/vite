@@ -63,7 +63,6 @@ const Manifest = (): Plugin[] => {
                   types: { path: '', name: '' },
                   globalName: name,
                   pluginVersion: '0.2.5',
-                  publicPath,
                 },
               })
             );
@@ -322,7 +321,6 @@ const Manifest = (): Plugin[] => {
         },
         globalName: name,
         pluginVersion: '0.2.5',
-        publicPath,
       },
       shared,
       remotes,

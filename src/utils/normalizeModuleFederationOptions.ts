@@ -22,6 +22,7 @@ export type RemoteEntryType =
   | string;
 
 import * as path from 'pathe';
+import { warn } from './logUtils';
 
 interface ExposesItem {
   import: string;
@@ -243,7 +244,8 @@ export type ModuleFederationOptions = {
       >
     | undefined;
   runtimePlugins?: string[];
-  getPublicPath?: any;
+  publicPath?: string;
+  getPublicPath?: string;
   implementation?: any;
   manifest?: ManifestOptions | boolean;
   dev?: boolean | PluginDevOptions;
@@ -262,7 +264,6 @@ export interface NormalizedModuleFederationOptions {
   shareScope: string;
   shared: NormalizedShared;
   runtimePlugins: string[];
-  getPublicPath: any;
   implementation: any;
   manifest: ManifestOptions | boolean;
   dev?: boolean | PluginDevOptions;
@@ -321,6 +322,11 @@ export function getNormalizeShareItem(key: string) {
 export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
+  if (options.getPublicPath || options.publicPath) {
+    warn(
+      `We are ignoring the getPublicPath and publicPath options because they are natively supported by Vite\nwith the "experimental.renderBuiltUrl" configuration https://vitejs.dev/guide/build#advanced-base-options`
+    );
+  }
   return (config = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
@@ -332,7 +338,6 @@ export function normalizeModuleFederationOptions(
     shareScope: options.shareScope || 'default',
     shared: normalizeShared(options.shared),
     runtimePlugins: options.runtimePlugins || [],
-    getPublicPath: options.getPublicPath,
     implementation: options.implementation,
     manifest: normalizeManifest(options.manifest),
     dev: options.dev,
