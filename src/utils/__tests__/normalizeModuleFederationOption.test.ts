@@ -159,7 +159,7 @@ describe('normalizeModuleFederationOption', () => {
           scope: 'default',
           version: '1.0.0',
           shareConfig: {
-            requiredVersion: '*',
+            requiredVersion: '^1.0.0',
             singleton: false,
             strictVersion: false,
           },

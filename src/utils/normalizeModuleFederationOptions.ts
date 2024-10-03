@@ -106,15 +106,15 @@ export interface ShareItem {
   shareConfig: SharedConfig;
 }
 
-function removePathFromNpmPackage(packageString: string): string {
+function removePathFromNpmPackage(packageString: string): string | undefined {
   // 匹配npm包名的正则表达式，忽略路径部分
-  const regex = /^(?:@[^/]+\/)?[^/]+/;
+  const regex = /^(?:@[^/]+\/)?\w[^/]+/;
 
   // 使用正则表达式匹配并提取包名
   const match = packageString.match(regex);
 
   // 返回匹配到的包名，如果没有匹配到则返回原字符串
-  return match ? match[0] : packageString;
+  return match?.[0];
 }
 
 function normalizeShareItem(
@@ -130,12 +130,18 @@ function normalizeShareItem(
         strictVersion?: boolean;
       }
 ): ShareItem {
-  let version: string | undefined;
-  try {
-    version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
-  } catch (e) {
-    console.log(e);
+  let { version, requiredVersion } = typeof shareItem === 'object' ? shareItem : {};
+  if (!version) {
+    const npmPackage = removePathFromNpmPackage(key);
+    if (npmPackage) {
+      try {
+        version = require(path.join(npmPackage, 'package.json')).version;
+      } catch (e) {
+        console.log(e);
+      }
+    }
   }
+  requiredVersion ??= version ? `^${version}` : '*';
   if (typeof shareItem === 'string') {
     return {
       name: shareItem,
@@ -144,18 +150,18 @@ function normalizeShareItem(
       from: '',
       shareConfig: {
         singleton: false,
-        requiredVersion: version ? `^${version}` : '*',
+        requiredVersion,
       },
     };
   }
   return {
     name: key,
     from: '',
-    version: shareItem.version || version,
+    version: shareItem.version ?? version,
     scope: shareItem.shareScope || 'default',
     shareConfig: {
       singleton: shareItem.singleton || false,
-      requiredVersion: shareItem.requiredVersion || (version ? `^${version}` : '*'),
+      requiredVersion,
       strictVersion: !!shareItem.strictVersion,
     },
   };
@@ -313,10 +319,8 @@ export function getNormalizeModuleFederationOptions() {
 
 export function getNormalizeShareItem(key: string) {
   const options = getNormalizeModuleFederationOptions();
-  const shareItem =
-    options.shared[removePathFromNpmPackage(key)] ||
-    options.shared[removePathFromNpmPackage(key) + '/'];
-  return shareItem;
+  const sharedKey = removePathFromNpmPackage(key) ?? key;
+  return options.shared[sharedKey];
 }
 
 export function normalizeModuleFederationOptions(
