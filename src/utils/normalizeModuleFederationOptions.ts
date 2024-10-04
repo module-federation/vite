@@ -244,7 +244,6 @@ export type ModuleFederationOptions = {
       >
     | undefined;
   runtimePlugins?: string[];
-  publicPath?: string;
   getPublicPath?: string;
   implementation?: any;
   manifest?: ManifestOptions | boolean;
@@ -269,6 +268,7 @@ export interface NormalizedModuleFederationOptions {
   dev?: boolean | PluginDevOptions;
   dts?: boolean | PluginDtsOptions;
   shareStrategy?: ShareStrategy;
+  getPublicPath?: string;
 }
 
 interface PluginDevOptions {
@@ -322,9 +322,9 @@ export function getNormalizeShareItem(key: string) {
 export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
-  if (options.getPublicPath || options.publicPath) {
+  if (options.getPublicPath) {
     warn(
-      `We are ignoring the getPublicPath and publicPath options because they are natively supported by Vite\nwith the "experimental.renderBuiltUrl" configuration https://vitejs.dev/guide/build#advanced-base-options`
+      `We are ignoring the getPublicPath options because they are natively supported by Vite\nwith the "experimental.renderBuiltUrl" configuration https://vitejs.dev/guide/build#advanced-base-options`
     );
   }
   return (config = {
@@ -342,6 +342,7 @@ export function normalizeModuleFederationOptions(
     manifest: normalizeManifest(options.manifest),
     dev: options.dev,
     dts: options.dts,
+    getPublicPath: options.getPublicPath,
     shareStrategy: options.shareStrategy,
   });
 }
