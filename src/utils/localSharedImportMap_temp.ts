@@ -8,17 +8,12 @@ import { packageNameEncode } from './packageNameUtils';
 
 export function getLocalSharedImportMapPath_temp() {
   const { name } = getNormalizeModuleFederationOptions();
-  return path.resolve(
-    'node_modules',
-    '.__mf__temp',
-    packageNameEncode(name),
-    'localSharedImportMap'
-  );
+  return path.resolve('.__mf__temp', packageNameEncode(name), 'localSharedImportMap');
 }
 export function writeLocalSharedImportMap_temp(content: string) {
   const localSharedImportMapId = getLocalSharedImportMapPath_temp();
   createFile(
-    localSharedImportMapId + '.cjs',
+    localSharedImportMapId,
     '\n// Windows temporarily needs this file, https://github.com/module-federation/vite/issues/68\n' +
       content
   );
