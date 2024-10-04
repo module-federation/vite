@@ -13,7 +13,7 @@ export const Header: React.FC = () => {
             <div className="hidden lg:block lg:flex-1 lg:self-stretch">
               <div className="flex h-full space-x-8">
                 {['Women', 'Man', 'Company', 'Stores'].map((s, i) => (
-                  <div className="flex">
+                  <div className="flex" key={i}>
                     <div className="relative flex">
                       <button
                         className="text-gray-700 hover:text-gray-800 relative z-10 flex items-center justify-center text-sm font-medium transition-colors duration-200 ease-out"
