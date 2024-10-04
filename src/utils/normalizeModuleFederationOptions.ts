@@ -268,7 +268,7 @@ export interface NormalizedModuleFederationOptions {
   dev?: boolean | PluginDevOptions;
   dts?: boolean | PluginDtsOptions;
   shareStrategy?: ShareStrategy;
-  getPublicPath?: string
+  getPublicPath?: string;
 }
 
 interface PluginDevOptions {
