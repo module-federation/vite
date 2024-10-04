@@ -130,7 +130,7 @@ function normalizeShareItem(
         strictVersion?: boolean;
       }
 ): ShareItem {
-  let { version, requiredVersion } = typeof shareItem === 'object' ? shareItem : {};
+  let { version, requiredVersion }: any = typeof shareItem === 'object' ? shareItem : {};
   if (!version) {
     const npmPackage = removePathFromNpmPackage(key);
     if (npmPackage) {
