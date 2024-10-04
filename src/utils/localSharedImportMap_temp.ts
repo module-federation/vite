@@ -12,13 +12,13 @@ export function getLocalSharedImportMapPath_temp() {
     'node_modules',
     '.__mf__temp',
     packageNameEncode(name),
-    'localSharedImportMap'
+    'localSharedImportMap.cjs'
   );
 }
 export function writeLocalSharedImportMap_temp(content: string) {
   const localSharedImportMapId = getLocalSharedImportMapPath_temp();
   createFile(
-    localSharedImportMapId + '.cjs',
+    localSharedImportMapId,
     '\n// Windows temporarily needs this file, https://github.com/module-federation/vite/issues/68\n' +
       content
   );
