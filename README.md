@@ -15,6 +15,8 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ### [React](https://github.com/gioboa/react-microfrontend-demo)<br>
 
+### [Svelte](https://github.com/gioboa/svelte-microfrontend-demo)<br>
+
 ### [More examples here](https://github.com/module-federation/vite/tree/main/examples)<br>
 
 ## Try this crazy example with all these bundlers together
