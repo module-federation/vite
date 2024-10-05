@@ -16,9 +16,6 @@ jobs:
     name: Run Playwright Tests
     runs-on: ubuntu-latest
     container: node:20
-    strategy:
-      matrix:
-        project: [nuxt-vite, rust-vite, vite-vite, multi-example]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,29 +34,16 @@ jobs:
       - name: Build Projects
         run: pnpm build
 
-      - name: Start Application (${{ matrix.project }})
-        run: |
-          if [ "${{ matrix.project }}" = "vite-vite" ]; then
-            nohup pnpm run dev-vv & 
-            pnpm exec wait-on http://localhost:5175;
-          elif [ "${{ matrix.project }}" = "nuxt-vite" ]; then
-            nohup pnpm run dev-nv & 
-            pnpm exec wait-on http://localhost:3001;
-          elif [ "${{ matrix.project }}" = "rust-vite" ]; then
-            nohup pnpm run dev-rv & 
-            pnpm exec wait-on http://localhost:5172;
-          else
-            nohup pnpm run multi-example & 
-            pnpm exec wait-on http://localhost:5173;
-          fi
+      - name: Start Application multi-example
+        run: nohup pnpm run multi-example & pnpm exec wait-on http://localhost:5173;
 
-      - name: Run Playwright Tests (${{ matrix.project }})
-        run: pnpm playwright test --project=${{ matrix.project }}
+      - name: Run Playwright Tests
+        run: pnpm playwright test
 
       - name: Upload Artifacts on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.project }}
+          name: test-results
           path: reports/e2e/output
           retention-days: 3

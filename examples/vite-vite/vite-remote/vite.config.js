@@ -6,6 +6,7 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 // https://vitejs.dev/config/
 export default defineConfig({
   server: {
+    open: true,
     port: 5176,
     origin: 'http://localhost:5176',
   },

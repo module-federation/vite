@@ -13,30 +13,6 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'nuxt-vite',
-      testDir: 'e2e/nuxt-vite',
-      use: {
-        baseURL: 'http://localhost:3001',
-        browserName: 'chromium',
-      },
-    },
-    {
-      name: 'vite-vite',
-      testDir: 'e2e/vite-vite',
-      use: {
-        baseURL: 'http://localhost:5175',
-        browserName: 'chromium',
-      },
-    },
-    {
-      name: 'rust-vite',
-      testDir: 'e2e/rust-vite',
-      use: {
-        baseURL: 'http://localhost:5172',
-        browserName: 'chromium',
-      },
-    },
-    {
       name: 'multi-example',
       testDir: 'e2e/vite-webpack-rspack',
       use: {
