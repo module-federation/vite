@@ -1,4 +1,4 @@
-name: Build and Test with Playwright
+name: multi-example - e2e tests
 
 on:
   push:
