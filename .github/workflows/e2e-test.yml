@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   run-playwright-tests:
-    name: Run Playwright Tests
+    name: Playwright Tests
     runs-on: ubuntu-latest
     container: node:20
     steps:
