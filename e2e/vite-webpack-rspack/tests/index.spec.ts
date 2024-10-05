@@ -36,14 +36,24 @@ test.describe('Vite Host Tests', () => {
   });
 });
 
-test.describe('Vite remote', () => {});
+test.describe('Vite remote', () => {
+  test('has title', async ({ page, baseURL }) => {
+    await page.goto(baseURL!);
+    const productHeader = page.getByRole('heading', {
+      level: 1,
+      name: 'Basic Tee',
+      exact: true,
+    });
+    await expect(productHeader).toBeVisible();
+  });
+});
 
 test.describe('Rspack remote', () => {
   test('has title', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
     const recentReviews = page.getByRole('heading', {
       level: 2,
-      name: 'Customers also purchased',
+      name: 'Recent reviews',
       exact: true,
     });
     await expect(recentReviews).toBeVisible();
@@ -59,9 +69,5 @@ test.describe('Webpack remote', () => {
       exact: true,
     });
     await expect(furtherRecommendations).toBeVisible();
-  });
-
-  test('navigates to product page onclick', async () => {
-    // !TODO: to test proper navigation in the host!
   });
 });
