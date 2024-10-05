@@ -13,7 +13,7 @@ export function getLocalSharedImportMapPath_temp() {
 export function writeLocalSharedImportMap_temp(content: string) {
   const localSharedImportMapId = getLocalSharedImportMapPath_temp();
   createFile(
-    localSharedImportMapId,
+    localSharedImportMapId + '.js',
     '\n// Windows temporarily needs this file, https://github.com/module-federation/vite/issues/68\n' +
       content
   );
