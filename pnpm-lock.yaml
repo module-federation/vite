@@ -8,8 +8,8 @@ importers:
   .:
     dependencies:
       '@module-federation/runtime':
-        specifier: ^0.6.0
-        version: 0.6.0
+        specifier: ^0.6.8
+        version: 0.6.9
       '@rollup/pluginutils':
         specifier: ^5.1.0
         version: 5.1.0(rollup@2.79.1)
@@ -416,13 +416,13 @@ importers:
         version: 8.4.1(@babel/core@7.25.2)(webpack@5.94.0(webpack-cli@4.10.0))
       css-loader:
         specifier: ^6.3.0
-        version: 6.11.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.94.0(webpack-cli@4.10.0))
+        version: 6.11.0(@rspack/core@1.0.4)(webpack@5.94.0(webpack-cli@4.10.0))
       dotenv-webpack:
         specifier: ^8.0.1
         version: 8.1.0(webpack@5.94.0(webpack-cli@4.10.0))
       html-webpack-plugin:
         specifier: ^5.3.2
-        version: 5.6.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.94.0(webpack-cli@4.10.0))
+        version: 5.6.0(@rspack/core@1.0.4)(webpack@5.94.0(webpack-cli@4.10.0))
       postcss:
         specifier: ^8.2.1
         version: 8.4.44
@@ -2596,10 +2596,10 @@ packages:
         integrity: sha512-xgiMUWwGLWDrvZc9JibuEbXIbhXg6z2oUkemogSvQ4LKvrl/n0kbqP1Blk669mXzyWbqtSp6PpvNdwaE1aN5xQ==,
       }
 
-  '@module-federation/runtime@0.6.0':
+  '@module-federation/runtime@0.6.9':
     resolution:
       {
-        integrity: sha512-48GqtmJd3xvbrJwvf3Gl8wE1KTxGLflH7VSs73nNiAMUcK24qTrQAwvbZWzmD3sGuTV8wM0Nd5w+mKoQ/bi6Ng==,
+        integrity: sha512-G1x+6jyW5sW1X+TtWaKigGhwqiHE8MESvi3ntE9ICxwELAGBonmsqDqnLSrdEy6poBKslvPANPJr0Nn9pvW9lg==,
       }
 
   '@module-federation/sdk@0.1.6':
@@ -2620,10 +2620,10 @@ packages:
         integrity: sha512-exvchtjNURJJkpqjQ3/opdbfeT2wPKvrbnGnyRkrwW5o3FH1LaST1tkiNviT6OXTexGaVc2DahbdniQHVtQ7pA==,
       }
 
-  '@module-federation/sdk@0.6.0':
+  '@module-federation/sdk@0.6.9':
     resolution:
       {
-        integrity: sha512-yaT3dAnAdoNu+bBJnatFSVhTFSARRPuYor8Gd5Q2FIJhsQwyECC7gtNrgEcvt3sU9L44EdfnWeHwCT/tuKQADw==,
+        integrity: sha512-xmTxb9LgncxPGsBrN6AT/+aHnFGv8swbeNl0PcSeVbXTGLu3Gp7j+5J+AhJoWNB++SLguRwBd8LjB1d8mNKLDg==,
       }
 
   '@module-federation/third-party-dts-extractor@0.2.5':
@@ -14338,9 +14338,9 @@ snapshots:
     dependencies:
       '@module-federation/sdk': 0.5.1
 
-  '@module-federation/runtime@0.6.0':
+  '@module-federation/runtime@0.6.9':
     dependencies:
-      '@module-federation/sdk': 0.6.0
+      '@module-federation/sdk': 0.6.9
 
   '@module-federation/sdk@0.1.6': {}
 
@@ -14348,7 +14348,7 @@ snapshots:
 
   '@module-federation/sdk@0.5.1': {}
 
-  '@module-federation/sdk@0.6.0': {}
+  '@module-federation/sdk@0.6.9': {}
 
   '@module-federation/third-party-dts-extractor@0.2.5':
     dependencies:
@@ -16673,7 +16673,7 @@ snapshots:
     dependencies:
       postcss: 8.4.44
 
-  css-loader@6.11.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.94.0(webpack-cli@4.10.0)):
+  css-loader@6.11.0(@rspack/core@1.0.4)(webpack@5.94.0(webpack-cli@4.10.0)):
     dependencies:
       icss-utils: 5.1.0(postcss@8.4.44)
       postcss: 8.4.44
@@ -17742,7 +17742,7 @@ snapshots:
 
   html-tags@3.3.1: {}
 
-  html-webpack-plugin@5.6.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.94.0(webpack-cli@4.10.0)):
+  html-webpack-plugin@5.6.0(@rspack/core@1.0.4)(webpack@5.94.0(webpack-cli@4.10.0)):
     dependencies:
       '@types/html-minifier-terser': 6.1.0
       html-minifier-terser: 6.1.0

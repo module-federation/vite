@@ -67,6 +67,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         });
 
         config.optimizeDeps?.include?.push('@module-federation/runtime');
+        config.optimizeDeps?.include?.push('__mf__virtual');
+        config.optimizeDeps?.needsInterop?.push('__mf__virtual');
+        config.optimizeDeps?.needsInterop?.push(getLocalSharedImportMapPath());
       },
     },
     ...pluginManifest(),

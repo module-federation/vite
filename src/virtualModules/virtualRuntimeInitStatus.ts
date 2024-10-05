@@ -7,7 +7,7 @@ export function writeRuntimeInitStatus() {
       initResolve = re
       initReject = rj
     })
-    export {
+    module.exports = {
       initPromise,
       initResolve,
       initReject
