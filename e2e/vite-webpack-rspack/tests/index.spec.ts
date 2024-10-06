@@ -71,3 +71,34 @@ test.describe('Webpack remote', () => {
     await expect(furtherRecommendations).toBeVisible();
   });
 });
+
+test.describe('Dynamic remote', () => {
+  test('shows dynamic banner on toggle', async ({ page, baseURL }) => {
+    await page.goto(baseURL!);
+    const showAdToggle = page.getByRole('checkbox', { name: 'Show Dynamic Ad', exact: true });
+
+    const signUpBanner = page.getByRole('heading', { level: 2, name: 'Sign up now!', exact: true });
+    const specialPromoBanner = page.getByRole('heading', {
+      level: 2,
+      name: 'Up to 50% off!',
+    });
+
+    await showAdToggle.check({ force: true });
+
+    // Special Promo banner should be visible after toggling
+    await expect(specialPromoBanner).toBeVisible();
+    await expect(signUpBanner).not.toBeVisible();
+
+    // Toggle again, no banner should be visible
+    await showAdToggle.uncheck({ force: true });
+
+    await expect(signUpBanner).not.toBeVisible();
+    await expect(specialPromoBanner).not.toBeVisible();
+
+    // Toggle again, SignUpBanner should be visible
+    await showAdToggle.check({ force: true });
+
+    await expect(signUpBanner).toBeVisible();
+    await expect(specialPromoBanner).not.toBeVisible();
+  });
+});
