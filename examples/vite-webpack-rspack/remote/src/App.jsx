@@ -1,5 +1,7 @@
+import Product from './Product';
+
 function App() {
-  return <></>;
+  return <Product />;
 }
 
 export default App;

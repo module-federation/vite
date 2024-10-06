@@ -21,8 +21,9 @@
     "dev-vv": "pnpm -filter 'examples-vite-vite*' run dev",
     "dev-nv": "pnpm -filter 'examples-nuxt-vite-host' -filter 'examples-vite-vite-remote' run dev",
     "preview-vv": "pnpm -filter 'examples-vite-vite*'  run preview",
-    "multi-example": "pnpm --filter \"multi-example-*\" run start",
-    "test": "vitest"
+    "multi-example": "pnpm --filter \"multi-example-*\" --parallel run start",
+    "test": "vitest",
+    "e2e": "playwright test"
   },
   "repository": {
     "type": "git",
