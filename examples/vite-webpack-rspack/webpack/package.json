@@ -9,10 +9,6 @@
     "start:live": "webpack serve --mode development --live-reload --hot"
   },
   "license": "MIT",
-  "author": {
-    "name": "Jack Herrington",
-    "email": "jherr@pobox.com"
-  },
   "devDependencies": {
     "@babel/core": "^7.15.8",
     "@babel/runtime": "7.25.6",
@@ -38,7 +34,6 @@
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "@module-federation/vite": "workspace:*"
+    "react-dom": "^18.3.1"
   }
 }
