@@ -43,12 +43,12 @@ export default function (excludeFn: Function): Plugin[] {
       apply: 'build',
       moduleParsed(module) {
         const id = module.id;
-        if (excludeFn(id)) {
-          return;
-        }
         if (id === VIRTUAL_EXPOSES) {
           // When the entry JS file is empty and only contains exposes export code, it’s necessary to wait for the exposes modules to be resolved in order to collect the dependencies being used.
           exposesParseEnd = true;
+        }
+        if (excludeFn(id)) {
+          return;
         }
         parseEndSet.add(id);
         if (exposesParseEnd && parseStartSet.size === parseEndSet.size) {
