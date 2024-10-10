@@ -49,6 +49,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       return (
         id.includes(getHostAutoInitImportId()) ||
         id.includes(REMOTE_ENTRY_ID) ||
+        id.includes(VIRTUAL_EXPOSES) ||
         id.includes(getLocalSharedImportMapPath())
       );
     }),
