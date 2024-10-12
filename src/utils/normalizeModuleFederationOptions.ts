@@ -267,7 +267,7 @@ export interface NormalizedModuleFederationOptions {
   manifest: ManifestOptions | boolean;
   dev?: boolean | PluginDevOptions;
   dts?: boolean | PluginDtsOptions;
-  shareStrategy?: ShareStrategy;
+  shareStrategy: ShareStrategy;
   getPublicPath?: string;
 }
 
@@ -343,6 +343,6 @@ export function normalizeModuleFederationOptions(
     dev: options.dev,
     dts: options.dts,
     getPublicPath: options.getPublicPath,
-    shareStrategy: options.shareStrategy,
+    shareStrategy: options.shareStrategy || 'version-first',
   });
 }

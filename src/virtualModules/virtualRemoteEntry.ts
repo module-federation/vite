@@ -126,9 +126,14 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
       remotes: usedRemotes,
       shared: usedShared,
       plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}],
-      ${options.shareStrategy ? `shareStrategy: ${options.shareStrategy}` : ''}
+      ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
     initRes.initShareScopeMap('${options.shareScope}', shared);
+    try {
+      await Promise.all(await initRes.initializeSharing('${options.shareScope}', {strategy: '${options.shareStrategy}'}));
+    } catch (e) {
+      console.error(e)
+    }
     initResolve(initRes)
     return initRes
   }
