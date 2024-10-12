@@ -40,21 +40,21 @@ export function generateLocalSharedImportMap() {
   return `
     const importMap = {
       ${Array.from(getUsedShares())
-        .map(
-          (pkg) => `
+      .map(
+        (pkg) => `
         ${JSON.stringify(pkg)}: async () => {
           let pkg = await import("${getPreBuildLibImportId(pkg)}")
           return pkg
         }
       `
-        )
-        .join(',')}
+      )
+      .join(',')}
     }
       const usedShared = {
       ${Array.from(getUsedShares())
-        .map((key) => {
-          const shareItem = getNormalizeShareItem(key);
-          return `
+      .map((key) => {
+        const shareItem = getNormalizeShareItem(key);
+        return `
           ${JSON.stringify(key)}: {
             name: ${JSON.stringify(key)},
             version: ${JSON.stringify(shareItem.version)},
@@ -81,13 +81,13 @@ export function generateLocalSharedImportMap() {
             }
           }
         `;
-        })
-        .join(',')}
+      })
+      .join(',')}
     }
       const usedRemotes = [${Object.keys(getUsedRemotesMap())
-        .map((key) => {
-          const remote = options.remotes[key];
-          return `
+      .map((key) => {
+        const remote = options.remotes[key];
+        return `
                 {
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
                   name: ${JSON.stringify(remote.name)},
@@ -95,8 +95,8 @@ export function generateLocalSharedImportMap() {
                   entry: ${JSON.stringify(remote.entry)},
                 }
           `;
-        })
-        .join(',')}
+      })
+      .join(',')}
       ]
       export {
         usedShared,
@@ -126,9 +126,14 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
       remotes: usedRemotes,
       shared: usedShared,
       plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}],
-      ${options.shareStrategy ? `shareStrategy: ${options.shareStrategy}` : ''}
+      ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
     initRes.initShareScopeMap('${options.shareScope}', shared);
+    try {
+      await Promise.all(await initRes.initializeSharing('${options.shareScope}', {strategy: '${options.shareStrategy}'}));
+    } catch (e) {
+      console.error(e)
+    }
     initResolve(initRes)
     return initRes
   }

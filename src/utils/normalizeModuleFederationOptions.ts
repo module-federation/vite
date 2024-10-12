@@ -122,13 +122,13 @@ function normalizeShareItem(
   shareItem:
     | string
     | {
-        name: string;
-        version?: string;
-        shareScope?: string;
-        singleton?: boolean;
-        requiredVersion?: string;
-        strictVersion?: boolean;
-      }
+      name: string;
+      version?: string;
+      shareScope?: string;
+      singleton?: boolean;
+      requiredVersion?: string;
+      strictVersion?: boolean;
+    }
 ): ShareItem {
   let version: string | undefined;
   try {
@@ -165,17 +165,17 @@ function normalizeShared(
   shared:
     | string[]
     | Record<
-        string,
-        | string
-        | {
-            name?: string;
-            version?: string;
-            shareScope?: string;
-            singleton?: boolean;
-            requiredVersion?: string;
-            strictVersion?: boolean;
-          }
-      >
+      string,
+      | string
+      | {
+        name?: string;
+        version?: string;
+        shareScope?: string;
+        singleton?: boolean;
+        requiredVersion?: string;
+        strictVersion?: boolean;
+      }
+    >
     | undefined
 ): NormalizedShared {
   if (!shared) return {};
@@ -229,20 +229,20 @@ export type ModuleFederationOptions = {
   runtime?: any;
   shareScope?: string;
   shared?:
-    | string[]
-    | Record<
-        string,
-        | string
-        | {
-            name?: string;
-            version?: string;
-            shareScope?: string;
-            singleton?: boolean;
-            requiredVersion?: string;
-            strictVersion?: boolean;
-          }
-      >
-    | undefined;
+  | string[]
+  | Record<
+    string,
+    | string
+    | {
+      name?: string;
+      version?: string;
+      shareScope?: string;
+      singleton?: boolean;
+      requiredVersion?: string;
+      strictVersion?: boolean;
+    }
+  >
+  | undefined;
   runtimePlugins?: string[];
   getPublicPath?: string;
   implementation?: any;
@@ -267,7 +267,7 @@ export interface NormalizedModuleFederationOptions {
   manifest: ManifestOptions | boolean;
   dev?: boolean | PluginDevOptions;
   dts?: boolean | PluginDtsOptions;
-  shareStrategy?: ShareStrategy;
+  shareStrategy: ShareStrategy;
   getPublicPath?: string;
 }
 
@@ -343,6 +343,6 @@ export function normalizeModuleFederationOptions(
     dev: options.dev,
     dts: options.dts,
     getPublicPath: options.getPublicPath,
-    shareStrategy: options.shareStrategy,
+    shareStrategy: options.shareStrategy || "version-first",
   });
 }
