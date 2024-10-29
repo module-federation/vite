@@ -13,7 +13,7 @@ export default defineConfig({
   preview: {
     port: 5176,
   },
-  base: 'http://localhost:5176',
+  base: 'http://localhost:5176/testbase',
   plugins: [
     react({ jsxImportSource: '@emotion/react' }),
     federation({

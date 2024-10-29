@@ -15,7 +15,7 @@ const addEntry = ({
   fileName,
   inject = 'entry',
 }: AddEntryOptions): Plugin[] => {
-  const devEntryPath = entryPath.startsWith('virtual:mf') ? '/@id/' + entryPath : entryPath;
+  let devEntryPath = entryPath.startsWith('virtual:mf') ? '@id/' + entryPath : entryPath;
   let entryFiles: string[] = [];
   let htmlFilePath: string;
   let _command: string;
@@ -29,17 +29,21 @@ const addEntry = ({
       config(config, { command }) {
         _command = command;
       },
+      configResolved(config) {
+        viteConfig = config;
+        devEntryPath = config.base + devEntryPath.replace(/^\//, '');
+      },
       configureServer(server) {
         server.httpServer?.once?.('listening', () => {
           const { port } = server.config.server;
-          fetch(path.join(`http://localhost:${port}`, `${devEntryPath}`)).catch((e) => {});
+          fetch(`http://localhost:${port}${devEntryPath}`).catch((e) => { });
         });
         server.middlewares.use((req, res, next) => {
           if (!fileName) {
             next();
             return;
           }
-          if (req.url && req.url.startsWith(fileName.replace(/^\/?/, '/'))) {
+          if (req.url && req.url.startsWith((viteConfig.base + fileName).replace(/^\/?/, '/'))) {
             req.url = devEntryPath;
           }
           next();

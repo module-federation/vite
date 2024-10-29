@@ -28,17 +28,21 @@ const Manifest = (): Plugin[] => {
   let remoteEntryFile: string;
   let publicPath: string;
   let _command: string;
+  let viteConfig: any;
   return [
     {
       name: 'module-federation-manifest',
       apply: 'serve',
+      configResolved(config) {
+        viteConfig = config;
+      },
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
           if (!mfManifestName) {
             next();
             return;
           }
-          if (req.url === mfManifestName.replace(/^\/?/, '/')) {
+          if (req.url === (viteConfig.base + mfManifestName).replace(/^\/?/, '/')) {
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.end(
@@ -93,11 +97,11 @@ const Manifest = (): Plugin[] => {
           '.tsx',
           '.json',
         ];
-        publicPath = config.base ? config.base.replace(/\/?$/, '/') : 'auto';
+        let base = config.base;
         if (_command === 'serve') {
-          const origin = config.server.origin;
-          publicPath = origin ? origin.replace(/\/?$/, '/') : 'auto';
+          base = (config.server.origin || '') + config.base;
         }
+        publicPath = base ? base.replace(/\/?$/, '/') : 'auto';
       },
       async generateBundle(options, bundle) {
         if (!mfManifestName) return;
