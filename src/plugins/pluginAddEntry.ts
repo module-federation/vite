@@ -6,13 +6,21 @@ interface AddEntryOptions {
   entryName: string;
   entryPath: string;
   fileName?: string;
+  inject?: 'entry' | 'html';
 }
 
-const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[] => {
+const addEntry = ({
+  entryName,
+  entryPath,
+  fileName,
+  inject = 'entry',
+}: AddEntryOptions): Plugin[] => {
   const devEntryPath = entryPath.startsWith('virtual:mf') ? '/@id/' + entryPath : entryPath;
   let entryFiles: string[] = [];
   let htmlFilePath: string;
   let _command: string;
+  let emitFileId: string;
+  let viteConfig: any;
 
   return [
     {
@@ -50,6 +58,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
       name: 'add-entry',
       enforce: 'post',
       configResolved(config) {
+        viteConfig = config;
         const inputOptions = config.build.rollupOptions.input;
 
         if (!inputOptions) {
@@ -77,7 +86,7 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
         if (!hasHash) {
           emitFileOptions.fileName = fileName;
         }
-        this.emitFile(emitFileOptions);
+        emitFileId = this.emitFile(emitFileOptions);
         if (htmlFilePath) {
           const htmlContent = fs.readFileSync(htmlFilePath, 'utf-8');
           const scriptRegex = /<script\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
@@ -88,8 +97,27 @@ const addEntry = ({ entryName, entryPath, fileName }: AddEntryOptions): Plugin[]
           }
         }
       },
+      generateBundle(options, bundle) {
+        if (inject !== 'html') return;
+        const file = this.getFileName(emitFileId);
+        const scriptContent = `
+          <script type="module" src="${viteConfig.base + file}"></script>
+        `;
+
+        for (const fileName in bundle) {
+          if (fileName.endsWith('.html')) {
+            let htmlAsset = bundle[fileName];
+            if (htmlAsset.type === 'chunk') return;
+            let htmlContent = htmlAsset.source.toString() || '';
+
+            htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
+
+            htmlAsset.source = htmlContent;
+          }
+        }
+      },
       transform(code, id) {
-        if (entryFiles.some((file) => id.endsWith(file))) {
+        if (inject === 'entry' && entryFiles.some((file) => id.endsWith(file))) {
           const injection = `
           import ${JSON.stringify(entryPath)};
           `;
