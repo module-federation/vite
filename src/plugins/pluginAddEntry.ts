@@ -36,7 +36,7 @@ const addEntry = ({
       configureServer(server) {
         server.httpServer?.once?.('listening', () => {
           const { port } = server.config.server;
-          fetch(`http://localhost:${port}${devEntryPath}`).catch((e) => { });
+          fetch(`http://localhost:${port}${devEntryPath}`).catch((e) => {});
         });
         server.middlewares.use((req, res, next) => {
           if (!fileName) {
