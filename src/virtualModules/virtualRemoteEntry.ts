@@ -153,7 +153,8 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
  * Inject entry file, automatically init when used as host,
  * and will not inject remoteEntry
  */
-const hostAutoInitModule = new VirtualModule('hostAutoInit');
+export const HOST_AUTO_INIT_TAG = '__H_A_I__';
+const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG);
 export function writeHostAutoInit() {
   hostAutoInitModule.writeSync(`
     import {init} from "${REMOTE_ENTRY_ID}"

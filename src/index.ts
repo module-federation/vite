@@ -38,6 +38,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     ...addEntry({
       entryName: 'hostInit',
       entryPath: getHostAutoInitPath(),
+      inject: 'html',
     }),
     ...addEntry({
       entryName: 'virtualExposes',
