@@ -31,7 +31,7 @@ const addEntry = ({
       },
       configResolved(config) {
         viteConfig = config;
-        devEntryPath = config.base + devEntryPath.replace(/^\//, '');
+        devEntryPath = config.base + devEntryPath.replace(/\\\\?/g, '/').replace(/.+?\:([/\\])[/\\]?/, '$1').replace(/^\//, '')
       },
       configureServer(server) {
         server.httpServer?.once?.('listening', () => {
