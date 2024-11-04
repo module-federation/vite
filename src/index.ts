@@ -61,6 +61,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     {
       name: 'module-federation-vite',
       enforce: 'post',
+      // @ts-expect-error used to expose plugin options
+      _options: options,
       config(config, { command: _command }: { command: string }) {
         // TODO: singleton
         (config.resolve as any).alias.push({
