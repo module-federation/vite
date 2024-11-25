@@ -20,7 +20,7 @@ describe('normalizeModuleFederationOption', () => {
       shared: {},
       runtime: undefined,
       runtimePlugins: [],
-      implementation: require.resolve("@module-federation/runtime"),
+      implementation: require.resolve('@module-federation/runtime'),
       manifest: false,
       dev: undefined,
       dts: undefined,
