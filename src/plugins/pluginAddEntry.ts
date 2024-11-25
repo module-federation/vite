@@ -55,6 +55,7 @@ const addEntry = ({
         });
       },
       transformIndexHtml(c) {
+        if (inject !== 'html') return;
         return c.replace(
           '<head>',
           `<head><script type="module" src=${JSON.stringify(

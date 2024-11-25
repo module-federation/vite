@@ -120,17 +120,30 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   import {
     initResolve
   } from "${virtualRuntimeInitStatus.getImportId()}"
-  async function init(shared = {}) {
+  const initTokens = {}
+  const shareScopeName = ${JSON.stringify(options.shareScope)}
+  const mfName = ${JSON.stringify(options.name)}
+  async function init(shared = {}, initScope = []) {
     const initRes = runtimeInit({
-      name: ${JSON.stringify(options.name)},
+      name: mfName,
       remotes: usedRemotes,
       shared: usedShared,
       plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
+    // handling circular init calls
+    var initToken = initTokens[shareScopeName];
+    if (!initToken)
+      initToken = initTokens[shareScopeName] = { from: mfName };
+    if (initScope.indexOf(initToken) >= 0) return;
+    initScope.push(initToken);
     initRes.initShareScopeMap('${options.shareScope}', shared);
     try {
-      await Promise.all(await initRes.initializeSharing('${options.shareScope}', {strategy: '${options.shareStrategy}'}));
+      await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
+        strategy: '${options.shareStrategy}',
+        from: "build",
+        initScope
+      }));
     } catch (e) {
       console.error(e)
     }
