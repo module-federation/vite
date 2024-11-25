@@ -68,7 +68,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         // TODO: singleton
         (config.resolve as any).alias.push({
           find: '@module-federation/runtime',
-          replacement: require.resolve('@module-federation/runtime'),
+          replacement: options.implementation,
         });
 
         config.optimizeDeps?.include?.push('@module-federation/runtime');

@@ -67,6 +67,9 @@ export default defineConfig({
       shared: ["vue"],
     }),
   ],
+  server: {
+    origin: "http://localhost:{Your port}"
+  },
   // Do you need to support build targets lower than chrome89?
   // You can use 'vite-plugin-top-level-await' plugin for that.
   build: {
@@ -106,6 +109,9 @@ export default defineConfig({
       shared: ["vue"],
     }),
   ],
+  server: {
+    origin: "http://localhost:{Your port}"
+  },
   // Do you need to support build targets lower than chrome89?
   // You can use 'vite-plugin-top-level-await' plugin for that.
   build: {
