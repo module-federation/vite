@@ -51,8 +51,7 @@
     "defu": "^6.1.4",
     "estree-walker": "^2",
     "magic-string": "^0.30.11",
-    "pathe": "^1.1.2",
-    "vitest": "^2.1.1"
+    "pathe": "^1.1.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.47.2",
@@ -64,6 +63,7 @@
     "pretty-quick": "^4.0.0",
     "rimraf": "^6.0.1",
     "vite": "^5.4.3",
+    "vitest": "^2.1.1",
     "wait-on": "^8.0.1"
   }
 }
