@@ -21,6 +21,15 @@ const addEntry = ({
   let _command: string;
   let emitFileId: string;
   let viteConfig: any;
+  let _ssrBuild: boolean;
+
+  function injectHtml() {
+    return inject === 'html' && !_ssrBuild;
+  }
+
+  function injectEntry() {
+    return inject === 'entry' || _ssrBuild;
+  }
 
   return [
     {
@@ -55,7 +64,7 @@ const addEntry = ({
         });
       },
       transformIndexHtml(c) {
-        if (inject !== 'html') return;
+        if (!injectHtml()) return;
         return c.replace(
           '<head>',
           `<head><script type="module" src=${JSON.stringify(
@@ -67,8 +76,13 @@ const addEntry = ({
     {
       name: 'add-entry',
       enforce: 'post',
+      config(config, { isSsrBuild }) {
+        _ssrBuild = isSsrBuild ?? false;
+      },
       configResolved(config) {
         viteConfig = config;
+        _ssrBuild = _ssrBuild || config.ssr != null;
+
         const inputOptions = config.build.rollupOptions.input;
 
         if (!inputOptions) {
@@ -108,7 +122,7 @@ const addEntry = ({
         }
       },
       generateBundle(options, bundle) {
-        if (inject !== 'html') return;
+        if (!injectHtml()) return;
         const file = this.getFileName(emitFileId);
         const scriptContent = `
           <script type="module" src="${viteConfig.base + file}"></script>
@@ -127,7 +141,7 @@ const addEntry = ({
         }
       },
       transform(code, id) {
-        if (inject === 'entry' && entryFiles.some((file) => id.endsWith(file))) {
+        if (injectEntry() && entryFiles.some((file) => id.endsWith(file))) {
           const injection = `
           import ${JSON.stringify(entryPath)};
           `;
