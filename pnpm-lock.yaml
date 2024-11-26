@@ -25,9 +25,6 @@ importers:
       pathe:
         specifier: ^1.1.2
         version: 1.1.2
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.7.4)(sass-embedded@1.77.8)(terser@5.31.6)
     devDependencies:
       '@playwright/test':
         specifier: ^1.47.2
@@ -56,6 +53,9 @@ importers:
       vite:
         specifier: ^5.4.3
         version: 5.4.3(@types/node@22.7.4)(sass-embedded@1.77.8)(terser@5.31.6)
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.1(@types/node@22.7.4)(sass-embedded@1.77.8)(terser@5.31.6)
       wait-on:
         specifier: ^8.0.1
         version: 8.0.1
