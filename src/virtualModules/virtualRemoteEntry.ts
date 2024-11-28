@@ -54,6 +54,7 @@ export function generateLocalSharedImportMap() {
       ${Array.from(getUsedShares())
         .map((key) => {
           const shareItem = getNormalizeShareItem(key);
+          if (!shareItem) return null;
           return `
           ${JSON.stringify(key)}: {
             name: ${JSON.stringify(key)},
@@ -82,11 +83,13 @@ export function generateLocalSharedImportMap() {
           }
         `;
         })
+        .filter((x) => x !== null)
         .join(',')}
     }
       const usedRemotes = [${Object.keys(getUsedRemotesMap())
         .map((key) => {
           const remote = options.remotes[key];
+          if (!remote) return null;
           return `
                 {
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
@@ -96,6 +99,7 @@ export function generateLocalSharedImportMap() {
                 }
           `;
         })
+        .filter((x) => x !== null)
         .join(',')}
       ]
       export {
