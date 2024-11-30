@@ -9,6 +9,10 @@ interface AddEntryOptions {
   inject?: 'entry' | 'html';
 }
 
+function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
+  return entryFiles.find((file) => file.endsWith('.html'));
+}
+
 const addEntry = ({
   entryName,
   entryPath,
@@ -17,10 +21,18 @@ const addEntry = ({
 }: AddEntryOptions): Plugin[] => {
   let devEntryPath = entryPath.startsWith('virtual:mf') ? '@id/' + entryPath : entryPath;
   let entryFiles: string[] = [];
-  let htmlFilePath: string;
+  let htmlFilePath: string | undefined;
   let _command: string;
   let emitFileId: string;
   let viteConfig: any;
+
+  function injectHtml() {
+    return inject === 'html' && htmlFilePath;
+  }
+
+  function injectEntry() {
+    return inject === 'entry' || !htmlFilePath;
+  }
 
   return [
     {
@@ -55,7 +67,7 @@ const addEntry = ({
         });
       },
       transformIndexHtml(c) {
-        if (inject !== 'html') return;
+        if (!injectHtml()) return;
         return c.replace(
           '<head>',
           `<head><script type="module" src=${JSON.stringify(
@@ -75,13 +87,14 @@ const addEntry = ({
           htmlFilePath = path.resolve(config.root, 'index.html');
         } else if (typeof inputOptions === 'string') {
           entryFiles = [inputOptions];
-          htmlFilePath = path.resolve(config.root, inputOptions);
         } else if (Array.isArray(inputOptions)) {
           entryFiles = inputOptions;
-          htmlFilePath = path.resolve(config.root, inputOptions[0]);
         } else if (typeof inputOptions === 'object') {
           entryFiles = Object.values(inputOptions);
-          htmlFilePath = path.resolve(config.root, Object.values(inputOptions)[0]);
+        }
+
+        if (entryFiles && entryFiles.length > 0) {
+          htmlFilePath = getFirstHtmlEntryFile(entryFiles);
         }
       },
       buildStart() {
@@ -108,7 +121,7 @@ const addEntry = ({
         }
       },
       generateBundle(options, bundle) {
-        if (inject !== 'html') return;
+        if (!injectHtml()) return;
         const file = this.getFileName(emitFileId);
         const scriptContent = `
           <script type="module" src="${viteConfig.base + file}"></script>
@@ -127,7 +140,7 @@ const addEntry = ({
         }
       },
       transform(code, id) {
-        if (inject === 'entry' && entryFiles.some((file) => id.endsWith(file))) {
+        if (injectEntry() && entryFiles.some((file) => id.endsWith(file))) {
           const injection = `
           import ${JSON.stringify(entryPath)};
           `;
