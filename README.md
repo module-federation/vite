@@ -17,6 +17,8 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ### [Svelte](https://github.com/gioboa/svelte-microfrontend-demo)<br>
 
+### [SvelteKit](https://github.com/gioboa/sveltekit-microfrontend-demo)<br>
+
 ### [SolidJS](https://github.com/gioboa/solid-microfrontend-demo)<br>
 
 ### [More examples here](https://github.com/module-federation/vite/tree/main/examples)<br>
