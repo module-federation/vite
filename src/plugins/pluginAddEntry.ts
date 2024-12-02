@@ -75,6 +75,19 @@ const addEntry = ({
           )}></script>`
         );
       },
+      transform(code, id) {
+        if (id.includes('node_modules') || inject !== 'html' || htmlFilePath) {
+          return;
+        }
+
+        if (id.includes('.svelte-kit') && id.includes('internal.js')) {
+          const src = devEntryPath.replace(/.+?\:([/\\])[/\\]?/, '$1').replace(/\\\\?/g, '/');
+          return code.replace(
+            /<head>/g,
+            '<head><script type=\\"module\\" src=\\"' + src + '\\"></script>'
+          );
+        }
+      },
     },
     {
       name: 'add-entry',
