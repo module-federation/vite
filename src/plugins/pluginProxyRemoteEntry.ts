@@ -56,8 +56,12 @@ export default function (): Plugin {
       if (id.includes(getHostAutoInitPath())) {
         const options = getNormalizeModuleFederationOptions();
         if (_command === 'serve') {
+          const host =
+            typeof viteConfig.server?.host === 'string' && viteConfig.server.host !== '0.0.0.0'
+              ? viteConfig.server.host
+              : 'localhost';
           return `
-          const {init} = await import("//localhost:${viteConfig.server?.port}${viteConfig.base + options.filename}")
+          const {init} = await import("//${host}:${viteConfig.server?.port}${viteConfig.base + options.filename}")
           init()
           `;
         }
