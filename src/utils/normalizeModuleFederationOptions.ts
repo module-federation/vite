@@ -21,7 +21,7 @@ export type RemoteEntryType =
   | 'system'
   | string;
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import * as path from 'pathe';
 import { warn } from './logUtils';
 
@@ -122,10 +122,13 @@ function findPackageJson(moduleName: string) {
   const mainFilePath = require.resolve(moduleName);
 
   let currentDir = path.dirname(mainFilePath);
-  while (currentDir !== path.parse(currentDir).root) {
+  while (
+    path.parse(currentDir).base !== 'node_modules' &&
+    currentDir !== path.parse(currentDir).root
+  ) {
     const potentialPackageJsonPath = path.join(currentDir, 'package.json');
     if (existsSync(potentialPackageJsonPath)) {
-      return JSON.parse(readFileSync(potentialPackageJsonPath, 'utf8'));
+      return require(potentialPackageJsonPath);
     }
     currentDir = path.dirname(currentDir);
   }
