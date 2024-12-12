@@ -21,6 +21,7 @@ export type RemoteEntryType =
   | 'system'
   | string;
 
+import { existsSync } from 'fs';
 import * as path from 'pathe';
 import { warn } from './logUtils';
 
@@ -117,6 +118,24 @@ function removePathFromNpmPackage(packageString: string): string {
   return match ? match[0] : packageString;
 }
 
+function findPackageJson(moduleName: string) {
+  const mainFilePath = require.resolve(moduleName);
+
+  let currentDir = path.dirname(mainFilePath);
+  while (
+    path.parse(currentDir).base !== 'node_modules' &&
+    currentDir !== path.parse(currentDir).root
+  ) {
+    const potentialPackageJsonPath = path.join(currentDir, 'package.json');
+    if (existsSync(potentialPackageJsonPath)) {
+      return require(potentialPackageJsonPath);
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  throw new Error(`Unable to find package.json for the module "${moduleName}"`);
+}
+
 function normalizeShareItem(
   key: string,
   shareItem:
@@ -132,7 +151,7 @@ function normalizeShareItem(
 ): ShareItem {
   let version: string | undefined;
   try {
-    version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
+    version = findPackageJson(removePathFromNpmPackage(key)).version;
   } catch (e) {
     console.log(e);
   }
