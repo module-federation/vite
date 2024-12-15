@@ -61,8 +61,10 @@ export default function (): Plugin {
               ? viteConfig.server.host
               : 'localhost';
           return `
-          const {init} = await import("//${host}:${viteConfig.server?.port}${viteConfig.base + options.filename}")
-          init()
+          const remoteEntry = await import("//${host}:${viteConfig.server?.port}${viteConfig.base + options.filename}")
+          // __tla only serves as a hack for vite-plugin-top-level-await. 
+          Promise.resolve(remoteEntry.__tla)
+            .then(remoteEntry.init).catch(remoteEntry.init)
           `;
         }
         return code;
