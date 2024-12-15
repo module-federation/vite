@@ -1,5 +1,4 @@
-import { defu } from 'defu';
-import { Plugin, UserConfig, WatchOptions } from 'vite';
+import { Plugin, UserConfig } from 'vite';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule from '../utils/VirtualModule';
@@ -97,23 +96,6 @@ export function proxySharedModule(options: {
                 };
           })
         );
-      },
-    },
-    {
-      name: 'watchLocalSharedImportMap',
-      apply: 'serve',
-      config(config) {
-        config.optimizeDeps = defu(config.optimizeDeps, {
-          exclude: [getLocalSharedImportMapPath()],
-        });
-        config.server = defu(config.server, {
-          watch: {
-            ignored: [],
-          },
-        });
-        const watch = config.server.watch as WatchOptions;
-        watch.ignored = [].concat(watch.ignored as any);
-        watch.ignored.push(`!**${getLocalSharedImportMapPath()}**`);
       },
     },
   ];
