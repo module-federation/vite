@@ -107,6 +107,10 @@ export interface ShareItem {
   shareConfig: SharedConfig;
 }
 
+function cleanShareItem(key: string) {
+  return key.replace(/^\//, '').replace(/\/$/, '');
+}
+
 function findPackageJson(moduleName: string) {
   const mainFilePath = require.resolve(moduleName);
 
@@ -139,14 +143,15 @@ function normalizeShareItem(
       }
 ): ShareItem {
   let version: string | undefined;
+  const shareName = cleanShareItem(key);
   try {
-    version = findPackageJson(key).version;
+    version = findPackageJson(shareName).version;
   } catch (e) {
     console.log(e);
   }
   if (typeof shareItem === 'string') {
     return {
-      name: shareItem,
+      name: shareName,
       version,
       scope: 'default',
       from: '',
@@ -157,7 +162,7 @@ function normalizeShareItem(
     };
   }
   return {
-    name: key,
+    name: shareName,
     from: '',
     version: shareItem.version || version,
     scope: shareItem.shareScope || 'default',
@@ -321,7 +326,7 @@ export function getNormalizeModuleFederationOptions() {
 
 export function getNormalizeShareItem(key: string) {
   const options = getNormalizeModuleFederationOptions();
-  const shareItem = options.shared[key] || options.shared[key + '/'];
+  const shareItem = options.shared[cleanShareItem(key)];
   return shareItem;
 }
 
