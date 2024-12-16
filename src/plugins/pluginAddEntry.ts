@@ -51,12 +51,6 @@ const addEntry = ({
             .replace(/^\//, '');
       },
       configureServer(server) {
-        server.httpServer?.once?.('listening', () => {
-          const { port, host: hostConfig } = server.config.server;
-          const host =
-            typeof hostConfig === 'string' && hostConfig !== '0.0.0.0' ? hostConfig : 'localhost';
-          fetch(`http://${host}:${port}${devEntryPath}`).catch((e) => {});
-        });
         server.middlewares.use((req, res, next) => {
           if (!fileName) {
             next();
