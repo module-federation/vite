@@ -1,3 +1,4 @@
+import defu from 'defu';
 import { Plugin } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
@@ -70,7 +71,11 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           find: '@module-federation/runtime',
           replacement: options.implementation,
         });
-
+        config.build = defu(config.build || {}, {
+          commonjsOptions: {
+            strictRequires: 'auto',
+          },
+        });
         config.optimizeDeps?.include?.push('@module-federation/runtime');
         config.optimizeDeps?.include?.push('__mf__virtual');
         config.optimizeDeps?.needsInterop?.push('__mf__virtual');
