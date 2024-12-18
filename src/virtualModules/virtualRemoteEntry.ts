@@ -174,8 +174,13 @@ export const HOST_AUTO_INIT_TAG = '__H_A_I__';
 const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG);
 export function writeHostAutoInit() {
   hostAutoInitModule.writeSync(`
-    import {init} from "${REMOTE_ENTRY_ID}"
-    init()
+    const remoteEntryPromise = import("${REMOTE_ENTRY_ID}")
+    // __tla only serves as a hack for vite-plugin-top-level-await. 
+    Promise.resolve(remoteEntryPromise)
+      .then(remoteEntry => {
+        return Promise.resolve(remoteEntry.__tla)
+          .then(remoteEntry.init).catch(remoteEntry.init)
+      })
     `);
 }
 export function getHostAutoInitImportId() {
