@@ -45,9 +45,7 @@ export function proxySharedModule(options: {
       config(config: UserConfig, { command }) {
         (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
-            const pattern = key.endsWith('/')
-              ? `(^${key.replace(/\/$/, '')}(\/.+)?$)`
-              : `(^${key}$)`;
+            const pattern = key.endsWith('/') ? `(^${key.replace(/\/$/, '')}(\/)?$)` : `(^${key}$)`;
             return {
               // Intercept all shared requests and proxy them to loadShare
               find: new RegExp(pattern),

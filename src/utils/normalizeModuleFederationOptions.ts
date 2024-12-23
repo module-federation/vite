@@ -195,13 +195,13 @@ function normalizeShared(
   const result: NormalizedShared = {};
   if (Array.isArray(shared)) {
     shared.forEach((key) => {
-      result[key] = normalizeShareItem(key, key);
+      result[cleanShareItem(key)] = normalizeShareItem(key, key);
     });
     return result;
   }
   if (typeof shared === 'object') {
     Object.keys(shared).forEach((key) => {
-      result[key] = normalizeShareItem(key, shared[key] as any);
+      result[cleanShareItem(key)] = normalizeShareItem(key, shared[key] as any);
     });
   }
 
