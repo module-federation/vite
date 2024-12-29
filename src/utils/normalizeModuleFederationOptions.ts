@@ -21,6 +21,7 @@ export type RemoteEntryType =
   | 'system'
   | string;
 
+import { existsSync } from 'fs';
 import * as path from 'pathe';
 import { warn } from './logUtils';
 
@@ -106,15 +107,26 @@ export interface ShareItem {
   shareConfig: SharedConfig;
 }
 
-function removePathFromNpmPackage(packageString: string): string {
-  // 匹配npm包名的正则表达式，忽略路径部分
-  const regex = /^(?:@[^/]+\/)?[^/]+/;
+function cleanShareItem(key: string) {
+  return key.replace(/^\//, '').replace(/\/$/, '');
+}
 
-  // 使用正则表达式匹配并提取包名
-  const match = packageString.match(regex);
+function findPackageJson(moduleName: string) {
+  const mainFilePath = require.resolve(moduleName);
 
-  // 返回匹配到的包名，如果没有匹配到则返回原字符串
-  return match ? match[0] : packageString;
+  let currentDir = path.dirname(mainFilePath);
+  while (
+    path.parse(currentDir).base !== 'node_modules' &&
+    currentDir !== path.parse(currentDir).root
+  ) {
+    const potentialPackageJsonPath = path.join(currentDir, 'package.json');
+    if (existsSync(potentialPackageJsonPath)) {
+      return require(potentialPackageJsonPath);
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  throw new Error(`Unable to find package.json for the module "${moduleName}"`);
 }
 
 function normalizeShareItem(
@@ -131,14 +143,15 @@ function normalizeShareItem(
       }
 ): ShareItem {
   let version: string | undefined;
+  const shareName = cleanShareItem(key);
   try {
-    version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
+    version = findPackageJson(shareName).version;
   } catch (e) {
     console.log(e);
   }
   if (typeof shareItem === 'string') {
     return {
-      name: shareItem,
+      name: shareName,
       version,
       scope: 'default',
       from: '',
@@ -149,7 +162,7 @@ function normalizeShareItem(
     };
   }
   return {
-    name: key,
+    name: shareName,
     from: '',
     version: shareItem.version || version,
     scope: shareItem.shareScope || 'default',
@@ -182,13 +195,13 @@ function normalizeShared(
   const result: NormalizedShared = {};
   if (Array.isArray(shared)) {
     shared.forEach((key) => {
-      result[key] = normalizeShareItem(key, key);
+      result[cleanShareItem(key)] = normalizeShareItem(key, key);
     });
     return result;
   }
   if (typeof shared === 'object') {
     Object.keys(shared).forEach((key) => {
-      result[key] = normalizeShareItem(key, shared[key] as any);
+      result[cleanShareItem(key)] = normalizeShareItem(key, shared[key] as any);
     });
   }
 
@@ -313,9 +326,7 @@ export function getNormalizeModuleFederationOptions() {
 
 export function getNormalizeShareItem(key: string) {
   const options = getNormalizeModuleFederationOptions();
-  const shareItem =
-    options.shared[removePathFromNpmPackage(key)] ||
-    options.shared[removePathFromNpmPackage(key) + '/'];
+  const shareItem = options.shared[cleanShareItem(key)];
   return shareItem;
 }
 
