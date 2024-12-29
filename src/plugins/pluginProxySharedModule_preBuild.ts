@@ -58,7 +58,7 @@ export function proxySharedModule(options: {
                 writePreBuildLibPath(source);
                 addUsedShares(source);
                 writeLocalSharedImportMap();
-                return (this as any).resolve(loadSharePath);
+                return (this as any).resolve(loadSharePath, importer);
               },
             };
           })
@@ -84,14 +84,14 @@ export function proxySharedModule(options: {
                       VirtualModule.findModule(PREBUILD_TAG, source) as VirtualModule
                     ).name;
                     const result = await (this as any)
-                      .resolve(pkgName)
+                      .resolve(pkgName, importer)
                       .then((item: any) => item.id);
                     if (!result.includes(_config.cacheDir)) {
                       // save pre-bunding module id
                       savePrebuild.set(pkgName, Promise.resolve(result));
                     }
                     // Fix localSharedImportMap import id
-                    return await (this as any).resolve(await savePrebuild.get(pkgName));
+                    return await (this as any).resolve(await savePrebuild.get(pkgName), importer);
                   },
                 };
           })
