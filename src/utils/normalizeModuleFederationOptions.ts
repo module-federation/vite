@@ -245,7 +245,7 @@ export type ModuleFederationOptions = {
     | undefined;
   runtimePlugins?: string[];
   getPublicPath?: string;
-  implementation?: any;
+  implementation?: string;
   manifest?: ManifestOptions | boolean;
   dev?: boolean | PluginDevOptions;
   dts?: boolean | PluginDtsOptions;
@@ -263,7 +263,7 @@ export interface NormalizedModuleFederationOptions {
   shareScope: string;
   shared: NormalizedShared;
   runtimePlugins: string[];
-  implementation: any;
+  implementation: string;
   manifest: ManifestOptions | boolean;
   dev?: boolean | PluginDevOptions;
   dts?: boolean | PluginDtsOptions;
@@ -338,7 +338,7 @@ export function normalizeModuleFederationOptions(
     shareScope: options.shareScope || 'default',
     shared: normalizeShared(options.shared),
     runtimePlugins: options.runtimePlugins || [],
-    implementation: options.implementation,
+    implementation: options.implementation || require.resolve('@module-federation/runtime'),
     manifest: normalizeManifest(options.manifest),
     dev: options.dev,
     dts: options.dts,

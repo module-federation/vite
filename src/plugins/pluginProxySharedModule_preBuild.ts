@@ -1,5 +1,4 @@
-import { defu } from 'defu';
-import { Plugin, UserConfig, WatchOptions } from 'vite';
+import { Plugin, UserConfig } from 'vite';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule from '../utils/VirtualModule';
@@ -59,7 +58,7 @@ export function proxySharedModule(options: {
                 writePreBuildLibPath(source);
                 addUsedShares(source);
                 writeLocalSharedImportMap();
-                return (this as any).resolve(loadSharePath);
+                return (this as any).resolve(loadSharePath, importer);
               },
             };
           })
@@ -85,35 +84,18 @@ export function proxySharedModule(options: {
                       VirtualModule.findModule(PREBUILD_TAG, source) as VirtualModule
                     ).name;
                     const result = await (this as any)
-                      .resolve(pkgName)
+                      .resolve(pkgName, importer)
                       .then((item: any) => item.id);
                     if (!result.includes(_config.cacheDir)) {
                       // save pre-bunding module id
                       savePrebuild.set(pkgName, Promise.resolve(result));
                     }
                     // Fix localSharedImportMap import id
-                    return await (this as any).resolve(await savePrebuild.get(pkgName));
+                    return await (this as any).resolve(await savePrebuild.get(pkgName), importer);
                   },
                 };
           })
         );
-      },
-    },
-    {
-      name: 'watchLocalSharedImportMap',
-      apply: 'serve',
-      config(config) {
-        config.optimizeDeps = defu(config.optimizeDeps, {
-          exclude: [getLocalSharedImportMapPath()],
-        });
-        config.server = defu(config.server, {
-          watch: {
-            ignored: [],
-          },
-        });
-        const watch = config.server.watch as WatchOptions;
-        watch.ignored = [].concat(watch.ignored as any);
-        watch.ignored.push(`!**${getLocalSharedImportMapPath()}**`);
       },
     },
   ];

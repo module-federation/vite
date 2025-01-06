@@ -54,6 +54,7 @@ export function generateLocalSharedImportMap() {
       ${Array.from(getUsedShares())
         .map((key) => {
           const shareItem = getNormalizeShareItem(key);
+          if (!shareItem) return null;
           return `
           ${JSON.stringify(key)}: {
             name: ${JSON.stringify(key)},
@@ -82,11 +83,13 @@ export function generateLocalSharedImportMap() {
           }
         `;
         })
+        .filter((x) => x !== null)
         .join(',')}
     }
       const usedRemotes = [${Object.keys(getUsedRemotesMap())
         .map((key) => {
           const remote = options.remotes[key];
+          if (!remote) return null;
           return `
                 {
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
@@ -96,6 +99,7 @@ export function generateLocalSharedImportMap() {
                 }
           `;
         })
+        .filter((x) => x !== null)
         .join(',')}
       ]
       export {
@@ -120,17 +124,30 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   import {
     initResolve
   } from "${virtualRuntimeInitStatus.getImportId()}"
-  async function init(shared = {}) {
+  const initTokens = {}
+  const shareScopeName = ${JSON.stringify(options.shareScope)}
+  const mfName = ${JSON.stringify(options.name)}
+  async function init(shared = {}, initScope = []) {
     const initRes = runtimeInit({
-      name: ${JSON.stringify(options.name)},
+      name: mfName,
       remotes: usedRemotes,
       shared: usedShared,
       plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
+    // handling circular init calls
+    var initToken = initTokens[shareScopeName];
+    if (!initToken)
+      initToken = initTokens[shareScopeName] = { from: mfName };
+    if (initScope.indexOf(initToken) >= 0) return;
+    initScope.push(initToken);
     initRes.initShareScopeMap('${options.shareScope}', shared);
     try {
-      await Promise.all(await initRes.initializeSharing('${options.shareScope}', {strategy: '${options.shareStrategy}'}));
+      await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
+        strategy: '${options.shareStrategy}',
+        from: "build",
+        initScope
+      }));
     } catch (e) {
       console.error(e)
     }
@@ -157,8 +174,13 @@ export const HOST_AUTO_INIT_TAG = '__H_A_I__';
 const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG);
 export function writeHostAutoInit() {
   hostAutoInitModule.writeSync(`
-    import {init} from "${REMOTE_ENTRY_ID}"
-    init()
+    const remoteEntryPromise = import("${REMOTE_ENTRY_ID}")
+    // __tla only serves as a hack for vite-plugin-top-level-await. 
+    Promise.resolve(remoteEntryPromise)
+      .then(remoteEntry => {
+        return Promise.resolve(remoteEntry.__tla)
+          .then(remoteEntry.init).catch(remoteEntry.init)
+      })
     `);
 }
 export function getHostAutoInitImportId() {
