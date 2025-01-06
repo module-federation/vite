@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  - workflow_dispatch
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: PNPM Install
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.14.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 23.5.0
+          cache: 'pnpm'
+          registry-url: https://registry.npmjs.org/
+
+      - run: corepack enable
+
+      - name: Install NPM Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
