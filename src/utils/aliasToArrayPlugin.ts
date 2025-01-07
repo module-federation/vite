@@ -1,4 +1,5 @@
 import { UserConfig } from 'vite';
+import { normalizeViteConfigOption } from './normalizeModuleFederationOptions';
 
 export interface Command {
   // define command properties here
@@ -7,6 +8,7 @@ export interface Command {
 export default {
   name: 'alias-transform-plugin',
   config: (config: UserConfig, { command }: { command: Command }) => {
+    normalizeViteConfigOption(config);
     if (!config.resolve) config.resolve = {};
     if (!config.resolve.alias) config.resolve.alias = [];
     const { alias } = config.resolve;

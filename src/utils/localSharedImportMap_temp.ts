@@ -3,12 +3,16 @@
  */
 import { mkdirSync, writeFileSync } from 'fs';
 import path from 'pathe';
-import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
+import {
+  getNormalizeModuleFederationOptions,
+  getNormalizeViteOptions,
+} from './normalizeModuleFederationOptions';
 import { packageNameEncode } from './packageNameUtils';
 
 export function getLocalSharedImportMapPath_temp() {
   const { name } = getNormalizeModuleFederationOptions();
-  return path.resolve('.__mf__temp', packageNameEncode(name), 'localSharedImportMap');
+  const { outDir } = getNormalizeViteOptions();
+  return path.resolve('.__mf__temp', packageNameEncode(name) + outDir, 'localSharedImportMap');
 }
 export function writeLocalSharedImportMap_temp(content: string) {
   const localSharedImportMapId = getLocalSharedImportMapPath_temp();
