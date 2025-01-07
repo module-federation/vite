@@ -1,5 +1,8 @@
 import { Plugin, UserConfig } from 'vite';
-import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
+import {
+  NormalizedShared,
+  normalizeViteConfigOption,
+} from '../utils/normalizeModuleFederationOptions';
 import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule from '../utils/VirtualModule';
 import {
@@ -24,6 +27,10 @@ export function proxySharedModule(options: {
     {
       name: 'generateLocalSharedImportMap',
       enforce: 'post',
+      config(config: UserConfig) {
+        _config = config;
+        normalizeViteConfigOption(config);
+      },
       load(id) {
         if (id.includes(getLocalSharedImportMapPath())) {
           return parsePromise.then((_) => generateLocalSharedImportMap());

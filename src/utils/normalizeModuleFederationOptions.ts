@@ -22,6 +22,7 @@ export type RemoteEntryType =
   | string;
 
 import * as path from 'pathe';
+import { UserConfig } from 'vite';
 import { warn } from './logUtils';
 
 interface ExposesItem {
@@ -252,6 +253,12 @@ export type ModuleFederationOptions = {
   shareStrategy?: ShareStrategy;
 };
 
+export interface NormalizeViteOptions {
+  root?: string;
+  outDir?: string;
+  publicDir?: string | false | undefined;
+}
+
 export interface NormalizedModuleFederationOptions {
   exposes: Record<string, ExposesItem>;
   filename: string;
@@ -269,6 +276,14 @@ export interface NormalizedModuleFederationOptions {
   dts?: boolean | PluginDtsOptions;
   shareStrategy: ShareStrategy;
   getPublicPath?: string;
+}
+
+/** A combination of user's configuration in vite config and module federation config options */
+export interface Config {
+  /** Module Federation configuration */
+  mfConfig: NormalizedModuleFederationOptions;
+  /** User-defined configuration in vite config */
+  envConfig: NormalizeViteOptions;
 }
 
 interface PluginDevOptions {
@@ -305,10 +320,10 @@ interface DtsHostOptions {
   consumeAPITypes?: boolean;
 }
 
-let config: NormalizedModuleFederationOptions;
+let config: Config;
 
 export function getNormalizeModuleFederationOptions() {
-  return config;
+  return config.mfConfig;
 }
 
 export function getNormalizeShareItem(key: string) {
@@ -327,7 +342,7 @@ export function normalizeModuleFederationOptions(
       `We are ignoring the getPublicPath options because they are natively supported by Vite\nwith the "experimental.renderBuiltUrl" configuration https://vitejs.dev/guide/build#advanced-base-options`
     );
   }
-  return (config = {
+  return (config.mfConfig = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
     library: normalizeLibrary(options.library),
@@ -345,4 +360,20 @@ export function normalizeModuleFederationOptions(
     getPublicPath: options.getPublicPath,
     shareStrategy: options.shareStrategy || 'version-first',
   });
+}
+
+// TODO: encapsulate them (both mf config and user build config) into an object that's accessible within compiler scop
+export function normalizeViteConfigOption(_config: UserConfig): Config['envConfig'] | undefined {
+  if (!_config.build?.outDir) {
+    return;
+  }
+  return (config.envConfig = {
+    root: _config.root,
+    outDir: _config.build.outDir,
+    publicDir: _config.publicDir,
+  });
+}
+
+export function getNormalizeViteOptions() {
+  return config.envConfig;
 }
