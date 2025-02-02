@@ -139,10 +139,8 @@ function searchPackageVersion(sharedName: string): string | undefined {
       }
       potentialPackageJsonDir = path.dirname(potentialPackageJsonDir);
     }
-  } catch (_) {
-  } finally {
-    return undefined;
-  }
+  } catch (_) {}
+  return undefined;
 }
 
 function normalizeShareItem(

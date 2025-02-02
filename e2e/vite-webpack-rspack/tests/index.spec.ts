@@ -10,12 +10,14 @@ test.describe('Vite Host Tests', () => {
     const manButton = page.getByRole('button', { name: 'Man', exact: true });
     const companyButton = page.getByRole('button', { name: 'Company', exact: true });
     const storesButton = page.getByRole('button', { name: 'Stores', exact: true });
+    const testsButton = page.getByRole('button', { name: 'Tests', exact: true });
 
     await Promise.all([
       expect(womenButton).toBeVisible(),
       expect(manButton).toBeVisible(),
       expect(companyButton).toBeVisible(),
       expect(storesButton).toBeVisible(),
+      expect(testsButton).toBeVisible(),
     ]);
   });
 
@@ -44,7 +46,35 @@ test.describe('Vite remote', () => {
       name: 'Basic Tee',
       exact: true,
     });
+
     await expect(productHeader).toBeVisible();
+  });
+  test('has sizes', async ({ page, baseURL }) => {
+    await page.goto(baseURL!);
+    const xsRadio = page.getByRole('radio', { name: 'XS', exact: true });
+    const sRadio = page.getByRole('radio', { name: 'S', exact: true });
+    const mRadio = page.getByRole('radio', { name: 'M', exact: true });
+    const lRadio = page.getByRole('radio', { name: 'L', exact: true });
+    const xlRadio = page.getByRole('radio', { name: 'XL', exact: true });
+    const xxlRadio = page.getByRole('radio', { name: 'XXL', exact: true });
+
+    await Promise.all([
+      expect(xsRadio).toBeVisible(),
+      expect(sRadio).toBeVisible(),
+      expect(mRadio).toBeVisible(),
+      expect(lRadio).toBeVisible(),
+      expect(xlRadio).toBeVisible(),
+      expect(xxlRadio).toBeVisible(),
+      expect(xxlRadio).toBeVisible(),
+    ]);
+
+    expect(await xxlRadio.isChecked()).toBe(false);
+    expect(await mRadio.isChecked()).toBe(true);
+
+    await xxlRadio.check();
+
+    expect(await xxlRadio.isChecked()).toBe(true);
+    expect(await mRadio.isChecked()).toBe(false);
   });
 });
 
@@ -100,5 +130,28 @@ test.describe('Dynamic remote', () => {
 
     await expect(signUpBanner).toBeVisible();
     await expect(specialPromoBanner).not.toBeVisible();
+  });
+});
+
+test.describe('Tests remote', () => {
+  test('tests screen is available', async ({ page, baseURL }) => {
+    await page.goto(baseURL!);
+    const testsButton = page.getByRole('button', { name: 'Tests', exact: true });
+    await expect(testsButton).toBeVisible();
+
+    testsButton.click();
+
+    const testsHeading = page.getByRole('heading', { level: 1, name: 'Tests Screen', exact: true });
+    await expect(testsHeading).toBeVisible();
+
+    const chartJsElement = page.getByTestId('e2e-chart-js');
+    const dropzoneText = page.getByText("Drag 'n' drop some files here");
+    const easyCropElement = page.getByTestId('e2e-easy-crop');
+
+    await Promise.all([
+      expect(chartJsElement).toBeVisible(),
+      expect(dropzoneText).toBeVisible(),
+      expect(easyCropElement).toBeVisible(),
+    ]);
   });
 });

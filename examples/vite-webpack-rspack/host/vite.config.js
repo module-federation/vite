@@ -17,6 +17,10 @@ const mfConfig = {
       entry: 'http://localhost:8081/remoteEntry.js',
       type: 'var',
     },
+    testsRemote: {
+      entry: 'http://localhost:4003/remoteEntry.js',
+      type: 'module',
+    },
   },
   shared: ['react', 'react-dom'],
 };
