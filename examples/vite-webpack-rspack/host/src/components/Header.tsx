@@ -4,7 +4,14 @@ import BagIcon from './BagIcon';
 import CartIcon from './CartIcon';
 import SearchIcon from './SearchIcon';
 
-export const Header: React.FC = () => {
+type HeaderProps = { onTestsChange: React.Dispatch<React.SetStateAction<boolean>> };
+
+export const Header: React.FC<HeaderProps> = ({ onTestsChange }) => {
+  const onMenuItemClick = (menuItem: string) => {
+    if (menuItem === 'Tests') onTestsChange((prev) => !prev);
+    else onTestsChange(false);
+  };
+
   return (
     <header className="relative bg-white">
       <nav aria-label="Top" className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -12,13 +19,14 @@ export const Header: React.FC = () => {
           <div className="flex h-16 items-center justify-between">
             <div className="hidden lg:block lg:flex-1 lg:self-stretch">
               <div className="flex h-full space-x-8">
-                {['Women', 'Man', 'Company', 'Stores'].map((s, i) => (
+                {['Women', 'Man', 'Company', 'Stores', 'Tests'].map((s, i) => (
                   <div className="flex" key={i}>
                     <div className="relative flex">
                       <button
                         className="text-gray-700 hover:text-gray-800 relative z-10 flex items-center justify-center text-sm font-medium transition-colors duration-200 ease-out"
                         type="button"
                         aria-expanded="false"
+                        onClick={() => onMenuItemClick(s)}
                       >
                         {s}
                         <span

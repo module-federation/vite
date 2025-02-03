@@ -21,6 +21,7 @@ export type RemoteEntryType =
   | 'system'
   | string;
 
+import * as fs from 'fs';
 import * as path from 'pathe';
 import { warn } from './logUtils';
 
@@ -117,6 +118,31 @@ function removePathFromNpmPackage(packageString: string): string {
   return match ? match[0] : packageString;
 }
 
+/**
+ * Tries to find the package.json's version of a shared package
+ * if `package.json` is not declared in `exports`
+ * @param {string} sharedName
+ * @returns {string | undefined}
+ */
+function searchPackageVersion(sharedName: string): string | undefined {
+  try {
+    const sharedPath = require.resolve(sharedName);
+    let potentialPackageJsonDir = path.dirname(sharedPath);
+    const rootDir = path.parse(potentialPackageJsonDir).root;
+    while (
+      path.parse(potentialPackageJsonDir).base !== 'node_modules' &&
+      potentialPackageJsonDir !== rootDir
+    ) {
+      const potentialPackageJson = path.join(potentialPackageJsonDir, 'package.json');
+      if (fs.existsSync(potentialPackageJson)) {
+        return require(potentialPackageJson).version;
+      }
+      potentialPackageJsonDir = path.dirname(potentialPackageJsonDir);
+    }
+  } catch (_) {}
+  return undefined;
+}
+
 function normalizeShareItem(
   key: string,
   shareItem:
@@ -134,7 +160,8 @@ function normalizeShareItem(
   try {
     version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
   } catch (e) {
-    console.log(e);
+    version = searchPackageVersion(key);
+    if (!version) console.error(e);
   }
   if (typeof shareItem === 'string') {
     return {
