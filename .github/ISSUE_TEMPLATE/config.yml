@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Discussions
+    url: https://discord.gg/VYtDGFmgVN
+    about: Please ask and answer questions about Module Federation here
+  - name: Bug Report
+    url: https://github.com/module-federation/vite/issues/new?template=bug_report.yml
+    about: Report bugs or issues you encounter here
