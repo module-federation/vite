@@ -13,6 +13,7 @@ import {
   normalizeModuleFederationOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
+import VirtualModule from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
   getHostAutoInitPath,
@@ -24,11 +25,21 @@ import { VIRTUAL_EXPOSES } from './virtualModules/virtualExposes';
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
-  initVirtualModules();
   const { name, remotes, shared, filename } = options;
   if (!name) throw new Error('name is required');
 
   return [
+    {
+      name: 'vite:module-federation-config',
+      enforce: 'pre',
+      configResolved(config) {
+        // Set root path
+        VirtualModule.setRoot(config.root);
+        // Ensure virtual package directory exists
+        VirtualModule.ensureVirtualPackageExists();
+        initVirtualModules();
+      },
+    },
     aliasToArrayPlugin,
     normalizeOptimizeDepsPlugin,
     ...addEntry({
