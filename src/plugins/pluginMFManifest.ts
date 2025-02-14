@@ -1,14 +1,28 @@
 import { join, relative } from 'pathe';
-import { Manifest, Plugin } from 'vite';
+import { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import { getPreBuildLibImportId, getUsedRemotesMap, getUsedShares } from '../virtualModules';
 
+type AssetMap = {
+  sync: string[];
+  async: string[];
+};
+
+type PreloadMap = Record<
+  string,
+  {
+    js: AssetMap;
+    css: AssetMap;
+  }
+>;
+
 const Manifest = (): Plugin[] => {
   const mfOptions = getNormalizeModuleFederationOptions();
   const { name, filename, getPublicPath, manifest: manifestOptions } = mfOptions;
+
   let mfManifestName: string = '';
   if (manifestOptions === true) {
     mfManifestName = 'mf-manifest.json';
@@ -16,20 +30,52 @@ const Manifest = (): Plugin[] => {
   if (typeof manifestOptions !== 'boolean') {
     mfManifestName = join(manifestOptions?.filePath || '', manifestOptions?.fileName || '');
   }
+
   let extensions: string[];
   let root: string;
-  type PreloadMap = Record<
-    string,
-    {
-      sync: string[];
-      async: string[];
-    }
-  >; // 保存模块和文件的映射关系
   let remoteEntryFile: string;
   let publicPath: string;
   let _command: string;
   let _originalConfigBase: string | undefined;
   let viteConfig: any;
+
+  // Helper function to initialize asset maps
+  const createEmptyAssetMap = (): { js: AssetMap; css: AssetMap } => ({
+    js: { sync: [], async: [] },
+    css: { sync: [], async: [] },
+  });
+
+  // Helper function to track assets with deduplication
+  const trackAsset = (
+    map: PreloadMap,
+    key: string,
+    fileName: string,
+    isAsync: boolean,
+    type: 'js' | 'css'
+  ) => {
+    if (!map[key]) {
+      map[key] = createEmptyAssetMap();
+    }
+    const target = isAsync ? map[key][type].async : map[key][type].sync;
+    if (!target.includes(fileName)) {
+      target.push(fileName);
+    }
+  };
+
+  // Helper function to check if a file is CSS
+  const isCSSFile = (fileName: string): boolean => {
+    return fileName.endsWith('.css') || fileName.endsWith('.scss') || fileName.endsWith('.less');
+  };
+
+  // Helper function to add CSS assets to all exports
+  const addCssAssetsToAllExports = (filesMap: PreloadMap, cssAssets: Set<string>) => {
+    Object.keys(filesMap).forEach((key) => {
+      cssAssets.forEach((cssAsset) => {
+        trackAsset(filesMap, key, cssAsset, false, 'css');
+      });
+    });
+  };
+
   return [
     {
       name: 'module-federation-manifest',
@@ -83,8 +129,9 @@ const Manifest = (): Plugin[] => {
       enforce: 'post',
       config(config, { command }) {
         if (!config.build) config.build = {};
-        if (!config.build.manifest)
+        if (!config.build.manifest) {
           config.build.manifest = config.build.manifest || !!manifestOptions;
+        }
         _command = command;
         _originalConfigBase = config.base;
       },
@@ -109,24 +156,10 @@ const Manifest = (): Plugin[] => {
       async generateBundle(options, bundle) {
         if (!mfManifestName) return;
 
-        const exposesModules = Object.keys(mfOptions.exposes).map(
-          (item) => mfOptions.exposes[item].import
-        ); // 获取你提供的 moduleIds
-        const filesContainingModules: PreloadMap = {};
-        // 帮助函数：检查模块路径是否匹配
-        const isModuleMatched = (relativeModulePath: string, preloadModule: string) => {
-          // 先尝试直接匹配
-          if (relativeModulePath === preloadModule) return true;
-          // 如果 preloadModule 没有后缀，尝试添加可能的后缀进行匹配
-          for (const ext of extensions) {
-            if (relativeModulePath === `${preloadModule}${ext}`) {
-              return true;
-            }
-          }
-          return false;
-        };
+        const filesMap: PreloadMap = {};
+        const allCssAssets = new Set<string>();
 
-        // 遍历打包生成的每个文件
+        // Find remoteEntry file
         for (const [fileName, fileData] of Object.entries(bundle)) {
           if (
             mfOptions.filename.replace(/[\[\]]/g, '_').replace(/\.[^/.]+$/, '') === fileData.name ||
@@ -134,48 +167,52 @@ const Manifest = (): Plugin[] => {
           ) {
             remoteEntryFile = fileData.fileName;
           }
+          // Collect all CSS assets
+          if (fileData.type === 'asset' && isCSSFile(fileName)) {
+            allCssAssets.add(fileName);
+          }
+        }
+
+        const exposesModules = Object.keys(mfOptions.exposes).map(
+          (item) => mfOptions.exposes[item].import
+        );
+
+        // Process modules and their associated assets
+        for (const [fileName, fileData] of Object.entries(bundle)) {
           if (fileData.type === 'chunk') {
-            // 遍历该文件的所有模块
             for (const modulePath of Object.keys(fileData.modules)) {
-              // 将绝对路径转换为相对于 Vite root 的相对路径
               const relativeModulePath = relative(root, modulePath);
 
-              // 检查模块是否在 preloadModules 列表中
-              for (const preloadModule of exposesModules) {
-                const formatPreloadModule = preloadModule.replace('./', '');
-                if (isModuleMatched(relativeModulePath, formatPreloadModule)) {
-                  if (!filesContainingModules[preloadModule]) {
-                    filesContainingModules[preloadModule] = {
-                      sync: [],
-                      async: [],
-                    };
+              // Handle exposed modules
+              for (const exposeModule of exposesModules) {
+                const formatExposeModule = exposeModule.replace('./', '');
+                if (
+                  relativeModulePath === formatExposeModule ||
+                  extensions.some((ext) => relativeModulePath === `${formatExposeModule}${ext}`)
+                ) {
+                  // Track the JS chunk
+                  trackAsset(filesMap, exposeModule, fileName, false, 'js');
+
+                  // Handle dynamic imports
+                  if (fileData.dynamicImports) {
+                    for (const dynamicImport of fileData.dynamicImports) {
+                      const importData = bundle[dynamicImport];
+                      if (importData) {
+                        if (importData.type === 'asset' && isCSSFile(dynamicImport)) {
+                          trackAsset(filesMap, exposeModule, dynamicImport, true, 'css');
+                        } else {
+                          trackAsset(filesMap, exposeModule, dynamicImport, true, 'js');
+                        }
+                      }
+                    }
                   }
-                  console.log(Object.keys(fileData.modules));
-                  filesContainingModules[preloadModule].sync.push(fileName);
-                  filesContainingModules[preloadModule].async.push(
-                    ...(fileData.dynamicImports || [])
-                  );
-                  findSynchronousImports(fileName, filesContainingModules[preloadModule].sync);
-                  break; // 如果找到匹配，跳出循环
                 }
               }
             }
           }
         }
-        // 递归查找模块的同步导入文件
-        function findSynchronousImports(fileName: string, array: string[]) {
-          const fileData = bundle[fileName];
-          if (fileData && fileData.type === 'chunk') {
-            array.push(fileName); // 将当前文件加入预加载列表
 
-            // 遍历该文件的同步导入文件
-            fileData.imports.forEach((importedFile) => {
-              if (array.indexOf(importedFile) === -1) {
-                findSynchronousImports(importedFile, array); // 递归查找同步导入的文件
-              }
-            });
-          }
-        }
+        // Process shared modules
         const fileToShareKey: Record<string, string> = {};
         await Promise.all(
           Array.from(getUsedShares()).map(async (shareKey) => {
@@ -186,41 +223,55 @@ const Manifest = (): Plugin[] => {
           })
         );
 
-        // 遍历打包生成的每个文件
         for (const [fileName, fileData] of Object.entries(bundle)) {
           if (fileData.type === 'chunk') {
-            // 遍历该文件的所有模块
             for (const modulePath of Object.keys(fileData.modules)) {
               const sharedKey = fileToShareKey[modulePath];
               if (sharedKey) {
-                if (!filesContainingModules[sharedKey]) {
-                  filesContainingModules[sharedKey] = {
-                    sync: [],
-                    async: [],
-                  };
+                // Track the JS chunk
+                trackAsset(filesMap, sharedKey, fileName, false, 'js');
+
+                // Handle dynamic imports
+                if (fileData.dynamicImports) {
+                  for (const dynamicImport of fileData.dynamicImports) {
+                    const importData = bundle[dynamicImport];
+                    if (importData) {
+                      if (importData.type === 'asset' && isCSSFile(dynamicImport)) {
+                        trackAsset(filesMap, sharedKey, dynamicImport, true, 'css');
+                      } else {
+                        trackAsset(filesMap, sharedKey, dynamicImport, true, 'js');
+                      }
+                    }
+                  }
                 }
-                filesContainingModules[sharedKey].sync.push(fileName);
-                filesContainingModules[sharedKey].async.push(...(fileData.dynamicImports || []));
-                findSynchronousImports(fileName, filesContainingModules[sharedKey].sync);
-                break; // 如果找到匹配，跳出循环
               }
             }
           }
         }
-        Object.keys(filesContainingModules).forEach((key) => {
-          filesContainingModules[key].sync = Array.from(new Set(filesContainingModules[key].sync));
-          filesContainingModules[key].async = Array.from(
-            new Set(filesContainingModules[key].async)
-          );
+
+        // Add all CSS assets to every export
+        addCssAssetsToAllExports(filesMap, allCssAssets);
+
+        // Final deduplication of all arrays in the filesMap
+        Object.values(filesMap).forEach((assetMaps) => {
+          ['js', 'css'].forEach((type) => {
+            ['sync', 'async'].forEach((timing) => {
+              assetMaps[type as 'js' | 'css'][timing as 'sync' | 'async'] = Array.from(
+                new Set(assetMaps[type as 'js' | 'css'][timing as 'sync' | 'async'])
+              );
+            });
+          });
         });
+
         this.emitFile({
           type: 'asset',
           fileName: mfManifestName,
-          source: JSON.stringify(generateMFManifest(filesContainingModules)),
+          source: JSON.stringify(generateMFManifest(filesMap)),
         });
       },
     },
   ];
+
   function generateMFManifest(preloadMap: PreloadMap) {
     const options = getNormalizeModuleFederationOptions();
     const { name } = options;
@@ -229,44 +280,23 @@ const Manifest = (): Plugin[] => {
       path: '',
       type: 'module',
     };
-    const remotes: {
-      federationContainerName: string;
-      moduleName: string;
-      alias: string;
-      entry: string;
-    }[] = [];
-    const usedRemotesMap = getUsedRemotesMap();
-    Object.keys(usedRemotesMap).forEach((remoteKey) => {
-      const usedModules = Array.from(usedRemotesMap[remoteKey]);
-      usedModules.forEach((moduleKey) => {
-        remotes.push({
+
+    // Process remotes
+    const remotes = Array.from(Object.entries(getUsedRemotesMap())).flatMap(
+      ([remoteKey, modules]) =>
+        Array.from(modules).map((moduleKey) => ({
           federationContainerName: options.remotes[remoteKey].entry,
           moduleName: moduleKey.replace(remoteKey, '').replace('/', ''),
           alias: remoteKey,
           entry: '*',
-        });
-      });
-    });
-    type ManifestItem = {
-      id: string;
-      name: string;
-      version: string;
-      requiredVersion: string;
-      assets: {
-        js: {
-          async: string[];
-          sync: string[];
-        };
-        css: {
-          async: string[];
-          sync: string[];
-        };
-      };
-    };
-    // @ts-ignore
-    const shared: ManifestItem[] = Array.from(getUsedShares())
+        }))
+    );
+
+    // Process shared dependencies
+    const shared = Array.from(getUsedShares())
       .map((shareKey) => {
         const shareItem = getNormalizeShareItem(shareKey);
+        const assets = preloadMap[shareKey] || createEmptyAssetMap();
 
         return {
           id: `${name}:${shareKey}`,
@@ -275,45 +305,48 @@ const Manifest = (): Plugin[] => {
           requiredVersion: shareItem.shareConfig.requiredVersion,
           assets: {
             js: {
-              async: preloadMap?.[shareKey]?.async || [],
-              sync: preloadMap?.[shareKey]?.sync || [],
+              async: assets.js.async,
+              sync: assets.js.sync,
             },
             css: {
-              async: [],
-              sync: [],
+              async: assets.css.async,
+              sync: assets.css.sync,
             },
           },
         };
       })
-      .filter((item) => item);
-    const exposes = Object.keys(options.exposes)
-      .map((key) => {
-        // assets(.css, .jpg, .svg等)其他资源, 不重要, 暂未处理
+      .filter(Boolean);
+
+    // Process exposed modules
+    const exposes = Object.entries(options.exposes)
+      .map(([key, value]) => {
         const formatKey = key.replace('./', '');
-        const sourceFile = options.exposes[key].import;
+        const sourceFile = value.import;
+        const assets = preloadMap[sourceFile] || createEmptyAssetMap();
+
         return {
-          id: name + ':' + formatKey,
+          id: `${name}:${formatKey}`,
           name: formatKey,
           assets: {
             js: {
-              async: preloadMap?.[sourceFile]?.async || [],
-              sync: preloadMap?.[sourceFile]?.sync || [],
+              async: assets.js.async,
+              sync: assets.js.sync,
             },
             css: {
-              sync: [],
-              async: [],
+              async: assets.css.async,
+              sync: assets.css.sync,
             },
           },
           path: key,
         };
       })
-      .filter((item) => item); // Filter out any null values
+      .filter(Boolean);
 
-    const result = {
+    return {
       id: name,
-      name: name,
+      name,
       metaData: {
-        name: name,
+        name,
         type: 'app',
         buildInfo: {
           buildVersion: '1.0.0',
@@ -324,8 +357,6 @@ const Manifest = (): Plugin[] => {
         types: {
           path: '',
           name: '',
-          // "zip": "@mf-types.zip",
-          // "api": "@mf-types.d.ts"
         },
         globalName: name,
         pluginVersion: '0.2.5',
@@ -335,7 +366,6 @@ const Manifest = (): Plugin[] => {
       remotes,
       exposes,
     };
-    return result;
   }
 };
 
