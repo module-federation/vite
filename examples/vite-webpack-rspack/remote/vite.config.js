@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     federation({
       name: 'remote',
-      filename: 'remoteEntry.js',
+      filename: 'custom-filename.js',
       // Modules to expose
       exposes: {
         './Product': './src/Product.jsx',
