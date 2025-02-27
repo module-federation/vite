@@ -6,7 +6,7 @@ const mfConfig = {
   name: 'host',
   remotes: {
     remote: {
-      entry: 'http://localhost:4001/remoteEntry.js',
+      entry: 'http://localhost:4001/custom-filename.js',
       type: 'module',
     },
     webpack: {
