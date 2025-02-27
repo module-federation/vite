@@ -126,7 +126,7 @@ const Manifest = (): Plugin[] => {
         // 遍历打包生成的每个文件
         for (const [fileName, fileData] of Object.entries(bundle)) {
           if (
-            mfOptions.filename.replace(/[\[\]]/g, '_') === fileData.name ||
+            mfOptions.filename.replace(/[\[\]]/g, '_').replace(/\.[^/.]+$/, '') === fileData.name ||
             fileData.name === 'remoteEntry'
           ) {
             remoteEntryFile = fileData.fileName;
