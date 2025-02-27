@@ -67,7 +67,7 @@ const Manifest = (): Plugin[] => {
                   types: { path: '', name: '' },
                   globalName: name,
                   pluginVersion: '0.2.5',
-                  publicPath,
+                  ...(!!getPublicPath ? { publicPath: getPublicPath } : { publicPath }),
                 },
               })
             );
@@ -326,7 +326,7 @@ const Manifest = (): Plugin[] => {
         },
         globalName: name,
         pluginVersion: '0.2.5',
-        ...(!!getPublicPath ? { getPublicPath } : { publicPath }),
+        ...(!!getPublicPath ? { publicPath: getPublicPath } : { publicPath }),
       },
       shared,
       remotes,
