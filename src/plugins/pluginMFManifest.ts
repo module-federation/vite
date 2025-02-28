@@ -28,6 +28,7 @@ const Manifest = (): Plugin[] => {
   let remoteEntryFile: string;
   let publicPath: string;
   let _command: string;
+  let _base: string;
   let viteConfig: any;
   return [
     {
@@ -85,6 +86,7 @@ const Manifest = (): Plugin[] => {
         if (!config.build.manifest)
           config.build.manifest = config.build.manifest || !!manifestOptions;
         _command = command;
+        _base = config.base;
       },
       configResolved(config) {
         root = config.root;
@@ -101,7 +103,11 @@ const Manifest = (): Plugin[] => {
         if (_command === 'serve') {
           base = (config.server.origin || '') + config.base;
         }
-        publicPath = base ? base.replace(/\/?$/, '/') : 'auto';
+        publicPath = _base === ''
+          ? 'auto'
+          : base
+            ? base.replace(/\/?$/, '/')
+            : 'auto';
       },
       async generateBundle(options, bundle) {
         if (!mfManifestName) return;
