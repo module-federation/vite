@@ -44,6 +44,8 @@ export default defineConfig({
         '@emotion/styled': { singleton: true },
         '@mui/material': {},
       },
+      // make react hmr works
+      injectEntryCode: react.preambleCode.replace('__BASE__', 'http://localhost:5176/testbase/'),
     }),
     // If you set build.target: "chrome89", you can remove this plugin
     false && topLevelAwait(),
