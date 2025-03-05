@@ -103,11 +103,7 @@ const Manifest = (): Plugin[] => {
         if (_command === 'serve') {
           base = (config.server.origin || '') + config.base;
         }
-        publicPath = _base === ''
-          ? 'auto'
-          : base
-            ? base.replace(/\/?$/, '/')
-            : 'auto';
+        publicPath = _base === '' ? 'auto' : base ? base.replace(/\/?$/, '/') : 'auto';
       },
       async generateBundle(options, bundle) {
         if (!mfManifestName) return;
