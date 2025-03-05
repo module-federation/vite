@@ -28,7 +28,7 @@ const Manifest = (): Plugin[] => {
   let remoteEntryFile: string;
   let publicPath: string;
   let _command: string;
-  let _base: string;
+  let _base: string | undefined;
   let viteConfig: any;
   return [
     {
