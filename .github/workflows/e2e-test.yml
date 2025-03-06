@@ -20,12 +20,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Enable Corepack and Setup PNPM
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.5.2 --activate
+      - name: PNPM Install
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.5.2
 
-      - name: Install Dependencies
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          cache: 'pnpm'
+          registry-url: https://registry.npmjs.org/
+
+      - run: corepack enable
+
+      - name: Install NPM Dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Install Chromium Browser
