@@ -46,7 +46,7 @@
   "homepage": "https://github.com/module-federation/vite#readme",
   "packageManager": "pnpm@10.5.2",
   "dependencies": {
-    "@module-federation/runtime": "^0.10.0",
+    "@module-federation/runtime": "^0.8.0",
     "@rollup/pluginutils": "^5.1.4",
     "defu": "^6.1.4",
     "estree-walker": "^3.0.3",
@@ -63,7 +63,7 @@
     "pretty-quick": "^4.1.1",
     "rimraf": "^6.0.1",
     "vite": "^6.2.0",
-    "vitest": "^3.0.7",
+    "vitest": "^2.1.9",
     "wait-on": "^8.0.2"
   }
 }
