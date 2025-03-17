@@ -96,7 +96,7 @@ export function generateLocalSharedImportMap() {
                   name: ${JSON.stringify(remote.name)},
                   type: ${JSON.stringify(remote.type)},
                   entry: ${JSON.stringify(remote.entry)},
-                  shareScope: ${JSON.stringify(remote.shareScope) ?? "default"},
+                  shareScope: ${JSON.stringify(remote.shareScope) ?? 'default'},
                 }
           `;
         })
