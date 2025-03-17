@@ -4,5 +4,6 @@
     "source.fixAll": "always"
   },
   "editor.formatOnSave": true,
-  "cSpell.words": ["microfrontend"]
+  "cSpell.words": ["microfrontend"],
+  "editor.tabSize": 2
 }
