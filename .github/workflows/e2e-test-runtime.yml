@@ -30,7 +30,7 @@ jobs:
 
       - name: Install Chromium Browser
         working-directory: ./packages/module-federation-vite-runtime
-        run: pnpm e2e --run --reporter=json --outputFile=./test-output.json
+        run: pnpm e2e --run --reporter=json --outputFile=./reports/e2e/output.json
 
       - name: Upload Artifacts on Failure
         working-directory: ./packages/module-federation-vite-runtime
