@@ -2,8 +2,6 @@ name: Unit Test Check
 
 on:
   pull_request:
-    branches:
-      - main
 
 permissions:
   pull-requests: read
