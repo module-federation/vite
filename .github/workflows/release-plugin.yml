@@ -1,4 +1,4 @@
-name: Release
+name: Release @module-federation/vite
 
 on:
   - workflow_dispatch
