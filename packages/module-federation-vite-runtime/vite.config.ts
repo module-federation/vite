@@ -1,3 +1,4 @@
+import MagicString from 'magic-string';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -27,7 +28,16 @@ export default defineConfig({
         and tree-shake out all the NodeJS code.
         */
         if (id.includes('@module-federation/sdk/dist/index')) {
-          return code.replace(/typeof window !== 'undefined'/g, 'true');
+          const s = new MagicString(code);
+
+          s.overwrite(0, code.length, code.replace(/typeof window !== 'undefined'/g, 'true'));
+
+          const map = s.generateMap({ source: id, includeContent: true });
+
+          return {
+            code: s.toString(),
+            map,
+          };
         }
       },
     },
