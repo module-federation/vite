@@ -35,5 +35,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test Library Check
+        working-directory: ./packages/module-federation-vite
         if: ${{ always() }}
         run: pnpm test

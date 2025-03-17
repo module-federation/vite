@@ -28,9 +28,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
+        working-directory: ./packages/module-federation-vite
         run: pnpm run build
 
       - name: Publish to npm
+        working-directory: ./packages/module-federation-vite
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
