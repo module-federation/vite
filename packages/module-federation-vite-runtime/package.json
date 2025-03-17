@@ -15,7 +15,9 @@
     "fmt": "prettier --write src",
     "fmt.check": "prettier --check src",
     "format": "pretty-quick",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "vitest",
+    "e2e": "vitest --e2e"
   },
   "repository": {
     "type": "git",
@@ -37,8 +39,11 @@
   "homepage": "https://github.com/module-federation/vite#readme",
   "devDependencies": {
     "@module-federation/runtime": "^0.8.0",
+    "magic-string": "^0.30.11",
     "prettier": "3.3.3",
     "pretty-quick": "^4.0.0",
-    "vite": "^6.2.2"
+    "rollup": "^4.36.0",
+    "vite": "^6.2.2",
+    "vitest": "^2.1.1"
   }
 }
