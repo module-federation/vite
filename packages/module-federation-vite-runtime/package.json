@@ -16,8 +16,8 @@
     "fmt.check": "prettier --check src",
     "format": "pretty-quick",
     "build": "vite build",
-    "test": "vitest",
-    "e2e": "vitest --e2e"
+    "test": "vitest --config vitest.e2e.config.ts",
+    "e2e": "vitest --config vitest.e2e.config.ts"
   },
   "repository": {
     "type": "git",
