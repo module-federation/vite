@@ -26,7 +26,7 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Chromium Browser
+      - name: Run E2E Tests
         working-directory: ./packages/module-federation-vite-runtime
         run: pnpm e2e --run --reporter=json --outputFile=./reports/e2e/output.json
 
