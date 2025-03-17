@@ -29,18 +29,23 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Chromium Browser
+        working-directory: ./packages/module-federation-vite
         run: pnpm playwright install --with-deps chromium
 
       - name: Build Projects
+        working-directory: ./packages/module-federation-vite
         run: pnpm build
 
       - name: Start Application multi-example
+        working-directory: ./packages/module-federation-vite
         run: nohup pnpm run multi-example & pnpm exec wait-on http://localhost:5173;
 
       - name: Run Playwright Tests
+        working-directory: ./packages/module-federation-vite
         run: pnpm playwright test
 
       - name: Upload Artifacts on Failure
+        working-directory: ./packages/module-federation-vite
         if: failure()
         uses: actions/upload-artifact@v4
         with:
