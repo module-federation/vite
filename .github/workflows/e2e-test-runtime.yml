@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  pull_request:
+  pull_request: {}
 
 permissions:
   pull-requests: read
@@ -31,10 +31,9 @@ jobs:
         run: pnpm e2e --run --reporter=json --outputFile=./reports/e2e/output.json
 
       - name: Upload Artifacts on Failure
-        working-directory: ./packages/module-federation-vite-runtime
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: reports/e2e/output
+          path: packages/module-federation-vite-runtime/reports/e2e/output
           retention-days: 3
