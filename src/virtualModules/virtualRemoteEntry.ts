@@ -125,6 +125,7 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   import {
     initResolve
   } from "${virtualRuntimeInitStatus.getImportId()}"
+  ${options.injectEntryCode || ''}
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
   const mfName = ${JSON.stringify(options.name)}
