@@ -17,7 +17,7 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
           find: new RegExp(`^(${remote.name}(\/.*|$))`),
           replacement: '$1',
           customResolver(source: string) {
-            const remoteModule = getRemoteVirtualModule(source, _command);
+            const remoteModule = getRemoteVirtualModule(source, _command, remote.type === 'module');
             addUsedRemote(remote.name, source);
             return remoteModule.getPath();
           },
