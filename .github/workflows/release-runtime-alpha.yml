@@ -35,6 +35,6 @@ jobs:
 
       - name: Publish to npm
         working-directory: ./packages/module-federation-vite-runtime
-        run: npm publish --access public --tag alpha-1
+        run: npm publish --access public --tag 2.0.0-alpha-1
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
