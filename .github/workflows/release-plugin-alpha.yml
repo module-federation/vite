@@ -1,4 +1,4 @@
-name: Release @module-federation/vite
+name: Release @module-federation/vite alpha from monorepo
 
 on:
   - workflow_dispatch
