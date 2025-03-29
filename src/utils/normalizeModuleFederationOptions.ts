@@ -302,6 +302,7 @@ interface PluginDevOptions {
   disableLiveReload?: boolean;
   disableHotTypesReload?: boolean;
   disableDynamicRemoteTypeHints?: boolean;
+  alwaysReadOriginFromConfig?: boolean;
 }
 
 interface PluginDtsOptions {
