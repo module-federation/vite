@@ -25,10 +25,23 @@ export function getUsedRemotesMap() {
 }
 export function generateRemotes(id: string, command: string) {
   return `
+    import { createRequire } from 'node:module';
+    const require = createRequire(import.meta.url);
     const {loadRemote} = require("@module-federation/runtime")
     const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
     const res = initPromise.then(_ => loadRemote(${JSON.stringify(id)}))
     const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}initPromise.then(_ => res)
-    module.exports = exportModule
+    
+    // Dual exports for CJS/ESM compatibility
+    if (typeof module !== 'undefined') {
+      module.exports = exportModule;
+      module.exports.default = exportModule;
+    }
+    
+    // ESM export fallback
+    if (typeof exports !== 'undefined' && typeof define !== 'function') {
+      Object.defineProperty(exports, '__esModule', { value: true });
+      exports.default = exportModule;
+    }
   `;
 }

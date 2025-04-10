@@ -38,7 +38,8 @@ export function getLoadShareModulePath(pkg: string): string {
 }
 export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command: string) {
   loadShareCacheMap[pkg].writeSync(`
-    
+    import { createRequire } from 'node:module';
+    const require = createRequire(import.meta.url);
     ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
     // dev uses dynamic import to separate chunks
     ${command !== 'build' ? `;() => import(${JSON.stringify(pkg)}).catch(() => {});` : ''}
@@ -50,7 +51,17 @@ export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command:
       strictVersion: ${shareItem.shareConfig.strictVersion},
       requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
     }}}))
-    const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}res.then(factory => factory())
-    module.exports = exportModule
+    
+    // Dual exports for CJS/ESM compatibility
+    if (typeof module !== 'undefined') {
+      module.exports = exportModule;
+      module.exports.default = exportModule;
+    }
+    
+    // ESM export fallback
+    if (typeof exports !== 'undefined' && typeof define !== 'function') {
+      Object.defineProperty(exports, '__esModule', { value: true });
+      exports.default = exportModule;
+    }
   `);
 }
