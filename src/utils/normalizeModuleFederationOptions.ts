@@ -277,6 +277,7 @@ export type ModuleFederationOptions = {
   dev?: boolean | PluginDevOptions;
   dts?: boolean | PluginDtsOptions;
   shareStrategy?: ShareStrategy;
+  ignoreOrigin?: boolean;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -296,6 +297,7 @@ export interface NormalizedModuleFederationOptions {
   dts?: boolean | PluginDtsOptions;
   shareStrategy: ShareStrategy;
   getPublicPath?: string;
+  ignoreOrigin?: boolean;
 }
 
 interface PluginDevOptions {
@@ -371,5 +373,6 @@ export function normalizeModuleFederationOptions(
     dts: options.dts,
     getPublicPath: options.getPublicPath,
     shareStrategy: options.shareStrategy || 'version-first',
+    ignoreOrigin: options.ignoreOrigin || false,
   });
 }
