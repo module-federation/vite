@@ -405,9 +405,6 @@ importers:
 
   examples/vite-webpack-rspack/tests-remote:
     dependencies:
-      '@connectrpc/connect-query':
-        specifier: ^2.0.1
-        version: 2.0.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@2.0.2(@bufbuild/protobuf@1.10.0))(@tanstack/query-core@5.74.7)(@tanstack/react-query@5.74.7(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@module-federation/vite':
         specifier: workspace:*
         version: link:../../..
@@ -1871,36 +1868,6 @@ packages:
         integrity: sha512-YLPHc8yASwjNkmcDMQMY35yiWjoKAKnhUbPRszBRS0YgH+IXtsMp61j+yTcnCE3oO2DgP0U3iejLC8FTtKDC8Q==,
       }
     engines: { node: '>=16.13' }
-
-  '@connectrpc/connect-query-core@2.0.1':
-    resolution:
-      {
-        integrity: sha512-jCub8nPBGhZK+RumQ8vcH4q6xqQ8O52+G75DAmhhESK2FsJgwerJjcw6XrqFpeJFz5O4cy0uuJm+ZK3TsrbxTw==,
-      }
-    peerDependencies:
-      '@bufbuild/protobuf': 2.x
-      '@connectrpc/connect': ^2.0.0
-      '@tanstack/query-core': 5.x
-
-  '@connectrpc/connect-query@2.0.1':
-    resolution:
-      {
-        integrity: sha512-yVGRI17c96G0xb3ST9xGJ8k6KwKHp2qHRZo/JxLvh4+5lcJHsEa5xzf7sHm0363blTWhEa06b+gcQMckpiUdGw==,
-      }
-    peerDependencies:
-      '@bufbuild/protobuf': 2.x
-      '@connectrpc/connect': ^2.0.0
-      '@tanstack/react-query': 5.x
-      react: ^18 || ^19
-      react-dom: ^18 || ^19
-
-  '@connectrpc/connect@2.0.2':
-    resolution:
-      {
-        integrity: sha512-xZuylIUNvNlH52e/4eQsZvY4QZyDJRtEFEDnn/yBrv5Xi5ZZI/p8X+GAHH35ucVaBvv9u7OzHZo8+tEh1EFTxA==,
-      }
-    peerDependencies:
-      '@bufbuild/protobuf': ^2.2.0
 
   '@ctrl/tinycolor@3.6.1':
     resolution:
@@ -4191,20 +4158,6 @@ packages:
       {
         integrity: sha512-wBJA+SdtkbFhHjTMYH+dEH1y4VpfGdAc2Kw/LK09i9bXd/K6j6PkDcFCEzb6iVfZMkPRrl/q0e3toqTAJdkIVA==,
       }
-
-  '@tanstack/query-core@5.74.7':
-    resolution:
-      {
-        integrity: sha512-X3StkN/Y6KGHndTjJf8H8th7AX4bKfbRpiVhVqevf0QWlxl6DhyJ0TYG3R0LARa/+xqDwzU9mA4pbJxzPCI29A==,
-      }
-
-  '@tanstack/react-query@5.74.7':
-    resolution:
-      {
-        integrity: sha512-u4o/RIWnnrq26orGZu2NDPwmVof1vtAiiV6KYUXd49GuK+8HX+gyxoAYqIaZogvCE1cqOuZAhQKcrKGYGkrLxg==,
-      }
-    peerDependencies:
-      react: ^18 || ^19
 
   '@trysound/sax@0.2.0':
     resolution:
@@ -14560,27 +14513,6 @@ snapshots:
     dependencies:
       mime: 3.0.0
 
-  '@connectrpc/connect-query-core@2.0.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@2.0.2(@bufbuild/protobuf@1.10.0))(@tanstack/query-core@5.74.7)':
-    dependencies:
-      '@bufbuild/protobuf': 1.10.0
-      '@connectrpc/connect': 2.0.2(@bufbuild/protobuf@1.10.0)
-      '@tanstack/query-core': 5.74.7
-
-  '@connectrpc/connect-query@2.0.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@2.0.2(@bufbuild/protobuf@1.10.0))(@tanstack/query-core@5.74.7)(@tanstack/react-query@5.74.7(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
-    dependencies:
-      '@bufbuild/protobuf': 1.10.0
-      '@connectrpc/connect': 2.0.2(@bufbuild/protobuf@1.10.0)
-      '@connectrpc/connect-query-core': 2.0.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@2.0.2(@bufbuild/protobuf@1.10.0))(@tanstack/query-core@5.74.7)
-      '@tanstack/react-query': 5.74.7(react@18.3.1)
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-    transitivePeerDependencies:
-      - '@tanstack/query-core'
-
-  '@connectrpc/connect@2.0.2(@bufbuild/protobuf@1.10.0)':
-    dependencies:
-      '@bufbuild/protobuf': 1.10.0
-
   '@ctrl/tinycolor@3.6.1': {}
 
   '@discoveryjs/json-ext@0.5.7': {}
@@ -16168,13 +16100,6 @@ snapshots:
   '@swc/types@0.1.12':
     dependencies:
       '@swc/counter': 0.1.3
-
-  '@tanstack/query-core@5.74.7': {}
-
-  '@tanstack/react-query@5.74.7(react@18.3.1)':
-    dependencies:
-      '@tanstack/query-core': 5.74.7
-      react: 18.3.1
 
   '@trysound/sax@0.2.0': {}
 
