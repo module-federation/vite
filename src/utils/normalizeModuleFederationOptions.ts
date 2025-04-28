@@ -133,9 +133,17 @@ function searchPackageVersion(sharedName: string): string | undefined {
       path.parse(potentialPackageJsonDir).base !== 'node_modules' &&
       potentialPackageJsonDir !== rootDir
     ) {
-      const potentialPackageJson = path.join(potentialPackageJsonDir, 'package.json');
-      if (fs.existsSync(potentialPackageJson)) {
-        return require(potentialPackageJson).version;
+      const potentialPackageJsonPath = path.join(potentialPackageJsonDir, 'package.json');
+      if (fs.existsSync(potentialPackageJsonPath)) {
+        const potentialPackageJson = require(potentialPackageJsonPath);
+        if (
+          typeof potentialPackageJson == 'object' &&
+          potentialPackageJson !== null &&
+          typeof potentialPackageJson.version === 'string' &&
+          potentialPackageJson.name === sharedName
+        ) {
+          return potentialPackageJson.version;
+        }
       }
       potentialPackageJsonDir = path.dirname(potentialPackageJsonDir);
     }
