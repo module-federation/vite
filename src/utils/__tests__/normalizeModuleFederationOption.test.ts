@@ -25,6 +25,7 @@ describe('normalizeModuleFederationOption', () => {
       dev: undefined,
       dts: undefined,
       shareStrategy: 'loaded-first',
+      ignoreOrigin: false,
     });
   });
 
