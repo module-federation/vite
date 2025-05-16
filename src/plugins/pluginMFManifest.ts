@@ -43,7 +43,9 @@ const Manifest = (): Plugin[] => {
             next();
             return;
           }
-          if (req.url === (viteConfig.base + mfManifestName).replace(/^\/?/, '/')) {
+          if (
+            req.url?.replace(/\?.*/, '') === (viteConfig.base + mfManifestName).replace(/^\/?/, '/')
+          ) {
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.end(
