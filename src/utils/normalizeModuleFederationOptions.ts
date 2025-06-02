@@ -170,7 +170,12 @@ function normalizeShareItem(
       version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
     } catch (e1) {
       try {
-        const localPath = path.join(process.cwd(), 'node_modules', removePathFromNpmPackage(key), 'package.json');
+        const localPath = path.join(
+          process.cwd(),
+          'node_modules',
+          removePathFromNpmPackage(key),
+          'package.json'
+        );
         version = require(localPath).version;
       } catch (e2) {
         version = searchPackageVersion(key);
