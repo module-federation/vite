@@ -166,10 +166,24 @@ function normalizeShareItem(
 ): ShareItem {
   let version: string | undefined;
   try {
-    version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
+    try {
+      version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
+    } catch (e1) {
+      try {
+        const localPath = path.join(
+          process.cwd(),
+          'node_modules',
+          removePathFromNpmPackage(key),
+          'package.json'
+        );
+        version = require(localPath).version;
+      } catch (e2) {
+        version = searchPackageVersion(key);
+        if (!version) console.error(e1);
+      }
+    }
   } catch (e) {
-    version = searchPackageVersion(key);
-    if (!version) console.error(e);
+    console.error(`Unexpected error resolving version for ${key}:`, e);
   }
   if (typeof shareItem === 'string') {
     return {
