@@ -300,6 +300,7 @@ export type ModuleFederationOptions = {
   dts?: boolean | PluginDtsOptions;
   shareStrategy?: ShareStrategy;
   ignoreOrigin?: boolean;
+  virtualModuleDir?: string;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -320,6 +321,7 @@ export interface NormalizedModuleFederationOptions {
   shareStrategy: ShareStrategy;
   getPublicPath?: string;
   ignoreOrigin?: boolean;
+  virtualModuleDir: string;
 }
 
 interface PluginDevOptions {
@@ -396,5 +398,6 @@ export function normalizeModuleFederationOptions(
     getPublicPath: options.getPublicPath,
     shareStrategy: options.shareStrategy || 'version-first',
     ignoreOrigin: options.ignoreOrigin || false,
+    virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
   });
 }
