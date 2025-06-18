@@ -244,18 +244,31 @@ describe('normalizeModuleFederationOption', () => {
       expect(
         normalizeModuleFederationOptions({
           ...minimalOptions,
-          virtualModuleDir: '/custom-path/__mf__virtual',
-        }).virtualModuleDir
-      ).toEqual('/custom-path/__mf__virtual');
-    });
-
-    it('should allow renaming the virtual directory', () => {
-      expect(
-        normalizeModuleFederationOptions({
-          ...minimalOptions,
           virtualModuleDir: '__mf__virtual__app_name',
         }).virtualModuleDir
       ).toEqual('__mf__virtual__app_name');
+    });
+
+    it('should throw an error when virtualModuleDir contains slashes', () => {
+      expect(() => {
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: '__mf__virtual/app_name',
+        });
+      }).toThrow(/Invalid virtualModuleDir/);
+    });
+
+    it('should throw an error with helpful message when path-like value is used', () => {
+      expect(() => {
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: '/path/to/__mf__virtual',
+        });
+      }).toThrow(
+        'Invalid virtualModuleDir: "/path/to/__mf__virtual". ' +
+          'The virtualModuleDir option cannot contain slashes (/). ' +
+          "Please use a single directory name like '__mf__virtual__your_app_name'."
+      );
     });
 
     it('should handle empty string by falling back to default', () => {

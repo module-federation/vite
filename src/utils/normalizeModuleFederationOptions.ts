@@ -380,6 +380,15 @@ export function normalizeModuleFederationOptions(
       `We are ignoring the getPublicPath options because they are natively supported by Vite\nwith the "experimental.renderBuiltUrl" configuration https://vitejs.dev/guide/build#advanced-base-options`
     );
   }
+
+  if (options.virtualModuleDir && options.virtualModuleDir.includes('/')) {
+    throw new Error(
+      `Invalid virtualModuleDir: "${options.virtualModuleDir}". ` +
+        `The virtualModuleDir option cannot contain slashes (/). ` +
+        `Please use a single directory name like '__mf__virtual__your_app_name'.`
+    );
+  }
+
   return (config = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
