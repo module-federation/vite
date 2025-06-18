@@ -26,6 +26,7 @@ describe('normalizeModuleFederationOption', () => {
       dts: undefined,
       shareStrategy: 'loaded-first',
       ignoreOrigin: false,
+      virtualModuleDir: '__mf__virtual',
     });
   });
 
@@ -227,6 +228,52 @@ describe('normalizeModuleFederationOption', () => {
         disableAssetsAnalyze: false,
         filePath: '',
       });
+    });
+  });
+
+  describe('virtualModuleDir', () => {
+    it('should use default value when not specified', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+        }).virtualModuleDir
+      ).toEqual('__mf__virtual');
+    });
+
+    it('should use custom value when specified', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: '/custom-path/__mf__virtual',
+        }).virtualModuleDir
+      ).toEqual('/custom-path/__mf__virtual');
+    });
+
+    it('should allow renaming the virtual directory', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: '__mf__virtual__app_name',
+        }).virtualModuleDir
+      ).toEqual('__mf__virtual__app_name');
+    });
+
+    it('should handle empty string by falling back to default', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: '',
+        }).virtualModuleDir
+      ).toEqual('__mf__virtual');
+    });
+
+    it('should handle undefined by falling back to default', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: undefined,
+        }).virtualModuleDir
+      ).toEqual('__mf__virtual');
     });
   });
 });
