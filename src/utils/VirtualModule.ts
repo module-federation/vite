@@ -30,11 +30,6 @@ function getNodeModulesDir() {
   return cachedNodeModulesDir;
 }
 
-export function getVirtualPackageName(): string {
-  const options = getNormalizeModuleFederationOptions();
-  return options?.virtualModuleDir || '__mf__virtual';
-}
-
 const patternMap: {
   [tag: string]: RegExp;
 } = {};
@@ -69,7 +64,8 @@ export default class VirtualModule {
    */
   static ensureVirtualPackageExists() {
     const nodeModulesDir = getNodeModulesDir();
-    const virtualPackagePath = resolve(nodeModulesDir, getVirtualPackageName());
+    const { virtualModuleDir } = getNormalizeModuleFederationOptions();
+    const virtualPackagePath = resolve(nodeModulesDir, virtualModuleDir);
 
     if (!existsSync(virtualPackagePath)) {
       mkdirSync(virtualPackagePath);
@@ -77,7 +73,7 @@ export default class VirtualModule {
       writeFileSync(
         resolve(virtualPackagePath, 'package.json'),
         JSON.stringify({
-          name: getVirtualPackageName(),
+          name: virtualModuleDir,
           main: 'empty.js',
         })
       );
@@ -106,8 +102,8 @@ export default class VirtualModule {
   }
 
   getImportId() {
-    const { name: mfName } = getNormalizeModuleFederationOptions();
-    return `${getVirtualPackageName()}/${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`;
+    const { name: mfName, virtualModuleDir } = getNormalizeModuleFederationOptions();
+    return `${virtualModuleDir}/${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`;
   }
 
   writeSync(code: string, force?: boolean) {
