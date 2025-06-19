@@ -300,6 +300,7 @@ export type ModuleFederationOptions = {
   dts?: boolean | PluginDtsOptions;
   shareStrategy?: ShareStrategy;
   ignoreOrigin?: boolean;
+  virtualModuleDir?: string;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -320,6 +321,7 @@ export interface NormalizedModuleFederationOptions {
   shareStrategy: ShareStrategy;
   getPublicPath?: string;
   ignoreOrigin?: boolean;
+  virtualModuleDir: string;
 }
 
 interface PluginDevOptions {
@@ -378,6 +380,15 @@ export function normalizeModuleFederationOptions(
       `We are ignoring the getPublicPath options because they are natively supported by Vite\nwith the "experimental.renderBuiltUrl" configuration https://vitejs.dev/guide/build#advanced-base-options`
     );
   }
+
+  if (options.virtualModuleDir && options.virtualModuleDir.includes('/')) {
+    throw new Error(
+      `Invalid virtualModuleDir: "${options.virtualModuleDir}". ` +
+        `The virtualModuleDir option cannot contain slashes (/). ` +
+        `Please use a single directory name like '__mf__virtual__your_app_name'.`
+    );
+  }
+
   return (config = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
@@ -396,5 +407,6 @@ export function normalizeModuleFederationOptions(
     getPublicPath: options.getPublicPath,
     shareStrategy: options.shareStrategy || 'version-first',
     ignoreOrigin: options.ignoreOrigin || false,
+    virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
   });
 }

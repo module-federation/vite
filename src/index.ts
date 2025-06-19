@@ -87,9 +87,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             strictRequires: 'auto',
           },
         });
+        const virtualDir = options.virtualModuleDir || '__mf__virtual';
         config.optimizeDeps?.include?.push('@module-federation/runtime');
-        config.optimizeDeps?.include?.push('__mf__virtual');
-        config.optimizeDeps?.needsInterop?.push('__mf__virtual');
+        config.optimizeDeps?.include?.push(virtualDir);
+        config.optimizeDeps?.needsInterop?.push(virtualDir);
         config.optimizeDeps?.needsInterop?.push(getLocalSharedImportMapPath());
       },
     },

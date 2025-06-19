@@ -26,6 +26,7 @@ describe('normalizeModuleFederationOption', () => {
       dts: undefined,
       shareStrategy: 'loaded-first',
       ignoreOrigin: false,
+      virtualModuleDir: '__mf__virtual',
     });
   });
 
@@ -227,6 +228,65 @@ describe('normalizeModuleFederationOption', () => {
         disableAssetsAnalyze: false,
         filePath: '',
       });
+    });
+  });
+
+  describe('virtualModuleDir', () => {
+    it('should use default value when not specified', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+        }).virtualModuleDir
+      ).toEqual('__mf__virtual');
+    });
+
+    it('should use custom value when specified', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: '__mf__virtual__app_name',
+        }).virtualModuleDir
+      ).toEqual('__mf__virtual__app_name');
+    });
+
+    it('should throw an error when virtualModuleDir contains slashes', () => {
+      expect(() => {
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: '__mf__virtual/app_name',
+        });
+      }).toThrow(/Invalid virtualModuleDir/);
+    });
+
+    it('should throw an error with helpful message when path-like value is used', () => {
+      expect(() => {
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: '/path/to/__mf__virtual',
+        });
+      }).toThrow(
+        'Invalid virtualModuleDir: "/path/to/__mf__virtual". ' +
+          'The virtualModuleDir option cannot contain slashes (/). ' +
+          "Please use a single directory name like '__mf__virtual__your_app_name'."
+      );
+    });
+
+    it('should handle empty string by falling back to default', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: '',
+        }).virtualModuleDir
+      ).toEqual('__mf__virtual');
+    });
+
+    it('should handle undefined by falling back to default', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          virtualModuleDir: undefined,
+        }).virtualModuleDir
+      ).toEqual('__mf__virtual');
     });
   });
 });
