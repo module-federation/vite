@@ -367,6 +367,7 @@ export function getNormalizeModuleFederationOptions() {
 export function getNormalizeShareItem(key: string) {
   const options = getNormalizeModuleFederationOptions();
   const shareItem =
+    options.shared[key] ||
     options.shared[removePathFromNpmPackage(key)] ||
     options.shared[removePathFromNpmPackage(key) + '/'];
   return shareItem;
