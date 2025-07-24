@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFile, writeFileSync } from 'fs';
-import { dirname, join, parse, resolve } from 'pathe';
+import { dirname, join, parse, resolve, basename } from 'pathe';
 import { packageNameDecode, packageNameEncode } from '../utils/packageNameUtils';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 
@@ -28,6 +28,17 @@ function getNodeModulesDir() {
     cachedNodeModulesDir = findNodeModulesDir(rootDir);
   }
   return cachedNodeModulesDir;
+}
+
+export function getSuffix(name: string): string {
+  const base = basename(name);
+  const dotIndex = base.lastIndexOf('.');
+
+  if (dotIndex > 0 && dotIndex < base.length - 1) {
+    return base.slice(dotIndex);
+  }
+
+  return '.js';
 }
 
 const patternMap: {
@@ -92,7 +103,7 @@ export default class VirtualModule {
   constructor(name: string, tag: string = '__mf_v__', suffix = '') {
     this.name = name;
     this.tag = tag;
-    this.suffix = suffix || name.split('.').slice(1).pop()?.replace(/(.)/, '.$1') || '.js';
+    this.suffix = suffix || getSuffix(name);
     if (!cacheMap[this.tag]) cacheMap[this.tag] = {};
     cacheMap[this.tag][this.name] = this;
   }
