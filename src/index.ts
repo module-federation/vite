@@ -25,7 +25,7 @@ import { VIRTUAL_EXPOSES } from './virtualModules/virtualExposes';
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
-  const { name, remotes, shared, filename } = options;
+  const { name, remotes, shared, filename, remotePlugin } = options;
   if (!name) throw new Error('name is required');
 
   return [
@@ -47,11 +47,13 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       entryPath: REMOTE_ENTRY_ID,
       fileName: filename,
     }),
-    ...addEntry({
-      entryName: 'hostInit',
-      entryPath: getHostAutoInitPath(),
-      inject: 'html',
-    }),
+    ...(remotePlugin
+      ? []
+      : addEntry({
+          entryName: 'hostInit',
+          entryPath: getHostAutoInitPath(),
+          inject: 'html',
+        })),
     ...addEntry({
       entryName: 'virtualExposes',
       entryPath: VIRTUAL_EXPOSES,

@@ -273,6 +273,10 @@ export type ModuleFederationOptions = {
   filename?: string;
   library?: any;
   name: string;
+  /**
+   * When true, prevents shared modules from being bundled into remotes
+   * and makes them rely on host-provided shared modules at runtime
+   */
   // remoteType?: string;
   remotes?: Record<string, string | RemoteObjectConfig> | undefined;
   runtime?: any;
@@ -301,6 +305,11 @@ export type ModuleFederationOptions = {
   shareStrategy?: ShareStrategy;
   ignoreOrigin?: boolean;
   virtualModuleDir?: string;
+  /**
+   * When true, prevents shared modules from being bundled into remotes
+   * and makes them rely on host-provided shared modules at runtime
+   */
+  remotePlugin?: boolean;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -308,6 +317,11 @@ export interface NormalizedModuleFederationOptions {
   filename: string;
   library: any;
   name: string;
+  /**
+   * When true, prevents shared modules from being bundled into remotes
+   * and makes them rely on host-provided shared modules at runtime
+   */
+  remotePlugin: boolean;
   // remoteType: string;
   remotes: Record<string, RemoteObjectConfig>;
   runtime: any;
@@ -393,6 +407,7 @@ export function normalizeModuleFederationOptions(
   return (config = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
+    remotePlugin: options.remotePlugin ?? false,
     library: normalizeLibrary(options.library),
     name: options.name,
     // remoteType: options.remoteType,
