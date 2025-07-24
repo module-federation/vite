@@ -30,6 +30,22 @@ function getNodeModulesDir() {
   return cachedNodeModulesDir;
 }
 
+function getSuffix(name: string): string {
+  const isScoped = name.startsWith('@');
+  const slashIndex = name.indexOf('/');
+
+  const namespaceEnd = isScoped && slashIndex !== -1 ? slashIndex : -1;
+
+  const dotIndex = name.lastIndexOf('.');
+  const isDotAfterNamespace = dotIndex > namespaceEnd;
+
+  if (isDotAfterNamespace) {
+    return name.slice(dotIndex);
+  }
+
+  return '.js';
+}
+
 const patternMap: {
   [tag: string]: RegExp;
 } = {};
@@ -92,7 +108,7 @@ export default class VirtualModule {
   constructor(name: string, tag: string = '__mf_v__', suffix = '') {
     this.name = name;
     this.tag = tag;
-    this.suffix = suffix || name.split('.').slice(1).pop()?.replace(/(.)/, '.$1') || '.js';
+    this.suffix = suffix || getSuffix(name);
     if (!cacheMap[this.tag]) cacheMap[this.tag] = {};
     cacheMap[this.tag][this.name] = this;
   }
