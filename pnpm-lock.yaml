@@ -8,8 +8,8 @@ importers:
   .:
     dependencies:
       '@module-federation/runtime':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.17.1
+        version: 0.17.1
       '@rollup/pluginutils':
         specifier: ^5.1.0
         version: 5.1.0(rollup@2.79.1)
@@ -2610,10 +2610,10 @@ packages:
       webpack:
         optional: true
 
-  '@module-federation/error-codes@0.16.0':
+  '@module-federation/error-codes@0.17.1':
     resolution:
       {
-        integrity: sha512-TfmA45b8vvISniGudMg8jjIy1q3tLPon0QN/JdFp5f8AJ8/peICN5b+dkEQnWsAVg2fEusYhk9dO7z3nUeJM8A==,
+        integrity: sha512-n6Elm4qKSjwAPxLUGtwnl7qt4y1dxB8OpSgVvXBIzqI9p27a3ZXshLPLnumlpPg1Qudaj8sLnSnFtt9yGpt5yQ==,
       }
 
   '@module-federation/managers@0.2.5':
@@ -2634,10 +2634,10 @@ packages:
         integrity: sha512-Rvk4KTPn9KqM84ub3N8Ze1uC7oSJejlC4SG9JxUrr1yvkJh1Ej3SGWpeHyS7trBVWeJItCFqXAlAD2RnFIcjXQ==,
       }
 
-  '@module-federation/runtime-core@0.16.0':
+  '@module-federation/runtime-core@0.17.1':
     resolution:
       {
-        integrity: sha512-5SECQowG4hlUVBRk/y6bnYLfxbsl5NcMmqn043WPe7NDOhGQWbTuYibJ3Bk+ZBv5U4uYLEmXipBGDc1FKsHklQ==,
+        integrity: sha512-LCtIFuKgWPQ3E+13OyrVpuTPOWBMI/Ggwsq1Q874YeT8Px28b8tJRCj09DjyRFyhpSPyV/uG80T6iXPAUoLIfQ==,
       }
 
   '@module-federation/runtime-tools@0.1.6':
@@ -2664,10 +2664,10 @@ packages:
         integrity: sha512-nj6a+yJ+QxmcE89qmrTl4lphBIoAds0PFPVGnqLRWflwAP88jrCcrrTqRhARegkFDL+wE9AE04+h6jzlbIfMKg==,
       }
 
-  '@module-federation/runtime@0.16.0':
+  '@module-federation/runtime@0.17.1':
     resolution:
       {
-        integrity: sha512-6o84WI8Qhc9O3HwPLx89kTvOSkyUOHQr73R/zr0I04sYhlMJgw5xTwXeGE7bQAmNgbJclzW9Kh7JTP7+3o3CHg==,
+        integrity: sha512-vKEN32MvUbpeuB/s6UXfkHDZ9N5jFyDDJnj83UTJ8n4N1jHIJu9VZ6Yi4/Ac8cfdvU8UIK9bIbfVXWbUYZUDsw==,
       }
 
   '@module-federation/runtime@0.2.5':
@@ -2688,10 +2688,10 @@ packages:
         integrity: sha512-qifXpyYLM7abUeEOIfv0oTkguZgRZuwh89YOAYIZJlkP6QbRG7DJMQvtM8X2yHXm9PTk0IYNnOJH0vNQCo6auQ==,
       }
 
-  '@module-federation/sdk@0.16.0':
+  '@module-federation/sdk@0.17.1':
     resolution:
       {
-        integrity: sha512-UXJW1WWuDoDmScX0tpISjl4xIRPzAiN62vg9etuBdAEUM+ja9rz/zwNZaByiUPFS2aqlj2RHenCRvIapE8mYEg==,
+        integrity: sha512-nlUcN6UTEi+3HWF+k8wPy7gH0yUOmCT+xNatihkIVR9REAnr7BUvHFGlPJmx7WEbLPL46+zJUbtQHvLzXwFhng==,
       }
 
   '@module-federation/sdk@0.2.5':
@@ -14924,7 +14924,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@module-federation/error-codes@0.16.0': {}
+  '@module-federation/error-codes@0.17.1': {}
 
   '@module-federation/managers@0.2.5':
     dependencies:
@@ -14963,10 +14963,10 @@ snapshots:
       - utf-8-validate
       - vue-tsc
 
-  '@module-federation/runtime-core@0.16.0':
+  '@module-federation/runtime-core@0.17.1':
     dependencies:
-      '@module-federation/error-codes': 0.16.0
-      '@module-federation/sdk': 0.16.0
+      '@module-federation/error-codes': 0.17.1
+      '@module-federation/sdk': 0.17.1
 
   '@module-federation/runtime-tools@0.1.6':
     dependencies:
@@ -14987,11 +14987,11 @@ snapshots:
     dependencies:
       '@module-federation/sdk': 0.1.6
 
-  '@module-federation/runtime@0.16.0':
+  '@module-federation/runtime@0.17.1':
     dependencies:
-      '@module-federation/error-codes': 0.16.0
-      '@module-federation/runtime-core': 0.16.0
-      '@module-federation/sdk': 0.16.0
+      '@module-federation/error-codes': 0.17.1
+      '@module-federation/runtime-core': 0.17.1
+      '@module-federation/sdk': 0.17.1
 
   '@module-federation/runtime@0.2.5':
     dependencies:
@@ -15003,7 +15003,7 @@ snapshots:
 
   '@module-federation/sdk@0.1.6': {}
 
-  '@module-federation/sdk@0.16.0': {}
+  '@module-federation/sdk@0.17.1': {}
 
   '@module-federation/sdk@0.2.5': {}
 
