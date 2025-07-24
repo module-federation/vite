@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFile, writeFileSync } from 'fs';
-import { dirname, join, parse, resolve } from 'pathe';
+import { dirname, join, parse, resolve, basename } from 'pathe';
 import { packageNameDecode, packageNameEncode } from '../utils/packageNameUtils';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 
@@ -30,17 +30,12 @@ function getNodeModulesDir() {
   return cachedNodeModulesDir;
 }
 
-function getSuffix(name: string): string {
-  const isScoped = name.startsWith('@');
-  const slashIndex = name.indexOf('/');
+export function getSuffix(name: string): string {
+  const base = basename(name);
+  const dotIndex = base.lastIndexOf('.');
 
-  const namespaceEnd = isScoped && slashIndex !== -1 ? slashIndex : -1;
-
-  const dotIndex = name.lastIndexOf('.');
-  const isDotAfterNamespace = dotIndex > namespaceEnd;
-
-  if (isDotAfterNamespace) {
-    return name.slice(dotIndex);
+  if (dotIndex > 0 && dotIndex < base.length - 1) {
+    return base.slice(dotIndex);
   }
 
   return '.js';
