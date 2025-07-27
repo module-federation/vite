@@ -8,10 +8,15 @@ import { Plugin } from 'vite';
 
 export function PluginDevProxyModuleTopLevelAwait(): Plugin {
   const filterFunction = createFilter();
+  const processedFlag = '/* already-processed-by-dev-proxy-module-top-level-await */';
+
   return {
     name: 'dev-proxy-module-top-level-await',
     apply: 'serve',
     transform(code: string, id: string): { code: string; map: any } | null {
+      if (code.includes(processedFlag)) {
+        return null;
+      }
       if (!code.includes('/*mf top-level-await placeholder replacement mf*/')) {
         return null;
       }
@@ -90,8 +95,9 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
           }
         },
       });
+      const transformedCode = magicString.toString();
       return {
-        code: magicString.toString(),
+        code: `${processedFlag}\n${transformedCode}`,
         map: magicString.generateMap({ hires: true }),
       };
     },
