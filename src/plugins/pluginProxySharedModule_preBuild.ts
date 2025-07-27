@@ -1,5 +1,8 @@
 import { Plugin, UserConfig } from 'vite';
-import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
+import {
+  NormalizedShared,
+  getNormalizeModuleFederationOptions,
+} from '../utils/normalizeModuleFederationOptions';
 import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule from '../utils/VirtualModule';
 import {

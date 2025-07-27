@@ -37,25 +37,33 @@ export function writeLocalSharedImportMap() {
 }
 export function generateLocalSharedImportMap() {
   const options = getNormalizeModuleFederationOptions();
+
   return `
     const importMap = {
-      ${Array.from(getUsedShares())
-        .map(
-          (pkg) => `
+      ${
+        options.remotePlugin
+          ? ''
+          : Array.from(getUsedShares())
+              .map(
+                (pkg) => `
         ${JSON.stringify(pkg)}: async () => {
           let pkg = await import("${getPreBuildLibImportId(pkg)}")
           return pkg
         }
       `
-        )
-        .join(',')}
+              )
+              .join(',')
+      }
     }
       const usedShared = {
-      ${Array.from(getUsedShares())
-        .map((key) => {
-          const shareItem = getNormalizeShareItem(key);
-          if (!shareItem) return null;
-          return `
+      ${
+        options.remotePlugin
+          ? ''
+          : Array.from(getUsedShares())
+              .map((key) => {
+                const shareItem = getNormalizeShareItem(key);
+                if (!shareItem) return null;
+                return `
           ${JSON.stringify(key)}: {
             name: ${JSON.stringify(key)},
             version: ${JSON.stringify(shareItem.version)},
@@ -64,7 +72,7 @@ export function generateLocalSharedImportMap() {
             from: ${JSON.stringify(options.name)},
             async get () {
               usedShared[${JSON.stringify(key)}].loaded = true
-              const {${JSON.stringify(key)}: pkgDynamicImport} = importMap 
+              const {${JSON.stringify(key)}: pkgDynamicImport} = importMap
               const res = await pkgDynamicImport()
               const exportModule = {...res}
               // All npm packages pre-built by vite will be converted to esm
@@ -82,9 +90,10 @@ export function generateLocalSharedImportMap() {
             }
           }
         `;
-        })
-        .filter((x) => x !== null)
-        .join(',')}
+              })
+              .filter((x) => x !== null)
+              .join(',')
+      }
     }
       const usedRemotes = [${Object.keys(getUsedRemotesMap())
         .map((key) => {
@@ -176,7 +185,7 @@ const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG)
 export function writeHostAutoInit() {
   hostAutoInitModule.writeSync(`
     const remoteEntryPromise = import("${REMOTE_ENTRY_ID}")
-    // __tla only serves as a hack for vite-plugin-top-level-await. 
+    // __tla only serves as a hack for vite-plugin-top-level-await.
     Promise.resolve(remoteEntryPromise)
       .then(remoteEntry => {
         return Promise.resolve(remoteEntry.__tla)
