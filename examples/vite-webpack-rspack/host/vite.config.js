@@ -22,7 +22,7 @@ const mfConfig = {
       type: 'module',
     },
   },
-  shared: ['react', 'react-dom'],
+  shared: ['react', 'react-dom', 'lodash'],
 };
 
 // https://vitejs.dev/config/
@@ -38,5 +38,6 @@ export default defineConfig({
   ],
   build: {
     target: 'chrome89',
+    minify: false,
   },
 });
