@@ -1,42 +1,78 @@
-import { join, relative } from 'pathe';
-import { Manifest, Plugin } from 'vite';
+import * as path from 'pathe';
+import { Plugin } from 'vite';
+import type { PluginContext } from 'rollup';
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
 } from '../utils/normalizeModuleFederationOptions';
-import { getPreBuildLibImportId, getUsedRemotesMap, getUsedShares } from '../virtualModules';
+import { getUsedRemotesMap, getUsedShares } from '../virtualModules';
+
+import {
+  buildFileToShareKeyMap,
+  collectCssAssets,
+  createEmptyAssetMap,
+  deduplicateAssets,
+  JS_EXTENSIONS,
+  PreloadMap,
+  processModuleAssets,
+  trackAsset,
+} from '../utils/cssModuleHelpers';
+
+// Helper to build share key map with proper context typing
+interface BuildFileToShareKeyMapContext {
+  resolve: PluginContext['resolve'];
+}
 
 const Manifest = (): Plugin[] => {
   const mfOptions = getNormalizeModuleFederationOptions();
   const { name, filename, getPublicPath, manifest: manifestOptions } = mfOptions;
+
   let mfManifestName: string = '';
   if (manifestOptions === true) {
     mfManifestName = 'mf-manifest.json';
   }
   if (typeof manifestOptions !== 'boolean') {
-    mfManifestName = join(manifestOptions?.filePath || '', manifestOptions?.fileName || '');
+    mfManifestName = path.join(manifestOptions?.filePath || '', manifestOptions?.fileName || '');
   }
-  let extensions: string[];
+
   let root: string;
-  type PreloadMap = Record<
-    string,
-    {
-      sync: string[];
-      async: string[];
-    }
-  >; // 保存模块和文件的映射关系
   let remoteEntryFile: string;
   let publicPath: string;
   let _command: string;
   let _originalConfigBase: string | undefined;
   let viteConfig: any;
+
+  /**
+   * Adds global CSS assets to all module exports
+   * @param filesMap - The preload map to update
+   * @param cssAssets - Set of CSS asset filenames to add
+   */
+  const addCssAssetsToAllExports = (filesMap: PreloadMap, cssAssets: Set<string>) => {
+    Object.keys(filesMap).forEach((key) => {
+      cssAssets.forEach((cssAsset) => {
+        trackAsset(filesMap, key, cssAsset, false, 'css');
+      });
+    });
+  };
+
   return [
     {
       name: 'module-federation-manifest',
       apply: 'serve',
+      /**
+       * Stores resolved Vite config for later use
+       */
+      /**
+       * Finalizes configuration after all plugins are resolved
+       * @param config - Fully resolved Vite config
+       */
       configResolved(config) {
         viteConfig = config;
       },
+      /**
+       * Configures dev server middleware to handle manifest requests
+       * @param server - Vite dev server instance
+       */
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
           if (!mfManifestName) {
@@ -83,24 +119,21 @@ const Manifest = (): Plugin[] => {
     {
       name: 'module-federation-manifest',
       enforce: 'post',
+      /**
+       * Initial plugin configuration
+       * @param config - Vite config object
+       * @param command - Current Vite command (serve/build)
+       */
       config(config, { command }) {
         if (!config.build) config.build = {};
-        if (!config.build.manifest)
+        if (!config.build.manifest) {
           config.build.manifest = config.build.manifest || !!manifestOptions;
+        }
         _command = command;
         _originalConfigBase = config.base;
       },
       configResolved(config) {
         root = config.root;
-        extensions = config.resolve.extensions || [
-          '.mjs',
-          '.js',
-          '.mts',
-          '.ts',
-          '.jsx',
-          '.tsx',
-          '.json',
-        ];
         let base = config.base;
         if (_command === 'serve') {
           base = (config.server.origin || '') + config.base;
@@ -108,121 +141,85 @@ const Manifest = (): Plugin[] => {
         publicPath =
           _originalConfigBase === '' ? 'auto' : base ? base.replace(/\/?$/, '/') : 'auto';
       },
+      /**
+       * Generates the module federation manifest file
+       * @param options - Rollup output options
+       * @param bundle - Generated bundle assets
+       */
       async generateBundle(options, bundle) {
         if (!mfManifestName) return;
 
-        const exposesModules = Object.keys(mfOptions.exposes).map(
-          (item) => mfOptions.exposes[item].import
-        ); // 获取你提供的 moduleIds
-        const filesContainingModules: PreloadMap = {};
-        // 帮助函数：检查模块路径是否匹配
-        const isModuleMatched = (relativeModulePath: string, preloadModule: string) => {
-          // 先尝试直接匹配
-          if (relativeModulePath === preloadModule) return true;
-          // 如果 preloadModule 没有后缀，尝试添加可能的后缀进行匹配
-          for (const ext of extensions) {
-            if (relativeModulePath === `${preloadModule}${ext}`) {
-              return true;
-            }
-          }
-          return false;
-        };
+        let filesMap: PreloadMap = {};
 
-        // 遍历打包生成的每个文件
-        for (const [fileName, fileData] of Object.entries(bundle)) {
+        // First pass: Find remoteEntry file
+        for (const [_, fileData] of Object.entries(bundle)) {
           if (
             mfOptions.filename.replace(/[\[\]]/g, '_').replace(/\.[^/.]+$/, '') === fileData.name ||
             fileData.name === 'remoteEntry'
           ) {
             remoteEntryFile = fileData.fileName;
-          }
-          if (fileData.type === 'chunk') {
-            // 遍历该文件的所有模块
-            for (const modulePath of Object.keys(fileData.modules)) {
-              // 将绝对路径转换为相对于 Vite root 的相对路径
-              const relativeModulePath = relative(root, modulePath);
-
-              // 检查模块是否在 preloadModules 列表中
-              for (const preloadModule of exposesModules) {
-                const formatPreloadModule = preloadModule.replace('./', '');
-                if (isModuleMatched(relativeModulePath, formatPreloadModule)) {
-                  if (!filesContainingModules[preloadModule]) {
-                    filesContainingModules[preloadModule] = {
-                      sync: [],
-                      async: [],
-                    };
-                  }
-                  console.log(Object.keys(fileData.modules));
-                  filesContainingModules[preloadModule].sync.push(fileName);
-                  filesContainingModules[preloadModule].async.push(
-                    ...(fileData.dynamicImports || [])
-                  );
-                  findSynchronousImports(fileName, filesContainingModules[preloadModule].sync);
-                  break; // 如果找到匹配，跳出循环
-                }
-              }
-            }
+            break; // We can break early since we only need to find remoteEntry once
           }
         }
-        // 递归查找模块的同步导入文件
-        function findSynchronousImports(fileName: string, array: string[]) {
-          const fileData = bundle[fileName];
-          if (fileData && fileData.type === 'chunk') {
-            array.push(fileName); // 将当前文件加入预加载列表
 
-            // 遍历该文件的同步导入文件
-            fileData.imports.forEach((importedFile) => {
-              if (array.indexOf(importedFile) === -1) {
-                findSynchronousImports(importedFile, array); // 递归查找同步导入的文件
-              }
-            });
-          }
-        }
-        const fileToShareKey: Record<string, string> = {};
-        await Promise.all(
-          Array.from(getUsedShares()).map(async (shareKey) => {
-            const file = (await (this as any).resolve(getPreBuildLibImportId(shareKey))).id.split(
-              '?'
-            )[0];
-            fileToShareKey[file] = shareKey;
-          })
+        // Second pass: Collect all CSS assets
+        const allCssAssets = collectCssAssets(bundle);
+
+        const exposesModules = Object.keys(mfOptions.exposes).map(
+          (item) => mfOptions.exposes[item].import
         );
 
-        // 遍历打包生成的每个文件
-        for (const [fileName, fileData] of Object.entries(bundle)) {
-          if (fileData.type === 'chunk') {
-            // 遍历该文件的所有模块
-            for (const modulePath of Object.keys(fileData.modules)) {
-              const sharedKey = fileToShareKey[modulePath];
-              if (sharedKey) {
-                if (!filesContainingModules[sharedKey]) {
-                  filesContainingModules[sharedKey] = {
-                    sync: [],
-                    async: [],
-                  };
-                }
-                filesContainingModules[sharedKey].sync.push(fileName);
-                filesContainingModules[sharedKey].async.push(...(fileData.dynamicImports || []));
-                findSynchronousImports(fileName, filesContainingModules[sharedKey].sync);
-                break; // 如果找到匹配，跳出循环
-              }
+        // Process exposed modules
+        processModuleAssets(bundle, filesMap, (modulePath) => {
+          const absoluteModulePath = path.resolve(root, modulePath);
+          return exposesModules.find((exposeModule) => {
+            const exposePath = path.resolve(root, exposeModule);
+
+            // First try exact path match
+            if (absoluteModulePath === exposePath) {
+              return true;
             }
-          }
-        }
-        Object.keys(filesContainingModules).forEach((key) => {
-          filesContainingModules[key].sync = Array.from(new Set(filesContainingModules[key].sync));
-          filesContainingModules[key].async = Array.from(
-            new Set(filesContainingModules[key].async)
-          );
+
+            // Then try path match without known extensions
+            const getPathWithoutKnownExt = (filePath: string) => {
+              const ext = path.extname(filePath);
+              return JS_EXTENSIONS.includes(ext as any)
+                ? path.join(path.dirname(filePath), path.basename(filePath, ext))
+                : filePath;
+            };
+            const modulePathNoExt = getPathWithoutKnownExt(absoluteModulePath);
+            const exposePathNoExt = getPathWithoutKnownExt(exposePath);
+            return modulePathNoExt === exposePathNoExt;
+          });
         });
+
+        // Process shared modules
+        const fileToShareKey = await buildFileToShareKeyMap(
+          getUsedShares(),
+          this.resolve.bind(this)
+        );
+        processModuleAssets(bundle, filesMap, (modulePath) => fileToShareKey.get(modulePath));
+
+        // Add all CSS assets to every export
+        addCssAssetsToAllExports(filesMap, allCssAssets);
+
+        // Final deduplication of all assets
+        filesMap = deduplicateAssets(filesMap);
+
         this.emitFile({
           type: 'asset',
           fileName: mfManifestName,
-          source: JSON.stringify(generateMFManifest(filesContainingModules)),
+          source: JSON.stringify(generateMFManifest(filesMap)),
         });
       },
     },
   ];
+
+  /**
+   * Generates the final manifest JSON structure
+   * @param preloadMap - Map of module assets to include
+   * @returns Complete manifest object
+   */
   function generateMFManifest(preloadMap: PreloadMap) {
     const options = getNormalizeModuleFederationOptions();
     const { name } = options;
@@ -231,44 +228,23 @@ const Manifest = (): Plugin[] => {
       path: '',
       type: 'module',
     };
-    const remotes: {
-      federationContainerName: string;
-      moduleName: string;
-      alias: string;
-      entry: string;
-    }[] = [];
-    const usedRemotesMap = getUsedRemotesMap();
-    Object.keys(usedRemotesMap).forEach((remoteKey) => {
-      const usedModules = Array.from(usedRemotesMap[remoteKey]);
-      usedModules.forEach((moduleKey) => {
-        remotes.push({
+
+    // Process remotes
+    const remotes = Array.from(Object.entries(getUsedRemotesMap())).flatMap(
+      ([remoteKey, modules]) =>
+        Array.from(modules).map((moduleKey) => ({
           federationContainerName: options.remotes[remoteKey].entry,
           moduleName: moduleKey.replace(remoteKey, '').replace('/', ''),
           alias: remoteKey,
           entry: '*',
-        });
-      });
-    });
-    type ManifestItem = {
-      id: string;
-      name: string;
-      version: string;
-      requiredVersion: string;
-      assets: {
-        js: {
-          async: string[];
-          sync: string[];
-        };
-        css: {
-          async: string[];
-          sync: string[];
-        };
-      };
-    };
-    // @ts-ignore
-    const shared: ManifestItem[] = Array.from(getUsedShares())
+        }))
+    );
+
+    // Process shared dependencies
+    const shared = Array.from(getUsedShares())
       .map((shareKey) => {
         const shareItem = getNormalizeShareItem(shareKey);
+        const assets = preloadMap[shareKey] || createEmptyAssetMap();
 
         return {
           id: `${name}:${shareKey}`,
@@ -277,45 +253,48 @@ const Manifest = (): Plugin[] => {
           requiredVersion: shareItem.shareConfig.requiredVersion,
           assets: {
             js: {
-              async: preloadMap?.[shareKey]?.async || [],
-              sync: preloadMap?.[shareKey]?.sync || [],
+              async: assets.js.async,
+              sync: assets.js.sync,
             },
             css: {
-              async: [],
-              sync: [],
+              async: assets.css.async,
+              sync: assets.css.sync,
             },
           },
         };
       })
-      .filter((item) => item);
-    const exposes = Object.keys(options.exposes)
-      .map((key) => {
-        // assets(.css, .jpg, .svg等)其他资源, 不重要, 暂未处理
+      .filter(Boolean);
+
+    // Process exposed modules
+    const exposes = Object.entries(options.exposes)
+      .map(([key, value]) => {
         const formatKey = key.replace('./', '');
-        const sourceFile = options.exposes[key].import;
+        const sourceFile = value.import;
+        const assets = preloadMap[sourceFile] || createEmptyAssetMap();
+
         return {
-          id: name + ':' + formatKey,
+          id: `${name}:${formatKey}`,
           name: formatKey,
           assets: {
             js: {
-              async: preloadMap?.[sourceFile]?.async || [],
-              sync: preloadMap?.[sourceFile]?.sync || [],
+              async: assets.js.async,
+              sync: assets.js.sync,
             },
             css: {
-              sync: [],
-              async: [],
+              async: assets.css.async,
+              sync: assets.css.sync,
             },
           },
           path: key,
         };
       })
-      .filter((item) => item); // Filter out any null values
+      .filter(Boolean);
 
-    const result = {
+    return {
       id: name,
-      name: name,
+      name,
       metaData: {
-        name: name,
+        name,
         type: 'app',
         buildInfo: {
           buildVersion: '1.0.0',
@@ -326,8 +305,6 @@ const Manifest = (): Plugin[] => {
         types: {
           path: '',
           name: '',
-          // "zip": "@mf-types.zip",
-          // "api": "@mf-types.d.ts"
         },
         globalName: name,
         pluginVersion: '0.2.5',
@@ -337,7 +314,6 @@ const Manifest = (): Plugin[] => {
       remotes,
       exposes,
     };
-    return result;
   }
 };
 
