@@ -119,7 +119,7 @@ const addEntry = ({
           emitFileOptions.fileName = fileName;
         }
         emitFileId = this.emitFile(emitFileOptions);
-        if (htmlFilePath) {
+        if (htmlFilePath && fs.existsSync(htmlFilePath)) {
           const htmlContent = fs.readFileSync(htmlFilePath, 'utf-8');
           const scriptRegex = /<script\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
           let match: RegExpExecArray | null;
