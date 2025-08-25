@@ -277,6 +277,11 @@ export type ModuleFederationOptions = {
   remotes?: Record<string, string | RemoteObjectConfig> | undefined;
   runtime?: any;
   shareScope?: string;
+  /**
+   * Override the public path used for remote entries
+   * Defaults to Vite's base config or "auto" if base is empty
+   */
+  publicPath?: string;
   shared?:
     | string[]
     | Record<
@@ -320,6 +325,7 @@ export interface NormalizedModuleFederationOptions {
   dts?: boolean | PluginDtsOptions;
   shareStrategy: ShareStrategy;
   getPublicPath?: string;
+  publicPath?: string;
   ignoreOrigin?: boolean;
   virtualModuleDir: string;
 }
@@ -406,6 +412,7 @@ export function normalizeModuleFederationOptions(
     dev: options.dev,
     dts: options.dts,
     getPublicPath: options.getPublicPath,
+    publicPath: options.publicPath,
     shareStrategy: options.shareStrategy || 'version-first',
     ignoreOrigin: options.ignoreOrigin || false,
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
