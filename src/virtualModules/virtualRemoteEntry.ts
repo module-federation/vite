@@ -40,6 +40,7 @@ export function generateLocalSharedImportMap() {
   return `
     const importMap = {
       ${Array.from(getUsedShares())
+        .sort()
         .map(
           (pkg) => `
         ${JSON.stringify(pkg)}: async () => {
