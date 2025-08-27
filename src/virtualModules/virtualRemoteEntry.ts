@@ -40,6 +40,7 @@ export function generateLocalSharedImportMap() {
   return `
     const importMap = {
       ${Array.from(getUsedShares())
+        .sort()
         .map(
           (pkg) => `
         ${JSON.stringify(pkg)}: async () => {
@@ -52,6 +53,7 @@ export function generateLocalSharedImportMap() {
     }
       const usedShared = {
       ${Array.from(getUsedShares())
+        .sort()
         .map((key) => {
           const shareItem = getNormalizeShareItem(key);
           if (!shareItem) return null;
