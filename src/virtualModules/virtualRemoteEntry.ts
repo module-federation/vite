@@ -53,6 +53,7 @@ export function generateLocalSharedImportMap() {
     }
       const usedShared = {
       ${Array.from(getUsedShares())
+        .sort()
         .map((key) => {
           const shareItem = getNormalizeShareItem(key);
           if (!shareItem) return null;
