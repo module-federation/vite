@@ -17,6 +17,7 @@ import {
   processModuleAssets,
   trackAsset,
 } from '../utils/cssModuleHelpers';
+import { resolvePublicPath } from '../utils/publicPath';
 
 // Helper to build share key map with proper context typing
 interface BuildFileToShareKeyMapContext {
@@ -138,8 +139,7 @@ const Manifest = (): Plugin[] => {
         if (_command === 'serve') {
           base = (config.server.origin || '') + config.base;
         }
-        publicPath =
-          _originalConfigBase === '' ? 'auto' : base ? base.replace(/\/?$/, '/') : 'auto';
+        publicPath = resolvePublicPath(mfOptions, base, _originalConfigBase);
       },
       /**
        * Generates the module federation manifest file
