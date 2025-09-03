@@ -1,7 +1,6 @@
 import { Plugin, UserConfig } from 'vite';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { PromiseStore } from '../utils/PromiseStore';
-import VirtualModule from '../utils/VirtualModule';
 import {
   addUsedShares,
   generateLocalSharedImportMap,
@@ -13,6 +12,8 @@ import {
   writePreBuildLibPath,
 } from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
+import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
+
 export function proxySharedModule(options: {
   shared?: NormalizedShared;
   include?: string | string[];
@@ -71,8 +72,8 @@ export function proxySharedModule(options: {
               ? {
                   find: new RegExp(`(.*${PREBUILD_TAG}.*)`),
                   replacement: function ($1: string) {
-                    const pkgName = (VirtualModule.findModule(PREBUILD_TAG, $1) as VirtualModule)
-                      .name;
+                    const module = assertModuleFound(PREBUILD_TAG, $1) as VirtualModule;
+                    const pkgName = module.name;
                     return pkgName;
                   },
                 }
@@ -80,9 +81,8 @@ export function proxySharedModule(options: {
                   find: new RegExp(`(.*${PREBUILD_TAG}.*)`),
                   replacement: '$1',
                   async customResolver(source: string, importer: string) {
-                    const pkgName = (
-                      VirtualModule.findModule(PREBUILD_TAG, source) as VirtualModule
-                    ).name;
+                    const module = assertModuleFound(PREBUILD_TAG, source) as VirtualModule;
+                    const pkgName = module.name;
                     const result = await (this as any)
                       .resolve(pkgName, importer)
                       .then((item: any) => item.id);

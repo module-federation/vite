@@ -1,4 +1,4 @@
-import { getSuffix } from '../VirtualModule';
+import { getSuffix, assertModuleFound } from '../VirtualModule';
 
 describe('getSuffix', () => {
   it('returns .js for simple package without extension', () => {
@@ -35,5 +35,18 @@ describe('getSuffix', () => {
 
   it('returns correct suffix for deep relative path with scoped namespace', () => {
     expect(getSuffix('@scope.with.dots/pkg/deep/util.spec.ts')).toBe('.ts');
+  });
+});
+
+describe('assertModuleFound', () => {
+  it('throws an error when module is not found', () => {
+    const tag = '__test_tag__';
+    const str = 'non-existent-module';
+
+    expect(() => {
+      assertModuleFound(tag, str);
+    }).toThrow(
+      `Module Federation shared module '${str}' not found. Please ensure it's installed as a dependency in your package.json.`
+    );
   });
 });
