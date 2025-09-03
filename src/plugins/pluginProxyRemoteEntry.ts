@@ -9,6 +9,7 @@ import {
   VIRTUAL_EXPOSES,
 } from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
+import { resolvePublicPath } from '../utils/publicPath';
 
 const filter: (id: string) => boolean = createFilter();
 
@@ -60,10 +61,13 @@ export default function (): Plugin {
             typeof viteConfig.server?.host === 'string' && viteConfig.server.host !== '0.0.0.0'
               ? viteConfig.server.host
               : 'localhost';
+          const publicPath = JSON.stringify(
+            resolvePublicPath(options, viteConfig.base) + options.filename
+          );
           return `
           const origin = (window && ${!options.ignoreOrigin}) ? window.origin : "//${host}:${viteConfig.server?.port}"
-          const remoteEntryPromise = await import(origin + "${viteConfig.base + options.filename}")
-          // __tla only serves as a hack for vite-plugin-top-level-await. 
+          const remoteEntryPromise = await import(origin + ${publicPath})
+          // __tla only serves as a hack for vite-plugin-top-level-await.
           Promise.resolve(remoteEntryPromise)
           .then(remoteEntry => {
             return Promise.resolve(remoteEntry.__tla)
