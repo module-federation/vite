@@ -38,7 +38,7 @@ export function getLoadShareModulePath(pkg: string): string {
 }
 export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command: string) {
   loadShareCacheMap[pkg].writeSync(`
-    
+
     ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
     // dev uses dynamic import to separate chunks
     ${command !== 'build' ? `;() => import(${JSON.stringify(pkg)}).catch(() => {});` : ''}

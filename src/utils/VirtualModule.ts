@@ -54,6 +54,16 @@ const cacheMap: {
 /**
  * Physically generate files as virtual modules under node_modules/__mf__virtual/*
  */
+export function assertModuleFound(tag: string, str: string = ''): VirtualModule {
+  const module = VirtualModule.findModule(tag, str);
+  if (!module) {
+    throw new Error(
+      `Module Federation shared module '${str}' not found. Please ensure it's installed as a dependency in your package.json.`
+    );
+  }
+  return module;
+}
+
 export default class VirtualModule {
   name: string;
   tag: string;
