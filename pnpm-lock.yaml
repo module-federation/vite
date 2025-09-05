@@ -8,8 +8,11 @@ importers:
   .:
     dependencies:
       '@module-federation/runtime':
-        specifier: ^0.17.1
-        version: 0.17.1
+        specifier: ^0.18.3
+        version: 0.18.4
+      '@module-federation/sdk':
+        specifier: ^0.18.3
+        version: 0.18.3
       '@rollup/pluginutils':
         specifier: ^5.1.0
         version: 5.1.0(rollup@4.47.1)
@@ -269,6 +272,9 @@ importers:
       '@module-federation/vite':
         specifier: workspace:*
         version: link:../../..
+      lodash:
+        specifier: ^4.17.21
+        version: 4.17.21
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -303,6 +309,9 @@ importers:
       '@module-federation/vite':
         specifier: workspace:*
         version: link:../../..
+      lodash:
+        specifier: ^4.17.21
+        version: 4.17.21
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -2613,10 +2622,10 @@ packages:
       webpack:
         optional: true
 
-  '@module-federation/error-codes@0.17.1':
+  '@module-federation/error-codes@0.18.4':
     resolution:
       {
-        integrity: sha512-n6Elm4qKSjwAPxLUGtwnl7qt4y1dxB8OpSgVvXBIzqI9p27a3ZXshLPLnumlpPg1Qudaj8sLnSnFtt9yGpt5yQ==,
+        integrity: sha512-cpLsqL8du9CfTTCKvXbRg93ALF+lklqHnuPryhbwVEQg2eYo6CMoMQ6Eb7kJhLigUABIDujbHD01SvBbASGkeQ==,
       }
 
   '@module-federation/managers@0.2.5':
@@ -2637,10 +2646,10 @@ packages:
         integrity: sha512-Rvk4KTPn9KqM84ub3N8Ze1uC7oSJejlC4SG9JxUrr1yvkJh1Ej3SGWpeHyS7trBVWeJItCFqXAlAD2RnFIcjXQ==,
       }
 
-  '@module-federation/runtime-core@0.17.1':
+  '@module-federation/runtime-core@0.18.4':
     resolution:
       {
-        integrity: sha512-LCtIFuKgWPQ3E+13OyrVpuTPOWBMI/Ggwsq1Q874YeT8Px28b8tJRCj09DjyRFyhpSPyV/uG80T6iXPAUoLIfQ==,
+        integrity: sha512-LGGlFXlNeTbIGBFDiOvg0zz4jBWCGPqQatXdKx7mylXhDij7YmwbuW19oenX+P1fGhmoBUBM5WndmR87U66qWA==,
       }
 
   '@module-federation/runtime-tools@0.1.6':
@@ -2667,10 +2676,10 @@ packages:
         integrity: sha512-nj6a+yJ+QxmcE89qmrTl4lphBIoAds0PFPVGnqLRWflwAP88jrCcrrTqRhARegkFDL+wE9AE04+h6jzlbIfMKg==,
       }
 
-  '@module-federation/runtime@0.17.1':
+  '@module-federation/runtime@0.18.4':
     resolution:
       {
-        integrity: sha512-vKEN32MvUbpeuB/s6UXfkHDZ9N5jFyDDJnj83UTJ8n4N1jHIJu9VZ6Yi4/Ac8cfdvU8UIK9bIbfVXWbUYZUDsw==,
+        integrity: sha512-2et6p7pjGRHzpmrW425jt/BiAU7QHgkZtbQB7pj01eQ8qx6SloFEBk9ODnV8/ztSm9H2T3d8GxXA6/9xVOslmQ==,
       }
 
   '@module-federation/runtime@0.2.5':
@@ -2691,10 +2700,16 @@ packages:
         integrity: sha512-qifXpyYLM7abUeEOIfv0oTkguZgRZuwh89YOAYIZJlkP6QbRG7DJMQvtM8X2yHXm9PTk0IYNnOJH0vNQCo6auQ==,
       }
 
-  '@module-federation/sdk@0.17.1':
+  '@module-federation/sdk@0.18.3':
     resolution:
       {
-        integrity: sha512-nlUcN6UTEi+3HWF+k8wPy7gH0yUOmCT+xNatihkIVR9REAnr7BUvHFGlPJmx7WEbLPL46+zJUbtQHvLzXwFhng==,
+        integrity: sha512-tlBgF5pKXoiZ5hGRgafOpsktt0iafdjoH2O85ywPqvDGVK0DzfP8hs4qdUBJlKulP5PZoBtgTe7UiqyTbKJ7YQ==,
+      }
+
+  '@module-federation/sdk@0.18.4':
+    resolution:
+      {
+        integrity: sha512-dErzOlX+E3HS2Sg1m12Hi9nCnfvQPuIvlq9N47KxrbT2TIU3KKYc9q/Ua+QWqxfTyMVFpbNDwFMJ1R/w/gYf4A==,
       }
 
   '@module-federation/sdk@0.2.5':
@@ -14965,7 +14980,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@module-federation/error-codes@0.17.1': {}
+  '@module-federation/error-codes@0.18.4': {}
 
   '@module-federation/managers@0.2.5':
     dependencies:
@@ -15004,10 +15019,10 @@ snapshots:
       - utf-8-validate
       - vue-tsc
 
-  '@module-federation/runtime-core@0.17.1':
+  '@module-federation/runtime-core@0.18.4':
     dependencies:
-      '@module-federation/error-codes': 0.17.1
-      '@module-federation/sdk': 0.17.1
+      '@module-federation/error-codes': 0.18.4
+      '@module-federation/sdk': 0.18.4
 
   '@module-federation/runtime-tools@0.1.6':
     dependencies:
@@ -15028,11 +15043,11 @@ snapshots:
     dependencies:
       '@module-federation/sdk': 0.1.6
 
-  '@module-federation/runtime@0.17.1':
+  '@module-federation/runtime@0.18.4':
     dependencies:
-      '@module-federation/error-codes': 0.17.1
-      '@module-federation/runtime-core': 0.17.1
-      '@module-federation/sdk': 0.17.1
+      '@module-federation/error-codes': 0.18.4
+      '@module-federation/runtime-core': 0.18.4
+      '@module-federation/sdk': 0.18.4
 
   '@module-federation/runtime@0.2.5':
     dependencies:
@@ -15044,7 +15059,9 @@ snapshots:
 
   '@module-federation/sdk@0.1.6': {}
 
-  '@module-federation/sdk@0.17.1': {}
+  '@module-federation/sdk@0.18.3': {}
+
+  '@module-federation/sdk@0.18.4': {}
 
   '@module-federation/sdk@0.2.5': {}
 

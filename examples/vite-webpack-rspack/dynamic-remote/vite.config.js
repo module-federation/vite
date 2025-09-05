@@ -14,7 +14,11 @@ export default defineConfig({
         './SignUpBanner': './src/SignUpBanner.jsx',
         './SpecialPromo': './src/SpecialPromo.jsx',
       },
-      shared: ['react', 'react-dom'],
+      shared: {
+        react: { singleton: true },
+        'react-dom': { singleton: true },
+        lodash: { singleton: true, import: false },
+      },
     }),
   ],
   server: {

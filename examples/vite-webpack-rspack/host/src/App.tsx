@@ -7,6 +7,9 @@ import { Toggle } from './components/Toggle';
 import { useDynamicImport } from './hooks/useDynamicImport';
 import './index.css';
 
+import _ from 'lodash';
+_.VERSION;
+
 const RemoteProduct = lazy(
   () =>
     // @ts-ignore
