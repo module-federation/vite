@@ -38,17 +38,23 @@ export function writeLocalSharedImportMap() {
 export function generateLocalSharedImportMap() {
   const options = getNormalizeModuleFederationOptions();
   return `
+    import {loadShare} from "@module-federation/runtime";
     const importMap = {
       ${Array.from(getUsedShares())
         .sort()
-        .map(
-          (pkg) => `
+        .map((pkg) => {
+          const shareItem = getNormalizeShareItem(pkg);
+          return `
         ${JSON.stringify(pkg)}: async () => {
-          let pkg = await import("${getPreBuildLibImportId(pkg)}")
-          return pkg
+          ${
+            shareItem?.shareConfig.import === false
+              ? `throw new Error(\`Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
+              : `let pkg = await import("${getPreBuildLibImportId(pkg)}");
+            return pkg;`
+          }
         }
-      `
-        )
+      `;
+        })
         .join(',')}
     }
       const usedShared = {
@@ -65,8 +71,11 @@ export function generateLocalSharedImportMap() {
             loaded: false,
             from: ${JSON.stringify(options.name)},
             async get () {
+              if (${shareItem.shareConfig.import === false}) {
+                throw new Error(\`Shared module '\${${JSON.stringify(key)}}' must be provided by host\`);
+              }
               usedShared[${JSON.stringify(key)}].loaded = true
-              const {${JSON.stringify(key)}: pkgDynamicImport} = importMap 
+              const {${JSON.stringify(key)}: pkgDynamicImport} = importMap
               const res = await pkgDynamicImport()
               const exportModule = {...res}
               // All npm packages pre-built by vite will be converted to esm
@@ -80,7 +89,8 @@ export function generateLocalSharedImportMap() {
             },
             shareConfig: {
               singleton: ${shareItem.shareConfig.singleton},
-              requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
+              requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
+              ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
             }
           }
         `;
@@ -178,7 +188,7 @@ const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG)
 export function writeHostAutoInit() {
   hostAutoInitModule.writeSync(`
     const remoteEntryPromise = import("${REMOTE_ENTRY_ID}")
-    // __tla only serves as a hack for vite-plugin-top-level-await. 
+    // __tla only serves as a hack for vite-plugin-top-level-await.
     Promise.resolve(remoteEntryPromise)
       .then(remoteEntry => {
         return Promise.resolve(remoteEntry.__tla)

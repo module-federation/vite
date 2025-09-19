@@ -1,4 +1,5 @@
 import { SharedConfig, ShareStrategy } from '@module-federation/runtime/types';
+import type { sharePlugin } from '@module-federation/sdk';
 
 export type RemoteEntryType =
   | 'var'
@@ -104,7 +105,7 @@ export interface ShareItem {
   version: string | undefined;
   scope: string;
   from: string;
-  shareConfig: SharedConfig;
+  shareConfig: SharedConfig & sharePlugin.SharedConfig;
 }
 
 function removePathFromNpmPackage(packageString: string): string {
@@ -157,6 +158,7 @@ function normalizeShareItem(
     | string
     | {
         name: string;
+        import: sharePlugin.SharedConfig['import'];
         version?: string;
         shareScope?: string;
         singleton?: boolean;
@@ -192,6 +194,7 @@ function normalizeShareItem(
       scope: 'default',
       from: '',
       shareConfig: {
+        import: undefined,
         singleton: false,
         requiredVersion: version ? `^${version}` : '*',
       },
@@ -203,6 +206,7 @@ function normalizeShareItem(
     version: shareItem.version || version,
     scope: shareItem.shareScope || 'default',
     shareConfig: {
+      import: typeof shareItem === 'object' ? shareItem.import : undefined,
       singleton: shareItem.singleton || false,
       requiredVersion: shareItem.requiredVersion || (version ? `^${version}` : '*'),
       strictVersion: !!shareItem.strictVersion,
@@ -294,6 +298,7 @@ export type ModuleFederationOptions = {
             singleton?: boolean;
             requiredVersion?: string;
             strictVersion?: boolean;
+            import?: sharePlugin.SharedConfig['import'];
           }
       >
     | undefined;
