@@ -1,0 +1,21 @@
+{
+  "name": "examples-nuxt-vite-host",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prebuild": "nuxt prepare",
+    "build": "nuxt build",
+    "predev": "nuxt prepare",
+    "dev": "NODE_OPTIONS=--experimental-vm-modules nuxt dev --experimental-vm-modules --port=3001",
+    "generate": "nuxt generate",
+    "preview": "NITRO_PORT=3001 nuxt preview"
+  },
+  "dependencies": {
+    "nuxt": "^3.13.0",
+    "vue": "latest",
+    "@module-federation/vite": "workspace:*"
+  },
+  "devDependencies": {
+    "vite-plugin-top-level-await": "^1.4.4"
+  }
+}
