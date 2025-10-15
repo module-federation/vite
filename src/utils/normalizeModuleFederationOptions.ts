@@ -268,6 +268,8 @@ function normalizeManifest(manifest: ModuleFederationOptions['manifest'] = false
   );
 }
 
+type HostInitInjectOptions = 'entry' | 'html';
+
 export type ModuleFederationOptions = {
   exposes?: Record<string, string | { import: string }> | undefined;
   filename?: string;
@@ -306,6 +308,7 @@ export type ModuleFederationOptions = {
   shareStrategy?: ShareStrategy;
   ignoreOrigin?: boolean;
   virtualModuleDir?: string;
+  hostInitInject?: HostInitInjectOptions;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -328,6 +331,7 @@ export interface NormalizedModuleFederationOptions {
   publicPath?: string;
   ignoreOrigin?: boolean;
   virtualModuleDir: string;
+  hostInitInject: HostInitInjectOptions;
 }
 
 interface PluginDevOptions {
@@ -416,5 +420,6 @@ export function normalizeModuleFederationOptions(
     shareStrategy: options.shareStrategy || 'version-first',
     ignoreOrigin: options.ignoreOrigin || false,
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
+    hostInitInject: options.hostInitInject || 'html',
   });
 }

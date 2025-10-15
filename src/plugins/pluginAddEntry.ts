@@ -2,11 +2,13 @@ import * as fs from 'fs';
 import * as path from 'pathe';
 import { Plugin } from 'vite';
 
+import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+
 interface AddEntryOptions {
   entryName: string;
   entryPath: string;
   fileName?: string;
-  inject?: 'entry' | 'html';
+  inject?: NormalizedModuleFederationOptions['hostInitInject'];
 }
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
