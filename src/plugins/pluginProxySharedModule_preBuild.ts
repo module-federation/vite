@@ -1,6 +1,8 @@
 import { Plugin, UserConfig } from 'vite';
+import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { PromiseStore } from '../utils/PromiseStore';
+import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
   addUsedShares,
   generateLocalSharedImportMap,
@@ -12,7 +14,6 @@ import {
   writePreBuildLibPath,
 } from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
-import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 
 export function proxySharedModule(options: {
   shared?: NormalizedShared;
@@ -30,9 +31,11 @@ export function proxySharedModule(options: {
           return parsePromise.then((_) => generateLocalSharedImportMap());
         }
       },
-      transform(code, id) {
+      transform(_, id) {
         if (id.includes(getLocalSharedImportMapPath())) {
-          return parsePromise.then((_) => generateLocalSharedImportMap());
+          return mapCodeToCodeWithSourcemap(
+            parsePromise.then((_) => generateLocalSharedImportMap())
+          );
         }
       },
     },

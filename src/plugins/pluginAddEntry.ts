@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'pathe';
 import { Plugin } from 'vite';
+import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
 interface AddEntryOptions {
   entryName: string;
@@ -153,7 +154,7 @@ const addEntry = ({
           const injection = `
           import ${JSON.stringify(entryPath)};
           `;
-          return injection + code;
+          return mapCodeToCodeWithSourcemap(injection + code);
         }
       },
     },
