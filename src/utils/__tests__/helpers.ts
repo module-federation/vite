@@ -17,6 +17,7 @@ export function getDefaultMockOptions(
     manifest: false,
     shareStrategy: 'loaded-first',
     virtualModuleDir: '__mf__virtual',
+    hostInitInjectLocation: 'html',
     ...overrides,
   };
 }

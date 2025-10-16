@@ -25,7 +25,7 @@ import { VIRTUAL_EXPOSES } from './virtualModules/virtualExposes';
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
-  const { name, remotes, shared, filename, hostInitInject } = options;
+  const { name, remotes, shared, filename, hostInitInjectLocation } = options;
   if (!name) throw new Error('name is required');
 
   return [
@@ -50,7 +50,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     ...addEntry({
       entryName: 'hostInit',
       entryPath: getHostAutoInitPath(),
-      inject: hostInitInject,
+      inject: hostInitInjectLocation,
     }),
     ...addEntry({
       entryName: 'virtualExposes',

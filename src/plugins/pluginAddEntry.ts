@@ -8,7 +8,7 @@ interface AddEntryOptions {
   entryName: string;
   entryPath: string;
   fileName?: string;
-  inject?: NormalizedModuleFederationOptions['hostInitInject'];
+  inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
 }
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
