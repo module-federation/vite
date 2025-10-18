@@ -109,6 +109,11 @@ export default defineConfig({
       },
       filename: "remoteEntry.js",
       shared: ["vue"],
+      // Optional parameter that controls where the host initialization script is injected.
+      // By default, it is injected into the index.html file.
+      // You can set this to "entry" to inject it into the entry script instead.
+      // Useful if your application does not load from index.html.
+      hostInitInjectLocation: "html", // or "entry"
     }),
   ],
   server: {
@@ -124,6 +129,7 @@ export default defineConfig({
 ```
 
 The host app configuration specifies its name, the filename of its exposed remote entry remoteEntry.js, and importantly, the configuration of the remote application to load.
+You can specify the place the host initialization file is injected with the **hostInitInjectLocation** option, which is described in the example code above.
 
 ## Load the Remote App
 
