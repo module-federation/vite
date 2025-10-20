@@ -27,6 +27,7 @@ describe('normalizeModuleFederationOption', () => {
       shareStrategy: 'loaded-first',
       ignoreOrigin: false,
       virtualModuleDir: '__mf__virtual',
+      hostInitInjectLocation: 'html',
     });
   });
 

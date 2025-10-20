@@ -306,6 +306,7 @@ export type ModuleFederationOptions = {
   shareStrategy?: ShareStrategy;
   ignoreOrigin?: boolean;
   virtualModuleDir?: string;
+  hostInitInjectLocation?: HostInitInjectLocationOptions;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -328,7 +329,10 @@ export interface NormalizedModuleFederationOptions {
   publicPath?: string;
   ignoreOrigin?: boolean;
   virtualModuleDir: string;
+  hostInitInjectLocation: HostInitInjectLocationOptions;
 }
+
+type HostInitInjectLocationOptions = 'entry' | 'html';
 
 interface PluginDevOptions {
   disableLiveReload?: boolean;
@@ -416,5 +420,6 @@ export function normalizeModuleFederationOptions(
     shareStrategy: options.shareStrategy || 'version-first',
     ignoreOrigin: options.ignoreOrigin || false,
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
+    hostInitInjectLocation: options.hostInitInjectLocation || 'html',
   });
 }

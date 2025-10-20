@@ -3,11 +3,13 @@ import * as path from 'pathe';
 import { Plugin } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
+import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+
 interface AddEntryOptions {
   entryName: string;
   entryPath: string;
   fileName?: string;
-  inject?: 'entry' | 'html';
+  inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
 }
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
