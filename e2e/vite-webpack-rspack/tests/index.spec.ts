@@ -131,6 +131,32 @@ test.describe('Dynamic remote', () => {
     await expect(signUpBanner).toBeVisible();
     await expect(specialPromoBanner).not.toBeVisible();
   });
+
+  test('verifies shared lodash dependency', async ({ page, baseURL }) => {
+    await page.goto(baseURL!);
+    const showAdToggle = page.getByRole('checkbox', { name: 'Show Dynamic Ad', exact: true });
+
+    // Check that lodash version is displayed in SpecialPromo banner
+    await showAdToggle.check({ force: true });
+
+    const specialPromoBanner = page.getByRole('heading', { level: 2, name: 'Up to 50% off!', exact: true });
+    await expect(specialPromoBanner).toBeVisible();
+
+    const lodashVersionDisplay = page.getByTestId('lodash-version-display');
+    await expect(lodashVersionDisplay).toBeVisible();
+    const versionText = await lodashVersionDisplay.textContent();
+    expect(versionText).toMatch(/Shared lodash v\d+\.\d+\.\d+/);
+
+    // Toggle off and on again to check SignUpBanner
+    await showAdToggle.uncheck({ force: true });
+    await showAdToggle.check({ force: true });
+
+    const signUpBanner = page.getByRole('heading', { level: 2, name: 'Sign up now!', exact: true });
+    await expect(signUpBanner).toBeVisible();
+    await expect(lodashVersionDisplay).toBeVisible();
+    const versionText2 = await lodashVersionDisplay.textContent();
+    expect(versionText2).toMatch(/Shared lodash v\d+\.\d+\.\d+/);
+  });
 });
 
 test.describe('Tests remote', () => {
