@@ -29,11 +29,13 @@ const Manifest = (): Plugin[] => {
   const { name, filename, getPublicPath, manifest: manifestOptions } = mfOptions;
 
   let mfManifestName: string = '';
+  let disableMainfestCssInject: boolean | undefined;
   if (manifestOptions === true) {
     mfManifestName = 'mf-manifest.json';
   }
   if (typeof manifestOptions !== 'boolean') {
     mfManifestName = path.join(manifestOptions?.filePath || '', manifestOptions?.fileName || '');
+    disableMainfestCssInject = manifestOptions.disableAssetsAnalyze;
   }
 
   let root: string;
@@ -163,7 +165,9 @@ const Manifest = (): Plugin[] => {
         }
 
         // Second pass: Collect all CSS assets
-        const allCssAssets = collectCssAssets(bundle);
+        const allCssAssets = disableMainfestCssInject
+          ? new Set<string>()
+          : collectCssAssets(bundle);
 
         const exposesModules = Object.keys(mfOptions.exposes).map(
           (item) => mfOptions.exposes[item].import
@@ -201,7 +205,7 @@ const Manifest = (): Plugin[] => {
         processModuleAssets(bundle, filesMap, (modulePath) => fileToShareKey.get(modulePath));
 
         // Add all CSS assets to every export
-        addCssAssetsToAllExports(filesMap, allCssAssets);
+        !disableMainfestCssInject && addCssAssetsToAllExports(filesMap, allCssAssets);
 
         // Final deduplication of all assets
         filesMap = deduplicateAssets(filesMap);

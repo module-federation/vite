@@ -255,6 +255,7 @@ function normalizeLibrary(library: any): any {
 
 interface ManifestOptions {
   filePath?: string;
+  /** if enable, will skip auto inject global css */
   disableAssetsAnalyze?: boolean;
   fileName?: string;
 }
