@@ -1,0 +1,22 @@
+name: Close Stale Issues
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+
+jobs:
+  close-stale-issues:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - uses: actions/stale@v10
+        with:
+          days-before-stale: 30
+          days-before-close: 7
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          stale-issue-label: 'stale'
+          stale-issue-message: "As there's been no activity for 30 days, this issue has been flagged as stale. If you'd like it to remain open, please add a comment within the next 7 days. Thank you."
+          exempt-issue-labels: 'pinned,security'
