@@ -28,6 +28,9 @@ describe('normalizeModuleFederationOption', () => {
       ignoreOrigin: false,
       virtualModuleDir: '__mf__virtual',
       hostInitInjectLocation: 'html',
+      bundleAllCSS: false,
+      getPublicPath: undefined,
+      publicPath: undefined,
     });
   });
 

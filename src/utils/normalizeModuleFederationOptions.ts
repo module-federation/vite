@@ -286,6 +286,12 @@ export type ModuleFederationOptions = {
    * Defaults to Vite's base config or "auto" if base is empty
    */
   publicPath?: string;
+  /**
+   * Controls whether all CSS assets from the bundle should be added to every exposed module.
+   * When false (default), the plugin will not process any CSS assets.
+   * When true, all CSS assets are bundled into every exposed module.
+   */
+  bundleAllCSS?: boolean;
   shared?:
     | string[]
     | Record<
@@ -335,6 +341,12 @@ export interface NormalizedModuleFederationOptions {
   ignoreOrigin?: boolean;
   virtualModuleDir: string;
   hostInitInjectLocation: HostInitInjectLocationOptions;
+  /**
+   * Controls whether all CSS assets from the bundle should be added to every exposed module.
+   * When false (default), the plugin will not process any CSS assets.
+   * When true, all CSS assets are bundled into every exposed module.
+   */
+  bundleAllCSS: boolean;
 }
 
 type HostInitInjectLocationOptions = 'entry' | 'html';
@@ -426,5 +438,6 @@ export function normalizeModuleFederationOptions(
     ignoreOrigin: options.ignoreOrigin || false,
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
+    bundleAllCSS: options.bundleAllCSS || false,
   });
 }
