@@ -114,6 +114,10 @@ export default defineConfig({
       // You can set this to "entry" to inject it into the entry script instead.
       // Useful if your application does not load from index.html.
       hostInitInjectLocation: "html", // or "entry"
+      // Controls whether all CSS assets from the bundle should be added to every exposed module.
+      // When false (default), the plugin will not process any CSS assets.
+      // When true, all CSS assets are bundled into every exposed module.
+      bundleAllCSS: false, // or true
     }),
   ],
   server: {

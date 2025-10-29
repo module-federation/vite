@@ -9,6 +9,7 @@ import {
   buildFileToShareKeyMap,
 } from '../cssModuleHelpers';
 import type { OutputBundleItem, PreloadMap } from '../cssModuleHelpers';
+import { normalizeModuleFederationOptions } from '../normalizeModuleFederationOptions';
 
 describe('cssModuleHelpers', () => {
   describe('createEmptyAssetMap', () => {
@@ -167,11 +168,54 @@ describe('cssModuleHelpers', () => {
         getNormalizeModuleFederationOptions: vi.fn(() => ({
           name: 'test-app',
           virtualModuleDir: '__mf_virtual_test',
+          bundleAllCSS: false,
+        })),
+        normalizeModuleFederationOptions: vi.fn((options) => ({
+          name: 'test-app',
+          virtualModuleDir: '__mf_virtual_test',
+          bundleAllCSS: options.bundleAllCSS || false,
         })),
       }));
 
       const result = await buildFileToShareKeyMap(shareKeys, resolveFn);
       expect(result.get('path/to/react.js')).toBe('react');
+    });
+  });
+
+  describe('bundleAllCSS option', () => {
+    it('should default bundleAllCSS to false when not specified', () => {
+      const options = normalizeModuleFederationOptions({
+        name: 'test-app',
+        exposes: {
+          './Button': './src/Button.jsx',
+        },
+      });
+
+      expect(options.bundleAllCSS).toBe(false);
+    });
+
+    it('should set bundleAllCSS to false when explicitly set to false', () => {
+      const options = normalizeModuleFederationOptions({
+        name: 'test-app',
+        exposes: {
+          './Button': './src/Button.jsx',
+        },
+        bundleAllCSS: false,
+      });
+
+      expect(options.bundleAllCSS).toBe(false);
+    });
+
+    it('should set bundleAllCSS to true when explicitly set to true', () => {
+      const options = normalizeModuleFederationOptions({
+        name: 'test-app',
+        exposes: {
+          './Button': './src/Button.jsx',
+        },
+        bundleAllCSS: true,
+      });
+
+      expect(options.bundleAllCSS).toBe(true);
     });
   });
 });
