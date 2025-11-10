@@ -25,6 +25,7 @@ export default defineConfig({
         '@namespace/viteViteRemote': 'http://localhost:5176/testbase/mf-manifest.json',
       },
       filename: 'remoteEntry-[hash].js',
+      varFilename: 'varRemoteEntry.js',
       manifest: true,
       shared: {
         vue: {},
