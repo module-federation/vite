@@ -24,7 +24,6 @@ export type RemoteEntryType =
 
 import * as fs from 'fs';
 import * as path from 'pathe';
-import { warn } from './logUtils';
 
 interface ExposesItem {
   import: string;
@@ -403,12 +402,6 @@ export function getNormalizeShareItem(key: string) {
 export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
-  if (options.getPublicPath) {
-    warn(
-      `We are ignoring the getPublicPath options because they are natively supported by Vite\nwith the "experimental.renderBuiltUrl" configuration https://vitejs.dev/guide/build#advanced-base-options`
-    );
-  }
-
   if (options.virtualModuleDir && options.virtualModuleDir.includes('/')) {
     throw new Error(
       `Invalid virtualModuleDir: "${options.virtualModuleDir}". ` +
