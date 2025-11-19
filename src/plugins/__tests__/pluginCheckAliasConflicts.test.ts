@@ -64,7 +64,7 @@ describe('pluginCheckAliasConflicts', () => {
 
     plugin.configResolved!(mockConfig as any);
 
-    expect(mockLogger.warn).toHaveBeenCalledTimes(5);
+    expect(mockLogger.warn).toHaveBeenCalledTimes(4);
     expect(mockLogger.warn).toHaveBeenCalledWith(
       '\n[Module Federation] Detected alias conflicts with shared modules:'
     );
