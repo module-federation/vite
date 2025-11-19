@@ -196,4 +196,31 @@ describe('pluginCheckAliasConflicts', () => {
 
     expect(mockLogger.warn).toHaveBeenCalled();
   });
+
+  it('should work with undefined alias', () => {
+    const plugin = checkAliasConflicts({
+      shared: {
+        vue: {
+          name: 'vue',
+          version: '3.2.45',
+          scope: 'default',
+          from: 'host',
+          shareConfig: {
+            requiredVersion: '^3.2.45',
+          } as any,
+        },
+      },
+    });
+
+    const mockConfig = {
+      logger: mockLogger,
+      resolve: {
+        alias: undefined,
+      },
+    };
+
+    plugin.configResolved!(mockConfig as any);
+
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
 });
