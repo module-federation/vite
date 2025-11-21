@@ -25,6 +25,10 @@ export function checkAliasConflicts(options: { shared?: NormalizedShared }): Plu
           // Skip if replacement is not a string (e.g., customResolver)
           if (typeof replacement !== 'string') continue;
 
+          // Skip Module Federation internal aliases (used for proxying shared modules)
+          // These are generated with replacement '$1' and should not trigger warnings
+          if (replacement === '$1') continue;
+
           // Check if alias pattern matches the shared module
           let isMatch = false;
           if (typeof findPattern === 'string') {

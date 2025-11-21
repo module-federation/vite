@@ -223,4 +223,52 @@ describe('pluginCheckAliasConflicts', () => {
 
     expect(mockLogger.warn).not.toHaveBeenCalled();
   });
+
+  it('should skip Module Federation internal aliases (replacement $1)', () => {
+    const plugin = checkAliasConflicts({
+      shared: {
+        vue: {
+          name: 'vue',
+          version: '3.2.45',
+          scope: 'default',
+          from: 'host',
+          shareConfig: {
+            requiredVersion: '^3.2.45',
+          } as any,
+        },
+        'react-dom': {
+          name: 'react-dom',
+          version: '18.0.0',
+          scope: 'default',
+          from: 'host',
+          shareConfig: {
+            requiredVersion: '^18.0.0',
+          } as any,
+        },
+      },
+    });
+
+    const mockConfig = {
+      logger: mockLogger,
+      resolve: {
+        alias: [
+          {
+            find: /^vue$/,
+            replacement: '$1',
+            customResolver: () => {},
+          },
+          {
+            find: /^react-dom$/,
+            replacement: '$1',
+            customResolver: () => {},
+          },
+        ],
+      },
+    };
+
+    plugin.configResolved!(mockConfig as any);
+
+    // Should not warn for internal MF aliases with replacement '$1'
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
 });
