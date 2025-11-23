@@ -1,12 +1,13 @@
 import * as path from 'pathe';
-import { Plugin } from 'vite';
 import type { PluginContext } from 'rollup';
+import { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import { getUsedRemotesMap, getUsedShares } from '../virtualModules';
 
+import { getBuildInfo } from '../utils/buildInfoUtils';
 import {
   buildFileToShareKeyMap,
   collectCssAssets,
@@ -93,7 +94,7 @@ const Manifest = (): Plugin[] => {
                 metaData: {
                   name: name,
                   type: 'app',
-                  buildInfo: { buildVersion: '1.0.0', buildName: name },
+                  buildInfo: getBuildInfo(),
                   remoteEntry: {
                     name: filename,
                     path: '',
@@ -298,10 +299,7 @@ const Manifest = (): Plugin[] => {
       metaData: {
         name,
         type: 'app',
-        buildInfo: {
-          buildVersion: '1.0.0',
-          buildName: name,
-        },
+        buildInfo: getBuildInfo(),
         remoteEntry,
         ssrRemoteEntry: remoteEntry,
         types: {

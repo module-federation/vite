@@ -55,6 +55,7 @@
     "pathe": "^1.1.2"
   },
   "devDependencies": {
+    "@module-federation/managers": "^0.21.6",
     "@playwright/test": "^1.47.2",
     "@types/node": "^22.7.4",
     "husky": "^8.0.3",
