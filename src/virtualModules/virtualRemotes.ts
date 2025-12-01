@@ -25,9 +25,8 @@ export function getUsedRemotesMap() {
 }
 export function generateRemotes(id: string, command: string) {
   return `
-    const {loadRemote} = require("@module-federation/runtime")
-    const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
-    const res = initPromise.then(_ => loadRemote(${JSON.stringify(id)}))
+    import {initPromise} from "${virtualRuntimeInitStatus.getImportId()}"
+    const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
     const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}initPromise.then(_ => res)
     module.exports = exportModule
   `;
