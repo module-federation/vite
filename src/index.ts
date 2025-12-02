@@ -1,6 +1,7 @@
 import defu from 'defu';
 import { Plugin } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
+import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
@@ -42,6 +43,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       },
     },
     aliasToArrayPlugin,
+    checkAliasConflicts({ shared }),
     normalizeOptimizeDepsPlugin,
     ...addEntry({
       entryName: 'remoteEntry',
