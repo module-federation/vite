@@ -25,9 +25,12 @@ export function getUsedRemotesMap() {
 }
 export function generateRemotes(id: string, command: string) {
   return `
-    import {initPromise} from "${virtualRuntimeInitStatus.getImportId()}"
-    const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
-    const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}initPromise.then(_ => res)
+    // Use dynamic import() - works in both browser (dev) and Rollup (build)
+    const initModulePromise = import("${virtualRuntimeInitStatus.getImportId()}")
+    const res = initModulePromise
+      .then(({initPromise}) => initPromise)
+      .then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
+    const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}initModulePromise.then(({initPromise}) => initPromise).then(_ => res)
     module.exports = exportModule
   `;
 }
