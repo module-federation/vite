@@ -126,7 +126,7 @@ function removePathFromNpmPackage(packageString: string): string {
  */
 function searchPackageVersion(sharedName: string): string | undefined {
   try {
-    const sharedPath = require.resolve(sharedName);
+    const sharedPath = require.resolve(sharedName, { paths: [process.cwd()] });
     let potentialPackageJsonDir = path.dirname(sharedPath);
     const rootDir = path.parse(potentialPackageJsonDir).root;
     while (
@@ -168,7 +168,11 @@ function normalizeShareItem(
   let version: string | undefined;
   try {
     try {
-      version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
+      version = require(
+        require.resolve(path.join(removePathFromNpmPackage(key), 'package.json'), {
+          paths: [process.cwd()],
+        })
+      ).version;
     } catch (e1) {
       try {
         const localPath = path.join(
