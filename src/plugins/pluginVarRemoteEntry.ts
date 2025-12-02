@@ -1,6 +1,5 @@
 import { Plugin } from 'vite';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
-import { warn } from '../utils/logUtils';
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 const VarRemoteEntry = (): Plugin[] => {
@@ -68,7 +67,7 @@ const VarRemoteEntry = (): Plugin[] => {
         const isValidName = isValidVarName(name);
 
         if (!isValidName) {
-          warn(
+          viteConfig.logger.warn(
             `Provided remote name "${name}" is not valid for "var" remoteEntry type, thus it's placed in globalThis['${name}'].\nIt may cause problems, so you would better want to use valid var name (see https://www.w3schools.com/js/js_variables.asp).`
           );
         }
