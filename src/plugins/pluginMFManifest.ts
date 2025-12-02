@@ -1,12 +1,13 @@
 import * as path from 'pathe';
-import { Plugin } from 'vite';
 import type { PluginContext } from 'rollup';
+import { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import { getUsedRemotesMap, getUsedShares } from '../virtualModules';
 
+import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import {
   buildFileToShareKeyMap,
   collectCssAssets,
@@ -26,7 +27,7 @@ interface BuildFileToShareKeyMapContext {
 
 const Manifest = (): Plugin[] => {
   const mfOptions = getNormalizeModuleFederationOptions();
-  const { name, filename, getPublicPath, manifest: manifestOptions } = mfOptions;
+  const { name, filename, getPublicPath, manifest: manifestOptions, varFilename } = mfOptions;
 
   let mfManifestName: string = '';
   if (manifestOptions === true) {
@@ -104,6 +105,13 @@ const Manifest = (): Plugin[] => {
                     path: '',
                     type: 'module',
                   },
+                  varRemoteEntry: varFilename
+                    ? {
+                        name: varFilename,
+                        path: '',
+                        type: 'var',
+                      }
+                    : undefined,
                   types: { path: '', name: '' },
                   globalName: name,
                   pluginVersion: '0.2.5',
@@ -151,15 +159,11 @@ const Manifest = (): Plugin[] => {
 
         let filesMap: PreloadMap = {};
 
+        const foundRemoteEntryFile = findRemoteEntryFile(mfOptions.filename, bundle);
+
         // First pass: Find remoteEntry file
-        for (const [_, fileData] of Object.entries(bundle)) {
-          if (
-            mfOptions.filename.replace(/[\[\]]/g, '_').replace(/\.[^/.]+$/, '') === fileData.name ||
-            fileData.name === 'remoteEntry'
-          ) {
-            remoteEntryFile = fileData.fileName;
-            break; // We can break early since we only need to find remoteEntry once
-          }
+        if (foundRemoteEntryFile) {
+          remoteEntryFile = foundRemoteEntryFile;
         }
 
         // Second pass: Collect all CSS assets
@@ -224,12 +228,20 @@ const Manifest = (): Plugin[] => {
    */
   function generateMFManifest(preloadMap: PreloadMap) {
     const options = getNormalizeModuleFederationOptions();
-    const { name } = options;
+    const { name, varFilename } = options;
     const remoteEntry = {
       name: remoteEntryFile,
       path: '',
       type: 'module',
     };
+
+    const varRemoteEntry = varFilename
+      ? {
+          name: varFilename,
+          path: '',
+          type: 'module',
+        }
+      : undefined;
 
     // Process remotes
     const remotes = Array.from(Object.entries(getUsedRemotesMap())).flatMap(
@@ -304,6 +316,7 @@ const Manifest = (): Plugin[] => {
         },
         remoteEntry,
         ssrRemoteEntry: remoteEntry,
+        varRemoteEntry,
         types: {
           path: '',
           name: '',

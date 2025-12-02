@@ -13,8 +13,15 @@ import { MuiDemo } from '@namespace/viteViteRemote/MuiDemo';
 import StyledDemo from '@namespace/viteViteRemote/StyledDemo';
 import { ref } from 'vue';
 
+import { mf } from './mf';
+
 console.log('Share Vue', ref);
 console.log('Share React', R, RD);
+
+// @namespace/viteViteRemote is not valid name variable, thus we have to load it with loadRemote instaed of basic usage
+const LazyVarApp = R.lazy(() => {
+  return mf.loadRemote('@namespace/viteViteRemote')
+})
 
 export default function () {
   return (
@@ -58,6 +65,13 @@ export default function () {
 
       <h2>Mfapp01App</h2>
       <Mfapp01App />
+
+      <hr />
+
+      <h2>LazyVarApp</h2>
+      <R.Suspense fallback="loading...">
+        <LazyVarApp />
+      </R.Suspense>
     </div>
   );
 }
