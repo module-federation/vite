@@ -1,3 +1,4 @@
+import { generateRuntimePluginOption } from '../utils/generateRuntimePluginOption';
 import {
   getLocalSharedImportMapPath_temp,
   writeLocalSharedImportMap_temp,
@@ -124,10 +125,17 @@ export function generateLocalSharedImportMap() {
 
 export const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
 export function generateRemoteEntry(options: NormalizedModuleFederationOptions): string {
-  const pluginImportNames = options.runtimePlugins.map((p, i) => [
-    `$runtimePlugin_${i}`,
-    `import $runtimePlugin_${i} from "${p}";`,
-  ]);
+  const pluginImportNames = options.runtimePlugins.map((p, i) => {
+    if (typeof p === 'string') {
+      return [`$runtimePlugin_${i}`, `import $runtimePlugin_${i} from "${p}";`, `undefined`];
+    } else {
+      return [
+        `$runtimePlugin_${i}`,
+        `import $runtimePlugin_${i} from "${p[0]}";`,
+        generateRuntimePluginOption(p[1]),
+      ];
+    }
+  });
 
   return `
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
@@ -145,7 +153,7 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
       name: mfName,
       remotes: usedRemotes,
       shared: usedShared,
-      plugins: [${pluginImportNames.map((item) => `${item[0]}()`).join(', ')}],
+      plugins: [${pluginImportNames.map((item) => `${item[0]}(${item[2]})`).join(', ')}],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
     // handling circular init calls
