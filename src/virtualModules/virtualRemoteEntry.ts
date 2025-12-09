@@ -1,4 +1,3 @@
-import { generateRuntimePluginOption } from '../utils/generateRuntimePluginOption';
 import {
   getLocalSharedImportMapPath_temp,
   writeLocalSharedImportMap_temp,
@@ -8,6 +7,7 @@ import {
   getNormalizeShareItem,
   NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
+import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { VIRTUAL_EXPOSES } from './virtualExposes';
 import { getUsedRemotesMap } from './virtualRemotes';
@@ -132,7 +132,7 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
       return [
         `$runtimePlugin_${i}`,
         `import $runtimePlugin_${i} from "${p[0]}";`,
-        generateRuntimePluginOption(p[1]),
+        serializeRuntimeOptions(p[1]),
       ];
     }
   });
