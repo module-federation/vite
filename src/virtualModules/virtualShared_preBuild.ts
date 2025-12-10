@@ -32,31 +32,42 @@ export const LOAD_SHARE_TAG = '__loadShare__';
 const loadShareCacheMap: Record<string, VirtualModule> = {};
 export function getLoadShareModulePath(pkg: string): string {
   if (!loadShareCacheMap[pkg])
-    // Use .mjs extension to ensure ESM treatment by bundlers
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.mjs');
+    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
   const filepath = loadShareCacheMap[pkg].getPath();
   return filepath;
 }
 export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command: string) {
-  // Generate ESM-compatible code to fix Vite 7/Rolldown compatibility
-  // The previous CJS code (require + module.exports + top-level await) caused syntax errors
-  // because Rolldown wraps CJS in a function where top-level await is invalid
-  loadShareCacheMap[pkg].writeSync(`
-    ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
-    // dev uses dynamic import to separate chunks
-    ${command !== 'build' ? `;() => import(${JSON.stringify(pkg)}).catch(() => {});` : ''}
-    // Use dynamic import instead of require for ESM compatibility
-    const runtimeModule = await import("${virtualRuntimeInitStatus.getImportId()}")
-    const {initPromise} = runtimeModule
-    const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
-      customShareInfo: {shareConfig:{
-        singleton: ${shareItem.shareConfig.singleton},
-        strictVersion: ${shareItem.shareConfig.strictVersion},
-        requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
-      }}
-    }))
-    const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}res.then(factory => factory())
-    // Use ESM export instead of module.exports to avoid CJS wrapper issues
-    export default exportModule
-  `);
+  if (command === 'build') {
+    // Build mode: Use ESM syntax to fix Vite 7/Rolldown compatibility
+    // Rolldown wraps CJS (require + module.exports) in a function, breaking top-level await
+    loadShareCacheMap[pkg].writeSync(`
+      import { initPromise } from "${virtualRuntimeInitStatus.getImportId()}"
+      ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
+      const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
+        customShareInfo: {shareConfig:{
+          singleton: ${shareItem.shareConfig.singleton},
+          strictVersion: ${shareItem.shareConfig.strictVersion},
+          requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
+        }}
+      }))
+      const exportModule = await res.then(factory => factory())
+      export default exportModule
+    `);
+  } else {
+    // Dev mode: Use original CJS syntax for compatibility with existing plugins
+    loadShareCacheMap[pkg].writeSync(`
+      ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
+      ;() => import(${JSON.stringify(pkg)}).catch(() => {});
+      const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
+      const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
+        customShareInfo: {shareConfig:{
+          singleton: ${shareItem.shareConfig.singleton},
+          strictVersion: ${shareItem.shareConfig.strictVersion},
+          requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
+        }}
+      }))
+      const exportModule = /*mf top-level-await placeholder replacement mf*/res.then(factory => factory())
+      module.exports = exportModule
+    `);
+  }
 }

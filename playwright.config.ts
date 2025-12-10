@@ -20,6 +20,15 @@ export default defineConfig({
         browserName: 'chromium',
       },
     },
+    // Test production build via preview mode - validates Vite 7/Rolldown compatibility
+    {
+      name: 'multi-example-preview',
+      testDir: 'e2e/vite-webpack-rspack',
+      use: {
+        baseURL: 'http://localhost:4173',
+        browserName: 'chromium',
+      },
+    },
   ],
   outputDir: 'reports/e2e/output',
   reporter: [

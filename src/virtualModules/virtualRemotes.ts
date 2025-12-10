@@ -7,8 +7,7 @@ const cacheRemoteMap: {
 export const LOAD_REMOTE_TAG = '__loadRemote__';
 export function getRemoteVirtualModule(remote: string, command: string) {
   if (!cacheRemoteMap[remote]) {
-    // Use .mjs extension to ensure ESM treatment by bundlers
-    cacheRemoteMap[remote] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.mjs');
+    cacheRemoteMap[remote] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.js');
     cacheRemoteMap[remote].writeSync(generateRemotes(remote, command));
   }
   const virtual = cacheRemoteMap[remote];
@@ -25,16 +24,22 @@ export function getUsedRemotesMap() {
   return usedRemotesMap;
 }
 export function generateRemotes(id: string, command: string) {
-  // Generate ESM-compatible code to fix Vite 7/Rolldown compatibility
-  // The previous CJS code (require + module.exports + top-level await) caused syntax errors
-  // because Rolldown wraps CJS in a function where top-level await is invalid
-  return `
-    // Use dynamic import instead of require for ESM compatibility
-    const runtimeModule = await import("${virtualRuntimeInitStatus.getImportId()}")
-    const {initPromise} = runtimeModule
-    const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
-    const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}initPromise.then(_ => res)
-    // Use ESM export instead of module.exports to avoid CJS wrapper issues
-    export default exportModule
-  `;
+  if (command === 'build') {
+    // Build mode: Use ESM syntax to fix Vite 7/Rolldown compatibility
+    // Rolldown wraps CJS (require + module.exports) in a function, breaking top-level await
+    return `
+      import { initPromise } from "${virtualRuntimeInitStatus.getImportId()}"
+      const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
+      const exportModule = await initPromise.then(_ => res)
+      export default exportModule
+    `;
+  } else {
+    // Dev mode: Use original CJS syntax for compatibility with existing plugins
+    return `
+      const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
+      const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
+      const exportModule = /*mf top-level-await placeholder replacement mf*/initPromise.then(_ => res)
+      module.exports = exportModule
+    `;
+  }
 }
