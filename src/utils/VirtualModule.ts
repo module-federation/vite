@@ -1,32 +1,24 @@
 import { existsSync, mkdirSync, writeFile, writeFileSync } from 'fs';
-import { dirname, join, parse, resolve, basename } from 'pathe';
+import { basename, join, resolve } from 'pathe';
 import { packageNameDecode, packageNameEncode } from '../utils/packageNameUtils';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 
 // Cache root path
 let rootDir: string | undefined;
 
-function findNodeModulesDir(root: string = process.cwd()) {
-  let currentDir = root;
-
-  while (currentDir !== parse(currentDir).root) {
-    const nodeModulesPath = join(currentDir, 'node_modules');
-    if (existsSync(nodeModulesPath)) {
-      return nodeModulesPath;
-    }
-    currentDir = dirname(currentDir);
-  }
-
-  return '';
-}
-
 // Cache nodeModulesDir result to avoid repeated calculations
 let cachedNodeModulesDir: string | undefined;
 
 function getNodeModulesDir() {
-  if (!cachedNodeModulesDir) {
-    cachedNodeModulesDir = findNodeModulesDir(rootDir);
+  if (cachedNodeModulesDir) {
+    return cachedNodeModulesDir;
   }
+  const targetRoot = rootDir || process.cwd();
+  const nodeModulesPath = join(targetRoot, 'node_modules');
+  if (!existsSync(nodeModulesPath)) {
+    mkdirSync(nodeModulesPath, { recursive: true });
+  }
+  cachedNodeModulesDir = nodeModulesPath;
   return cachedNodeModulesDir;
 }
 
@@ -89,16 +81,15 @@ export default class VirtualModule {
     const virtualPackagePath = resolve(nodeModulesDir, virtualModuleDir);
 
     if (!existsSync(virtualPackagePath)) {
-      mkdirSync(virtualPackagePath);
+      mkdirSync(virtualPackagePath, { recursive: true });
       writeFileSync(resolve(virtualPackagePath, 'empty.js'), '');
-      writeFileSync(
-        resolve(virtualPackagePath, 'package.json'),
-        JSON.stringify({
-          name: virtualModuleDir,
-          main: 'empty.js',
-        })
-      );
     }
+  }
+
+  static getVirtualModuleDirPath() {
+    const nodeModulesDir = getNodeModulesDir();
+    const { virtualModuleDir } = getNormalizeModuleFederationOptions();
+    return resolve(nodeModulesDir, virtualModuleDir);
   }
 
   static findModule(tag: string, str: string = ''): VirtualModule | undefined {
