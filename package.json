@@ -4,7 +4,7 @@
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "source": "src/index.ts",
-  "main": "./lib/index.ts",
+  "main": "./lib/index.cjs",
   "types": "lib/index.d.ts",
   "files": [
     "lib/**/*"
