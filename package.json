@@ -4,11 +4,10 @@
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "source": "src/index.ts",
-  "main": "./src/index.ts",
-  "types": "src/index.d.ts",
+  "main": "./lib/index.ts",
+  "types": "lib/index.d.ts",
   "files": [
-    "lib/**/*",
-    "src/**/*"
+    "lib/**/*"
   ],
   "scripts": {
     "prepare": "husky install",
