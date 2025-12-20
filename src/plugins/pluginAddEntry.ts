@@ -135,8 +135,11 @@ const addEntry = ({
       generateBundle(options, bundle) {
         if (!injectHtml()) return;
         const file = this.getFileName(emitFileId);
+        const path = viteConfig.experimental?.renderBuiltUrl
+          ? viteConfig.experimental?.renderBuiltUrl(file)
+          : viteConfig.base + file;
         const scriptContent = `
-          <script type="module" src="${viteConfig.base + file}"></script>
+          <script type="module" src="${path}"></script>
         `;
 
         for (const fileName in bundle) {
