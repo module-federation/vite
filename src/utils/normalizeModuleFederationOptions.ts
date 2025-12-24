@@ -307,7 +307,7 @@ export type ModuleFederationOptions = {
           }
       >
     | undefined;
-  runtimePlugins?: string[];
+  runtimePlugins?: Array<string | [string, Record<string, unknown>]>;
   getPublicPath?: string;
   implementation?: string;
   manifest?: ManifestOptions | boolean;
@@ -333,7 +333,7 @@ export interface NormalizedModuleFederationOptions {
   runtime: any;
   shareScope: string;
   shared: NormalizedShared;
-  runtimePlugins: string[];
+  runtimePlugins: Array<string | [string, Record<string, unknown>]>;
   implementation: string;
   manifest: ManifestOptions | boolean;
   dev?: boolean | PluginDevOptions;
