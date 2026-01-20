@@ -300,7 +300,7 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
               }
             : undefined,
           extraOptions,
-          disableLiveReload: devOptions.disableHotTypesReload,
+          disableLiveReload: devOptions.disableLiveReload,
           disableHotTypesReload: devOptions.disableHotTypesReload,
         });
 
