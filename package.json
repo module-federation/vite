@@ -49,6 +49,7 @@
     "vite": "<=6"
   },
   "dependencies": {
+    "@module-federation/dts-plugin": "^0.21.6",
     "@module-federation/runtime": "^0.21.6",
     "@module-federation/sdk": "^0.21.6",
     "@rollup/pluginutils": "^5.1.0",
