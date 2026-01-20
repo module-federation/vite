@@ -93,7 +93,11 @@ const buildDtsModuleFederationConfig = (
     if (!remote.entry) {
       return;
     }
-    const entryGlobalName = remote.entryGlobalName || remote.name || key;
+    const entryLooksLikeUrl =
+      remote.entryGlobalName?.startsWith('http') || remote.entryGlobalName?.includes('.json');
+    const entryGlobalName = entryLooksLikeUrl
+      ? remote.name || key
+      : remote.entryGlobalName || remote.name || key;
     remotes[key] = `${entryGlobalName}@${remote.entry}`;
   });
 
