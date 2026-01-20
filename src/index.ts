@@ -7,6 +7,7 @@ import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
+import pluginDts from './plugins/pluginDts';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import {
@@ -44,6 +45,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     aliasToArrayPlugin,
     checkAliasConflicts({ shared }),
     normalizeOptimizeDepsPlugin,
+    ...pluginDts(options),
     ...addEntry({
       entryName: 'remoteEntry',
       entryPath: REMOTE_ENTRY_ID,
