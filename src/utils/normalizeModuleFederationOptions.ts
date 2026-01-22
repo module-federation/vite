@@ -356,23 +356,43 @@ interface PluginDevOptions {
   disableDynamicRemoteTypeHints?: boolean;
 }
 
+interface RemoteTypeUrl {
+  alias?: string;
+  api: string;
+  zip: string;
+}
+
+interface RemoteTypeUrls {
+  [remoteName: string]: RemoteTypeUrl;
+}
+
 interface PluginDtsOptions {
   generateTypes?: boolean | DtsRemoteOptions;
   consumeTypes?: boolean | DtsHostOptions;
   tsConfigPath?: string;
+  extraOptions?: Record<string, unknown>;
+  implementation?: string;
+  cwd?: string;
+  displayErrorInTerminal?: boolean;
 }
 
 interface DtsRemoteOptions {
   tsConfigPath?: string;
   typesFolder?: string;
+  compiledTypesFolder?: string;
   deleteTypesFolder?: boolean;
   additionalFilesToCompile?: string[];
-  compilerInstance?: 'tsc' | 'vue-tsc';
+  compilerInstance?: 'tsc' | 'vue-tsc' | 'tspc' | string;
   compileInChildProcess?: boolean;
   generateAPITypes?: boolean;
-  extractThirdParty?: boolean;
+  extractThirdParty?:
+    | boolean
+    | {
+        exclude?: Array<string | RegExp>;
+      };
   extractRemoteTypes?: boolean;
   abortOnError?: boolean;
+  deleteTsConfig?: boolean;
 }
 
 interface DtsHostOptions {
@@ -382,6 +402,11 @@ interface DtsHostOptions {
   deleteTypesFolder?: boolean;
   maxRetries?: number;
   consumeAPITypes?: boolean;
+  runtimePkgs?: string[];
+  remoteTypeUrls?: (() => Promise<RemoteTypeUrls>) | RemoteTypeUrls;
+  timeout?: number;
+  family?: 4 | 6;
+  typesOnBuild?: boolean;
 }
 
 let config: NormalizedModuleFederationOptions;
