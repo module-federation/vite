@@ -158,13 +158,14 @@ const normalizeDevDtsOptions = (
   )(dts as moduleFederationPlugin.PluginDtsOptions | boolean | undefined);
 };
 
-const logDtsError = (
-  error: unknown,
-  dtsOptions?: moduleFederationPlugin.PluginDtsOptions | false
-) => {
-  if (dtsOptions && dtsOptions.displayErrorInTerminal !== false) {
-    console.error(error);
+const logDtsError = (error: unknown, dtsOptions?: NormalizedModuleFederationOptions['dts']) => {
+  if (dtsOptions === false) {
+    return;
   }
+  if (typeof dtsOptions === 'object' && dtsOptions && dtsOptions.displayErrorInTerminal === false) {
+    return;
+  }
+  console.error(error);
 };
 
 export default function pluginDts(options: NormalizedModuleFederationOptions): Plugin[] {
@@ -342,11 +343,13 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
       if (!resolvedConfig) {
         return;
       }
-
-      const normalizedDtsOptions = normalizeDtsOptions(
-        dtsModuleFederationConfig,
-        resolvedConfig.root
-      );
+      let normalizedDtsOptions: moduleFederationPlugin.PluginDtsOptions | false;
+      try {
+        normalizedDtsOptions = normalizeDtsOptions(dtsModuleFederationConfig, resolvedConfig.root);
+      } catch (error) {
+        logDtsError(error, options.dts);
+        return;
+      }
 
       if (typeof normalizedDtsOptions !== 'object') {
         return;
@@ -355,11 +358,16 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
       const context = resolvedConfig.root;
       const outputDir = resolveOutputDir(resolvedConfig);
 
-      const consumeOptions = normalizeConsumeTypesOptions({
-        context,
-        dtsOptions: normalizedDtsOptions,
-        pluginOptions: dtsModuleFederationConfig,
-      });
+      let consumeOptions: ReturnType<typeof normalizeConsumeTypesOptions> | undefined;
+      try {
+        consumeOptions = normalizeConsumeTypesOptions({
+          context,
+          dtsOptions: normalizedDtsOptions,
+          pluginOptions: dtsModuleFederationConfig,
+        });
+      } catch (error) {
+        logDtsError(error, normalizedDtsOptions);
+      }
 
       if (consumeOptions?.host?.typesOnBuild) {
         try {
@@ -369,12 +377,18 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
         }
       }
 
-      const generateOptions = normalizeGenerateTypesOptions({
-        context,
-        outputDir,
-        dtsOptions: normalizedDtsOptions,
-        pluginOptions: dtsModuleFederationConfig,
-      });
+      let generateOptions: ReturnType<typeof normalizeGenerateTypesOptions> | undefined;
+      try {
+        generateOptions = normalizeGenerateTypesOptions({
+          context,
+          outputDir,
+          dtsOptions: normalizedDtsOptions,
+          pluginOptions: dtsModuleFederationConfig,
+        });
+      } catch (error) {
+        logDtsError(error, normalizedDtsOptions);
+        return;
+      }
 
       if (!generateOptions) {
         return;
