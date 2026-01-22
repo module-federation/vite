@@ -367,6 +367,7 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
         });
       } catch (error) {
         logDtsError(error, normalizedDtsOptions);
+        return;
       }
 
       if (consumeOptions?.host?.typesOnBuild) {

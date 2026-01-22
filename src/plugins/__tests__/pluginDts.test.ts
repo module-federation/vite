@@ -1,3 +1,4 @@
+import { describe, expect, it, vi } from 'vitest';
 import type { ResolvedConfig } from 'vite';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 import pluginDts from '../pluginDts';
@@ -10,7 +11,7 @@ describe('pluginDts build', () => {
     });
     normalized.dts = {
       displayErrorInTerminal: false,
-      generateTypes: 123,
+      consumeTypes: 123,
     } as unknown as typeof normalized.dts;
 
     const plugins = pluginDts(normalized);
@@ -22,7 +23,10 @@ describe('pluginDts build', () => {
       build: { outDir: 'dist' },
     } as ResolvedConfig;
 
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     buildPlugin?.configResolved?.(config);
     await expect(buildPlugin?.generateBundle?.()).resolves.toBeUndefined();
+    expect(consoleSpy).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
   });
 });
