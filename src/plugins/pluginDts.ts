@@ -176,6 +176,7 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
   let resolvedConfig: ResolvedConfig | undefined;
   let devWorker: DevWorker | undefined;
   let normalizedDevOptions: DevOptions | false | undefined;
+  let hasGeneratedBundle = false;
 
   const devPlugin: Plugin = {
     name: 'module-federation-dts-dev',
@@ -333,7 +334,11 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
     configResolved(config) {
       resolvedConfig = config;
     },
-    async closeBundle() {
+    async generateBundle() {
+      if (hasGeneratedBundle) {
+        return;
+      }
+      hasGeneratedBundle = true;
       if (!resolvedConfig) {
         return;
       }
