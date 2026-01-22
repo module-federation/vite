@@ -30,17 +30,21 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const { name, remotes, shared, filename, hostInitInjectLocation } = options;
   if (!name) throw new Error('name is required');
+  let _command: string = 'serve';
 
   return [
     {
       name: 'vite:module-federation-config',
       enforce: 'pre',
+      config(config, { command }) {
+        _command = command;
+      },
       configResolved(config) {
         // Set root path
         VirtualModule.setRoot(config.root);
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
-        initVirtualModules();
+        initVirtualModules(_command);
       },
     },
     aliasToArrayPlugin,
