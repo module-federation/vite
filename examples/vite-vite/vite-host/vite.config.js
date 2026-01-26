@@ -24,6 +24,13 @@ export default defineConfig({
           'remote1@https://unpkg.com/react-manifest-example_remote1@1.0.6/dist/mf-manifest.json',
         '@namespace/viteViteRemote': 'http://localhost:5176/testbase/mf-manifest.json',
       },
+      dts: {
+        tsConfigPath: './tsconfig.json',
+        generateTypes: false,
+        consumeTypes: {
+          typesOnBuild: true,
+        },
+      },
       filename: 'remoteEntry-[hash].js',
       varFilename: 'varRemoteEntry.js',
       manifest: true,
