@@ -32,6 +32,7 @@ export default defineConfig({
         },
       },
       filename: 'remoteEntry-[hash].js',
+      varFilename: 'varRemoteEntry.js',
       manifest: true,
       shared: {
         vue: {},

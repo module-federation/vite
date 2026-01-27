@@ -317,6 +317,10 @@ export type ModuleFederationOptions = {
   ignoreOrigin?: boolean;
   virtualModuleDir?: string;
   hostInitInjectLocation?: HostInitInjectLocationOptions;
+  /**
+   * Allows generate additional remoteEntry file for "var" host environment
+   */
+  varFilename?: string;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -346,6 +350,7 @@ export interface NormalizedModuleFederationOptions {
    * When true, all CSS assets are bundled into every exposed module.
    */
   bundleAllCSS: boolean;
+  varFilename?: string;
 }
 
 type HostInitInjectLocationOptions = 'entry' | 'html';
@@ -457,5 +462,6 @@ export function normalizeModuleFederationOptions(
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
     bundleAllCSS: options.bundleAllCSS || false,
+    varFilename: options.varFilename,
   });
 }
