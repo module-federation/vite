@@ -46,7 +46,7 @@
   "homepage": "https://github.com/module-federation/vite#readme",
   "packageManager": "pnpm@9.14.2",
   "peerDependencies": {
-    "vite": "<=6"
+    "vite": "<=7.1.7"
   },
   "dependencies": {
     "@module-federation/dts-plugin": "^0.21.6",
