@@ -1,8 +1,5 @@
-import Mfapp01App from 'mfapp01/App';
 import R from 'react';
 import RD from 'react-dom/client';
-import Remote2App from 'remote2/App';
-import Button from 'remote3/button';
 
 import App from '@namespace/vite7ViteRemote';
 import { AgGridDemo } from '@namespace/vite7ViteRemote/AgGridDemo';
@@ -47,15 +44,6 @@ export default function () {
       <EmotionDemo />
 
       <hr />
-
-      <h2>Button</h2>
-      <Button />
-
-      <h2>Remote2App</h2>
-      <Remote2App />
-
-      <h2>Mfapp01App</h2>
-      <Mfapp01App />
     </div>
   );
 }

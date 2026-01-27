@@ -18,19 +18,9 @@ export default defineConfig({
     federation({
       name: 'vite7ViteHost',
       remotes: {
-        mfapp01: 'mfapp01@https://unpkg.com/mf-app-01@1.0.11/dist/remoteEntry.js',
-        remote2: 'mfapp02@https://unpkg.com/mf-app-02/dist/remoteEntry.js',
-        remote3:
-          'remote1@https://unpkg.com/react-manifest-example_remote1@1.0.6/dist/mf-manifest.json',
         '@namespace/vite7ViteRemote': 'http://localhost:5178/testbase/mf-manifest.json',
       },
-      dts: {
-        tsConfigPath: './tsconfig.json',
-        generateTypes: false,
-        consumeTypes: {
-          typesOnBuild: true,
-        },
-      },
+      dts: false,
       filename: 'remoteEntry-[hash].js',
       manifest: true,
       shared: {
