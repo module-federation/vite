@@ -27,11 +27,7 @@ export default defineConfig({
         './EmotionDemo': './src/EmotionDemo.jsx',
         '.': './src/App.jsx',
       },
-      dts: {
-        tsConfigPath: './tsconfig.json',
-        generateTypes: true,
-        consumeTypes: false,
-      },
+      dts: false,
       filename: 'remoteEntry-[hash].js',
       manifest: true,
       shared: {

@@ -209,14 +209,14 @@ importers:
         specifier: ~1.7.10
         version: 1.7.14(@swc/helpers@0.5.3)
       '@vitejs/plugin-react':
-        specifier: ^4.3.1
-        version: 4.3.1(vite@6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
+        specifier: ^5.1.2
+        version: 5.1.2(vite@7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
       vite:
-        specifier: ^6.0.3
-        version: 6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)
+        specifier: ^7.1.7
+        version: 7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)
       vite-plugin-top-level-await:
         specifier: ^1.4.4
-        version: 1.4.4(@swc/helpers@0.5.3)(rollup@4.47.1)(vite@6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
+        version: 1.4.4(@swc/helpers@0.5.3)(rollup@4.47.1)(vite@7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
 
   examples/vite-vite/vite-remote:
     dependencies:
@@ -261,14 +261,14 @@ importers:
         specifier: ~1.7.10
         version: 1.7.14(@swc/helpers@0.5.3)
       '@vitejs/plugin-react':
-        specifier: ^4.3.1
-        version: 4.3.1(vite@6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
+        specifier: ^5.1.2
+        version: 5.1.2(vite@7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
       vite:
-        specifier: ^6.0.6
-        version: 6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)
+        specifier: ^7.1.7
+        version: 7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)
       vite-plugin-top-level-await:
         specifier: ^1.4.4
-        version: 1.4.4(@swc/helpers@0.5.3)(rollup@4.47.1)(vite@6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
+        version: 1.4.4(@swc/helpers@0.5.3)(rollup@4.47.1)(vite@7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
 
   examples/vite-webpack-rspack/dynamic-remote:
     dependencies:
@@ -542,107 +542,6 @@ importers:
       webpack-dev-server:
         specifier: ^4.3.1
         version: 4.15.2(webpack-cli@4.10.0)(webpack@5.97.1)
-
-  examples/vite7-vite/vite-host:
-    dependencies:
-      '@emotion/react':
-        specifier: ^11.13.0
-        version: 11.13.3(@types/react@18.3.3)(react@18.3.1)
-      '@emotion/styled':
-        specifier: ^11.13.0
-        version: 11.13.0(@emotion/react@11.13.3(@types/react@18.3.3)(react@18.3.1))(@types/react@18.3.3)(react@18.3.1)
-      '@module-federation/vite':
-        specifier: workspace:*
-        version: link:../../..
-      '@mui/material':
-        specifier: ^5.13.4
-        version: 5.16.7(@emotion/react@11.13.3(@types/react@18.3.3)(react@18.3.1))(@emotion/styled@11.13.0(@emotion/react@11.13.3(@types/react@18.3.3)(react@18.3.1))(@types/react@18.3.3)(react@18.3.1))(@types/react@18.3.3)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      ag-grid-community:
-        specifier: ^30.2.0
-        version: 30.2.1
-      ag-grid-react:
-        specifier: ^30.2.0
-        version: 30.2.1(ag-grid-community@30.2.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: 18.3.1
-        version: 18.3.1(react@18.3.1)
-      styled-components:
-        specifier: 5.3.3
-        version: 5.3.3(@babel/core@7.28.6)(react-dom@18.3.1(react@18.3.1))(react-is@18.3.1)(react@18.3.1)
-      vue:
-        specifier: ^3.4.37
-        version: 3.5.27(typescript@5.5.3)
-      vue-router:
-        specifier: ^4.4.3
-        version: 4.5.0(vue@3.5.27(typescript@5.5.3))
-    devDependencies:
-      '@swc/core':
-        specifier: ~1.7.10
-        version: 1.7.14(@swc/helpers@0.5.3)
-      '@vitejs/plugin-react':
-        specifier: ^5.1.2
-        version: 5.1.2(vite@7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
-      vite:
-        specifier: ^7.1.7
-        version: 7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)
-      vite-plugin-top-level-await:
-        specifier: ^1.4.4
-        version: 1.4.4(@swc/helpers@0.5.3)(rollup@4.47.1)(vite@7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
-
-  examples/vite7-vite/vite-remote:
-    dependencies:
-      '@emotion/react':
-        specifier: ^11.13.0
-        version: 11.13.3(@types/react@18.3.3)(react@18.2.0)
-      '@emotion/styled':
-        specifier: ^11.13.0
-        version: 11.13.0(@emotion/react@11.13.3(@types/react@18.3.3)(react@18.2.0))(@types/react@18.3.3)(react@18.2.0)
-      '@module-federation/vite':
-        specifier: workspace:*
-        version: link:../../..
-      '@mui/material':
-        specifier: ^5.13.4
-        version: 5.16.7(@emotion/react@11.13.3(@types/react@18.3.3)(react@18.2.0))(@emotion/styled@11.13.0(@emotion/react@11.13.3(@types/react@18.3.3)(react@18.2.0))(@types/react@18.3.3)(react@18.2.0))(@types/react@18.3.3)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      ag-grid-community:
-        specifier: ^30.2.0
-        version: 30.2.1
-      ag-grid-react:
-        specifier: ^30.2.0
-        version: 30.2.1(ag-grid-community@30.2.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      react:
-        specifier: 18.2.0
-        version: 18.2.0
-      react-dom:
-        specifier: 18.2.0
-        version: 18.2.0(react@18.2.0)
-      sass-embedded:
-        specifier: ^1.77.8
-        version: 1.77.8
-      styled-components:
-        specifier: 5.3.3
-        version: 5.3.3(@babel/core@7.28.6)(react-dom@18.2.0(react@18.2.0))(react-is@18.3.1)(react@18.2.0)
-      vue:
-        specifier: ^3.4.37
-        version: 3.5.27(typescript@5.5.3)
-      vue-router:
-        specifier: ^4.4.3
-        version: 4.5.0(vue@3.5.27(typescript@5.5.3))
-    devDependencies:
-      '@swc/core':
-        specifier: ~1.7.10
-        version: 1.7.14(@swc/helpers@0.5.3)
-      '@vitejs/plugin-react':
-        specifier: ^5.1.2
-        version: 5.1.2(vite@7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
-      vite:
-        specifier: ^7.1.7
-        version: 7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)
-      vite-plugin-top-level-await:
-        specifier: ^1.4.4
-        version: 1.4.4(@swc/helpers@0.5.3)(rollup@4.47.1)(vite@7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))
 
 packages:
   '@alloc/quick-lru@5.2.0':
@@ -15936,7 +15835,7 @@ snapshots:
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.0
+      '@jridgewell/sourcemap-codec': 1.5.5
       '@jridgewell/trace-mapping': 0.3.31
 
   '@jridgewell/gen-mapping@0.3.5':
@@ -15947,8 +15846,8 @@ snapshots:
 
   '@jridgewell/remapping@2.3.5':
     dependencies:
-      '@jridgewell/gen-mapping': 0.3.5
-      '@jridgewell/trace-mapping': 0.3.25
+      '@jridgewell/gen-mapping': 0.3.13
+      '@jridgewell/trace-mapping': 0.3.31
 
   '@jridgewell/resolve-uri@3.1.2': {}
 
@@ -15971,7 +15870,7 @@ snapshots:
   '@jridgewell/trace-mapping@0.3.31':
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
-      '@jridgewell/sourcemap-codec': 1.5.0
+      '@jridgewell/sourcemap-codec': 1.5.5
 
   '@jsonjoy.com/base64@1.1.2(tslib@2.6.3)':
     dependencies:
@@ -17715,17 +17614,6 @@ snapshots:
       '@types/babel__core': 7.20.5
       react-refresh: 0.14.2
       vite: 5.4.3(@types/node@22.7.4)(sass-embedded@1.77.8)(terser@5.31.6)
-    transitivePeerDependencies:
-      - supports-color
-
-  '@vitejs/plugin-react@4.3.1(vite@6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1))':
-    dependencies:
-      '@babel/core': 7.25.2
-      '@babel/plugin-transform-react-jsx-self': 7.24.7(@babel/core@7.25.2)
-      '@babel/plugin-transform-react-jsx-source': 7.24.7(@babel/core@7.25.2)
-      '@types/babel__core': 7.20.5
-      react-refresh: 0.14.2
-      vite: 6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -23811,16 +23699,6 @@ snapshots:
       - '@swc/helpers'
       - rollup
 
-  vite-plugin-top-level-await@1.4.4(@swc/helpers@0.5.3)(rollup@4.47.1)(vite@6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)):
-    dependencies:
-      '@rollup/plugin-virtual': 3.0.2(rollup@4.47.1)
-      '@swc/core': 1.7.14(@swc/helpers@0.5.3)
-      uuid: 10.0.0
-      vite: 6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)
-    transitivePeerDependencies:
-      - '@swc/helpers'
-      - rollup
-
   vite-plugin-top-level-await@1.4.4(@swc/helpers@0.5.3)(rollup@4.47.1)(vite@7.3.1(@types/node@20.19.30)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)):
     dependencies:
       '@rollup/plugin-virtual': 3.0.2(rollup@4.47.1)
@@ -23890,19 +23768,6 @@ snapshots:
       rollup: 4.28.1
     optionalDependencies:
       '@types/node': 20.19.30
-      fsevents: 2.3.3
-      jiti: 2.4.2
-      sass-embedded: 1.77.8
-      terser: 5.31.6
-      yaml: 2.6.1
-
-  vite@6.0.6(@types/node@22.7.4)(jiti@2.4.2)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1):
-    dependencies:
-      esbuild: 0.24.2
-      postcss: 8.4.49
-      rollup: 4.28.1
-    optionalDependencies:
-      '@types/node': 22.7.4
       fsevents: 2.3.3
       jiti: 2.4.2
       sass-embedded: 1.77.8
