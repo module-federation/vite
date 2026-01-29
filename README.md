@@ -118,6 +118,9 @@ export default defineConfig({
       // When false (default), the plugin will not process any CSS assets.
       // When true, all CSS assets are bundled into every exposed module.
       bundleAllCSS: false, // or true
+      // Timeout for parsing modules in seconds.
+      // Defaults to 10 seconds.
+      moduleParseTimeout: 10,
     }),
   ],
   server: {
@@ -134,6 +137,7 @@ export default defineConfig({
 
 The host app configuration specifies its name, the filename of its exposed remote entry remoteEntry.js, and importantly, the configuration of the remote application to load.
 You can specify the place the host initialization file is injected with the **hostInitInjectLocation** option, which is described in the example code above.
+The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 
 ## Load the Remote App
 
