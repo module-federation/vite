@@ -37,19 +37,37 @@ export function getLoadShareModulePath(pkg: string): string {
   return filepath;
 }
 export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command: string) {
-  loadShareCacheMap[pkg].writeSync(`
-    ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
-    // dev uses dynamic import to separate chunks
-    ${command !== 'build' ? `;() => import(${JSON.stringify(pkg)}).catch(() => {});` : ''}
-    const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
-    const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
-      customShareInfo: {shareConfig:{
-        singleton: ${shareItem.shareConfig.singleton},
-        strictVersion: ${shareItem.shareConfig.strictVersion},
-        requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
-      }}
-    }))
-    const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}res.then(factory => factory())
-    module.exports = exportModule
-  `);
+  if (command === 'build') {
+    // Build mode: Use ESM syntax to fix Vite 7/Rolldown compatibility
+    // Rolldown wraps CJS (require + module.exports) in a function, breaking top-level await
+    loadShareCacheMap[pkg].writeSync(`
+      import { initPromise } from "${virtualRuntimeInitStatus.getImportId()}"
+      ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
+      const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
+        customShareInfo: {shareConfig:{
+          singleton: ${shareItem.shareConfig.singleton},
+          strictVersion: ${shareItem.shareConfig.strictVersion},
+          requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
+        }}
+      }))
+      const exportModule = await res.then(factory => factory())
+      export default exportModule
+    `);
+  } else {
+    // Dev mode: Use original CJS syntax for compatibility with existing plugins
+    loadShareCacheMap[pkg].writeSync(`
+      ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
+      ;() => import(${JSON.stringify(pkg)}).catch(() => {});
+      const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
+      const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
+        customShareInfo: {shareConfig:{
+          singleton: ${shareItem.shareConfig.singleton},
+          strictVersion: ${shareItem.shareConfig.strictVersion},
+          requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
+        }}
+      }))
+      const exportModule = /*mf top-level-await placeholder replacement mf*/res.then(factory => factory())
+      module.exports = exportModule
+    `);
+  }
 }

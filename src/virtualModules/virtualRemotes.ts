@@ -24,10 +24,22 @@ export function getUsedRemotesMap() {
   return usedRemotesMap;
 }
 export function generateRemotes(id: string, command: string) {
-  return `
-    const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
-    const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
-    const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}initPromise.then(_ => res)
-    module.exports = exportModule
-  `;
+  if (command === 'build') {
+    // Build mode: Use ESM syntax to fix Vite 7/Rolldown compatibility
+    // Rolldown wraps CJS (require + module.exports) in a function, breaking top-level await
+    return `
+      import { initPromise } from "${virtualRuntimeInitStatus.getImportId()}"
+      const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
+      const exportModule = await initPromise.then(_ => res)
+      export default exportModule
+    `;
+  } else {
+    // Dev mode: Use original CJS syntax for compatibility with existing plugins
+    return `
+      const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
+      const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
+      const exportModule = /*mf top-level-await placeholder replacement mf*/initPromise.then(_ => res)
+      module.exports = exportModule
+    `;
+  }
 }
