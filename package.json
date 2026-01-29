@@ -1,6 +1,6 @@
 {
   "name": "@module-federation/vite",
-  "version": "1.9.7",
+  "version": "1.10.0",
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "source": "src/index.ts",
@@ -46,7 +46,7 @@
   "homepage": "https://github.com/module-federation/vite#readme",
   "packageManager": "pnpm@9.14.2",
   "peerDependencies": {
-    "vite": "<=6"
+    "vite": "<=7.1.7"
   },
   "dependencies": {
     "@module-federation/dts-plugin": "^0.21.6",

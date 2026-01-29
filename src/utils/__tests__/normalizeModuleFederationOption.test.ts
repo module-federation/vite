@@ -31,6 +31,7 @@ describe('normalizeModuleFederationOption', () => {
       bundleAllCSS: false,
       getPublicPath: undefined,
       publicPath: undefined,
+      moduleParseTimeout: 10,
     });
   });
 

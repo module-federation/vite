@@ -318,6 +318,11 @@ export type ModuleFederationOptions = {
   virtualModuleDir?: string;
   hostInitInjectLocation?: HostInitInjectLocationOptions;
   /**
+   * Timeout for parsing modules in seconds.
+   * Defaults to 10 seconds.
+   */
+  moduleParseTimeout?: number;
+  /**
    * Allows generate additional remoteEntry file for "var" host environment
    */
   varFilename?: string;
@@ -350,6 +355,7 @@ export interface NormalizedModuleFederationOptions {
    * When true, all CSS assets are bundled into every exposed module.
    */
   bundleAllCSS: boolean;
+  moduleParseTimeout: number;
   varFilename?: string;
 }
 
@@ -462,6 +468,7 @@ export function normalizeModuleFederationOptions(
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
     bundleAllCSS: options.bundleAllCSS || false,
+    moduleParseTimeout: options.moduleParseTimeout || 10,
     varFilename: options.varFilename,
   });
 }

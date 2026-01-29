@@ -23,6 +23,7 @@ const mfConfig = {
     },
   },
   shared: ['react', 'react-dom', 'lodash'],
+  moduleParseTimeout: 2,
 };
 
 // https://vitejs.dev/config/

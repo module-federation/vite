@@ -1,8 +1,5 @@
-import Mfapp01App from 'mfapp01/App';
 import R from 'react';
 import RD from 'react-dom/client';
-import Remote2App from 'remote2/App';
-import Button from 'remote3/button';
 
 import App from '@namespace/viteViteRemote';
 import { AgGridDemo } from '@namespace/viteViteRemote/AgGridDemo';
@@ -25,14 +22,12 @@ const LazyVarApp = R.lazy(() => {
 
 export default function () {
   return (
-    <div style={{ background: "lightgray" }}>
+    <div style={{ background: 'lightgray' }}>
       <p>
         Vite React (v {R.version}) app running from Host in{' '}
         <i> {import.meta.env.DEV ? ' Dev ' : ' prod '} mode </i>
       </p>
       <hr />
-
-
 
       <h2>Vite Remote Default App</h2>
       <App />
@@ -54,17 +49,6 @@ export default function () {
 
       <h2>Emotion Styled Components Demo</h2>
       <EmotionDemo />
-
-      <hr />
-
-      <h2>Button</h2>
-      <Button />
-
-      <h2>Remote2App</h2>
-      <Remote2App />
-
-      <h2>Mfapp01App</h2>
-      <Mfapp01App />
 
       <hr />
 
