@@ -104,7 +104,7 @@ const VarRemoteEntry = (): Plugin[] => {
 
     const isValidName = isValidVarName(name);
 
-    // @TODO: implement publicPath/getPublicPath support
+    // todo: implement publicPath/getPublicPath support
     return `
   ${isValidName ? `var ${name};` : ''}
   ${isValidName ? name : `globalThis['${name}']`} = (function () {

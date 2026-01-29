@@ -38,7 +38,7 @@ test.describe('Vite Host Tests', () => {
   });
 });
 
-test.describe('Vite remote', () => {
+test.describe('Vite module remote', () => {
   test('has title', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
     const productHeader = page.getByRole('heading', {
@@ -75,6 +75,19 @@ test.describe('Vite remote', () => {
 
     expect(await xxlRadio.isChecked()).toBe(true);
     expect(await mRadio.isChecked()).toBe(false);
+  });
+});
+
+test.describe('Vite var remote', () => {
+  test('has title', async ({ page, baseURL }) => {
+    await page.goto(baseURL!);
+    const purchasesCountHeader = page.getByRole('heading', {
+      level: 2,
+      name: 'Count of purchases',
+      exact: true,
+    });
+
+    await expect(purchasesCountHeader).toBeVisible();
   });
 });
 
@@ -139,7 +152,11 @@ test.describe('Dynamic remote', () => {
     // Check that lodash version is displayed in SpecialPromo banner
     await showAdToggle.check({ force: true });
 
-    const specialPromoBanner = page.getByRole('heading', { level: 2, name: 'Up to 50% off!', exact: true });
+    const specialPromoBanner = page.getByRole('heading', {
+      level: 2,
+      name: 'Up to 50% off!',
+      exact: true,
+    });
     await expect(specialPromoBanner).toBeVisible();
 
     const lodashVersionDisplay = page.getByTestId('lodash-version-display');
