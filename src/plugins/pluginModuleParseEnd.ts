@@ -7,8 +7,16 @@ import { VIRTUAL_EXPOSES } from '../virtualModules';
 
 let _resolve: any,
   _reject: any,
+  _parseTimeout: any,
   promise = new Promise((resolve, reject) => {
-    _resolve = resolve;
+    _parseTimeout = setTimeout(() => {
+      console.warn('Parse timeout (5s) - forcing resolve');
+      resolve(1);
+    }, 5000);
+    _resolve = (v: any) => {
+      clearTimeout(_parseTimeout);
+      resolve(v);
+    };
     _reject = reject;
   });
 let parsePromise = promise;
