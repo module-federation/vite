@@ -63,6 +63,9 @@ export default defineConfig({
     federation({ 👈
       name: "remote",
       filename: "remoteEntry.js",
+      // optional: additional "var" remoteEntry file
+      // needed only for legacy hosts with "var" usage (remote.type = 'var')
+      varFilename: "varRemoteEntry.js",
       exposes: {
         "./remote-app": "./src/App.vue",
       },
@@ -100,7 +103,7 @@ export default defineConfig({
       name: "host",
       remotes: {
         remote: {
-          type: "module",
+          type: "module", // type "var" (default) for vite remote is supported with remote's `varFilename` option
           name: "remote",
           entry: "https://[...]/remoteEntry.js",
           entryGlobalName: "remote",
