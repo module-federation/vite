@@ -322,6 +322,10 @@ export type ModuleFederationOptions = {
    * Defaults to 10 seconds.
    */
   moduleParseTimeout?: number;
+  /**
+   * Allows generate additional remoteEntry file for "var" host environment
+   */
+  varFilename?: string;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -352,6 +356,7 @@ export interface NormalizedModuleFederationOptions {
    */
   bundleAllCSS: boolean;
   moduleParseTimeout: number;
+  varFilename?: string;
 }
 
 type HostInitInjectLocationOptions = 'entry' | 'html';
@@ -464,5 +469,6 @@ export function normalizeModuleFederationOptions(
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
     bundleAllCSS: options.bundleAllCSS || false,
     moduleParseTimeout: options.moduleParseTimeout || 10,
+    varFilename: options.varFilename,
   });
 }
