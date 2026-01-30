@@ -135,21 +135,55 @@ const addEntry = ({
       generateBundle(options, bundle) {
         if (!injectHtml()) return;
         const file = this.getFileName(emitFileId);
-        const path = viteConfig.experimental?.renderBuiltUrl
-          ? viteConfig.experimental?.renderBuiltUrl(file)
-          : viteConfig.base + file;
-        const scriptContent = `
-          <script type="module" src="${path}"></script>
-        `;
+        // Helper to resolve path with proper renderBuiltUrl handling
+        const resolvePath = (htmlFileName: string): string => {
+          if (!viteConfig.experimental?.renderBuiltUrl) {
+            return viteConfig.base + file;
+          }
 
+          const result = viteConfig.experimental.renderBuiltUrl(file, {
+            hostId: htmlFileName,
+            hostType: 'html',
+            type: 'asset',
+            ssr: false,
+          });
+
+          // Handle return types
+          if (typeof result === 'string') {
+            return result;
+          }
+
+          if (result && typeof result === 'object') {
+            if ('runtime' in result) {
+              // Runtime code cannot be used in <script src="">
+              console.warn(
+                '[vite-plugin-federation] renderBuiltUrl returned runtime code for HTML injection. ' +
+                  'Runtime code cannot be used in <script src="">. Falling back to base path.'
+              );
+              return viteConfig.base + file;
+            }
+            if (result.relative) {
+              return file;
+            }
+          }
+
+          // Fallback for undefined or unexpected values
+          return viteConfig.base + file;
+        };
+
+        // Process each HTML file
         for (const fileName in bundle) {
           if (fileName.endsWith('.html')) {
             let htmlAsset = bundle[fileName];
             if (htmlAsset.type === 'chunk') return;
+
+            const path = resolvePath(fileName);
+            const scriptContent = `
+          <script type="module" src="${path}"></script>
+        `;
+
             let htmlContent = htmlAsset.source.toString() || '';
-
             htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
-
             htmlAsset.source = htmlContent;
           }
         }
