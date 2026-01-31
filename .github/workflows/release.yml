@@ -1,7 +1,23 @@
 name: Release
 
 on:
-  - workflow_dispatch
+  workflow_dispatch:
+    inputs:
+      version:
+        type: choice
+        description: 'Release Version'
+        required: true
+        default: 'next'
+        options:
+          - latest
+          - next
+      branch:
+        description: 'Release Branch (confirm release branch)'
+        required: true
+        default: 'main'
+
+permissions:
+  id-token: write
 
 jobs:
   publish:
@@ -9,6 +25,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 25
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Cache Tool Downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache
+          key: ${{ runner.os }}-toolcache-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-toolcache-
 
       - name: PNPM Install
         uses: pnpm/action-setup@v4
@@ -27,10 +54,23 @@ jobs:
       - name: Install NPM Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate preview version
+        if: github.event.inputs.version == 'next'
+        run: |
+          SAFE_BRANCH=$(echo "${{ github.event.inputs.branch }}" | sed 's/[^a-zA-Z0-9-]/-/g' | tr '[:upper:]' '[:lower:]')
+          npx changeset version --snapshot "$SAFE_BRANCH"
+
       - name: Build
         run: pnpm run build
 
-      - name: Publish to npm
+      - name: Publish latest version
+        if: github.event.inputs.version == 'latest'
         run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish preview version
+        if: github.event.inputs.version == 'next'
+        run: npm publish --tag next --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

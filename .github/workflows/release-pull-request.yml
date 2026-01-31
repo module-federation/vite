@@ -1,0 +1,62 @@
+name: Release Pull Request
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        type: choice
+        description: 'Release Type (next, beta, alpha, latest)'
+        required: true
+        default: 'latest'
+        options:
+          - next
+          - beta
+          - alpha
+          - latest
+
+jobs:
+  release:
+    name: Create Release Pull Request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@master
+        with:
+          fetch-depth: 10
+
+      - name: Cache Tool Downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache
+          key: ${{ runner.os }}-toolcache-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-toolcache-
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.14.2
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: '**/pnpm-lock.yaml'
+
+      - name: Install Dependencies
+        run: pnpm install --ignore-scripts
+
+      - name: Create Release Pull Request
+        uses: module-federation/actions@v2
+        with:
+          version: ${{ github.event.inputs.version || 'latest' }}
+          versionNumber: 'auto'
+          type: 'pull request'
+          tools: 'changeset'
+          coreNpmName: '@module-federation/vite'
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN || secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
