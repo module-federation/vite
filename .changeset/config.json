@@ -8,5 +8,16 @@
   "access": "restricted",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": []
+  "ignore": [
+    "examples-rust-vite-rust",
+    "examples-rust-vite-vite",
+    "examples-vite-vite-host",
+    "examples-vite-vite-remote",
+    "multi-example-dynamic-remote",
+    "multi-example-host",
+    "multi-example-remote",
+    "multi-example-rspack",
+    "multi-example-tests-remote",
+    "multi-example-webpack"
+  ]
 }
