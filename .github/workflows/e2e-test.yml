@@ -23,7 +23,7 @@ jobs:
       - name: Enable Corepack and Setup PNPM
         run: |
           corepack enable
-          corepack prepare pnpm@9.14.2 --activate
+          corepack prepare pnpm@10.28.2 --activate
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
@@ -42,7 +42,7 @@ jobs:
 
       - name: Upload Artifacts on Failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-results
           path: reports/e2e/output

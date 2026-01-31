@@ -46,7 +46,7 @@
     "url": "https://github.com/module-federation/vite/issues"
   },
   "homepage": "https://github.com/module-federation/vite#readme",
-  "packageManager": "pnpm@9.14.2",
+  "packageManager": "pnpm@10.28.2",
   "peerDependencies": {
     "vite": "<=7.1.7"
   },
