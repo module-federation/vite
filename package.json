@@ -23,7 +23,9 @@
     "preview-vv": "pnpm -filter 'examples-vite-vite*'  run preview",
     "multi-example": "pnpm --filter \"multi-example-*\" --parallel run start",
     "test": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "changeset": "changeset",
+    "changeset:status": "changeset status"
   },
   "repository": {
     "type": "git",
@@ -59,6 +61,7 @@
     "pathe": "^1.1.2"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.27.9",
     "@playwright/test": "^1.47.2",
     "@types/node": "^22.7.4",
     "husky": "^8.0.3",
