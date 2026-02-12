@@ -25,7 +25,7 @@ export default function (): Plugin {
     config(config, { command }) {
       _command = command;
     },
-    resolveId(id: string) {
+    async resolveId(id: string, importer?: string) {
       if (id === REMOTE_ENTRY_ID) {
         return REMOTE_ENTRY_ID;
       }
@@ -34,6 +34,21 @@ export default function (): Plugin {
       }
       if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
         return id;
+      }
+      // When the virtual remote entry imports a bare specifier (e.g. a runtime
+      // plugin like "@module-federation/dts-plugin/dynamic-remote-type-hints-plugin"),
+      // Vite cannot resolve it from the consumer project root under strict package
+      // managers (pnpm) because it is a transitive dependency.  Re-resolve from
+      // this package's location so Vite uses the correct ESM entry point.
+      if (
+        importer === REMOTE_ENTRY_ID &&
+        !id.startsWith('.') &&
+        !id.startsWith('/') &&
+        !id.startsWith('\0') &&
+        !id.startsWith('virtual:')
+      ) {
+        const resolved = await this.resolve(id, __filename, { skipSelf: true });
+        if (resolved) return resolved;
       }
     },
     load(id: string) {
