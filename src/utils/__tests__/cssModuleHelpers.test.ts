@@ -126,6 +126,76 @@ describe('cssModuleHelpers', () => {
         },
       });
     });
+
+    it('tracks CSS assets from viteMetadata.importedCss', () => {
+      const bundle = {
+        'App-abc123.js': {
+          type: 'chunk',
+          fileName: 'App-abc123.js',
+          modules: {
+            '/src/App.tsx': {},
+            '/src/App.css.ts': {},
+            '/src/App.css.ts.vanilla.css': {},
+          },
+          dynamicImports: [],
+          viteMetadata: {
+            importedCss: new Set<string>(['app.css']),
+            importedAssets: new Set<string>(),
+          },
+        },
+        'app.css': {
+          type: 'asset',
+          fileName: 'app.css',
+        },
+      } as Record<string, OutputBundleItem>;
+
+      const filesMap = {};
+      const moduleMatcher = (path: string) => (path === '/src/App.tsx' ? path : undefined);
+
+      processModuleAssets(bundle, filesMap, moduleMatcher);
+
+      expect(filesMap).toEqual({
+        '/src/App.tsx': {
+          js: { sync: ['App-abc123.js'], async: [] },
+          css: { sync: ['app.css'], async: [] },
+        },
+      });
+    });
+
+    it('tracks CSS assets when chunk contains CSS modules but viteMetadata.importedCss is empty', () => {
+      const bundle = {
+        'App-abc123.js': {
+          type: 'chunk',
+          fileName: 'App-abc123.js',
+          modules: {
+            '/src/App.tsx': {},
+            '/src/App.css.ts': {},
+            '/src/App.css.ts.vanilla.css': {},
+          },
+          dynamicImports: [],
+          viteMetadata: {
+            importedCss: new Set<string>(),
+            importedAssets: new Set<string>(),
+          },
+        },
+        'app.css': {
+          type: 'asset',
+          fileName: 'app.css',
+        },
+      } as Record<string, OutputBundleItem>;
+
+      const filesMap = {};
+      const moduleMatcher = (path: string) => (path === '/src/App.tsx' ? path : undefined);
+
+      processModuleAssets(bundle, filesMap, moduleMatcher);
+
+      expect(filesMap).toEqual({
+        '/src/App.tsx': {
+          js: { sync: ['App-abc123.js'], async: [] },
+          css: { sync: ['app.css'], async: [] },
+        },
+      });
+    });
   });
 
   describe('addCssAssetsToAllExports', () => {
