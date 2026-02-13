@@ -1,0 +1,45 @@
+name: Integration Test
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  pull-requests: read
+
+jobs:
+  integration-test:
+    name: Integration (vite ${{ matrix.vite-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # This plugin does not yet correctly support version above 7.1.7
+        vite-version: ['5', '6', '7.1.7']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: PNPM Install
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'pnpm'
+          registry-url: https://registry.npmjs.org/
+
+      - run: corepack enable
+
+      - name: Install NPM Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Override vite version
+        run: pnpm add -Dw vite@${{ matrix.vite-version }}
+
+      - name: Run Integration Tests
+        run: pnpm test:integration
