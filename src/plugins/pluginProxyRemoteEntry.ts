@@ -1,4 +1,5 @@
 import { createFilter } from '@rollup/pluginutils';
+import { fileURLToPath } from 'url';
 import { Plugin } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
@@ -47,6 +48,8 @@ export default function (): Plugin {
         !id.startsWith('\0') &&
         !id.startsWith('virtual:')
       ) {
+        const importPath =
+          typeof __filename === 'string' ? __filename : fileURLToPath(import.meta.url);
         const resolved = await this.resolve(id, __filename, { skipSelf: true });
         if (resolved) return resolved;
       }
