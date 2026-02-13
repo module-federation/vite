@@ -1,0 +1,100 @@
+name: Publish (GitHub Release)
+
+on:
+  release:
+    types: [released, prereleased]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 25
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Cache Tool Downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache
+          key: ${{ runner.os }}-toolcache-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-toolcache-
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'pnpm'
+          registry-url: https://registry.npmjs.org/
+
+      - run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION_FROM_TAG="${TAG#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+
+          if [ "$PKG_VERSION" != "$VERSION_FROM_TAG" ]; then
+            echo "Version mismatch; refusing to publish."
+            echo "Git tag: $TAG"
+            echo "package.json version: $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Compute npm dist-tag
+        id: dist
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          DIST_TAG="latest"
+
+          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            if [[ "$VERSION" =~ -(alpha|beta|next|rc)($|\.) ]]; then
+              DIST_TAG="${BASH_REMATCH[1]}"
+            else
+              DIST_TAG="next"
+            fi
+          fi
+
+          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        run: npm publish --tag "${{ steps.dist.outputs.dist_tag }}" --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+
+      - name: Post summary
+        if: always()
+        continue-on-error: true
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          echo "## npm publish" > "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Package: \`@module-federation/vite\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version: \`$PKG_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Dist-tag: \`${{ steps.dist.outputs.dist_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Git tag: \`${{ github.event.release.tag_name }}\`" >> "$GITHUB_STEP_SUMMARY"
