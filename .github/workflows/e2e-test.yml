@@ -12,8 +12,9 @@ permissions:
   pull-requests: read
 
 jobs:
-  run-playwright-tests:
-    name: Playwright Tests
+  # Dev mode tests - uses vite dev server
+  run-playwright-tests-dev:
+    name: Playwright Tests (Dev Mode)
     runs-on: ubuntu-latest
     container: node:20
     steps:
@@ -31,19 +32,64 @@ jobs:
       - name: Install Chromium Browser
         run: pnpm playwright install --with-deps chromium
 
-      - name: Build Projects
+      - name: Build Plugin
         run: pnpm build
 
-      - name: Start Application multi-example
+      - name: Start Application (Dev Mode)
         run: nohup pnpm run multi-example & pnpm exec wait-on http://localhost:5173;
 
-      - name: Run Playwright Tests
-        run: pnpm playwright test
+      - name: Run Playwright Tests (Dev)
+        run: pnpm playwright test --project=multi-example
 
       - name: Upload Artifacts on Failure
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: test-results
+          name: test-results-dev
+          path: reports/e2e/output
+          retention-days: 3
+
+  # Build/Preview mode tests - validates production builds work correctly
+  # This catches issues like Vite 7/Rolldown CJS wrapper problems
+  run-playwright-tests-preview:
+    name: Playwright Tests (Build/Preview Mode)
+    runs-on: ubuntu-latest
+    container: node:20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Enable Corepack and Setup PNPM
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.1.3 --activate
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium Browser
+        run: pnpm playwright install --with-deps chromium
+
+      - name: Build Plugin
+        run: pnpm build
+
+      - name: Build Example Apps
+        run: pnpm --filter "multi-example-*" run build
+
+      - name: Start Application (Preview Mode)
+        run: |
+          cd examples/vite-webpack-rspack/host
+          nohup pnpm preview --port 4173 &
+          cd ../../..
+          pnpm exec wait-on http://localhost:4173
+
+      - name: Run Playwright Tests (Preview)
+        run: pnpm playwright test --project=multi-example-preview
+
+      - name: Upload Artifacts on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-preview
           path: reports/e2e/output
           retention-days: 3

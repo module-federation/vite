@@ -48,9 +48,11 @@ export function proxySharedModule(options: {
       config(config: UserConfig, { command }) {
         (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
+            // When key ends with '/', only match subpaths (e.g., 'react/' matches 'react/jsx-runtime' but NOT 'react')
+            // When key does NOT end with '/', match both exact and subpaths (e.g., 'react' matches 'react' AND 'react/jsx-runtime')
             const pattern = key.endsWith('/')
-              ? `(^${key.replace(/\/$/, '')}(\/.+)?$)`
-              : `(^${key}$)`;
+              ? `(^${key.replace(/\/$/, '')}/.+$)`
+              : `(^${key}(/.+)?$)`;
             return {
               // Intercept all shared requests and proxy them to loadShare
               find: new RegExp(pattern),

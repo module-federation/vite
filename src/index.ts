@@ -17,6 +17,7 @@ import {
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import VirtualModule from './utils/VirtualModule';
+// wrapManualChunks not used - direct function assignment is simpler and works better
 import {
   getHostAutoInitImportId,
   getHostAutoInitPath,
@@ -30,17 +31,21 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const { name, remotes, shared, filename, hostInitInjectLocation } = options;
   if (!name) throw new Error('name is required');
+  let _command: string = 'serve';
 
   return [
     {
       name: 'vite:module-federation-config',
       enforce: 'pre',
+      config(config, { command }) {
+        _command = command;
+      },
       configResolved(config) {
         // Set root path
         VirtualModule.setRoot(config.root);
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
-        initVirtualModules();
+        initVirtualModules(_command);
       },
     },
     aliasToArrayPlugin,
@@ -102,6 +107,42 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         config.optimizeDeps?.include?.push(virtualDir);
         config.optimizeDeps?.needsInterop?.push(virtualDir);
         config.optimizeDeps?.needsInterop?.push(getLocalSharedImportMapPath());
+
+        // FIX: Isolate preload helper to prevent deadlock with loadShare TLA
+        // This prevents a circular deadlock where:
+        // 1. hostInit imports preload helper from a shared chunk
+        // 2. That chunk has loadShare TLA waiting for initPromise
+        // 3. initPromise only resolves after remoteEntry.init() is called
+        // 4. But hostInit can't call init() until the shared chunk loads → DEADLOCK
+        if (_command === 'build') {
+          config.build = config.build || {};
+          config.build.rollupOptions = config.build.rollupOptions || {};
+          config.build.rollupOptions.output = config.build.rollupOptions.output || {};
+
+          const output = Array.isArray(config.build.rollupOptions.output)
+            ? config.build.rollupOptions.output[0]
+            : config.build.rollupOptions.output;
+
+          const existingManualChunks = output.manualChunks;
+          output.manualChunks = (id: string, meta: any) => {
+            // Isolate preload helper to prevent deadlock
+            if (
+              id.includes('vite/preload-helper') ||
+              id.includes('vite/modulepreload-polyfill') ||
+              id.includes('commonjsHelpers')
+            ) {
+              return 'preload-helper';
+            }
+            // Call existing manualChunks if it exists
+            if (typeof existingManualChunks === 'function') {
+              return existingManualChunks(id, meta);
+            }
+            if (existingManualChunks && (existingManualChunks as any)[id]) {
+              return (existingManualChunks as any)[id];
+            }
+            return undefined;
+          };
+        }
       },
     },
     ...pluginManifest(),

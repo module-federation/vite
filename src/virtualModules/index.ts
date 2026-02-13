@@ -33,8 +33,8 @@ export { generateExposes, VIRTUAL_EXPOSES } from './virtualExposes';
 
 export { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 
-export function initVirtualModules() {
+export function initVirtualModules(command: string = 'serve') {
   writeLocalSharedImportMap();
   writeHostAutoInit();
-  writeRuntimeInitStatus();
+  writeRuntimeInitStatus(command);
 }
