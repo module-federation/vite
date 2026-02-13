@@ -50,7 +50,14 @@ jobs:
       - name: Verify tag matches package.json version
         run: |
           TAG="${{ github.event.release.tag_name }}"
-          VERSION_FROM_TAG="${TAG#v}"
+          if [ "${TAG#v}" != "$TAG" ]; then
+            echo "Invalid tag format; refusing to publish."
+            echo "Expected: 1.2.3 (no leading 'v')"
+            echo "Got: $TAG"
+            exit 1
+          fi
+
+          VERSION_FROM_TAG="$TAG"
           PKG_VERSION="$(node -p "require('./package.json').version")"
 
           if [ "$PKG_VERSION" != "$VERSION_FROM_TAG" ]; then
@@ -68,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
+          VERSION="$TAG"
           DIST_TAG="latest"
 
           if [ "${{ github.event.release.prerelease }}" = "true" ]; then
