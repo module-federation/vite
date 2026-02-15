@@ -124,7 +124,11 @@ export function generateLocalSharedImportMap() {
 }
 
 export const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
-export function generateRemoteEntry(options: NormalizedModuleFederationOptions): string {
+export function generateRemoteEntry(
+  options: NormalizedModuleFederationOptions,
+  command: string = 'build'
+): string {
+  const isDevMode = command === 'serve';
   const pluginImportNames = options.runtimePlugins.map((p, i) => {
     if (typeof p === 'string') {
       return [`$runtimePlugin_${i}`, `import $runtimePlugin_${i} from "${p}";`, `undefined`];
@@ -137,14 +141,98 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
     }
   });
 
+  // Generate importMap for dynamic imports of shared modules
+  const importMapCode = Object.keys(options.shared || {})
+    .sort()
+    .map((pkg) => {
+      const shareItem = options.shared[pkg];
+      if (!shareItem) return null;
+      return `
+        ${JSON.stringify(pkg)}: async () => {
+          ${
+            shareItem.shareConfig.import === false
+              ? `throw new Error(\`Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
+              : `let pkg = await import("${getPreBuildLibImportId(pkg)}");
+            return pkg;`
+          }
+        }`;
+    })
+    .filter((x) => x !== null)
+    .join(',');
+
+  // Generate usedShared inline from ALL configured shared dependencies
+  // Use options.shared instead of getUsedShares() because the host needs to provide
+  // all configured shared modules, not just the ones dynamically imported
+  const usedSharedCode = Object.keys(options.shared || {})
+    .sort()
+    .map((key) => {
+      const shareItem = options.shared[key];
+      if (!shareItem) return null;
+      return `
+      ${JSON.stringify(key)}: {
+        name: ${JSON.stringify(key)},
+        version: ${JSON.stringify(shareItem.version)},
+        scope: [${JSON.stringify(shareItem.scope)}],
+        loaded: false,
+        from: ${JSON.stringify(options.name)},
+        async get () {
+          if (${shareItem.shareConfig.import === false}) {
+            throw new Error(\`Shared module '\${${JSON.stringify(key)}}' must be provided by host\`);
+          }
+          usedShared[${JSON.stringify(key)}].loaded = true
+          const {${JSON.stringify(key)}: pkgDynamicImport} = importMap
+          const res = await pkgDynamicImport()
+          const exportModule = {...res}
+          // All npm packages pre-built by vite will be converted to esm
+          Object.defineProperty(exportModule, "__esModule", {
+            value: true,
+            enumerable: false
+          })
+          return function () {
+            return exportModule
+          }
+        },
+        shareConfig: {
+          singleton: ${shareItem.shareConfig.singleton},
+          requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
+          ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
+        }
+      }`;
+    })
+    .filter((x) => x !== null)
+    .join(',');
+
+  const usedRemotesCode = Object.keys(getUsedRemotesMap())
+    .map((key) => {
+      const remote = options.remotes[key];
+      if (!remote) return null;
+      return `{
+        entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
+        name: ${JSON.stringify(remote.name)},
+        type: ${JSON.stringify(remote.type)},
+        entry: ${JSON.stringify(remote.entry)},
+        shareScope: ${JSON.stringify(remote.shareScope) ?? 'default'},
+      }`;
+    })
+    .filter((x) => x !== null)
+    .join(',');
+
+  // Dev mode: Use virtual module imports (avoids circular dependencies in Vite's on-demand serving)
+  // Production: Use inline code (works with Rollup bundling)
+  const sharedImportsCode = isDevMode
+    ? `import {usedShared, usedRemotes} from "${getLocalSharedImportMapPath()}"`
+    : `const importMap = {${importMapCode}}
+  const usedShared = {${usedSharedCode}}
+  const usedRemotes = [${usedRemotesCode}]`;
+
   return `
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
   ${pluginImportNames.map((item) => item[1]).join('\n')}
   import exposesMap from "${VIRTUAL_EXPOSES}"
-  import {usedShared, usedRemotes} from "${getLocalSharedImportMapPath()}"
   import {
     initResolve
   } from "${virtualRuntimeInitStatus.getImportId()}"
+  ${sharedImportsCode}
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
   const mfName = ${JSON.stringify(options.name)}

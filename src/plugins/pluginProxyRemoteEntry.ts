@@ -56,7 +56,9 @@ export default function (): Plugin {
     },
     load(id: string) {
       if (id === REMOTE_ENTRY_ID) {
-        return parsePromise.then((_) => generateRemoteEntry(getNormalizeModuleFederationOptions()));
+        return parsePromise.then((_) =>
+          generateRemoteEntry(getNormalizeModuleFederationOptions(), _command)
+        );
       }
       if (id === VIRTUAL_EXPOSES) {
         return generateExposes();
@@ -70,7 +72,7 @@ export default function (): Plugin {
         if (!filter(id)) return;
         if (id.includes(REMOTE_ENTRY_ID)) {
           return parsePromise.then((_) =>
-            generateRemoteEntry(getNormalizeModuleFederationOptions())
+            generateRemoteEntry(getNormalizeModuleFederationOptions(), _command)
           );
         }
         if (id === VIRTUAL_EXPOSES) {
