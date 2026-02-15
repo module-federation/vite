@@ -98,9 +98,12 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           },
         });
         const virtualDir = options.virtualModuleDir || '__mf__virtual';
+        const virtualDirPath = VirtualModule.getVirtualModuleDirPath();
+        (config.resolve as any).alias.push({
+          find: new RegExp(`^${virtualDir}/`),
+          replacement: `${virtualDirPath}/`,
+        });
         config.optimizeDeps?.include?.push('@module-federation/runtime');
-        config.optimizeDeps?.include?.push(virtualDir);
-        config.optimizeDeps?.needsInterop?.push(virtualDir);
         config.optimizeDeps?.needsInterop?.push(getLocalSharedImportMapPath());
       },
     },
