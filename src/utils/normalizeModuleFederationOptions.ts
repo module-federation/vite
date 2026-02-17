@@ -326,14 +326,20 @@ export type ModuleFederationOptions = {
    * Allows generate additional remoteEntry file for "var" host environment
    */
   varFilename?: string;
+  /**
+   * Target environment for the build to enable effective tree-shaking.
+   *
+   * @see https://module-federation.io/configure/experiments#target
+   * @default 'web' (or 'node' if build.ssr is enabled)
+   */
+  target?: 'web' | 'node';
 };
 
-export interface NormalizedModuleFederationOptions {
+export interface NormalizedModuleFederationOptions
+  extends Omit<ModuleFederationOptions, 'exposes' | 'remotes' | 'shared'> {
   exposes: Record<string, ExposesItem>;
   filename: string;
   library: any;
-  name: string;
-  // remoteType: string;
   remotes: Record<string, RemoteObjectConfig>;
   runtime: any;
   shareScope: string;
@@ -341,22 +347,11 @@ export interface NormalizedModuleFederationOptions {
   runtimePlugins: Array<string | [string, Record<string, unknown>]>;
   implementation: string;
   manifest: ManifestOptions | boolean;
-  dev?: boolean | PluginDevOptions;
-  dts?: boolean | PluginDtsOptions;
   shareStrategy: ShareStrategy;
-  getPublicPath?: string;
-  publicPath?: string;
-  ignoreOrigin?: boolean;
   virtualModuleDir: string;
   hostInitInjectLocation: HostInitInjectLocationOptions;
-  /**
-   * Controls whether all CSS assets from the bundle should be added to every exposed module.
-   * When false (default), the plugin will not process any CSS assets.
-   * When true, all CSS assets are bundled into every exposed module.
-   */
   bundleAllCSS: boolean;
   moduleParseTimeout: number;
-  varFilename?: string;
 }
 
 type HostInitInjectLocationOptions = 'entry' | 'html';
@@ -470,5 +465,6 @@ export function normalizeModuleFederationOptions(
     bundleAllCSS: options.bundleAllCSS || false,
     moduleParseTimeout: options.moduleParseTimeout || 10,
     varFilename: options.varFilename,
+    target: options.target,
   });
 }

@@ -41,6 +41,9 @@ importers:
       '@types/node':
         specifier: ^22.7.4
         version: 22.7.4
+      cjs-dep:
+        specifier: workspace:*
+        version: link:integration/fixtures/shared-remote/vendor/cjs-dep
       husky:
         specifier: ^8.0.3
         version: 8.0.3
@@ -65,9 +68,6 @@ importers:
       vitest:
         specifier: ^2.1.1
         version: 2.1.1(@types/node@22.7.4)(sass-embedded@1.77.8)(terser@5.31.6)
-      wait-on:
-        specifier: ^8.0.1
-        version: 8.0.1
 
   .github/publish-ci/node-esm:
     dependencies:
@@ -562,6 +562,8 @@ importers:
       webpack-dev-server:
         specifier: ^4.3.1
         version: 4.15.2(webpack-cli@4.10.0)(webpack@5.97.1)
+
+  integration/fixtures/shared-remote/vendor/cjs-dep: {}
 
 packages:
   '@alloc/quick-lru@5.2.0':
@@ -2981,18 +2983,6 @@ packages:
       }
     engines: { node: ^18.18.0 || ^20.9.0 || >=21.1.0 }
 
-  '@hapi/hoek@9.3.0':
-    resolution:
-      {
-        integrity: sha512-/c6rf4UJlmHlC9b5BaNvzAcFv7HZ2QHaV0D4/HNlBdvFnvQq8RI4kYdhyPCl7Xj+oWvTWQ8ujhqS53LIgAe6KQ==,
-      }
-
-  '@hapi/topo@5.1.0':
-    resolution:
-      {
-        integrity: sha512-foQZKJig7Ob0BMAYBfcJk8d77QtOe7Wo4ox7ff1lQYoNNAb6jwcY1ncdoy2e9wQZzvNy7ODZCYJkK8kzmcAnAg==,
-      }
-
   '@inquirer/external-editor@1.0.3':
     resolution:
       {
@@ -4679,24 +4669,6 @@ packages:
     peerDependenciesMeta:
       react-refresh:
         optional: true
-
-  '@sideway/address@4.1.5':
-    resolution:
-      {
-        integrity: sha512-IqO/DUQHUkPeixNQ8n0JA6102hT9CmaljNTPmQ1u8MEhBo/R4Q8eKLN/vGZxuebwOroDB4cbpjheD4+/sKFK4Q==,
-      }
-
-  '@sideway/formula@3.0.1':
-    resolution:
-      {
-        integrity: sha512-/poHZJJVjx3L+zVD6g9KgHfYnb443oi7wLu/XKojDviHy6HOEOA6z1Trk5aR1dGcmPenJEgb2sK2I80LeS3MIg==,
-      }
-
-  '@sideway/pinpoint@2.0.0':
-    resolution:
-      {
-        integrity: sha512-RNiOoTPkptFtSVzQevY/yWtZwf/RxyVnPy/OcA9HBM3MlGDnBEYL5B41H0MTn0Uec8Hi+2qUtTfG2WWZBmMejQ==,
-      }
 
   '@sindresorhus/merge-streams@2.3.0':
     resolution:
@@ -8896,12 +8868,6 @@ packages:
       }
     hasBin: true
 
-  joi@17.13.3:
-    resolution:
-      {
-        integrity: sha512-otDA4ldcIx+ZXsKHWmp0YizCweVRZG96J10b0FevjfuncLO1oX59THoAmHkNubYJ+9gWsYsp5k8v4ib6oDv1fA==,
-      }
-
   js-levenshtein@1.1.6:
     resolution:
       {
@@ -9459,12 +9425,6 @@ packages:
         integrity: sha512-G6T0ZX48xgozx7587koeX9Ys2NYy6Gmv//P89sEte9V9whIapMNF4idKxnW2QtCcLiTWlb/wfCabAtAFWhhBow==,
       }
     engines: { node: '>=16 || 14 >=14.17' }
-
-  minimist@1.2.8:
-    resolution:
-      {
-        integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==,
-      }
 
   minipass@3.3.6:
     resolution:
@@ -13326,14 +13286,6 @@ packages:
       typescript:
         optional: true
 
-  wait-on@8.0.1:
-    resolution:
-      {
-        integrity: sha512-1wWQOyR2LVVtaqrcIL2+OM+x7bkpmzVROa0Nf6FryXkS+er5Sa1kzFGjzZRqLnHa3n1rACFLeTwUqE1ETL9Mig==,
-      }
-    engines: { node: '>=12.0.0' }
-    hasBin: true
-
   watchpack@2.4.2:
     resolution:
       {
@@ -15516,12 +15468,6 @@ snapshots:
 
   '@eslint/js@9.17.0': {}
 
-  '@hapi/hoek@9.3.0': {}
-
-  '@hapi/topo@5.1.0':
-    dependencies:
-      '@hapi/hoek': 9.3.0
-
   '@inquirer/external-editor@1.0.3(@types/node@22.7.4)':
     dependencies:
       chardet: 2.1.1
@@ -17022,14 +16968,6 @@ snapshots:
       html-entities: 2.5.2
     optionalDependencies:
       react-refresh: 0.14.2
-
-  '@sideway/address@4.1.5':
-    dependencies:
-      '@hapi/hoek': 9.3.0
-
-  '@sideway/formula@3.0.1': {}
-
-  '@sideway/pinpoint@2.0.0': {}
 
   '@sindresorhus/merge-streams@2.3.0': {}
 
@@ -19747,14 +19685,6 @@ snapshots:
   jiti@2.6.1:
     optional: true
 
-  joi@17.13.3:
-    dependencies:
-      '@hapi/hoek': 9.3.0
-      '@hapi/topo': 5.1.0
-      '@sideway/address': 4.1.5
-      '@sideway/formula': 3.0.1
-      '@sideway/pinpoint': 2.0.0
-
   js-levenshtein@1.1.6: {}
 
   js-tokens@4.0.0: {}
@@ -20075,8 +20005,6 @@ snapshots:
   minimatch@9.0.5:
     dependencies:
       brace-expansion: 2.0.1
-
-  minimist@1.2.8: {}
 
   minipass@3.3.6:
     dependencies:
@@ -22971,16 +22899,6 @@ snapshots:
       '@vue/shared': 3.5.27
     optionalDependencies:
       typescript: 5.5.3
-
-  wait-on@8.0.1:
-    dependencies:
-      axios: 1.7.7
-      joi: 17.13.3
-      lodash: 4.17.21
-      minimist: 1.2.8
-      rxjs: 7.8.1
-    transitivePeerDependencies:
-      - debug
 
   watchpack@2.4.2:
     dependencies:

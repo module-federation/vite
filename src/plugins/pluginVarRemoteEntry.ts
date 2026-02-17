@@ -56,6 +56,9 @@ const VarRemoteEntry = (): Plugin[] => {
       config(config, { command }) {
         if (!config.build) config.build = {};
       },
+      configResolved(config) {
+        viteConfig = config;
+      },
       /**
        * Generates the module federation "var" remote entry file
        * @param options - Rollup output options

@@ -1,4 +1,4 @@
-name: multi-example - e2e tests
+name: multi-example – e2e tests
 
 on:
   push:
@@ -33,9 +33,6 @@ jobs:
 
       - name: Build Projects
         run: pnpm build
-
-      - name: Start Application multi-example
-        run: nohup pnpm run multi-example & pnpm exec wait-on http://localhost:5173;
 
       - name: Run Playwright Tests
         run: pnpm playwright test
