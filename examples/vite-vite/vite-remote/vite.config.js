@@ -33,12 +33,13 @@ export default defineConfig({
       manifest: true,
       shared: {
         vue: {},
-        'react/': {},
+        'react/': { singleton: true },
         react: {
+          singleton: true,
           requiredVersion: '18',
         },
-        'react-dom/': {},
-        'react-dom': {},
+        'react-dom/': { singleton: true },
+        'react-dom': { singleton: true },
         'styled-components': { singleton: true },
         'ag-grid-community/': {},
         'ag-grid-react': {},

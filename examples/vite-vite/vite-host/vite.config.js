@@ -28,8 +28,11 @@ export default defineConfig({
         vue: {},
         'react/': {
           requiredVersion: '18',
+          singleton: true,
         },
-        'react-dom': {},
+        'react-dom': {
+          singleton: true,
+        },
         'ag-grid-community': {},
         'ag-grid-react': {},
         '@emotion/react': {},

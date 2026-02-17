@@ -3,3 +3,6 @@ packages:
   - '.github/publish-ci/*'
   - 'integration/fixtures/**/vendor/*'
   - '.'
+
+catalog:
+  vite: 7.3.1

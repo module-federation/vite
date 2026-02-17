@@ -59,7 +59,7 @@
   "homepage": "https://github.com/module-federation/vite#readme",
   "packageManager": "pnpm@10.28.2",
   "peerDependencies": {
-    "vite": "<=7.1.7"
+    "vite": "^5.0.0 || ^6.0.0 || ^7.0.0"
   },
   "dependencies": {
     "@module-federation/dts-plugin": "^0.21.6",
@@ -74,14 +74,14 @@
   "devDependencies": {
     "@changesets/cli": "^2.27.9",
     "@playwright/test": "^1.47.2",
-    "@types/node": "^22.7.4",
+    "@types/node": "^22.12.0",
     "husky": "^8.0.3",
     "mime-types": "^2.1.35",
     "prettier": "3.3.3",
     "pretty-quick": "^4.0.0",
     "rollup": "^4.47.1",
     "tsdown": "^0.20.3",
-    "vite": "^5.4.3",
+    "vite": "catalog:",
     "vitest": "^2.1.1",
     "cjs-dep": "workspace:*"
   }
