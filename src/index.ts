@@ -102,6 +102,21 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         config.optimizeDeps?.include?.push(virtualDir);
         config.optimizeDeps?.needsInterop?.push(virtualDir);
         config.optimizeDeps?.needsInterop?.push(getLocalSharedImportMapPath());
+
+        // Resolve target: explicit option > SSR detection > 'web'
+        const resolvedTarget = options.target ?? (config.build?.ssr ? 'node' : 'web');
+
+        // Set ENV_TARGET define for tree-shaking Node.js code from the federation runtime
+        if (!config.define) config.define = {};
+        if (!('ENV_TARGET' in config.define)) {
+          config.define['ENV_TARGET'] = JSON.stringify(resolvedTarget);
+        }
+
+        if (config.define['ENV_TARGET'] && config.define['ENV_TARGET'] !== options.target) {
+          console.warn(
+            'ENV_TARGET has been set as a different value than the target option. ENV_TARGET will not be overridden.'
+          );
+        }
       },
     },
     ...pluginManifest(),
