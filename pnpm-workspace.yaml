@@ -1,4 +1,5 @@
 packages:
   - 'examples/*/*'
   - '.github/publish-ci/*'
+  - 'integration/fixtures/**/vendor/*'
   - '.'

@@ -30,7 +30,7 @@
     "preview-rv": "pnpm -filter 'examples-rust-vite*' run preview",
     "dev-vv": "pnpm -filter 'examples-vite-vite*' run dev",
     "dev-nv": "pnpm -filter 'examples-nuxt-vite-host' -filter 'examples-vite-vite-remote' run dev",
-    "preview-vv": "pnpm -filter 'examples-vite-vite*'  run preview",
+    "preview-vv": "pnpm -filter 'examples-vite-vite*' --parallel run preview",
     "multi-example": "pnpm --filter \"multi-example-*\" --parallel run start",
     "test": "vitest run src",
     "test:integration": "vitest run integration",
@@ -83,6 +83,6 @@
     "tsdown": "^0.20.3",
     "vite": "^5.4.3",
     "vitest": "^2.1.1",
-    "wait-on": "^8.0.1"
+    "cjs-dep": "workspace:*"
   }
 }

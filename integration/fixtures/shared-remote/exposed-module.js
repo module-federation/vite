@@ -1,5 +1,8 @@
-import defu from 'defu';
+import { createDefu } from 'defu';
 
-export function merge(a, b) {
-  return defu(a, b);
-}
+export const merge = createDefu((obj, key, value) => {
+  if (typeof obj[key] === 'number' && typeof value === 'number') {
+    obj[key] += value;
+    return true;
+  }
+});
