@@ -36,7 +36,8 @@
     "test:integration": "vitest run integration",
     "e2e": "playwright test",
     "changeset": "changeset",
-    "changeset:status": "changeset status"
+    "changeset:status": "changeset status",
+    "release": "pnpm run build && npm publish --access public"
   },
   "repository": {
     "type": "git",

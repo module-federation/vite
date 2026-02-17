@@ -5,7 +5,7 @@
   "fixed": [["@module-federation/vite"]],
   "ignorePatterns": ["^alpha|^beta"],
   "linked": [],
-  "access": "restricted",
+  "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
