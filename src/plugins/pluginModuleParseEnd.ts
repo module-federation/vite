@@ -5,18 +5,37 @@
 import { Plugin } from 'vite';
 import { VIRTUAL_EXPOSES } from '../virtualModules';
 
-let _resolve: any,
-  _reject: any,
-  promise = new Promise((resolve, reject) => {
-    _resolve = resolve;
-    _reject = reject;
-  });
+let _resolve: any, _reject: any, _parseTimeout: any;
+
+const promise = new Promise((resolve, reject) => {
+  _resolve = (v: any) => {
+    clearTimeout(_parseTimeout);
+    _parseTimeout = null;
+    resolve(v);
+  };
+  _reject = (e: any) => {
+    clearTimeout(_parseTimeout);
+    _parseTimeout = null;
+    reject(e);
+  };
+});
+
+function setParseTimeout(timeout: number) {
+  if (!_parseTimeout) {
+    _parseTimeout = setTimeout(() => {
+      console.warn(`Parse timeout (${timeout}s) - forcing resolve`);
+      _resolve(1);
+    }, timeout * 1000);
+  }
+}
+
 let parsePromise = promise;
 let exposesParseEnd = false;
 
 const parseStartSet = new Set();
 const parseEndSet = new Set();
-export default function (excludeFn: Function): Plugin[] {
+export default function (excludeFn: Function, options: { moduleParseTimeout: number }): Plugin[] {
+  setParseTimeout(options.moduleParseTimeout);
   return [
     {
       name: '_',

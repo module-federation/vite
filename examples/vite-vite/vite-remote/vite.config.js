@@ -27,12 +27,9 @@ export default defineConfig({
         './EmotionDemo': './src/EmotionDemo.jsx',
         '.': './src/App.jsx',
       },
-      dts: {
-        tsConfigPath: './tsconfig.json',
-        generateTypes: true,
-        consumeTypes: false,
-      },
+      dts: false,
       filename: 'remoteEntry-[hash].js',
+      varFilename: 'varRemoteEntry.js', // in cases when host's config requires remote's "type": "var"
       manifest: true,
       shared: {
         vue: {},

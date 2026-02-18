@@ -9,9 +9,11 @@ export default defineConfig({
     federation({
       name: 'remote',
       filename: 'custom-filename.js',
+      varFilename: 'varRemoteEntry.js',
       // Modules to expose
       exposes: {
         './Product': './src/Product.jsx',
+        './PurchasesCount': './src/PurchasesCount.jsx',
       },
       shared: ['react', 'react-dom'],
     }),

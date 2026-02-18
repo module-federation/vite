@@ -1,12 +1,7 @@
+import type { OutputBundle } from 'rollup';
 import { getPreBuildLibImportId } from '../virtualModules';
 
-export type OutputBundleItem = {
-  type: 'chunk' | 'asset';
-  name?: string;
-  fileName: string;
-  modules?: Record<string, unknown> | undefined;
-  dynamicImports?: string[] | undefined;
-};
+export type OutputBundleItem = OutputBundle[string];
 
 export const ASSET_TYPES = ['js', 'css'] as const;
 export const LOAD_TIMINGS = ['sync', 'async'] as const;
@@ -83,6 +78,19 @@ export const collectCssAssets = (bundle: Record<string, OutputBundleItem>): Set<
 };
 
 /**
+ * Checks if a chunk contains CSS modules (e.g. .css, .vanilla.css, .scss, .less)
+ * by scanning its module list
+ */
+const chunkContainsCssModules = (modules: Record<string, unknown>): boolean => {
+  for (const modulePath of Object.keys(modules)) {
+    if (isCSSFile(modulePath)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
  * Processes module assets and tracks them in the files map
  * @param bundle - The Rollup output bundle
  * @param filesMap - The preload map to populate
@@ -93,6 +101,9 @@ export const processModuleAssets = (
   filesMap: PreloadMap,
   moduleMatcher: (modulePath: string) => string | undefined
 ) => {
+  // Pre-collect all CSS assets in the bundle for fallback matching
+  const bundleCssAssets = collectCssAssets(bundle);
+
   for (const [fileName, fileData] of Object.entries(bundle)) {
     if (fileData.type !== 'chunk') continue;
 
@@ -104,6 +115,26 @@ export const processModuleAssets = (
 
       // Track main JS chunk
       trackAsset(filesMap, matchKey, fileName, false, 'js');
+
+      // Track CSS extracted by Vite's CSS pipeline (e.g. vanilla-extract, CSS modules).
+      // Vite stores statically imported CSS on chunk.viteMetadata.importedCss
+      let foundCssViaMetadata = false;
+      if (fileData.viteMetadata?.importedCss?.size) {
+        for (const cssFile of fileData.viteMetadata.importedCss) {
+          trackAsset(filesMap, matchKey, cssFile, false, 'css');
+          foundCssViaMetadata = true;
+        }
+      }
+
+      // Fallback: In Vite environment builds, viteMetadata.importedCss may not be
+      // populated even when the chunk contains CSS modules (e.g. vanilla-extract
+      // .vanilla.css virtual modules). In this case, detect CSS modules in the
+      // chunk's module list and associate corresponding CSS assets from the bundle.
+      if (!foundCssViaMetadata && chunkContainsCssModules(fileData.modules)) {
+        for (const cssAsset of bundleCssAssets) {
+          trackAsset(filesMap, matchKey, cssAsset, false, 'css');
+        }
+      }
 
       // Handle dynamic imports
       if (fileData.dynamicImports) {

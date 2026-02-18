@@ -1,0 +1,32 @@
+const assert = require('node:assert');
+const path = require('path');
+
+const { federation } = require('@module-federation/vite');
+
+console.log('Testing Node with CJS imports...');
+
+function checkFunctionName(fn, name) {
+  console.log(`Checking '${name}' === '${fn.name}'`);
+  assert(fn.name === name, `\`${name}\` did not import correctly (name: '${fn.name}')`);
+}
+
+const entries = [[federation, 'federation']];
+
+for (let [fn, name] of entries) {
+  try {
+    checkFunctionName(fn, name);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+const moduleNames = [['@module-federation/vite', 'lib/index.cjs']];
+
+for (let [moduleName, expectedFilename] of moduleNames) {
+  const modulePath = require.resolve(moduleName);
+  const posixPath = modulePath.split(path.sep).join(path.posix.sep);
+  console.log(`Module: ${moduleName}, path: ${posixPath}`);
+  assert(posixPath.endsWith(expectedFilename));
+}
+
+console.log('CJS test succeeded');

@@ -5,9 +5,16 @@ import { defineConfig } from 'vite';
 const mfConfig = {
   name: 'host',
   remotes: {
-    remote: {
+    // vite remote (module)
+    moduleRemote: {
+      name: 'moduleRemote', // should not conflict with "var" remote name // todo: related to https://github.com/module-federation/vite/issues/352
       entry: 'http://localhost:4001/custom-filename.js',
       type: 'module',
+    },
+    // vite remote (var)
+    remote: {
+      entry: 'http://localhost:4001/varRemoteEntry.js',
+      type: 'var',
     },
     webpack: {
       entry: 'http://localhost:8080/remoteEntry.js',
@@ -23,6 +30,7 @@ const mfConfig = {
     },
   },
   shared: ['react', 'react-dom', 'lodash'],
+  moduleParseTimeout: 2,
 };
 
 // https://vitejs.dev/config/
