@@ -37,6 +37,9 @@ export function getLoadShareModulePath(pkg: string): string {
   return filepath;
 }
 export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command: string) {
+  if (!loadShareCacheMap[pkg]) {
+    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
+  }
   loadShareCacheMap[pkg].writeSync(`
     ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
     // dev uses dynamic import to separate chunks

@@ -1,4 +1,4 @@
-import { Plugin, UserConfig } from 'vite';
+import { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { PromiseStore } from '../utils/PromiseStore';
@@ -20,8 +20,11 @@ export function proxySharedModule(options: {
   include?: string | string[];
   exclude?: string | string[];
 }): Plugin[] {
-  let { shared = {}, include, exclude } = options;
-  let _config: UserConfig;
+  const { shared = {} } = options;
+  let _config: ResolvedConfig | undefined;
+  let _command = 'serve';
+  const savePrebuild = new PromiseStore<string>();
+
   return [
     {
       name: 'generateLocalSharedImportMap',
@@ -42,14 +45,14 @@ export function proxySharedModule(options: {
     {
       name: 'proxyPreBuildShared',
       enforce: 'post',
-      configResolved(config) {
-        _config = config as any;
-      },
       config(config: UserConfig, { command }) {
+        // Store command for use in configResolved
+        _command = command;
+
         (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
             const pattern = key.endsWith('/')
-              ? `(^${key.replace(/\/$/, '')}(\/.+)?$)`
+              ? `(^${key.replace(/\/$/, '')}(/.+)?$)`
               : `(^${key}$)`;
             return {
               // Intercept all shared requests and proxy them to loadShare
@@ -67,7 +70,6 @@ export function proxySharedModule(options: {
             };
           })
         );
-        const savePrebuild = new PromiseStore<string>();
 
         (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
@@ -89,7 +91,7 @@ export function proxySharedModule(options: {
                     const result = await (this as any)
                       .resolve(pkgName, importer)
                       .then((item: any) => item.id);
-                    if (!result.includes(_config.cacheDir)) {
+                    if (_config && !result.includes(_config.cacheDir)) {
                       // save pre-bunding module id
                       savePrebuild.set(pkgName, Promise.resolve(result));
                     }
@@ -99,6 +101,20 @@ export function proxySharedModule(options: {
                 };
           })
         );
+      },
+      configResolved(config) {
+        _config = config;
+
+        // Eagerly populate usedShares and generate virtual modules AFTER
+        // VirtualModule is initialized. This ensures that even if Vite uses
+        // the cache (and skips customResolver), the plugin state is correctly
+        // initialized.
+        Object.keys(shared).forEach((key) => {
+          writeLoadShareModule(key, shared[key], _command);
+          writePreBuildLibPath(key);
+          addUsedShares(key);
+        });
+        writeLocalSharedImportMap();
       },
     },
   ];

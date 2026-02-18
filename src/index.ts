@@ -1,5 +1,5 @@
 import defu from 'defu';
-import { Plugin } from 'vite';
+import { Plugin, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
@@ -14,17 +14,87 @@ import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import {
   ModuleFederationOptions,
   normalizeModuleFederationOptions,
+  NormalizedModuleFederationOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import VirtualModule from './utils/VirtualModule';
+import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
   getHostAutoInitPath,
   getLocalSharedImportMapPath,
   initVirtualModules,
   REMOTE_ENTRY_ID,
+  writeLocalSharedImportMap,
 } from './virtualModules';
 import { VIRTUAL_EXPOSES } from './virtualModules/virtualExposes';
+import {
+  writeLoadShareModule,
+  writePreBuildLibPath,
+  getLoadShareModulePath,
+} from './virtualModules/virtualShared_preBuild';
+import { addUsedShares } from './virtualModules/virtualRemoteEntry';
+import { virtualRuntimeInitStatus } from './virtualModules/virtualRuntimeInitStatus';
+
+/**
+ * Plugin that runs FIRST to create virtual module files in the config hook.
+ * This prevents 504 "Outdated Optimize Dep" errors by ensuring files exist
+ * before Vite's optimization phase.
+ */
+function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOptions): Plugin {
+  const { name, shared, virtualModuleDir } = options;
+
+  return {
+    name: 'vite:module-federation-early-init',
+    enforce: 'pre',
+    config(config: UserConfig, { command: _command }) {
+      if (_command !== 'serve') return;
+
+      const root = config.root || process.cwd();
+
+      // Create the virtual module directory structure EARLY
+      initVirtualModuleInfrastructure(root, virtualModuleDir);
+
+      // Set root for VirtualModule class
+      VirtualModule.setRoot(root);
+      VirtualModule.ensureVirtualPackageExists();
+
+      // Create core virtual modules
+      initVirtualModules();
+
+      // Collect import IDs for optimizeDeps.include
+      const virtualModuleImportIds: string[] = [];
+
+      // Create shared module virtual files BEFORE optimization
+      if (shared && Object.keys(shared).length > 0) {
+        for (const key of Object.keys(shared)) {
+          const shareItem = shared[key] as any;
+          writeLoadShareModule(key, shareItem, _command);
+          writePreBuildLibPath(key);
+          addUsedShares(key);
+          // Only add loadShare paths (NOT prebuild - they're empty placeholders)
+          virtualModuleImportIds.push(getLoadShareModulePath(key));
+        }
+        writeLocalSharedImportMap();
+      }
+
+      virtualModuleImportIds.push(virtualRuntimeInitStatus.getImportId());
+
+      // Add virtual modules to optimizeDeps.include
+      if (!config.optimizeDeps) config.optimizeDeps = {};
+      if (!config.optimizeDeps.include) config.optimizeDeps.include = [];
+      if (!config.optimizeDeps.needsInterop) config.optimizeDeps.needsInterop = [];
+
+      for (const importId of virtualModuleImportIds) {
+        if (!config.optimizeDeps.include.includes(importId)) {
+          config.optimizeDeps.include.push(importId);
+        }
+        if (!config.optimizeDeps.needsInterop.includes(importId)) {
+          config.optimizeDeps.needsInterop.push(importId);
+        }
+      }
+    },
+  };
+}
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
@@ -32,6 +102,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   if (!name) throw new Error('name is required');
 
   return [
+    // This plugin runs FIRST to create virtual module files before optimization
+    createEarlyVirtualModulesPlugin(options),
     {
       name: 'vite:module-federation-config',
       enforce: 'pre',

@@ -3,6 +3,31 @@ import { dirname, join, parse, resolve, basename } from 'pathe';
 import { packageNameDecode, packageNameEncode } from '../utils/packageNameUtils';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 
+/**
+ * Initialize virtual module infrastructure BEFORE VirtualModule class is used.
+ * This must be called in the config hook to ensure the directory exists
+ * before Vite's optimization phase.
+ */
+export function initVirtualModuleInfrastructure(
+  root: string,
+  virtualModuleDir = '__mf__virtual'
+): void {
+  const nodeModulesPath = join(root, 'node_modules');
+  const virtualPackagePath = join(nodeModulesPath, virtualModuleDir);
+
+  if (!existsSync(virtualPackagePath)) {
+    mkdirSync(virtualPackagePath, { recursive: true });
+    writeFileSync(join(virtualPackagePath, 'empty.js'), '');
+    writeFileSync(
+      join(virtualPackagePath, 'package.json'),
+      JSON.stringify({
+        name: virtualModuleDir,
+        main: 'empty.js',
+      })
+    );
+  }
+}
+
 // Cache root path
 let rootDir: string | undefined;
 
