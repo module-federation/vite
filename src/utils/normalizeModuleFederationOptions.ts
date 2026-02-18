@@ -321,6 +321,15 @@ export type ModuleFederationOptions = {
   ignoreOrigin?: boolean;
   virtualModuleDir?: string;
   hostInitInjectLocation?: HostInitInjectLocationOptions;
+  /**
+   * Timeout for parsing modules in seconds.
+   * Defaults to 10 seconds.
+   */
+  moduleParseTimeout?: number;
+  /**
+   * Allows generate additional remoteEntry file for "var" host environment
+   */
+  varFilename?: string;
 };
 
 export interface NormalizedModuleFederationOptions {
@@ -350,6 +359,8 @@ export interface NormalizedModuleFederationOptions {
    * When true, all CSS assets are bundled into every exposed module.
    */
   bundleAllCSS: boolean;
+  moduleParseTimeout: number;
+  varFilename?: string;
 }
 
 type HostInitInjectLocationOptions = 'entry' | 'html';
@@ -360,23 +371,43 @@ interface PluginDevOptions {
   disableDynamicRemoteTypeHints?: boolean;
 }
 
+interface RemoteTypeUrl {
+  alias?: string;
+  api: string;
+  zip: string;
+}
+
+interface RemoteTypeUrls {
+  [remoteName: string]: RemoteTypeUrl;
+}
+
 interface PluginDtsOptions {
   generateTypes?: boolean | DtsRemoteOptions;
   consumeTypes?: boolean | DtsHostOptions;
   tsConfigPath?: string;
+  extraOptions?: Record<string, unknown>;
+  implementation?: string;
+  cwd?: string;
+  displayErrorInTerminal?: boolean;
 }
 
 interface DtsRemoteOptions {
   tsConfigPath?: string;
   typesFolder?: string;
+  compiledTypesFolder?: string;
   deleteTypesFolder?: boolean;
   additionalFilesToCompile?: string[];
-  compilerInstance?: 'tsc' | 'vue-tsc';
+  compilerInstance?: 'tsc' | 'vue-tsc' | 'tspc' | string;
   compileInChildProcess?: boolean;
   generateAPITypes?: boolean;
-  extractThirdParty?: boolean;
+  extractThirdParty?:
+    | boolean
+    | {
+        exclude?: Array<string | RegExp>;
+      };
   extractRemoteTypes?: boolean;
   abortOnError?: boolean;
+  deleteTsConfig?: boolean;
 }
 
 interface DtsHostOptions {
@@ -386,6 +417,11 @@ interface DtsHostOptions {
   deleteTypesFolder?: boolean;
   maxRetries?: number;
   consumeAPITypes?: boolean;
+  runtimePkgs?: string[];
+  remoteTypeUrls?: (() => Promise<RemoteTypeUrls>) | RemoteTypeUrls;
+  timeout?: number;
+  family?: 4 | 6;
+  typesOnBuild?: boolean;
 }
 
 let config: NormalizedModuleFederationOptions;
@@ -436,5 +472,7 @@ export function normalizeModuleFederationOptions(
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
     bundleAllCSS: options.bundleAllCSS || false,
+    moduleParseTimeout: options.moduleParseTimeout || 10,
+    varFilename: options.varFilename,
   });
 }

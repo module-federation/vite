@@ -10,10 +10,15 @@ import './index.css';
 import _ from 'lodash';
 _.VERSION;
 
-const RemoteProduct = lazy(
+const ModuleRemoteProduct = lazy(
   () =>
     // @ts-ignore
-    import('remote/Product')
+    import('moduleRemote/Product')
+);
+const VarRemotePurchasesCount = lazy(
+  () =>
+    // @ts-ignore
+    import('remote/PurchasesCount')
 );
 const RspackReviews = lazy(
   () =>
@@ -68,7 +73,10 @@ const App = () => {
           <Toggle label="Show Dynamic Ad" checked={showAd} onValueChange={setShowAd} />
           {showAd && <Suspense fallback="Loading...">{Banner ? <Banner /> : null}</Suspense>}
           <Suspense fallback="Loading...">
-            <RemoteProduct />
+            <ModuleRemoteProduct />
+          </Suspense>
+          <Suspense fallback="Loading...">
+            <VarRemotePurchasesCount />
           </Suspense>
           <Suspense fallback="Loading...">
             <RspackReviews />

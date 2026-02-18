@@ -1,0 +1,15 @@
+{
+  "name": "dual-module-test",
+  "version": "1.0.0",
+  "license": "MIT",
+  "scripts": {
+    "build": "echo Done",
+    "test": "node --no-experimental-require-module test-cjs.js && node test-esm.mjs"
+  },
+  "dependencies": {
+    "@module-federation/vite": "*"
+  },
+  "devDependencies": {
+    "resolve-esm": "2.0.3"
+  }
+}

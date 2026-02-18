@@ -3,11 +3,13 @@ import { Plugin } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
+import pluginDts from './plugins/pluginDts';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
+import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import {
   ModuleFederationOptions,
@@ -44,6 +46,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     aliasToArrayPlugin,
     checkAliasConflicts({ shared }),
     normalizeOptimizeDepsPlugin,
+    ...pluginDts(options),
     ...addEntry({
       entryName: 'remoteEntry',
       entryPath: REMOTE_ENTRY_ID,
@@ -60,14 +63,19 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     }),
     pluginProxyRemoteEntry(),
     pluginProxyRemotes(options),
-    ...pluginModuleParseEnd((id: string) => {
-      return (
-        id.includes(getHostAutoInitImportId()) ||
-        id.includes(REMOTE_ENTRY_ID) ||
-        id.includes(VIRTUAL_EXPOSES) ||
-        id.includes(getLocalSharedImportMapPath())
-      );
-    }),
+    ...pluginModuleParseEnd(
+      (id: string) => {
+        return (
+          id.includes(getHostAutoInitImportId()) ||
+          id.includes(REMOTE_ENTRY_ID) ||
+          id.includes(VIRTUAL_EXPOSES) ||
+          id.includes(getLocalSharedImportMapPath())
+        );
+      },
+      {
+        moduleParseTimeout: options.moduleParseTimeout,
+      }
+    ),
     ...proxySharedModule({
       shared,
     }),
@@ -100,6 +108,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       },
     },
     ...pluginManifest(),
+    ...pluginVarRemoteEntry(),
   ];
 }
 
