@@ -18,6 +18,7 @@ export {
   generateRemotes,
   getRemoteVirtualModule,
   getUsedRemotesMap,
+  LOAD_REMOTE_TAG,
 } from './virtualRemotes';
 
 export {
@@ -33,8 +34,8 @@ export { generateExposes, VIRTUAL_EXPOSES } from './virtualExposes';
 
 export { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 
-export function initVirtualModules() {
+export function initVirtualModules(command: string) {
   writeLocalSharedImportMap();
   writeHostAutoInit();
-  writeRuntimeInitStatus();
+  writeRuntimeInitStatus(command);
 }
