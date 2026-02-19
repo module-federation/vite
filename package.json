@@ -81,7 +81,7 @@
     "pretty-quick": "^4.0.0",
     "rollup": "^4.47.1",
     "tsdown": "^0.20.3",
-    "vite": "^5.4.3",
+    "vite": "^7.1.7",
     "vitest": "^2.1.1",
     "cjs-dep": "workspace:*"
   }

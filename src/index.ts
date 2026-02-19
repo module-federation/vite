@@ -70,7 +70,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       entryPath: VIRTUAL_EXPOSES,
     }),
     pluginProxyRemoteEntry(),
-    pluginProxyRemotes(options),
+    ...pluginProxyRemotes(options),
     ...pluginModuleParseEnd(
       (id: string) => {
         return (
@@ -94,28 +94,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       load(id) {
         if (id.startsWith('\0')) return;
         if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
-          let code = readFileSync(id, 'utf-8');
-          /**
-           * Shared/remote shims only have `export default exportModule`.
-           *
-           * We add a second named export (__moduleExports) that holds the full
-           * module namespace and point syntheticNamedExports at it.  This lets
-           * Rollup resolve named imports (e.g. `import { useState } from 'react'`)
-           * from the namespace while still applying its normal default-export
-           * interop — which is needed for libraries like @emotion/styled where
-           * `import styled from '@emotion/styled'` must receive the .default
-           * function, not the raw namespace object.
-           *
-           * Using 'default' as the syntheticNamedExports key would skip the
-           * interop and break default imports.
-           *
-           * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
-           */
-          code = code.replace(
-            'export default exportModule',
-            'export const __moduleExports = exportModule;\n' +
-              'export default exportModule.__esModule ? exportModule.default : exportModule'
-          );
+          const code = readFileSync(id, 'utf-8');
           return { code, syntheticNamedExports: '__moduleExports' };
         }
       },

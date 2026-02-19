@@ -44,7 +44,10 @@ export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command:
   const awaitOrPlaceholder = isBuild
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
-  const exportLine = isBuild ? 'export default exportModule' : 'module.exports = exportModule';
+  const exportLine = isBuild
+    ? 'export const __moduleExports = exportModule;\n' +
+      'export default exportModule.__esModule ? exportModule.default : exportModule'
+    : 'module.exports = exportModule';
 
   loadShareCacheMap[pkg].writeSync(`
     ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});

@@ -63,8 +63,8 @@ importers:
         specifier: ^0.20.3
         version: 0.20.3(typescript@5.5.3)
       vite:
-        specifier: ^5.4.3
-        version: 5.4.3(@types/node@22.7.4)(sass-embedded@1.77.8)(terser@5.31.6)
+        specifier: ^7.1.7
+        version: 7.3.1(@types/node@22.7.4)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1)
       vitest:
         specifier: ^2.1.1
         version: 2.1.1(@types/node@22.7.4)(sass-embedded@1.77.8)(terser@5.31.6)
@@ -22786,6 +22786,22 @@ snapshots:
       tinyglobby: 0.2.15
     optionalDependencies:
       '@types/node': 22.15.18
+      fsevents: 2.3.3
+      jiti: 2.6.1
+      sass-embedded: 1.77.8
+      terser: 5.31.6
+      yaml: 2.6.1
+
+  vite@7.3.1(@types/node@22.7.4)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.6.1):
+    dependencies:
+      esbuild: 0.27.2
+      fdir: 6.5.0(picomatch@4.0.3)
+      picomatch: 4.0.3
+      postcss: 8.5.6
+      rollup: 4.47.1
+      tinyglobby: 0.2.15
+    optionalDependencies:
+      '@types/node': 22.7.4
       fsevents: 2.3.3
       jiti: 2.6.1
       sass-embedded: 1.77.8

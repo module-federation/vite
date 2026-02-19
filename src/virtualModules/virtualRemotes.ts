@@ -31,7 +31,10 @@ export function generateRemotes(id: string, command: string) {
   const awaitOrPlaceholder = isBuild
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
-  const exportLine = isBuild ? 'export default exportModule' : 'module.exports = exportModule';
+  const exportLine = isBuild
+    ? 'export const __moduleExports = exportModule;\n' +
+      'export default exportModule.__esModule ? exportModule.default : exportModule'
+    : 'module.exports = exportModule';
 
   return `
     ${importLine}
