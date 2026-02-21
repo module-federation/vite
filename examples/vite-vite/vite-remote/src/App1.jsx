@@ -1,7 +1,7 @@
 import React from 'react';
-import vueImg from "./assets/vue.svg";
+import vueImg from './assets/vue.svg';
 
-export default function () {
+export default function App1() {
   return (
     <div style={{ background: 'yellow', padding: 30 }}>
       <img src={vueImg} />
