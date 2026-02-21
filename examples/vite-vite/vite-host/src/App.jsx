@@ -13,7 +13,7 @@ import { ref } from 'vue';
 console.log('Share Vue', ref);
 console.log('Share React', R, RD);
 
-export default function () {
+export default function HostApp() {
   return (
     <div style={{ background: 'lightgray' }}>
       <p>
