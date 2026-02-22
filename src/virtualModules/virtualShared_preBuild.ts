@@ -40,11 +40,20 @@ export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command:
   if (!loadShareCacheMap[pkg]) {
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
   }
+
+  const isBuild = command === 'build';
+  const importLine = isBuild
+    ? `import { initPromise } from "${virtualRuntimeInitStatus.getImportId()}"`
+    : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
+  const awaitOrPlaceholder = isBuild
+    ? 'await '
+    : '/*mf top-level-await placeholder replacement mf*/';
+  const exportLine = isBuild ? 'export default exportModule' : 'module.exports = exportModule';
+
   loadShareCacheMap[pkg].writeSync(`
     ;() => import(${JSON.stringify(getPreBuildLibImportId(pkg))}).catch(() => {});
-    // dev uses dynamic import to separate chunks
     ${command !== 'build' ? `;() => import(${JSON.stringify(pkg)}).catch(() => {});` : ''}
-    const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
+    ${importLine}
     const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
       customShareInfo: {shareConfig:{
         singleton: ${shareItem.shareConfig.singleton},
@@ -52,7 +61,7 @@ export function writeLoadShareModule(pkg: string, shareItem: ShareItem, command:
         requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
       }}
     }))
-    const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}res.then(factory => factory())
-    module.exports = exportModule
+    const exportModule = ${awaitOrPlaceholder}res.then(factory => factory())
+    ${exportLine}
   `);
 }

@@ -24,10 +24,19 @@ export function getUsedRemotesMap() {
   return usedRemotesMap;
 }
 export function generateRemotes(id: string, command: string) {
+  const isBuild = command === 'build';
+  const importLine = isBuild
+    ? `import { initPromise } from "${virtualRuntimeInitStatus.getImportId()}"`
+    : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
+  const awaitOrPlaceholder = isBuild
+    ? 'await '
+    : '/*mf top-level-await placeholder replacement mf*/';
+  const exportLine = isBuild ? 'export default exportModule' : 'module.exports = exportModule';
+
   return `
-    const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")
+    ${importLine}
     const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
-    const exportModule = ${command !== 'build' ? '/*mf top-level-await placeholder replacement mf*/' : 'await '}initPromise.then(_ => res)
-    module.exports = exportModule
+    const exportModule = ${awaitOrPlaceholder}initPromise.then(_ => res)
+    ${exportLine}
   `;
 }

@@ -1,0 +1,104 @@
+name: Publish Test
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: Build & Pack on Node ${{ matrix.node }}
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['22.x', '24.x', '25.x']
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Use node ${{ matrix.node }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'pnpm'
+          registry-url: https://registry.npmjs.org/
+
+      - run: corepack enable
+
+      - name: Install deps
+        run: pnpm install
+
+      # Read existing version, reuse that, add a Git short hash
+      - name: Set build version to Git commit
+        run: node scripts/writeGitVersion.js $(git rev-parse --short HEAD)
+
+      - name: Check updated version
+        run: jq .version package.json
+
+      - name: Build
+        run: pnpm build
+
+      - name: Pack
+        run: pnpm pack --out package-node-${{ matrix.node }}.tgz
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: package-node-${{ matrix.node }}
+          path: package-node-${{ matrix.node }}.tgz
+
+  test-published-artifact:
+    name: Test Published Artifact ${{ matrix.example }} (Node ${{ matrix.node }})
+    defaults:
+      run:
+        working-directory: ./.github/publish-ci/${{ matrix.example }}
+
+    needs: [build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.x', '24.x', '25.x']
+        example: ['node-standard', 'node-esm']
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Use node ${{ matrix.node }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'pnpm'
+          registry-url: https://registry.npmjs.org/
+
+      - run: corepack enable
+
+      - name: Install deps
+        run: pnpm install
+
+      - name: Remove existing build artifact
+        run: pnpm remove @module-federation/vite
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: package-node-${{ matrix.node }}
+          path: ./.github/publish-ci/${{ matrix.example }}
+
+      - name: Install build artifact
+        run: pnpm add ./package-node-${{ matrix.node }}.tgz
+
+      - name: Build example
+        run: pnpm build
+
+      - name: Run test step
+        run: pnpm test

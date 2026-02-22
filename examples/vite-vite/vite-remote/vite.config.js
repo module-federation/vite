@@ -6,7 +6,7 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 // https://vitejs.dev/config/
 export default defineConfig({
   server: {
-    open: true,
+    open: false,
     port: 5176,
     origin: 'http://localhost:5176',
   },
@@ -15,7 +15,7 @@ export default defineConfig({
   },
   base: 'http://localhost:5176/testbase',
   plugins: [
-    react({ jsxImportSource: '@emotion/react' }),
+    react({ jsxImportSource: '@emotion/react', reactRefreshHost: 'http://localhost:5175' }),
     federation({
       name: '@namespace/viteViteRemote',
       exposes: {
