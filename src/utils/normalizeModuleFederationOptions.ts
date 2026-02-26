@@ -335,8 +335,10 @@ export type ModuleFederationOptions = {
   target?: 'web' | 'node';
 };
 
-export interface NormalizedModuleFederationOptions
-  extends Omit<ModuleFederationOptions, 'exposes' | 'remotes' | 'shared'> {
+export interface NormalizedModuleFederationOptions extends Omit<
+  ModuleFederationOptions,
+  'exposes' | 'remotes' | 'shared'
+> {
   exposes: Record<string, ExposesItem>;
   filename: string;
   library: any;
