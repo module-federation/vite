@@ -21,9 +21,8 @@
   ],
   "scripts": {
     "prepare": "husky install",
-    "fmt": "prettier --write src",
-    "fmt.check": "prettier --check src",
-    "format": "pretty-quick",
+    "fmt": "oxfmt src",
+    "fmt.check": "oxfmt --check src",
     "dev": "tsdown --watch",
     "build": "tsdown",
     "dev-rv": "pnpm -filter 'examples-rust-vite*' run dev",
@@ -75,14 +74,13 @@
     "@changesets/cli": "^2.27.9",
     "@playwright/test": "^1.47.2",
     "@types/node": "^22.7.4",
+    "cjs-dep": "workspace:*",
     "husky": "^8.0.3",
     "mime-types": "^2.1.35",
-    "prettier": "3.3.3",
-    "pretty-quick": "^4.0.0",
+    "oxfmt": "^0.35.0",
     "rollup": "^4.47.1",
     "tsdown": "^0.20.3",
     "vite": "^5.4.3",
-    "vitest": "^2.1.1",
-    "cjs-dep": "workspace:*"
+    "vitest": "^2.1.1"
   }
 }
