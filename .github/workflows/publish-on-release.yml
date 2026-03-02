@@ -3,24 +3,38 @@ name: Publish (GitHub Release)
 on:
   release:
     types: [released, prereleased]
+  workflow_dispatch:
+    inputs:
+      version:
+        type: choice
+        description: 'Release Version'
+        required: true
+        default: 'next'
+        options:
+          - latest
+          - next
+      branch:
+        description: 'Release Branch (confirm release branch)'
+        required: true
+        default: 'main'
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: publish-${{ github.event.release.tag_name }}
+  group: publish-${{ github.workflow }}-${{ github.ref_name || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout tag
+      - name: Checkout source
         uses: actions/checkout@v5
         with:
           fetch-depth: 25
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || github.event.inputs.branch }}
 
       - name: Cache Tool Downloads
         uses: actions/cache@v4
@@ -47,7 +61,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate preview version
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version == 'next'
+        run: |
+          SAFE_BRANCH=$(echo "${{ github.event.inputs.branch }}" | sed 's/[^a-zA-Z0-9-]/-/g' | tr '[:upper:]' '[:lower:]')
+          npx changeset version --snapshot "$SAFE_BRANCH"
+
       - name: Verify tag matches package.json version
+        if: github.event_name == 'release'
         run: |
           TAG="${{ github.event.release.tag_name }}"
           if [ "${TAG#v}" != "$TAG" ]; then
@@ -74,34 +95,38 @@ jobs:
         id: dist
         shell: bash
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="$TAG"
           DIST_TAG="latest"
-
-          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
-            if [[ "$VERSION" =~ -(alpha|beta|next|rc)($|\.) ]]; then
-              DIST_TAG="${BASH_REMATCH[1]}"
-            else
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.version }}" = "next" ]; then
               DIST_TAG="next"
+            fi
+          else
+            TAG="${{ github.event.release.tag_name }}"
+            VERSION="$TAG"
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              if [[ "$VERSION" =~ -(alpha|beta|next|rc)($|\.) ]]; then
+                DIST_TAG="${BASH_REMATCH[1]}"
+              else
+                DIST_TAG="next"
+              fi
             fi
           fi
 
           echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish to npm
-        run: npm publish --tag "${{ steps.dist.outputs.dist_tag }}" --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
+        run: npm publish --provenance --tag "${{ steps.dist.outputs.dist_tag }}" --access public
 
       - name: Post summary
         if: always()
         continue-on-error: true
         run: |
           PKG_VERSION="$(node -p "require('./package.json').version")"
+          SOURCE_REF="${{ github.event.release.tag_name || github.event.inputs.branch }}"
           echo "## npm publish" > "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Package: \`@module-federation/vite\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Version: \`$PKG_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Dist-tag: \`${{ steps.dist.outputs.dist_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Git tag: \`${{ github.event.release.tag_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Trigger: \`${{ github.event_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source ref: \`$SOURCE_REF\`" >> "$GITHUB_STEP_SUMMARY"
