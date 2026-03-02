@@ -7,3 +7,4 @@ lib
 **/.__mf__temp
 reports/*
 nohup.out
+.playwright-mcp

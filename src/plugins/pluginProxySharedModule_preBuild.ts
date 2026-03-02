@@ -1,4 +1,4 @@
-import { Plugin, UserConfig } from 'vite';
+import { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { PromiseStore } from '../utils/PromiseStore';
@@ -20,8 +20,11 @@ export function proxySharedModule(options: {
   include?: string | string[];
   exclude?: string | string[];
 }): Plugin[] {
-  let { shared = {}, include, exclude } = options;
-  let _config: UserConfig;
+  const { shared = {} } = options;
+  let _config: ResolvedConfig | undefined;
+  let _command = 'serve';
+  const savePrebuild = new PromiseStore<string>();
+
   return [
     {
       name: 'generateLocalSharedImportMap',
@@ -42,23 +45,43 @@ export function proxySharedModule(options: {
     {
       name: 'proxyPreBuildShared',
       enforce: 'post',
-      configResolved(config) {
-        _config = config as any;
-      },
       config(config: UserConfig, { command }) {
+        const isRolldown = !!(this as any)?.meta?.rolldownVersion;
+        _command = command;
+
         (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
+            const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
+            const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const escapedKeyBase = escapeRegex(keyBase);
+            // Trailing-slash keys act as package-prefix shares:
+            // "react/" should match both "react" and "react/*".
             const pattern = key.endsWith('/')
-              ? `(^${key.replace(/\/$/, '')}(\/.+)?$)`
-              : `(^${key}$)`;
+              ? `^(${escapedKeyBase}(?:\\/.*)?)$`
+              : `^(${escapedKeyBase})$`;
             return {
               // Intercept all shared requests and proxy them to loadShare
               find: new RegExp(pattern),
               replacement: '$1',
               customResolver(source: string, importer: string) {
                 if (/\.css$/.test(source)) return;
-                const loadSharePath = getLoadShareModulePath(source);
-                writeLoadShareModule(source, shared[key], command);
+                // Skip for localSharedImportMap to break circular TLA deadlock:
+                // loadShare TLA → runtime.loadShare() → get() → import(prebuild)
+                // → alias to pkg name → shared alias → loadShare (DEADLOCK)
+                if (importer && importer.includes('localSharedImportMap')) {
+                  return;
+                }
+                // Trailing-slash keys (e.g. "react/") match subpath imports like
+                // "react/jsx-dev-runtime". However, the MF runtime's loadShare does
+                // exact key lookup — subpath shares aren't registered and loadShare
+                // returns false, causing "factory is not a function". Let subpath
+                // imports resolve normally; the base package singleton sharing
+                // already ensures a single instance.
+                if (key.endsWith('/') && source !== key.slice(0, -1)) {
+                  return;
+                }
+                const loadSharePath = getLoadShareModulePath(source, isRolldown, command);
+                writeLoadShareModule(source, shared[key], command, isRolldown);
                 writePreBuildLibPath(source);
                 addUsedShares(source);
                 writeLocalSharedImportMap();
@@ -67,7 +90,6 @@ export function proxySharedModule(options: {
             };
           })
         );
-        const savePrebuild = new PromiseStore<string>();
 
         (config.resolve as any).alias.push(
           ...Object.keys(shared).map((key) => {
@@ -89,7 +111,7 @@ export function proxySharedModule(options: {
                     const result = await (this as any)
                       .resolve(pkgName, importer)
                       .then((item: any) => item.id);
-                    if (!result.includes(_config.cacheDir)) {
+                    if (_config && !result.includes(_config.cacheDir)) {
                       // save pre-bunding module id
                       savePrebuild.set(pkgName, Promise.resolve(result));
                     }
@@ -99,6 +121,25 @@ export function proxySharedModule(options: {
                 };
           })
         );
+      },
+      configResolved(config) {
+        _config = config;
+
+        // Eagerly populate usedShares and generate virtual modules AFTER
+        // VirtualModule is initialized. This ensures that even if Vite uses
+        // the cache (and skips customResolver), the plugin state is correctly
+        // initialized.
+        const isRolldown = !!(config as any).experimental?.rolldownDev;
+        Object.keys(shared).forEach((key) => {
+          // Trailing-slash keys (e.g. "react/") are patterns for matching
+          // subpath imports, not real packages. Skip eager virtual module
+          // creation for them — they are handled dynamically via customResolver.
+          if (key.endsWith('/')) return;
+          writeLoadShareModule(key, shared[key], _command, isRolldown);
+          writePreBuildLibPath(key);
+          addUsedShares(key);
+        });
+        writeLocalSharedImportMap();
       },
     },
   ];

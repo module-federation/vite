@@ -116,7 +116,8 @@ The `pluginProxyRemotes` plugin (`src/plugins/pluginProxyRemotes.ts`) registers 
   find: new RegExp(`^(shop(\/.*|$))`),   // matches 'shop', 'shop/Cart', 'shop/anything'
   replacement: '$1',
   customResolver(source) {
-    const remoteModule = getRemoteVirtualModule(source, command);
+    const isRolldown = !!this.meta?.rolldownVersion;
+    const remoteModule = getRemoteVirtualModule(source, command, isRolldown);
     addUsedRemote(remote.name, source);
     return remoteModule.getPath();
   }
@@ -171,8 +172,8 @@ Here's what happens when Vite encounters `import('shop/Cart')`:
 Step by step:
 
 1. **Vite resolves `'shop/Cart'`** — the alias registered by `pluginProxyRemotes` matches via regex `^(shop(\/.*|$))`
-2. **`customResolver` fires** — calls `getRemoteVirtualModule('shop/Cart', command)` which creates a `VirtualModule` with tag `__loadRemote__` and writes the generated code to disk. Also calls `addUsedRemote('shop', 'shop/Cart')` to track usage.
-3. **Vite resolves to the virtual module path** — something like `node_modules/__mf__virtual/host__loadRemote__shop_mf_1_Cart__loadRemote__.js` (slashes encoded as `_mf_1_` by `packageNameEncode()`)
+2. **`customResolver` fires** — calls `getRemoteVirtualModule('shop/Cart', command, isRolldown)` which creates a `VirtualModule` with tag `__loadRemote__` and writes the generated code to disk. Also calls `addUsedRemote('shop', 'shop/Cart')` to track usage.
+3. **Vite resolves to the virtual module path** — something like `node_modules/__mf__virtual/host__loadRemote__shop_mf_1_Cart__loadRemote__.js` on Vite 5-7, or `.mjs` on Rolldown/Vite 8+ (slashes encoded as `_mf_1_` by `packageNameEncode()`)
 4. **In build mode**, the `module-federation-esm-shims` plugin adds `syntheticNamedExports` (same as for shared deps — see [shared deps doc](./shared-dependency-resolution.md#the-esm-shims-making-proxied-modules-work-with-named-imports))
 5. **At runtime** — `initPromise` resolves, then `runtime.loadRemote('shop/Cart')` fetches the remote's entry, initializes it, and returns the module
 
@@ -194,7 +195,7 @@ The double reference to `initPromise` is intentional:
 - `res` starts loading the remote as soon as init completes
 - `exportModule` awaits `initPromise` again then awaits `res` — this ensures the module isn't exported until both init is done and the remote has been loaded
 
-### Dev mode
+### Dev mode (Vite 5-7)
 
 ```js
 const { initPromise } = require('__mf__virtual/host__mf_v__runtimeInit__mf_v__');
@@ -207,6 +208,17 @@ Same CJS + placeholder pattern as shared deps. The `require()` and placeholder c
 
 `pluginDevProxyModuleTopLevelAwait` later transforms the exports to properly await the promise.
 
+### Dev mode (Vite 8+ / Rolldown)
+
+```js
+import { initPromise } from '__mf__virtual/host__mf_v__runtimeInit__mf_v__';
+const res = initPromise.then((runtime) => runtime.loadRemote('shop/Cart'));
+const exportModule = await initPromise.then((_) => res);
+export default exportModule.default ?? exportModule;
+```
+
+When Rolldown is detected (`this.meta.rolldownVersion`), the plugin generates ESM remote virtual modules in dev mode too (`useESM = command === 'build' || isRolldown`). The `default ??` unwrapping avoids double-default namespace wrapping in consumers such as `React.lazy`.
+
 ### Caching
 
 Each unique import path gets its own virtual module, created once and cached in `cacheRemoteMap`:
@@ -214,10 +226,11 @@ Each unique import path gets its own virtual module, created once and cached in 
 ```js
 const cacheRemoteMap: { [remote: string]: VirtualModule } = {};
 
-export function getRemoteVirtualModule(remote: string, command: string) {
+export function getRemoteVirtualModule(remote: string, command: string, isRolldown: boolean) {
   if (!cacheRemoteMap[remote]) {
-    cacheRemoteMap[remote] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.js');
-    cacheRemoteMap[remote].writeSync(generateRemotes(remote, command));
+    const ext = isRolldown ? '.mjs' : '.js';
+    cacheRemoteMap[remote] = new VirtualModule(remote, LOAD_REMOTE_TAG, ext);
+    cacheRemoteMap[remote].writeSync(generateRemotes(remote, command, isRolldown));
   }
   return cacheRemoteMap[remote];
 }

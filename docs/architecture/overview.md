@@ -59,6 +59,8 @@ The `federation()` function doesn't return a single Vite plugin — it returns *
 ```
 federation(userConfig)
   │
+  ├── createEarlyVirtualModulesPlugin   Pre-creates virtual module files in config hook
+  │                                       (before Vite optimization) to prevent 504 errors
   ├── vite:module-federation-config     Sets up virtual module directory, initializes state
   ├── aliasToArrayPlugin                Ensures config.resolve.alias is an array (normalize)
   ├── checkAliasConflicts               Warns if user aliases conflict with shared modules
@@ -72,7 +74,8 @@ federation(userConfig)
   ├── pluginProxyRemotes                Rewrites remote imports → runtime.loadRemote()
   ├── pluginModuleParseEnd (×3)         Waits for all modules to be parsed before finalizing
   ├── proxySharedModule (×2)            Rewrites shared imports → runtime.loadShare()
-  ├── module-federation-esm-shims       Fixes CJS/ESM interop for proxied modules
+  ├── module-federation-esm-shims       Build: manualChunks, syntheticNamedExports, renderChunk
+  ├── module-federation-dev-await       Dev: injects await for loadShare inits in optimized deps
   ├── pluginDevProxyModuleTopLevelAwait Top-level await handling for dev mode
   ├── module-federation-vite            Runtime alias setup, optimizeDeps config, ENV_TARGET
   ├── pluginManifest (×2)               Generates mf-manifest.json metadata
@@ -183,7 +186,10 @@ During build, the plugin uses Vite/Rollup's standard chunk emission. The sequenc
 4. Code generation
    └── pluginProxyRemoteEntry generates final remoteEntry.js code
        (includes only actually-used shared deps and remotes)
-   └── ESM shims plugin adds syntheticNamedExports for CJS interop
+   └── ESM shims plugin:
+       - manualChunks forces loadShare modules into separate chunks
+       - syntheticNamedExports enables named imports from proxied modules
+       - renderChunk injects missing `await` calls for loadShare inits
 
 5. Bundle output
    └── pluginMFManifest analyzes chunks → emits mf-manifest.json
@@ -198,12 +204,20 @@ The "wait for module parsing" step (3) is important: the remoteEntry needs to de
 Dev mode works differently because there's no Rollup chunking — Vite serves modules on-demand over HTTP. This changes how every piece of the plugin operates.
 
 ```
-1. Config phase
-   └── Register the same aliases as build mode (shared deps, remotes)
-   └── Write initial virtual module files to disk
+1. Config phase (early init plugin)
+   └── createEarlyVirtualModulesPlugin runs in config hook (enforce: 'pre')
+   └── Creates __mf__virtual/ directory structure via initVirtualModuleInfrastructure()
+   └── Sets VirtualModule root, creates core virtual modules
+   └── Pre-creates all shared module files (__loadShare__ + __prebuild__)
+       so they exist BEFORE Vite's dependency optimizer runs
    └── parsePromise resolves immediately (no module-parse tracking in dev)
 
+1b. Config phase (other plugins)
+   └── Register aliases for shared deps and remotes
+   └── proxyPreBuildShared.configResolved re-creates files as redundancy
+
 2. Server starts
+   └── Optimizer discovers pre-created virtual modules (no late-discovery 504s)
    └── pluginAddEntry registers middleware:
        requests to /remoteEntry.js → redirected to the virtual module path
    └── pluginAddEntry injects hostInit via transformIndexHtml:
@@ -226,9 +240,9 @@ Dev mode works differently because there's no Rollup chunking — Vite serves mo
    └── Rewrites exports to await the result (see below)
 ```
 
-#### The CJS + placeholder pattern
+#### The CJS + placeholder pattern (Vite 5-7)
 
-In build mode, virtual modules for shared/remote deps use `import` and `await`:
+In build mode and Rolldown environments (Vite 8+), virtual modules for shared/remote deps use `import` and `await`:
 
 ```js
 import { initPromise } from '<runtimeInitStatus>';
@@ -236,7 +250,7 @@ const exportModule = await initPromise.then(/* ... */);
 export default exportModule;
 ```
 
-In dev mode, the same modules use `require()` and a placeholder comment instead:
+In dev mode on Vite 5-7 (non-Rolldown), the same modules use `require()` and a placeholder comment instead:
 
 ```js
 const { initPromise } = require('<runtimeInitStatus>');
@@ -257,6 +271,10 @@ export { __mfproxy__default as default };
 ```
 
 This two-step approach (CJS generation → ESM rewrite) works around the pre-bundling limitation while keeping the module semantics correct for the browser.
+
+#### Rolldown (Vite 8+) — ESM in dev mode
+
+When Rolldown is detected (`this.meta.rolldownVersion` exists), the plugin uses ESM with real `await` in dev mode too — the same format as build mode. Rolldown supports top-level await natively, eliminating the need for the CJS + placeholder workaround. The format selection is controlled by `useESM = command === 'build' || isRolldown` in `writeLoadShareModule()`.
 
 ## Initialization sequence at runtime
 

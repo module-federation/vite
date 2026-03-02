@@ -5,10 +5,11 @@ const cacheRemoteMap: {
   [remote: string]: VirtualModule;
 } = {};
 export const LOAD_REMOTE_TAG = '__loadRemote__';
-export function getRemoteVirtualModule(remote: string, command: string) {
+export function getRemoteVirtualModule(remote: string, command: string, isRolldown: boolean) {
   if (!cacheRemoteMap[remote]) {
-    cacheRemoteMap[remote] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.js');
-    cacheRemoteMap[remote].writeSync(generateRemotes(remote, command));
+    const ext = isRolldown ? '.mjs' : '.js';
+    cacheRemoteMap[remote] = new VirtualModule(remote, LOAD_REMOTE_TAG, ext);
+    cacheRemoteMap[remote].writeSync(generateRemotes(remote, command, isRolldown));
   }
   const virtual = cacheRemoteMap[remote];
   return virtual;
@@ -23,15 +24,25 @@ export function addUsedRemote(remoteKey: string, remoteModule: string) {
 export function getUsedRemotesMap() {
   return usedRemotesMap;
 }
-export function generateRemotes(id: string, command: string) {
-  const isBuild = command === 'build';
-  const importLine = isBuild
+export function generateRemotes(id: string, command: string, isRolldown: boolean) {
+  const useESM = command === 'build' || isRolldown;
+  const importLine = useESM
     ? `import { initPromise } from "${virtualRuntimeInitStatus.getImportId()}"`
     : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
-  const awaitOrPlaceholder = isBuild
+  const awaitOrPlaceholder = useESM
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
-  const exportLine = isBuild ? 'export default exportModule' : 'module.exports = exportModule';
+  // In dev+ESM mode (rolldown/Vite 8), unwrap the module namespace to avoid
+  // double-wrapping: loadRemote returns {default: Component}, and
+  // "export default exportModule" would make import() return
+  // {default: {default: Component}}, breaking React.lazy.
+  // In build mode, the module-federation-esm-shims plugin handles this.
+  const exportLine =
+    command === 'serve' && useESM
+      ? 'export default exportModule.default ?? exportModule'
+      : useESM
+        ? 'export default exportModule'
+        : 'module.exports = exportModule';
 
   return `
     ${importLine}
