@@ -32,4 +32,4 @@ Use the `Publish (GitHub Release)` workflow with `Run workflow`:
 - npm trusted publisher must be configured for this package and workflow file:
   - repo: `module-federation/vite`
   - workflow: `.github/workflows/publish-on-release.yml`
-  - environment: none (unless explicitly added later)
+  - environment: `publish`

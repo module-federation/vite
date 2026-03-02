@@ -29,6 +29,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: publish
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
