@@ -34,6 +34,7 @@ import {
   writeLoadShareModule,
   writePreBuildLibPath,
   getLoadShareModulePath,
+  getPreBuildLibImportId,
 } from './virtualModules/virtualShared_preBuild';
 import { addUsedShares } from './virtualModules/virtualRemoteEntry';
 import { addUsedRemote } from './virtualModules/virtualRemotes';
@@ -74,18 +75,24 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         }
       }
 
-      // Create shared module virtual files BEFORE optimization
+      // Create shared module virtual files BEFORE optimization and register
+      // shares eagerly so localSharedImportMap has content on first load.
+      // To prevent dep re-optimization deadlock, we also add all prebuild
+      // module IDs to optimizeDeps.include so Vite pre-bundles them upfront.
       if (shared && Object.keys(shared).length > 0) {
+        config.optimizeDeps = config.optimizeDeps || {};
+        config.optimizeDeps.include = config.optimizeDeps.include || [];
+        // Include the runtimeInit virtual module so Vite pre-bundles it
+        // upfront instead of discovering it at runtime via loadShare imports.
+        config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
         for (const key of Object.keys(shared)) {
-          // Trailing-slash keys (e.g. "react/") are patterns for matching
-          // subpath imports, not real packages. Skip eager virtual module
-          // creation for them — they are handled dynamically via customResolver.
           if (key.endsWith('/')) continue;
           const shareItem = shared[key] as any;
           getLoadShareModulePath(key, isRolldown);
           writeLoadShareModule(key, shareItem, _command, isRolldown);
           writePreBuildLibPath(key);
           addUsedShares(key);
+          config.optimizeDeps.include.push(getPreBuildLibImportId(key));
         }
         writeLocalSharedImportMap();
       }
