@@ -125,15 +125,14 @@ export function proxySharedModule(options: {
       configResolved(config) {
         _config = config;
 
-        // Eagerly populate usedShares and generate virtual modules AFTER
-        // VirtualModule is initialized. This ensures that even if Vite uses
-        // the cache (and skips customResolver), the plugin state is correctly
-        // initialized.
+        // Write virtual module files and register shares eagerly.
+        // The deadlock that previously occurred here (localSharedImportMap
+        // referencing prebuild modules → Vite re-optimization → deadlock)
+        // is now prevented by adding prebuild IDs to optimizeDeps.include
+        // in the config hook (createEarlyVirtualModulesPlugin), so Vite
+        // pre-bundles them upfront without triggering re-optimization.
         const isRolldown = !!(config as any).experimental?.rolldownDev;
         Object.keys(shared).forEach((key) => {
-          // Trailing-slash keys (e.g. "react/") are patterns for matching
-          // subpath imports, not real packages. Skip eager virtual module
-          // creation for them — they are handled dynamically via customResolver.
           if (key.endsWith('/')) return;
           writeLoadShareModule(key, shared[key], _command, isRolldown);
           writePreBuildLibPath(key);

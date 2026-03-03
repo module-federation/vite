@@ -25,7 +25,7 @@
     "fmt.check": "oxfmt --check src",
     "dev": "tsdown --watch",
     "build": "tsdown",
-    "clean": "pnpm -r exec rm -rf dist .__mf__temp __mf__virtual",
+    "clean": "pnpm -r exec rm -rf dist .__mf__temp __mf__virtual .vite",
     "dev-rv": "pnpm clean && pnpm -filter 'examples-rust-vite*' run dev",
     "preview-rv": "pnpm clean && pnpm -filter 'examples-rust-vite*' run preview",
     "dev-vv": "pnpm clean && pnpm -filter 'examples-vite-vite*' run dev",
