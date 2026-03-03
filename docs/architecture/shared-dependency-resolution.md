@@ -221,7 +221,9 @@ The dev mode resolver uses a `PromiseStore` (see [PromiseStore section](#the-pro
 
 ## File generation: what gets written to disk and when
 
-Files are written lazily — not upfront, but when the alias resolver first encounters each shared dependency. This happens in the `customResolver` of Alias Set 1.
+In **dev mode**, files are pre-created eagerly by `createEarlyVirtualModulesPlugin` in the `config` hook — before Vite's dependency optimizer runs. This prevents 504 "Outdated Optimize Dep" errors that occur when new files are discovered mid-serve. The `proxyPreBuildShared` plugin's `configResolved` hook also re-creates them as a redundancy layer. Additionally, the alias `customResolver` in Alias Set 1 writes/updates the files on each encounter (idempotent due to `VirtualModule.writeSync()`'s `inited` check).
+
+In **build mode**, files are written when the alias resolver first encounters each shared dependency in the `customResolver` of Alias Set 1.
 
 ### The `__loadShare__` file
 
@@ -418,19 +420,20 @@ async function init(shared = {}, initScope = []) {
 The shared dependency system has the widest gap between dev and build behavior of any part of the plugin.
 
 ```
-                    Build mode                          Dev mode
-                    ──────────                          ────────
-Module format       ESM (import/export)                 CJS (require/module.exports)
-Top-level await     Native await keyword                Placeholder comment, later transformed
-__prebuild__        Alias returns package name          Alias uses PromiseStore + customResolver
-  resolution        (simple string replacement)         (async, caches resolved IDs)
-localSharedImportMap  Generated after parsePromise      Generated immediately (parsePromise
-  timing              resolves (all modules parsed)       resolves instantly in dev)
+                    Build mode                          Dev mode (Vite 5-7)         Dev mode (Vite 8+ / Rolldown)
+                    ──────────                          ───────────────────         ─────────────────────────────
+Module format       ESM (import/export)                 CJS (require/module.exports) ESM (import/export)
+Top-level await     Native await keyword                Placeholder comment          Native await keyword
+File creation       Lazy (on first alias hit)           Eager (config hook)          Eager (config hook)
+__prebuild__        Alias returns package name          Alias uses PromiseStore      Alias uses PromiseStore
+  resolution        (simple string replacement)         (async, caches resolved IDs) (async, caches resolved IDs)
+localSharedImportMap  Generated after parsePromise      Generated eagerly +          Generated eagerly +
+  timing              resolves (all modules parsed)       on alias hit                 on alias hit
 ```
 
-### Why CJS in dev mode?
+### Why CJS in dev mode? (Vite 5-7 only)
 
-The `__loadShare__` module needs to await the init promise before it can return the shared module. In build mode this uses a real `await`. In dev mode it can't — but the reason isn't simply "esbuild doesn't support top-level await" (it does, since ~0.14.39).
+The `__loadShare__` module needs to await the init promise before it can return the shared module. In build mode this uses a real `await`. In dev mode on Vite 5-7 it can't — but the reason isn't simply "esbuild doesn't support top-level await" (it does, since ~0.14.39).
 
 The real constraint is how Vite's dependency optimizer handles these virtual modules. In `src/index.ts`, the `module-federation-vite` plugin pushes the `__mf__virtual` directory into both `optimizeDeps.include` and `optimizeDeps.needsInterop`. The `needsInterop` flag tells Vite these modules need CJS/ESM interop wrappers — and those wrappers are synchronous. A top-level `await` in a module that Vite wraps with synchronous interop logic creates a conflict: the wrapper expects to synchronously access exports, but TLA makes the module asynchronous.
 
@@ -442,15 +445,16 @@ So the plugin works around this with a two-step pattern:
 2. Uses `require()` and `module.exports` so the interop wrappers work correctly
 3. After pre-bundling, `pluginDevProxyModuleTopLevelAwait` finds the placeholder during Vite's `transform` hook and rewrites the exports to properly await the promise
 
+**With Rolldown (Vite 8+):** When `this.meta.rolldownVersion` is detected, `useESM = true` even in dev mode. Rolldown supports top-level await natively, so virtual modules use ESM with real `await` — the same format as build mode. No CJS/placeholder workaround needed.
+
 The format branching happens in `writeLoadShareModule()` in `src/virtualModules/virtualShared_preBuild.ts`:
 
 ```js
-const isBuild = command === 'build';
-const importLine = isBuild
+const useESM = command === 'build' || isRolldown;
+const importLine = useESM
   ? `import { initPromise } from "${virtualRuntimeInitStatus.getImportId()}"`
   : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
-const awaitOrPlaceholder = isBuild ? 'await ' : '/*mf top-level-await placeholder replacement mf*/';
-const exportLine = isBuild ? 'export default exportModule' : 'module.exports = exportModule';
+const awaitOrPlaceholder = useESM ? 'await ' : '/*mf top-level-await placeholder replacement mf*/';
 ```
 
 ### The PromiseStore in dev mode
@@ -560,6 +564,47 @@ export default reactModule                export default reactModule.default
   'useState' is not                         __moduleExports.useState
   exported                                  → found
 ```
+
+### Named exports via `getPackageNamedExports`
+
+In addition to `syntheticNamedExports` (build mode), `writeLoadShareModule()` also generates explicit named exports by introspecting the package at build time using `createRequire`. The `getPackageNamedExports()` function requires the package and extracts all export keys (excluding `default` and `__esModule`):
+
+```js
+const namedExports = getPackageNamedExports('react');
+// → ['useState', 'useEffect', 'createElement', ...]
+```
+
+These are added to the loadShare module as explicit destructured exports:
+
+```js
+const { useState, useEffect, ... } = exportModule;
+export { useState, useEffect, ... };
+```
+
+This provides better static analysis and tree-shaking compared to relying solely on `syntheticNamedExports`.
+
+### `manualChunks`: isolating loadShare modules (build mode)
+
+The `module-federation-esm-shims` plugin configures `manualChunks` to force each loadShare module into its own chunk. Without this, Rollup may inline a loadShare module into its consumer chunk, preventing proper top-level-await barriers at chunk boundaries. CJS factories would then call the async init synchronously, causing "Cannot read properties of undefined" errors.
+
+```js
+output.manualChunks = function (id) {
+  if (id.includes(LOAD_SHARE_TAG)) {
+    const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
+    return match ? match[1] : 'loadShare';
+  }
+  // fall through to existing manualChunks config
+};
+```
+
+### `renderChunk`: injecting missing `await` calls (build mode)
+
+Even with separate chunks, Rollup's `__esmMin` one-shot async wrappers can be called synchronously by CJS interop patterns like `(initFn(), unwrap(namespace))`. The `renderChunk` hook scans consumer chunks for imported loadShare init functions that are called in this CJS pattern but not properly awaited:
+
+1. **Skip loadShare chunks** — never add TLA to loadShare chunks themselves, as they're imported by remoteEntry which resolves `initPromise`. Adding TLA would create a circular deadlock.
+2. **Find imported vars from loadShare chunks** — parse `import { fn } from "...__loadShare__..."` statements.
+3. **Detect CJS interop calls** — find `(fn(),` patterns (Rollup's `__commonJSMin` factory pattern).
+4. **Inject missing awaits** — add `await fn();` after the last existing `await` in the chunk.
 
 ### Why not use `'default'` as the syntheticNamedExports key?
 

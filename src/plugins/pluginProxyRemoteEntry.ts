@@ -26,6 +26,24 @@ export default function (): Plugin {
     config(config, { command }) {
       _command = command;
     },
+    async buildStart() {
+      // Emit each exposed module as a chunk entry so the bundler properly
+      // code-splits shared dependencies away from the main entry's side effects.
+      // Without this, the bundler may merge exposed modules into the main entry
+      // chunk, causing the host to execute the remote's bootstrap code (e.g.
+      // createApp().mount()) when loading an exposed component.
+      if (_command !== 'build') return;
+      const options = getNormalizeModuleFederationOptions();
+      for (const expose of Object.values(options.exposes)) {
+        const resolved = await this.resolve(expose.import);
+        if (resolved) {
+          this.emitFile({
+            type: 'chunk',
+            id: resolved.id,
+          });
+        }
+      }
+    },
     async resolveId(id: string, importer?: string) {
       if (id === REMOTE_ENTRY_ID) {
         return REMOTE_ENTRY_ID;
@@ -50,7 +68,7 @@ export default function (): Plugin {
       ) {
         const importPath =
           typeof __filename === 'string' ? __filename : fileURLToPath(import.meta.url);
-        const resolved = await this.resolve(id, __filename, { skipSelf: true });
+        const resolved = await this.resolve(id, importPath, { skipSelf: true });
         if (resolved) return resolved;
       }
     },

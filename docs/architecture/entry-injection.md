@@ -16,6 +16,7 @@
   - [URL rewriting middleware](#url-rewriting-middleware)
   - [HTML script injection](#html-script-injection)
   - [Edge case: SvelteKit compatibility](#edge-case-sveltekit-compatibility)
+  - [Vite 8 / Rolldown note](#vite-8--rolldown-note)
 - [Putting it all together: what ends up in the browser](#putting-it-all-together-what-ends-up-in-the-browser)
 
 ## What entry injection does
@@ -343,6 +344,12 @@ This detects SvelteKit's internal template file and injects the script tag there
 - Only runs for `inject: 'html'` mode
 - Only runs when no `htmlFilePath` was detected (no standard index.html)
 - Only matches SvelteKit's `.svelte-kit/*/internal.js` file
+
+### Vite 8 / Rolldown note
+
+Entry injection mechanics are unchanged in Rolldown/Vite 8+: `pluginAddEntry` still does the same two things in dev (`configureServer` URL rewrite for named entries and `transformIndexHtml` script injection for `inject: 'html'`) and the same `buildStart`/`transform`/`generateBundle` flow in build mode.
+
+The Vite 8+ changes in this plugin live elsewhere (virtual module format and shared/remote proxy behavior), not in how entries are emitted/injected.
 
 ## Putting it all together: what ends up in the browser
 

@@ -12,9 +12,8 @@ export default {
       config.optimizeDeps = {};
       optimizeDeps = config.optimizeDeps;
     }
-    // todo: fix this workaround
-    optimizeDeps.force = true;
     if (!optimizeDeps.include) optimizeDeps.include = [];
+    if (!optimizeDeps.exclude) optimizeDeps.exclude = [];
     if (!optimizeDeps.needsInterop) optimizeDeps.needsInterop = [];
   },
 };

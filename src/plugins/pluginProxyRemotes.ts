@@ -11,13 +11,14 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     name: 'proxyRemotes',
     config(config, { command: _command }) {
       command = _command;
+      const isRolldown = !!(this as any)?.meta?.rolldownVersion;
       Object.keys(remotes).forEach((key) => {
         const remote = remotes[key];
         (config.resolve as any).alias.push({
           find: new RegExp(`^(${remote.name}(\/.*|$))`),
           replacement: '$1',
           customResolver(source: string) {
-            const remoteModule = getRemoteVirtualModule(source, _command);
+            const remoteModule = getRemoteVirtualModule(source, _command, isRolldown);
             addUsedRemote(remote.name, source);
             return remoteModule.getPath();
           },
