@@ -11,12 +11,15 @@ This repo uses Changesets for versioning, and publishes to npm via GitHub Action
 3. Create a GitHub Release for the merge commit
    - Tag format: `<package.json version>` (example: `1.11.0`)
    - Stable: mark as a normal release
-   - Pre-release: mark as a prerelease; use a pre-id in the version (examples: `1.12.0-next.1`, `1.12.0-beta.1`, `1.12.0-alpha.1`)
+   - Pre-release: mark as a prerelease on the same stable tag (example: `1.12.0`)
 4. GitHub Actions publishes to npm
    - Workflow: `Publish (GitHub Release)` (`.github/workflows/publish-on-release.yml`)
    - Dist-tag:
-     - Release trigger: `latest` for stable releases; for prereleases it derives from the version (`next|beta|alpha`, default `next`)
+     - Release trigger: `latest` for stable releases; `next` for prereleases
      - Manual trigger (`workflow_dispatch`): `latest` or `next` from workflow input
+   - Pre-release versioning:
+     - On `prereleased` events, workflow patches `package.json` to `<base>-next.<N>` before publish.
+     - `<N>` increments from current npm `next` dist-tag when prefix matches, otherwise starts at `1`.
    - Existing version handling:
      - If the exact version is already on npm and already under the target dist-tag, publish is skipped (idempotent rerun).
      - If the version already exists but target dist-tag points elsewhere, workflow fails (no republish, no dist-tag promotion).
@@ -37,5 +40,4 @@ Use the `Publish (GitHub Release)` workflow with `Run workflow`:
   - repo: `module-federation/vite`
   - workflow: `.github/workflows/publish-on-release.yml`
   - environment: `publish`
-- Prerelease GitHub releases must use prerelease semver (example: `1.12.0-next.1`, not `1.12.0`).
-- Stable promotion is by publishing a new stable semver, not by retagging an already published version.
+- Promotion flow: prerelease publishes `-next.N`; stable release publishes base stable version to `latest`.

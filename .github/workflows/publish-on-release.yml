@@ -89,14 +89,30 @@ jobs:
             exit 1
           fi
 
-          # Trusted publishers cannot promote dist-tags without publishing.
-          # Enforce prerelease semver for prerelease events to avoid same-version republish failures.
-          if [ "${{ github.event.action }}" = "prereleased" ] && [[ "$PKG_VERSION" != *-* ]]; then
-            echo "Invalid prerelease version for prerelease event."
-            echo "Use a prerelease semver, e.g. 1.12.0-next.1 / 1.12.0-beta.1 / 1.12.0-alpha.1"
-            echo "Do not prerelease a plain stable version like: $PKG_VERSION"
-            exit 1
+      - name: Patch prerelease version with next tag
+        if: github.event_name == 'release' && github.event.action == 'prereleased'
+        shell: bash
+        run: |
+          PACKAGE_NAME="@module-federation/vite"
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          BASE_VERSION="${CURRENT_VERSION%%-*}"
+          CURRENT_NEXT="$(npm view "$PACKAGE_NAME" "dist-tags.next" --json 2>/dev/null || true)"
+          CURRENT_NEXT="${CURRENT_NEXT#\"}"
+          CURRENT_NEXT="${CURRENT_NEXT%\"}"
+          if [ "$CURRENT_NEXT" = "null" ]; then
+            CURRENT_NEXT=""
           fi
+
+          PREFIX_REGEX="^${BASE_VERSION//./\\.}-next\.([0-9]+)$"
+          if [[ "$CURRENT_NEXT" =~ $PREFIX_REGEX ]]; then
+            NEXT_NUMBER=$((BASH_REMATCH[1] + 1))
+          else
+            NEXT_NUMBER=1
+          fi
+
+          NEXT_VERSION="${BASE_VERSION}-next.${NEXT_NUMBER}"
+          npm pkg set version="$NEXT_VERSION"
+          echo "Set prerelease version: $NEXT_VERSION"
 
       - name: Build
         run: pnpm run build
@@ -111,14 +127,8 @@ jobs:
               DIST_TAG="next"
             fi
           else
-            TAG="${{ github.event.release.tag_name }}"
-            VERSION="$TAG"
-            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
-              if [[ "$VERSION" =~ -(alpha|beta|next|rc)($|\.) ]]; then
-                DIST_TAG="${BASH_REMATCH[1]}"
-              else
-                DIST_TAG="next"
-              fi
+            if [ "${{ github.event.action }}" = "prereleased" ]; then
+              DIST_TAG="next"
             fi
           fi
 
