@@ -10,27 +10,54 @@ import './index.css';
 import _ from 'lodash';
 _.VERSION;
 
-const ModuleRemoteProduct = lazy(
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function lazyWithRetry<T extends { default: React.ComponentType<any> }>(
+  importer: () => Promise<T>,
+  retries = 20,
+  delayMs = 500
+) {
+  return lazy(async () => {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await importer();
+      } catch (error) {
+        lastError = error;
+        if (attempt < retries) {
+          await sleep(delayMs);
+        }
+      }
+    }
+    throw lastError;
+  });
+}
+
+const ModuleRemoteProduct = lazyWithRetry(
   () =>
     // @ts-ignore
     import('moduleRemote/Product')
 );
-const VarRemotePurchasesCount = lazy(
+
+const VarRemotePurchasesCount = lazyWithRetry(
   () =>
     // @ts-ignore
     import('remote/PurchasesCount')
 );
-const RspackReviews = lazy(
+
+const RspackReviews = lazyWithRetry(
   () =>
     // @ts-ignore
     import('rspack/Reviews')
 );
-const WebpackRelated = lazy(
+
+const WebpackRelated = lazyWithRetry(
   () =>
     // @ts-ignore
     import('webpack/Related')
 );
-const TestsScreen = lazy(
+
+const TestsScreen = lazyWithRetry(
   () =>
     // @ts-ignore
     import('testsRemote/TestsScreen')
