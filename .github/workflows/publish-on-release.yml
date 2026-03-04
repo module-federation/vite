@@ -89,6 +89,15 @@ jobs:
             exit 1
           fi
 
+          # Trusted publishers cannot promote dist-tags without publishing.
+          # Enforce prerelease semver for prerelease events to avoid same-version republish failures.
+          if [ "${{ github.event.action }}" = "prereleased" ] && [[ "$PKG_VERSION" != *-* ]]; then
+            echo "Invalid prerelease version for prerelease event."
+            echo "Use a prerelease semver, e.g. 1.12.0-next.1 / 1.12.0-beta.1 / 1.12.0-alpha.1"
+            echo "Do not prerelease a plain stable version like: $PKG_VERSION"
+            exit 1
+          fi
+
       - name: Build
         run: pnpm run build
 
@@ -115,8 +124,56 @@ jobs:
 
           echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve publish action
+        id: publish_action
+        shell: bash
+        run: |
+          PACKAGE_NAME="@module-federation/vite"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          DIST_TAG="${{ steps.dist.outputs.dist_tag }}"
+          ACTION="publish"
+          REASON="new version not yet on npm"
+
+          EXISTING_VERSION="$(npm view "$PACKAGE_NAME@$PKG_VERSION" version --json 2>/dev/null || true)"
+          EXISTING_VERSION="${EXISTING_VERSION#\"}"
+          EXISTING_VERSION="${EXISTING_VERSION%\"}"
+
+          if [ "$EXISTING_VERSION" = "$PKG_VERSION" ]; then
+            CURRENT_TAG_VERSION="$(npm view "$PACKAGE_NAME" "dist-tags.$DIST_TAG" --json 2>/dev/null || true)"
+            CURRENT_TAG_VERSION="${CURRENT_TAG_VERSION#\"}"
+            CURRENT_TAG_VERSION="${CURRENT_TAG_VERSION%\"}"
+            if [ "$CURRENT_TAG_VERSION" = "null" ]; then
+              CURRENT_TAG_VERSION=""
+            fi
+
+            if [ "$CURRENT_TAG_VERSION" = "$PKG_VERSION" ]; then
+              ACTION="skip"
+              REASON="version already published and dist-tag already points to it"
+            else
+              echo "Refusing to republish existing npm version:"
+              echo "Package: $PACKAGE_NAME"
+              echo "Version: $PKG_VERSION"
+              echo "Target dist-tag: $DIST_TAG"
+              echo "Current '$DIST_TAG' dist-tag points to: ${CURRENT_TAG_VERSION:-<unset>}"
+              echo ""
+              echo "Trusted Publishers do not support dist-tag promotion without publishing."
+              echo "Use a new semver version for this release flow."
+              exit 1
+            fi
+          fi
+
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+
       - name: Publish to npm
+        if: steps.publish_action.outputs.action == 'publish'
         run: npm publish --provenance --tag "${{ steps.dist.outputs.dist_tag }}" --access public
+
+      - name: Skip npm publish
+        if: steps.publish_action.outputs.action == 'skip'
+        run: |
+          echo "Skipping npm publish:"
+          echo "${{ steps.publish_action.outputs.reason }}"
 
       - name: Post summary
         if: always()
@@ -129,5 +186,7 @@ jobs:
           echo "Package: \`@module-federation/vite\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Version: \`$PKG_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Dist-tag: \`${{ steps.dist.outputs.dist_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Action: \`${{ steps.publish_action.outputs.action || 'unknown' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Reason: \`${{ steps.publish_action.outputs.reason || 'n/a' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Trigger: \`${{ github.event_name }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Source ref: \`$SOURCE_REF\`" >> "$GITHUB_STEP_SUMMARY"

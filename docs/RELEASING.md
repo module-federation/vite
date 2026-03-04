@@ -17,6 +17,10 @@ This repo uses Changesets for versioning, and publishes to npm via GitHub Action
    - Dist-tag:
      - Release trigger: `latest` for stable releases; for prereleases it derives from the version (`next|beta|alpha`, default `next`)
      - Manual trigger (`workflow_dispatch`): `latest` or `next` from workflow input
+   - Existing version handling:
+     - If the exact version is already on npm and already under the target dist-tag, publish is skipped (idempotent rerun).
+     - If the version already exists but target dist-tag points elsewhere, workflow fails (no republish, no dist-tag promotion).
+     - Trusted Publishers (OIDC) do not support dist-tag promotion (`npm dist-tag add`) without publishing.
    - Uses npm trusted publishing (OIDC + provenance)
 
 ## Manual Publish (No GitHub Release)
@@ -33,3 +37,5 @@ Use the `Publish (GitHub Release)` workflow with `Run workflow`:
   - repo: `module-federation/vite`
   - workflow: `.github/workflows/publish-on-release.yml`
   - environment: `publish`
+- Prerelease GitHub releases must use prerelease semver (example: `1.12.0-next.1`, not `1.12.0`).
+- Stable promotion is by publishing a new stable semver, not by retagging an already published version.
