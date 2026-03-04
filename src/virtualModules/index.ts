@@ -9,13 +9,12 @@ export {
   getHostAutoInitPath,
   getLocalSharedImportMapPath,
   getUsedShares,
-  REMOTE_ENTRY_ID,
+  getRemoteEntryId,
   writeLocalSharedImportMap,
 } from './virtualRemoteEntry';
 
 export {
   addUsedRemote,
-  generateRemotes,
   getRemoteVirtualModule,
   getUsedRemotesMap,
   LOAD_REMOTE_TAG,
@@ -30,12 +29,10 @@ export {
   writePreBuildLibPath,
 } from './virtualShared_preBuild';
 
-export { generateExposes, VIRTUAL_EXPOSES } from './virtualExposes';
+export { generateExposes } from './virtualExposes';
 
-export { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
-
-export function initVirtualModules(command: string) {
+export function initVirtualModules(command: string, remoteEntryId?: string) {
   writeLocalSharedImportMap();
-  writeHostAutoInit();
+  writeHostAutoInit(remoteEntryId);
   writeRuntimeInitStatus(command);
 }

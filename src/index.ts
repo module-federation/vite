@@ -26,10 +26,10 @@ import {
   initVirtualModules,
   LOAD_REMOTE_TAG,
   LOAD_SHARE_TAG,
-  REMOTE_ENTRY_ID,
+  getRemoteEntryId,
   writeLocalSharedImportMap,
 } from './virtualModules';
-import { VIRTUAL_EXPOSES } from './virtualModules/virtualExposes';
+import { getVirtualExposesId } from './virtualModules/virtualExposes';
 import {
   writeLoadShareModule,
   writePreBuildLibPath,
@@ -65,7 +65,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       VirtualModule.ensureVirtualPackageExists();
 
       // Create core virtual modules
-      initVirtualModules(_command);
+      initVirtualModules(_command, getRemoteEntryId(options));
 
       // Eagerly register configured remotes so they are available
       // when localSharedImportMap is loaded during dev (race condition fix)
@@ -105,6 +105,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const { name, remotes, shared, filename, hostInitInjectLocation } = options;
   if (!name) throw new Error('name is required');
 
+  const remoteEntryId = getRemoteEntryId(options);
+  const virtualExposesId = getVirtualExposesId(options);
+
   let command: string;
 
   return [
@@ -121,7 +124,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         VirtualModule.setRoot(config.root);
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
-        initVirtualModules(command);
+        initVirtualModules(command, remoteEntryId);
       },
     },
     aliasToArrayPlugin,
@@ -130,7 +133,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     ...pluginDts(options),
     ...addEntry({
       entryName: 'remoteEntry',
-      entryPath: REMOTE_ENTRY_ID,
+      entryPath: remoteEntryId,
       fileName: filename,
     }),
     ...addEntry({
@@ -140,21 +143,22 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     }),
     ...addEntry({
       entryName: 'virtualExposes',
-      entryPath: VIRTUAL_EXPOSES,
+      entryPath: virtualExposesId,
     }),
-    pluginProxyRemoteEntry(),
+    pluginProxyRemoteEntry({ options, remoteEntryId, virtualExposesId }),
     pluginProxyRemotes(options),
     ...pluginModuleParseEnd(
       (id: string) => {
         return (
           id.includes(getHostAutoInitImportId()) ||
-          id.includes(REMOTE_ENTRY_ID) ||
-          id.includes(VIRTUAL_EXPOSES) ||
+          id.includes(remoteEntryId) ||
+          id.includes(virtualExposesId) ||
           id.includes(getLocalSharedImportMapPath())
         );
       },
       {
         moduleParseTimeout: options.moduleParseTimeout,
+        virtualExposesId,
       }
     ),
     ...proxySharedModule({

@@ -9,7 +9,7 @@ import {
 } from '../utils/normalizeModuleFederationOptions';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
 import VirtualModule from '../utils/VirtualModule';
-import { VIRTUAL_EXPOSES } from './virtualExposes';
+import { getVirtualExposesId } from './virtualExposes';
 import { getUsedRemotesMap } from './virtualRemotes';
 import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 import { getPreBuildLibImportId } from './virtualShared_preBuild';
@@ -123,8 +123,18 @@ export function generateLocalSharedImportMap() {
       `;
 }
 
-export const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
-export function generateRemoteEntry(options: NormalizedModuleFederationOptions): string {
+const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
+
+export function getRemoteEntryId(
+  options: Pick<NormalizedModuleFederationOptions, 'name' | 'filename'>
+) {
+  const scopedKey = `${options.name}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `${REMOTE_ENTRY_ID}:${scopedKey}`;
+}
+export function generateRemoteEntry(
+  options: NormalizedModuleFederationOptions,
+  virtualExposesId = getVirtualExposesId(options)
+): string {
   const pluginImportNames = options.runtimePlugins.map((p, i) => {
     if (typeof p === 'string') {
       return [`$runtimePlugin_${i}`, `import $runtimePlugin_${i} from "${p}";`, `undefined`];
@@ -140,7 +150,7 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
   return `
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
   ${pluginImportNames.map((item) => item[1]).join('\n')}
-  import exposesMap from "${VIRTUAL_EXPOSES}"
+  import exposesMap from "${virtualExposesId}"
   import {usedShared, usedRemotes} from "${getLocalSharedImportMapPath()}"
   import {
     initResolve
@@ -193,9 +203,9 @@ export function generateRemoteEntry(options: NormalizedModuleFederationOptions):
  */
 export const HOST_AUTO_INIT_TAG = '__H_A_I__';
 const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG);
-export function writeHostAutoInit() {
+export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID) {
   hostAutoInitModule.writeSync(`
-    const remoteEntryPromise = import("${REMOTE_ENTRY_ID}")
+    const remoteEntryPromise = import("${remoteEntryId}")
     // __tla only serves as a hack for vite-plugin-top-level-await.
     Promise.resolve(remoteEntryPromise)
       .then(remoteEntry => {

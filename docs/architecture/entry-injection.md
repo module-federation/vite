@@ -48,9 +48,10 @@ In `src/index.ts`, `addEntry` is called three times with different options:
 
 ```js
 // 1. remoteEntry — the file other apps fetch
+const remoteEntryId = getRemoteEntryId(options); // e.g. 'virtual:mf-REMOTE_ENTRY_ID:shop__remoteEntry_js'
 ...addEntry({
   entryName: 'remoteEntry',
-  entryPath: REMOTE_ENTRY_ID,          // 'virtual:mf-REMOTE_ENTRY_ID'
+  entryPath: remoteEntryId,
   fileName: filename,                   // e.g. 'remoteEntry-[hash]'
 })
 
@@ -62,9 +63,10 @@ In `src/index.ts`, `addEntry` is called three times with different options:
 })
 
 // 3. virtualExposes — the exposed modules map
+const virtualExposesId = getVirtualExposesId(options); // e.g. 'virtual:mf-exposes:shop__remoteEntry_js'
 ...addEntry({
   entryName: 'virtualExposes',
-  entryPath: VIRTUAL_EXPOSES,           // 'virtual:mf-exposes'
+  entryPath: virtualExposesId,
 })
 ```
 
@@ -291,7 +293,7 @@ configureServer(server) {
   server.middlewares.use((req, res, next) => {
     if (!fileName) { next(); return; }
     if (req.url.startsWith((viteConfig.base + fileName).replace(/^\/?/, '/'))) {
-      req.url = devEntryPath;  // e.g. '/@id/virtual:mf-REMOTE_ENTRY_ID'
+      req.url = devEntryPath;  // e.g. '/@id/virtual:mf-REMOTE_ENTRY_ID:shop__remoteEntry_js'
     }
     next();
   });
@@ -374,7 +376,7 @@ Here's the complete picture for each invocation, in both modes:
 │  Result: Runs before any app code, imports remoteEntry, calls init()          │
 │                                                                               │
 │  Generated hostInit file contents:                                            │
-│    const remoteEntryPromise = import("virtual:mf-REMOTE_ENTRY_ID")            │
+│    const remoteEntryPromise = import("virtual:mf-REMOTE_ENTRY_ID:<scope>")    │
 │    Promise.resolve(remoteEntryPromise)                                        │
 │      .then(remoteEntry => {                                                   │
 │        return Promise.resolve(remoteEntry.__tla)                              │
