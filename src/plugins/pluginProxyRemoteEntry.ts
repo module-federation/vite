@@ -2,20 +2,24 @@ import { createFilter } from '@rollup/pluginutils';
 import { fileURLToPath } from 'url';
 import { Plugin } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
-import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { resolvePublicPath } from '../utils/publicPath';
-import {
-  generateExposes,
-  generateRemoteEntry,
-  getHostAutoInitPath,
-  REMOTE_ENTRY_ID,
-  VIRTUAL_EXPOSES,
-} from '../virtualModules';
+import { generateExposes, generateRemoteEntry, getHostAutoInitPath } from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
 
 const filter: (id: string) => boolean = createFilter();
 
-export default function (): Plugin {
+interface ProxyRemoteEntryParams {
+  options: NormalizedModuleFederationOptions;
+  remoteEntryId: string;
+  virtualExposesId: string;
+}
+
+export default function ({
+  options,
+  remoteEntryId,
+  virtualExposesId,
+}: ProxyRemoteEntryParams): Plugin {
   let viteConfig: any, _command: string;
   return {
     name: 'proxyRemoteEntry',
@@ -33,7 +37,6 @@ export default function (): Plugin {
       // chunk, causing the host to execute the remote's bootstrap code (e.g.
       // createApp().mount()) when loading an exposed component.
       if (_command !== 'build') return;
-      const options = getNormalizeModuleFederationOptions();
       for (const expose of Object.values(options.exposes)) {
         const resolved = await this.resolve(expose.import);
         if (resolved) {
@@ -45,11 +48,11 @@ export default function (): Plugin {
       }
     },
     async resolveId(id: string, importer?: string) {
-      if (id === REMOTE_ENTRY_ID) {
-        return REMOTE_ENTRY_ID;
+      if (id === remoteEntryId) {
+        return remoteEntryId;
       }
-      if (id === VIRTUAL_EXPOSES) {
-        return VIRTUAL_EXPOSES;
+      if (id === virtualExposesId) {
+        return virtualExposesId;
       }
       if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
         return id;
@@ -60,7 +63,7 @@ export default function (): Plugin {
       // managers (pnpm) because it is a transitive dependency.  Re-resolve from
       // this package's location so Vite uses the correct ESM entry point.
       if (
-        importer === REMOTE_ENTRY_ID &&
+        importer === remoteEntryId &&
         !id.startsWith('.') &&
         !id.startsWith('/') &&
         !id.startsWith('\0') &&
@@ -73,11 +76,11 @@ export default function (): Plugin {
       }
     },
     load(id: string) {
-      if (id === REMOTE_ENTRY_ID) {
-        return parsePromise.then((_) => generateRemoteEntry(getNormalizeModuleFederationOptions()));
+      if (id === remoteEntryId) {
+        return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId));
       }
-      if (id === VIRTUAL_EXPOSES) {
-        return generateExposes();
+      if (id === virtualExposesId) {
+        return generateExposes(options);
       }
       if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
         return id;
@@ -86,16 +89,13 @@ export default function (): Plugin {
     transform(code: string, id: string) {
       const transformedCode = (() => {
         if (!filter(id)) return;
-        if (id.includes(REMOTE_ENTRY_ID)) {
-          return parsePromise.then((_) =>
-            generateRemoteEntry(getNormalizeModuleFederationOptions())
-          );
+        if (id.includes(remoteEntryId)) {
+          return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId));
         }
-        if (id === VIRTUAL_EXPOSES) {
-          return generateExposes();
+        if (id === virtualExposesId) {
+          return generateExposes(options);
         }
         if (id.includes(getHostAutoInitPath())) {
-          const options = getNormalizeModuleFederationOptions();
           if (_command === 'serve') {
             const host =
               typeof viteConfig.server?.host === 'string' && viteConfig.server.host !== '0.0.0.0'

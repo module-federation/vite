@@ -1,8 +1,13 @@
-import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
-export const VIRTUAL_EXPOSES = 'virtual:mf-exposes';
-export function generateExposes() {
-  const options = getNormalizeModuleFederationOptions();
+export function getVirtualExposesId(
+  options: Pick<NormalizedModuleFederationOptions, 'name' | 'filename'>
+) {
+  const scopedKey = `${options.name}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `virtual:mf-exposes:${scopedKey}`;
+}
+
+export function generateExposes(options: NormalizedModuleFederationOptions) {
   return `
     export default {
     ${Object.keys(options.exposes)

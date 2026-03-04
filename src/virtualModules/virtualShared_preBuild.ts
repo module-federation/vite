@@ -101,7 +101,7 @@ export function writeLoadShareModule(
         requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
       }}
     }))
-    const exportModule = ${awaitOrPlaceholder}res.then(factory => factory())
+    const exportModule = ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))
     ${exportLine}
   `);
 }
