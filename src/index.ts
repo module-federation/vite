@@ -158,6 +158,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       },
       {
         moduleParseTimeout: options.moduleParseTimeout,
+        moduleParseIdleTimeout: options.moduleParseIdleTimeout,
         virtualExposesId,
       }
     ),
