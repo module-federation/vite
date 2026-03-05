@@ -19,13 +19,15 @@ const promise = new Promise((resolve, reject) => {
   };
 });
 
-function setParseTimeout(timeout: number) {
-  if (!_parseTimeout) {
-    _parseTimeout = setTimeout(() => {
-      console.warn(`Parse timeout (${timeout}s) - forcing resolve`);
-      _resolve(1);
-    }, timeout * 1000);
-  }
+function resetIdleTimeout(timeout: number) {
+  clearTimeout(_parseTimeout);
+  _parseTimeout = setTimeout(() => {
+    console.warn(
+      `moduleParseTimeout: no module activity for ${timeout}s, forcing resolve. ` +
+        'Some shared/remote dependencies may be missing. Consider increasing moduleParseTimeout.'
+    );
+    _resolve(1);
+  }, timeout * 1000);
 }
 
 let parsePromise = promise;
@@ -40,7 +42,7 @@ interface ModuleParseOptions {
 }
 
 export default function (excludeFn: Function, options: ModuleParseOptions): Plugin[] {
-  setParseTimeout(options.moduleParseTimeout);
+  const idleTimeout = options.moduleParseTimeout;
   return [
     {
       name: '_',
@@ -54,6 +56,9 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       enforce: 'pre',
       name: 'parseStart',
       apply: 'build',
+      buildStart() {
+        resetIdleTimeout(idleTimeout);
+      },
       load(id) {
         if (excludeFn(id)) {
           return;
@@ -71,6 +76,8 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
           // When the entry JS file is empty and only contains exposes export code, it’s necessary to wait for the exposes modules to be resolved in order to collect the dependencies being used.
           exposesParseEnd = true;
         }
+        // Reset idle timer on every module — any activity means the build is still progressing.
+        resetIdleTimeout(idleTimeout);
         if (excludeFn(id)) {
           return;
         }
