@@ -2,9 +2,17 @@
  * Solve the problem that dev mode dependency prebunding does not support top-level await syntax
  */
 import { createFilter } from '@rollup/pluginutils';
-import { walk } from 'estree-walker';
 import MagicString from 'magic-string';
 import { Plugin } from 'vite';
+
+type Walk = typeof import('estree-walker').walk;
+
+let walkPromise: Promise<Walk> | null = null;
+
+function loadWalk(): Promise<Walk> {
+  walkPromise ||= import('estree-walker').then(({ walk }) => walk);
+  return walkPromise;
+}
 
 export function PluginDevProxyModuleTopLevelAwait(): Plugin {
   const filterFunction = createFilter();
@@ -13,7 +21,7 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
   return {
     name: 'dev-proxy-module-top-level-await',
     apply: 'serve',
-    transform(code: string, id: string): { code: string; map: any } | null {
+    async transform(code: string, id: string): Promise<{ code: string; map: any } | null> {
       if (code.includes(processedFlag)) {
         return null;
       }
@@ -31,6 +39,7 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
       }
 
       const magicString = new MagicString(code);
+      const walk = await loadWalk();
 
       walk(ast, {
         enter(node: any) {
