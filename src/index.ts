@@ -14,8 +14,8 @@ import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import {
   ModuleFederationOptions,
-  normalizeModuleFederationOptions,
   NormalizedModuleFederationOptions,
+  normalizeModuleFederationOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
@@ -23,22 +23,22 @@ import {
   getHostAutoInitImportId,
   getHostAutoInitPath,
   getLocalSharedImportMapPath,
+  getRemoteEntryId,
   initVirtualModules,
   LOAD_REMOTE_TAG,
   LOAD_SHARE_TAG,
-  getRemoteEntryId,
   writeLocalSharedImportMap,
 } from './virtualModules';
 import { getVirtualExposesId } from './virtualModules/virtualExposes';
-import {
-  writeLoadShareModule,
-  writePreBuildLibPath,
-  getLoadShareModulePath,
-  getPreBuildLibImportId,
-} from './virtualModules/virtualShared_preBuild';
 import { addUsedShares } from './virtualModules/virtualRemoteEntry';
 import { addUsedRemote } from './virtualModules/virtualRemotes';
 import { virtualRuntimeInitStatus } from './virtualModules/virtualRuntimeInitStatus';
+import {
+  getLoadShareModulePath,
+  getPreBuildLibImportId,
+  writeLoadShareModule,
+  writePreBuildLibPath,
+} from './virtualModules/virtualShared_preBuild';
 
 /**
  * Plugin that runs FIRST to create virtual module files in the config hook.
@@ -138,7 +138,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     }),
     ...addEntry({
       entryName: 'hostInit',
-      entryPath: getHostAutoInitPath(),
+      entryPath: () => getHostAutoInitPath(),
       inject: hostInitInjectLocation,
     }),
     ...addEntry({
@@ -339,7 +339,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             const fullImport = importMatch[0];
             const bindings = importMatch[1].split(',').map((s) => {
               const parts = s.trim().split(/\s+as\s+/);
-              return { imported: parts[0].trim(), local: (parts[1] || parts[0]).trim() };
+              return {
+                imported: parts[0].trim(),
+                local: (parts[1] || parts[0]).trim(),
+              };
             });
 
             // Parse the proxy chunk's export map: export{s as a, u as g, f as r}
@@ -489,15 +492,34 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           },
         });
         const virtualDir = options.virtualModuleDir || '__mf__virtual';
-        config.optimizeDeps?.include?.push('@module-federation/runtime');
-        config.optimizeDeps?.include?.push(virtualDir);
+        config.optimizeDeps ||= {};
+        config.optimizeDeps.include ||= [];
+        config.optimizeDeps.include.push('@module-federation/runtime');
+        config.optimizeDeps.include.push(virtualDir);
+
+        // Add all runtime plugins to optimizeDeps to prevent 504 re-optimization
+        options.runtimePlugins.forEach((p) => {
+          const pluginPath = typeof p === 'string' ? p : p[0];
+          // Only add bare imports to optimizeDeps
+          if (
+            pluginPath &&
+            !pluginPath.startsWith('.') &&
+            !pluginPath.startsWith('/') &&
+            !pluginPath.startsWith('\0') &&
+            !pluginPath.startsWith('virtual:')
+          ) {
+            config.optimizeDeps!.include!.push(pluginPath);
+          }
+        });
+
         if (isRolldown) {
           // Vite 8+ / rolldown-vite: virtual modules use ESM, set target for top-level await
           config.build = defu(config.build || {}, { target: 'esnext' });
         } else {
           // Vite 5-7: virtual modules use CJS for dev, need interop
-          config.optimizeDeps?.needsInterop?.push(virtualDir);
-          config.optimizeDeps?.needsInterop?.push(getLocalSharedImportMapPath());
+          config.optimizeDeps.needsInterop ||= [];
+          config.optimizeDeps.needsInterop.push(virtualDir);
+          config.optimizeDeps.needsInterop.push(getLocalSharedImportMapPath());
         }
 
         // Resolve target: explicit option > SSR detection > 'web'
