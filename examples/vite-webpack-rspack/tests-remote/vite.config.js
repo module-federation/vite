@@ -19,6 +19,7 @@ export default defineConfig({
         "./TestsScreen": "./src/TestsScreen.jsx",
       },
       shared: dependencies,
+      dts: false,
     }),
   ],
   server: {
