@@ -15,17 +15,15 @@ export function initVirtualModuleInfrastructure(
   const nodeModulesPath = join(root, 'node_modules');
   const virtualPackagePath = join(nodeModulesPath, virtualModuleDir);
 
-  if (!existsSync(virtualPackagePath)) {
-    mkdirSync(virtualPackagePath, { recursive: true });
-    writeFileSync(join(virtualPackagePath, 'empty.js'), '');
-    writeFileSync(
-      join(virtualPackagePath, 'package.json'),
-      JSON.stringify({
-        name: virtualModuleDir,
-        main: 'empty.js',
-      })
-    );
-  }
+  mkdirSync(virtualPackagePath, { recursive: true });
+  writeFileSync(join(virtualPackagePath, 'empty.js'), '');
+  writeFileSync(
+    join(virtualPackagePath, 'package.json'),
+    JSON.stringify({
+      name: virtualModuleDir,
+      main: 'empty.js',
+    })
+  );
 }
 
 // Cache root path
@@ -113,17 +111,15 @@ export default class VirtualModule {
     const { virtualModuleDir } = getNormalizeModuleFederationOptions();
     const virtualPackagePath = resolve(nodeModulesDir, virtualModuleDir);
 
-    if (!existsSync(virtualPackagePath)) {
-      mkdirSync(virtualPackagePath);
-      writeFileSync(resolve(virtualPackagePath, 'empty.js'), '');
-      writeFileSync(
-        resolve(virtualPackagePath, 'package.json'),
-        JSON.stringify({
-          name: virtualModuleDir,
-          main: 'empty.js',
-        })
-      );
-    }
+    mkdirSync(virtualPackagePath, { recursive: true });
+    writeFileSync(resolve(virtualPackagePath, 'empty.js'), '');
+    writeFileSync(
+      resolve(virtualPackagePath, 'package.json'),
+      JSON.stringify({
+        name: virtualModuleDir,
+        main: 'empty.js',
+      })
+    );
   }
 
   static findModule(tag: string, str: string = ''): VirtualModule | undefined {
