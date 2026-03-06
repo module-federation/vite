@@ -7,7 +7,7 @@ import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFeder
 
 interface AddEntryOptions {
   entryName: string;
-  entryPath: string;
+  entryPath: string | (() => string);
   fileName?: string;
   inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
 }
@@ -22,7 +22,8 @@ const addEntry = ({
   fileName,
   inject = 'entry',
 }: AddEntryOptions): Plugin[] => {
-  let devEntryPath = entryPath.startsWith('virtual:mf') ? '@id/' + entryPath : entryPath;
+  const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
+  let devEntryPath = '';
   let entryFiles: string[] = [];
   let htmlFilePath: string | undefined;
   let _command: string;
@@ -46,6 +47,10 @@ const addEntry = ({
       },
       configResolved(config) {
         viteConfig = config;
+        const resolvedEntryPath = getEntryPath();
+        devEntryPath = resolvedEntryPath.startsWith('virtual:mf')
+          ? '@id/' + resolvedEntryPath
+          : resolvedEntryPath;
         devEntryPath =
           config.base +
           devEntryPath
@@ -115,7 +120,7 @@ const addEntry = ({
         const emitFileOptions: any = {
           name: entryName,
           type: 'chunk',
-          id: entryPath,
+          id: getEntryPath(),
           preserveSignature: 'strict',
         };
         if (!hasHash) {
@@ -191,7 +196,7 @@ const addEntry = ({
       transform(code, id) {
         if (injectEntry() && entryFiles.some((file) => id.endsWith(file))) {
           const injection = `
-          import ${JSON.stringify(entryPath)};
+          import ${JSON.stringify(getEntryPath())};
           `;
           return mapCodeToCodeWithSourcemap(injection + code);
         }
