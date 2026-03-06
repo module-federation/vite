@@ -124,6 +124,12 @@ export default defineConfig({
       // Timeout for parsing modules in seconds.
       // Defaults to 10 seconds.
       moduleParseTimeout: 10,
+      // Idle timeout for parsing modules in seconds. When set, the timeout
+      // resets on every parsed module and only fires when there has been no
+      // module activity for the configured duration. Prefer this over
+      // moduleParseTimeout for large codebases where total build time may
+      // exceed the fixed timeout value.
+      moduleParseIdleTimeout: 10,
     }),
   ],
   server: {
@@ -141,6 +147,7 @@ export default defineConfig({
 The host app configuration specifies its name, the filename of its exposed remote entry remoteEntry.js, and importantly, the configuration of the remote application to load.
 You can specify the place the host initialization file is injected with the **hostInitInjectLocation** option, which is described in the example code above.
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
+The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
 
 ## Load the Remote App
 

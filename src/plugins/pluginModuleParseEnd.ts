@@ -28,6 +28,17 @@ function setParseTimeout(timeout: number) {
   }
 }
 
+function resetIdleTimeout(timeout: number) {
+  clearTimeout(_parseTimeout);
+  _parseTimeout = setTimeout(() => {
+    console.warn(
+      `moduleParseIdleTimeout: no module activity for ${timeout}s, forcing resolve. ` +
+        'Some shared/remote dependencies may be missing. Consider increasing moduleParseIdleTimeout.'
+    );
+    _resolve(1);
+  }, timeout * 1000);
+}
+
 let parsePromise = promise;
 let exposesParseEnd = false;
 
@@ -36,11 +47,12 @@ const parseEndSet = new Set();
 
 interface ModuleParseOptions {
   moduleParseTimeout: number;
+  moduleParseIdleTimeout?: number;
   virtualExposesId: string;
 }
 
 export default function (excludeFn: Function, options: ModuleParseOptions): Plugin[] {
-  setParseTimeout(options.moduleParseTimeout);
+  const idleTimeout = options.moduleParseIdleTimeout;
   return [
     {
       name: '_',
@@ -54,6 +66,13 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       enforce: 'pre',
       name: 'parseStart',
       apply: 'build',
+      buildStart() {
+        if (idleTimeout) {
+          resetIdleTimeout(idleTimeout);
+        } else {
+          setParseTimeout(options.moduleParseTimeout);
+        }
+      },
       load(id) {
         if (excludeFn(id)) {
           return;
@@ -70,6 +89,10 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
         if (id === options.virtualExposesId) {
           // When the entry JS file is empty and only contains exposes export code, it’s necessary to wait for the exposes modules to be resolved in order to collect the dependencies being used.
           exposesParseEnd = true;
+        }
+        if (idleTimeout) {
+          // Reset idle timer on every module — any activity means the build is still progressing.
+          resetIdleTimeout(idleTimeout);
         }
         if (excludeFn(id)) {
           return;

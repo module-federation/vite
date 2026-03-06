@@ -323,6 +323,13 @@ export type ModuleFederationOptions = {
    */
   moduleParseTimeout?: number;
   /**
+   * Idle timeout for parsing modules in seconds. When set, the timeout resets
+   * on every parsed module and only fires when there has been no module activity
+   * for the configured duration. Prefer this over `moduleParseTimeout` for large
+   * codebases where the total build time may exceed the fixed timeout.
+   */
+  moduleParseIdleTimeout?: number;
+  /**
    * Allows generate additional remoteEntry file for "var" host environment
    */
   varFilename?: string;
@@ -354,6 +361,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
   hostInitInjectLocation: HostInitInjectLocationOptions;
   bundleAllCSS: boolean;
   moduleParseTimeout: number;
+  moduleParseIdleTimeout?: number;
 }
 
 type HostInitInjectLocationOptions = 'entry' | 'html';
@@ -466,6 +474,7 @@ export function normalizeModuleFederationOptions(
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
     bundleAllCSS: options.bundleAllCSS || false,
     moduleParseTimeout: options.moduleParseTimeout || 10,
+    moduleParseIdleTimeout: options.moduleParseIdleTimeout,
     varFilename: options.varFilename,
     target: options.target,
   });
