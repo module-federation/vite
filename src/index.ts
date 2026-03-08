@@ -497,6 +497,17 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         config.optimizeDeps.include.push('@module-federation/runtime');
         config.optimizeDeps.include.push(virtualDir);
 
+        // Prevent Vite from externalizing virtual modules during SSR.
+        // Files in node_modules/__mf__virtual/ contain `import("virtual:...")`
+        // which Node's native ESM loader cannot resolve. By marking them as
+        // non-external, Vite processes them through its plugin pipeline
+        // (resolveId/load hooks) so `virtual:` imports are handled correctly.
+        config.ssr ||= {};
+        config.ssr.noExternal ||= [];
+        if (Array.isArray(config.ssr.noExternal)) {
+          config.ssr.noExternal.push(virtualDir);
+        }
+
         // Add all runtime plugins to optimizeDeps to prevent 504 re-optimization
         options.runtimePlugins.forEach((p) => {
           const pluginPath = typeof p === 'string' ? p : p[0];
