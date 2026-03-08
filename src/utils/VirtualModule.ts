@@ -153,10 +153,14 @@ export default class VirtualModule {
     if (!this.inited) {
       this.inited = true;
     }
-    writeFileSync(this.getPath(), code);
+    const path = this.getPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, code);
   }
 
   write(code: string) {
-    writeFile(this.getPath(), code, function () {});
+    const path = this.getPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFile(path, code, function () {});
   }
 }
