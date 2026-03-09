@@ -1,5 +1,5 @@
 packages:
-  - 'examples/*/*'
-  - '.github/publish-ci/*'
-  - 'integration/fixtures/**/vendor/*'
-  - '.'
+  - "examples/*/*"
+  - ".github/publish-ci/*"
+  - "integration/fixtures/**/vendor/*"
+  - "."

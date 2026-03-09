@@ -105,14 +105,16 @@ export default function ({
               resolvePublicPath(options, viteConfig.base) + options.filename
             );
             return `
-          const origin = (window && ${!options.ignoreOrigin}) ? window.origin : "//${host}:${viteConfig.server?.port}"
-          const remoteEntryPromise = await import(origin + ${publicPath})
-          // __tla only serves as a hack for vite-plugin-top-level-await.
-          Promise.resolve(remoteEntryPromise)
-          .then(remoteEntry => {
-            return Promise.resolve(remoteEntry.__tla)
-              .then(remoteEntry.init).catch(remoteEntry.init)
-          })
+          if (typeof window !== 'undefined') {
+            const origin = (${!options.ignoreOrigin}) ? window.origin : "//${host}:${viteConfig.server?.port}"
+            const remoteEntryPromise = await import(origin + ${publicPath})
+            // __tla only serves as a hack for vite-plugin-top-level-await.
+            Promise.resolve(remoteEntryPromise)
+            .then(remoteEntry => {
+              return Promise.resolve(remoteEntry.__tla)
+                .then(remoteEntry.init).catch(remoteEntry.init)
+            })
+          }
           `;
           }
           return code;

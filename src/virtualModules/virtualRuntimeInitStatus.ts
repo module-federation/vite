@@ -23,6 +23,14 @@ if (!globalThis[globalKey]) {
     initResolve,
     initReject,
   };
+  // In SSR (no window), resolve immediately with a stub runtime
+  // so modules don't hang waiting for browser-only init
+  if (typeof window === 'undefined') {
+    initResolve({
+      loadRemote: function() { return Promise.resolve(undefined); },
+      loadShare: function() { return Promise.resolve(undefined); },
+    });
+  }
 }
 ${exportStatement}
 `);
