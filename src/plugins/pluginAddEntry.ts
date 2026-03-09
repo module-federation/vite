@@ -29,6 +29,7 @@ const addEntry = ({
   let _command: string;
   let emitFileId: string;
   let viteConfig: any;
+  let clientInjected = false;
 
   function injectHtml() {
     return inject === 'html' && htmlFilePath;
@@ -72,6 +73,7 @@ const addEntry = ({
       },
       transformIndexHtml(c) {
         if (!injectHtml()) return;
+        clientInjected = true;
         return c.replace(
           '<head>',
           `<head><script type="module" src=${JSON.stringify(
@@ -194,10 +196,17 @@ const addEntry = ({
         }
       },
       transform(code, id) {
-        if (injectEntry() && entryFiles.some((file) => id.endsWith(file))) {
-          const injection = `
-          import ${JSON.stringify(getEntryPath())};
-          `;
+        const shouldInject =
+          (injectEntry() && entryFiles.some((file) => id.endsWith(file))) ||
+          // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
+          (_command === 'serve' &&
+            inject === 'html' &&
+            !clientInjected &&
+            !id.includes('node_modules') &&
+            /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id));
+        if (shouldInject) {
+          clientInjected = true;
+          const injection = `import ${JSON.stringify(getEntryPath())};\n`;
           return mapCodeToCodeWithSourcemap(injection + code);
         }
       },
