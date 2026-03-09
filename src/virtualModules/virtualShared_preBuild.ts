@@ -21,7 +21,9 @@ function getPackageNamedExports(pkg: string): string[] {
     // pnpm store location where peer dependencies are not hoisted.
     const projectRequire = createRequire(new URL('file://' + process.cwd() + '/package.json'));
     const mod = projectRequire(pkg);
-    return Object.keys(mod).filter((k) => k !== 'default' && k !== '__esModule');
+    return Object.keys(mod).filter(
+      (k) => k !== 'default' && k !== '__esModule' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)
+    );
   } catch {
     return [];
   }
@@ -79,11 +81,11 @@ export function writeLoadShareModule(
   const namedExports = getPackageNamedExports(pkg);
   let exportLine: string;
   if (namedExports.length > 0) {
-    const destructure = `const { ${namedExports.join(', ')} } = exportModule;`;
-    const namedExportLine = `export { ${namedExports.join(', ')} };`;
+    const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
+    const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
     exportLine = useESM
       ? `export default exportModule;\n    ${destructure}\n    ${namedExportLine}`
-      : `module.exports = exportModule;\n    ${destructure}\n    Object.assign(module.exports, { ${namedExports.join(', ')} });`;
+      : `module.exports = exportModule;\n    ${destructure}\n    Object.assign(module.exports, { ${namedExports.map((name, i) => `"${name}": __mf_${i}`).join(', ')} });`;
   } else {
     exportLine = useESM
       ? `export default exportModule\n    export * from ${JSON.stringify(getPreBuildLibImportId(pkg))}`
