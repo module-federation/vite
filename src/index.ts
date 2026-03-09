@@ -52,9 +52,6 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
     name: 'vite:module-federation-early-init',
     enforce: 'pre',
     config(config: UserConfig, { command: _command }) {
-      if (_command !== 'serve') return;
-
-      const isRolldown = !!(this as any)?.meta?.rolldownVersion;
       const root = config.root || process.cwd();
 
       // Create the virtual module directory structure EARLY
@@ -66,6 +63,10 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
 
       // Create core virtual modules
       initVirtualModules(_command, getRemoteEntryId(options));
+
+      if (_command !== 'serve') return;
+
+      const isRolldown = !!(this as any)?.meta?.rolldownVersion;
 
       // Eagerly register configured remotes so they are available
       // when localSharedImportMap is loaded during dev (race condition fix)
