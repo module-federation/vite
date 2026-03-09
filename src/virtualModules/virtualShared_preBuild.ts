@@ -14,6 +14,59 @@ import { ShareItem } from '../utils/normalizeModuleFederationOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 
+// JavaScript reserved words that cannot be used as bare identifiers
+// in destructuring or export statements.
+const JS_RESERVED_WORDS = new Set([
+  'break',
+  'case',
+  'catch',
+  'continue',
+  'debugger',
+  'default',
+  'delete',
+  'do',
+  'else',
+  'finally',
+  'for',
+  'function',
+  'if',
+  'in',
+  'instanceof',
+  'new',
+  'return',
+  'switch',
+  'this',
+  'throw',
+  'try',
+  'typeof',
+  'var',
+  'void',
+  'while',
+  'with',
+  // Strict mode / future reserved
+  'class',
+  'const',
+  'enum',
+  'export',
+  'extends',
+  'import',
+  'super',
+  'implements',
+  'interface',
+  'let',
+  'package',
+  'private',
+  'protected',
+  'public',
+  'static',
+  'yield',
+  // Literals
+  'null',
+  'true',
+  'false',
+  'await',
+]);
+
 function getPackageNamedExports(pkg: string): string[] {
   try {
     // Resolve from the project root (process.cwd()) so that shared packages
@@ -21,7 +74,13 @@ function getPackageNamedExports(pkg: string): string[] {
     // pnpm store location where peer dependencies are not hoisted.
     const projectRequire = createRequire(new URL('file://' + process.cwd() + '/package.json'));
     const mod = projectRequire(pkg);
-    return Object.keys(mod).filter((k) => k !== 'default' && k !== '__esModule');
+    return Object.keys(mod).filter(
+      (k) =>
+        k !== 'default' &&
+        k !== '__esModule' &&
+        /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) &&
+        !JS_RESERVED_WORDS.has(k)
+    );
   } catch {
     return [];
   }
