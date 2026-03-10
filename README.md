@@ -130,6 +130,10 @@ export default defineConfig({
       // moduleParseTimeout for large codebases where total build time may
       // exceed the fixed timeout value.
       moduleParseIdleTimeout: 10,
+      // Optional: watch files or directories for changes to restart the dev server.
+      // Useful for local shared packages that are pre-bundled and lose native HMR.
+      // Supports glob patterns relative to the project root or absolute paths.
+      watchShared: [resolve(__dirname, "../shared-pkg/**/*")],
     }),
   ],
   server: {
@@ -148,6 +152,7 @@ The host app configuration specifies its name, the filename of its exposed remot
 You can specify the place the host initialization file is injected with the **hostInitInjectLocation** option, which is described in the example code above.
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
+The optional **watchShared** option accepts an array of glob patterns to watch for changes during development. When a matched file changes, the dev server automatically restarts. This is useful for local shared packages that are pre-bundled and lose native HMR.
 
 ## Load the Remote App
 

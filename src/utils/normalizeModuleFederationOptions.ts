@@ -340,6 +340,11 @@ export type ModuleFederationOptions = {
    * @default 'web' (or 'node' if build.ssr is enabled)
    */
   target?: 'web' | 'node';
+  /**
+   * Files or directories to watch for changes to restart the server automatically.
+   * Useful for local shared packages that are pre-bundled and lose native HMR.
+   */
+  watchShared?: string[];
 };
 
 export interface NormalizedModuleFederationOptions extends Omit<
@@ -362,6 +367,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
   bundleAllCSS: boolean;
   moduleParseTimeout: number;
   moduleParseIdleTimeout?: number;
+  watchShared?: string[];
 }
 
 type HostInitInjectLocationOptions = 'entry' | 'html';
@@ -477,5 +483,6 @@ export function normalizeModuleFederationOptions(
     moduleParseIdleTimeout: options.moduleParseIdleTimeout,
     varFilename: options.varFilename,
     target: options.target,
+    watchShared: options.watchShared,
   });
 }
