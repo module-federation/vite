@@ -14,7 +14,8 @@
       },
       "import": "./lib/index.mjs",
       "require": "./lib/index.cjs"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "lib/**/*"
