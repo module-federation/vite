@@ -362,6 +362,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             // loadShare-dependent value.
             const inlineable: Array<{ local: string; funcBody: string }> = [];
             const nonInlineable: Array<{ imported: string; local: string }> = [];
+            const codeWithoutImport = code.replace(fullImport, '');
 
             for (const b of bindings) {
               const proxyLocal = exportMap[b.imported];
@@ -394,10 +395,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 );
                 inlineable.push({ local: b.local, funcBody: renamedFunc });
               } else {
-                // If b.local isn't used in the code body, Rollup's deconflict mangled
-                // the import alias without updating references — use proxyLocal instead.
-                const codeWithoutImport = code.replace(fullImport, '');
-                const localUsedInCode = new RegExp(`\\b${b.local}\\b`).test(codeWithoutImport);
+                // If b.local isn't referenced in the code body, Rollup's deconflict
+                // mangled only the alias — restore proxyLocal so they stay in sync.
+                const escapedLocal = b.local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const localUsedInCode = new RegExp(`\\b${escapedLocal}\\b`).test(codeWithoutImport);
                 nonInlineable.push({
                   imported: b.imported,
                   local: localUsedInCode ? b.local : proxyLocal,
@@ -405,7 +406,11 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
               }
             }
 
-            if (inlineable.length === 0) continue;
+            // Also rewrite the import when only an alias was corrected.
+            const hasRenamedAlias = nonInlineable.some(
+              (b) => bindings.find((ob) => ob.imported === b.imported)?.local !== b.local
+            );
+            if (inlineable.length === 0 && !hasRenamedAlias) continue;
 
             // Build the replacement
             let replacement = '';
@@ -419,7 +424,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             // Add inlined function definitions
             replacement += inlineable.map((f) => f.funcBody).join('');
 
-            code = code.replace(fullImport, replacement);
+            // Use a function to avoid '$' special handling in replacement strings ('$$' → '$').
+            code = code.replace(fullImport, () => replacement);
             modified = true;
           }
 
