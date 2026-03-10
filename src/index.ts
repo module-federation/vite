@@ -62,7 +62,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       VirtualModule.ensureVirtualPackageExists();
 
       // Create core virtual modules
-      initVirtualModules(_command, getRemoteEntryId(options));
+      initVirtualModules(_command, getRemoteEntryId(options), true);
 
       const isRolldown = !!(this as any)?.meta?.rolldownVersion;
 
@@ -83,8 +83,8 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           if (key.endsWith('/')) continue;
           const shareItem = shared[key] as any;
           getLoadShareModulePath(key, isRolldown, _command);
-          writeLoadShareModule(key, shareItem, _command, isRolldown);
-          writePreBuildLibPath(key);
+          writeLoadShareModule(key, shareItem, _command, isRolldown, true);
+          writePreBuildLibPath(key, true);
           addUsedShares(key);
         }
         writeLocalSharedImportMap();

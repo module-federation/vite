@@ -131,11 +131,12 @@ export function proxySharedModule(options: {
         // is now prevented by adding prebuild IDs to optimizeDeps.include
         // in the config hook (createEarlyVirtualModulesPlugin), so Vite
         // pre-bundles them upfront without triggering re-optimization.
-        const isRolldown = !!(config as any).experimental?.rolldownDev;
+        const isRolldown =
+          !!(config as any).experimental?.rolldownDev || !!(config as any)?.meta?.rolldownVersion;
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/')) return;
-          writeLoadShareModule(key, shared[key], _command, isRolldown);
-          writePreBuildLibPath(key);
+          writeLoadShareModule(key, shared[key], _command, isRolldown, true);
+          writePreBuildLibPath(key, true);
           addUsedShares(key);
         });
         writeLocalSharedImportMap();
