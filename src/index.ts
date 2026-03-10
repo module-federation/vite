@@ -398,7 +398,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 // the import alias without updating references — use proxyLocal instead.
                 const codeWithoutImport = code.replace(fullImport, '');
                 const localUsedInCode = new RegExp(`\\b${b.local}\\b`).test(codeWithoutImport);
-                nonInlineable.push({ imported: b.imported, local: localUsedInCode ? b.local : proxyLocal });
+                nonInlineable.push({
+                  imported: b.imported,
+                  local: localUsedInCode ? b.local : proxyLocal,
+                });
               }
             }
 
