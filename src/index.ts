@@ -394,7 +394,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 );
                 inlineable.push({ local: b.local, funcBody: renamedFunc });
               } else {
-                nonInlineable.push(b);
+                // Use proxyLocal, not b.local: Rollup's deconflict may mangle the alias
+                // (e.g. require$$0 → require$0) without updating the code body references.
+                nonInlineable.push({ imported: b.imported, local: proxyLocal });
               }
             }
 
