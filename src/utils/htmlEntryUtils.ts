@@ -18,8 +18,9 @@ export function sanitizeDevEntryPath(devEntryPath: string): string {
  */
 export function inlineEntryScripts(html: string, initSrc: string): string {
   const src = sanitizeDevEntryPath(initSrc);
-  // Match all <script ...>...</script> tags, then filter for type="module" with src
-  const scriptTagRegex = /<script\s([^>]*)>\s*<\/script\s*>/gi;
+  // Match all <script ...>...</script> tags (including tolerant closing tags like </script foo="bar">),
+  // then filter for type="module" with src
+  const scriptTagRegex = /<script\b([^>]*)>\s*<\/script\b[^>]*>/gi;
 
   let hasEntry = false;
   const result = html.replace(scriptTagRegex, (match, attrs) => {
