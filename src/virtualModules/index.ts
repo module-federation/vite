@@ -8,8 +8,8 @@ export {
   getHostAutoInitImportId,
   getHostAutoInitPath,
   getLocalSharedImportMapPath,
-  getUsedShares,
   getRemoteEntryId,
+  getUsedShares,
   writeLocalSharedImportMap,
 } from './virtualRemoteEntry';
 
@@ -31,8 +31,8 @@ export {
 
 export { generateExposes } from './virtualExposes';
 
-export function initVirtualModules(command: string, remoteEntryId?: string) {
+export function initVirtualModules(command: string, remoteEntryId?: string, force?: boolean) {
   writeLocalSharedImportMap();
-  writeHostAutoInit(remoteEntryId);
-  writeRuntimeInitStatus(command);
+  writeHostAutoInit(remoteEntryId, force);
+  writeRuntimeInitStatus(command, force);
 }

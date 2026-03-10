@@ -2,7 +2,7 @@ import VirtualModule from '../utils/VirtualModule';
 
 export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 
-export function writeRuntimeInitStatus(command: string) {
+export function writeRuntimeInitStatus(command: string, force?: boolean) {
   const globalKey = `__mf_init__${virtualRuntimeInitStatus.getImportId()}__`;
   const exportStatement =
     command === 'build'
@@ -10,7 +10,8 @@ export function writeRuntimeInitStatus(command: string) {
 export { initPromise, initResolve, initReject };`
       : `module.exports = globalThis[globalKey];`;
 
-  virtualRuntimeInitStatus.writeSync(`
+  virtualRuntimeInitStatus.writeSync(
+    `
 const globalKey = ${JSON.stringify(globalKey)};
 if (!globalThis[globalKey]) {
   let initResolve, initReject;
@@ -33,5 +34,7 @@ if (!globalThis[globalKey]) {
   }
 }
 ${exportStatement}
-`);
+`,
+    force
+  );
 }

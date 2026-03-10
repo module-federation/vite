@@ -129,7 +129,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         VirtualModule.setRoot(config.root);
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
-        initVirtualModules(command, remoteEntryId);
+        initVirtualModules(command, remoteEntryId, true);
       },
     },
     aliasToArrayPlugin,
