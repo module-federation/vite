@@ -18,20 +18,20 @@ export function sanitizeDevEntryPath(devEntryPath: string): string {
  */
 export function inlineEntryScripts(html: string, initSrc: string): string {
   const src = sanitizeDevEntryPath(initSrc);
-  // Match all <script ...>...</script> tags (including tolerant closing tags like </script foo="bar">),
-  // then filter for type="module" with src
-  const scriptTagRegex = /<script\b([^>]*)>\s*<\/script\b[^>]*>/gi;
+  // Match opening <script ...> tags, then filter for type="module" with src.
+  // We avoid matching closing tags like </script> with a regex, since browser
+  // HTML parsing is more tolerant (for example </script foo="bar">, </script >).
+  const scriptTagRegex = /<script\s+([^>]*\btype=["']module["'][^>]*\bsrc=["'][^"']+["'][^>]*)>/gi;
 
   let hasEntry = false;
   const result = html.replace(scriptTagRegex, (match, attrs) => {
-    if (!/type=["']module["']/i.test(attrs)) return match;
     const srcMatch = attrs.match(/\bsrc=["']([^"']+)["']/i);
     if (!srcMatch) return match;
     const originalSrc = srcMatch[1];
     if (originalSrc.includes('@vite/client')) return match;
     hasEntry = true;
     const attrsWithoutSrc = attrs.replace(/\s*\bsrc=["'][^"']+["']/i, '');
-    return `<script ${attrsWithoutSrc}>await import(${JSON.stringify(src)});await import(${JSON.stringify(originalSrc)});</script>`;
+    return `<script ${attrsWithoutSrc}>await import(${JSON.stringify(src)});await import(${JSON.stringify(originalSrc)});`;
   });
 
   if (hasEntry) return result;
