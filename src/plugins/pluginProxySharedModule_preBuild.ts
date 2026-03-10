@@ -8,6 +8,7 @@ import {
   generateLocalSharedImportMap,
   getLoadShareModulePath,
   getLocalSharedImportMapPath,
+  LOAD_SHARE_TAG,
   PREBUILD_TAG,
   writeLoadShareModule,
   writeLocalSharedImportMap,
@@ -65,10 +66,15 @@ export function proxySharedModule(options: {
               replacement: '$1',
               customResolver(source: string, importer: string) {
                 if (/\.css$/.test(source)) return;
-                // Skip for localSharedImportMap to break circular TLA deadlock:
+                // Skip for internal shims to break circular alias & TLA deadlock:
                 // loadShare TLA → runtime.loadShare() → get() → import(prebuild)
                 // → alias to pkg name → shared alias → loadShare (DEADLOCK)
-                if (importer && importer.includes('localSharedImportMap')) {
+                if (
+                  importer &&
+                  (importer.includes('localSharedImportMap') ||
+                    importer.includes(LOAD_SHARE_TAG) ||
+                    importer.includes(PREBUILD_TAG))
+                ) {
                   return;
                 }
                 // Trailing-slash keys (e.g. "react/") match subpath imports like
