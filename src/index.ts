@@ -12,6 +12,7 @@ import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
+import { resolveProxyAlias } from './utils/bundleHelpers';
 import {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -362,7 +363,6 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             // loadShare-dependent value.
             const inlineable: Array<{ local: string; funcBody: string }> = [];
             const nonInlineable: Array<{ imported: string; local: string }> = [];
-            const codeWithoutImport = code.replace(fullImport, '');
 
             for (const b of bindings) {
               const proxyLocal = exportMap[b.imported];
@@ -395,14 +395,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 );
                 inlineable.push({ local: b.local, funcBody: renamedFunc });
               } else {
-                // If b.local isn't referenced in the code body, Rollup's deconflict
-                // mangled only the alias — restore proxyLocal so they stay in sync.
-                const escapedLocal = b.local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const localUsedInCode = new RegExp(`\\b${escapedLocal}\\b`).test(codeWithoutImport);
-                nonInlineable.push({
-                  imported: b.imported,
-                  local: localUsedInCode ? b.local : proxyLocal,
-                });
+                nonInlineable.push(resolveProxyAlias(b, proxyLocal, code, fullImport));
               }
             }
 
