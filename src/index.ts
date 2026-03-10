@@ -394,9 +394,11 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 );
                 inlineable.push({ local: b.local, funcBody: renamedFunc });
               } else {
-                // Use proxyLocal, not b.local: Rollup's deconflict may mangle the alias
-                // (e.g. require$$0 → require$0) without updating the code body references.
-                nonInlineable.push({ imported: b.imported, local: proxyLocal });
+                // If b.local isn't used in the code body, Rollup's deconflict mangled
+                // the import alias without updating references — use proxyLocal instead.
+                const codeWithoutImport = code.replace(fullImport, '');
+                const localUsedInCode = new RegExp(`\\b${b.local}\\b`).test(codeWithoutImport);
+                nonInlineable.push({ imported: b.imported, local: localUsedInCode ? b.local : proxyLocal });
               }
             }
 
