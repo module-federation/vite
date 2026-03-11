@@ -605,4 +605,4 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   ];
 }
 
-export { federation };
+export { federation, type ModuleFederationOptions };
