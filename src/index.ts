@@ -12,6 +12,7 @@ import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
+import { resolveProxyAlias } from './utils/bundleHelpers';
 import {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -398,11 +399,15 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 );
                 inlineable.push({ local: b.local, funcBody: renamedFunc });
               } else {
-                nonInlineable.push(b);
+                nonInlineable.push(resolveProxyAlias(b, proxyLocal, code, fullImport));
               }
             }
 
-            if (inlineable.length === 0) continue;
+            // Also rewrite the import when only an alias was corrected.
+            const hasRenamedAlias = nonInlineable.some(
+              (b) => bindings.find((ob) => ob.imported === b.imported)?.local !== b.local
+            );
+            if (inlineable.length === 0 && !hasRenamedAlias) continue;
 
             // Build the replacement
             let replacement = '';
@@ -416,7 +421,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             // Add inlined function definitions
             replacement += inlineable.map((f) => f.funcBody).join('');
 
-            code = code.replace(fullImport, replacement);
+            // Use a function to avoid '$' special handling in replacement strings ('$$' → '$').
+            code = code.replace(fullImport, () => replacement);
             modified = true;
           }
 
