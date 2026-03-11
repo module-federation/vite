@@ -150,7 +150,6 @@ export function generateRemoteEntry(
   return `
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
   ${pluginImportNames.map((item) => item[1]).join('\n')}
-  import exposesMap from "${virtualExposesId}"
   import {usedShared, usedRemotes} from "${getLocalSharedImportMapPath()}"
   import {
     initResolve
@@ -158,6 +157,18 @@ export function generateRemoteEntry(
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
   const mfName = ${JSON.stringify(options.name)}
+  let exposesMapPromise
+  async function loadExposesMap() {
+    if (!exposesMapPromise) {
+      exposesMapPromise = import("${virtualExposesId}").then((module) => {
+        if (module && 'default' in module) {
+          return module.default
+        }
+        return module
+      })
+    }
+    return exposesMapPromise
+  }
   async function init(shared = {}, initScope = []) {
     const initRes = runtimeInit({
       name: mfName,
@@ -186,7 +197,8 @@ export function generateRemoteEntry(
     return initRes
   }
 
-  function getExposes(moduleName) {
+  async function getExposes(moduleName) {
+    const exposesMap = await loadExposesMap()
     if (!(moduleName in exposesMap)) throw new Error(\`Module \${moduleName} does not exist in container.\`)
     return (exposesMap[moduleName])().then(res => () => res)
   }
