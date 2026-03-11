@@ -29,10 +29,10 @@ describe('build', () => {
       const output = await buildFixture({ mfOptions: BASIC_REMOTE_MF_OPTIONS });
       const remoteEntry = findChunk(output, 'remoteEntry');
       expect(remoteEntry).toBeDefined();
-      expect(remoteEntry!.code).toContain('let exposesMapPromise');
+      expect(remoteEntry!.code).toMatch(/\b(?:let|var)\s+exposesMapPromise\b/);
       expect(remoteEntry!.code).toContain('async function loadExposesMap()');
       expect(remoteEntry!.code).toContain('const exposesMap = await loadExposesMap()');
-      expect(remoteEntry!.code).not.toContain('import exposesMap from');
+      expect(remoteEntry!.code).not.toMatch(/^import .*virtualExposes/m);
     });
 
     it('exposed module content is included in output', async () => {
