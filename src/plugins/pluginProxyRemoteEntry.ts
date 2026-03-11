@@ -80,7 +80,7 @@ export default function ({
         return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId));
       }
       if (id === virtualExposesId) {
-        return generateExposes(options);
+        return generateExposes(options, _command);
       }
       if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
         return id;
@@ -93,7 +93,7 @@ export default function ({
           return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId));
         }
         if (id === virtualExposesId) {
-          return generateExposes(options);
+          return generateExposes(options, _command);
         }
         if (id.includes(getHostAutoInitPath())) {
           if (_command === 'serve') {
