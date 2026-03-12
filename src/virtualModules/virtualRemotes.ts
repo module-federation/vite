@@ -47,7 +47,7 @@ export function generateRemotes(id: string, command: string, isRolldown: boolean
   return `
     ${importLine}
     const res = initPromise.then(runtime => runtime.loadRemote(${JSON.stringify(id)}))
-    const exportModule = ${awaitOrPlaceholder}initPromise.then(_ => res)
+    const exportModule = ${awaitOrPlaceholder}res
     ${exportLine}
   `;
 }

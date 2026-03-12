@@ -12,7 +12,7 @@ import VirtualModule from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
 import { getUsedRemotesMap } from './virtualRemotes';
 import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
-import { getPreBuildLibImportId } from './virtualShared_preBuild';
+import { getSharedProviderImportId } from './virtualShared_preBuild';
 
 let usedShares: Set<string> = new Set();
 export function getUsedShares() {
@@ -50,7 +50,7 @@ export function generateLocalSharedImportMap() {
           ${
             shareItem?.shareConfig.import === false
               ? `throw new Error(\`Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
-              : `let pkg = await import("${getPreBuildLibImportId(pkg)}");
+              : `let pkg = await import("${getSharedProviderImportId(pkg)}");
             return pkg;`
           }
         }
@@ -173,6 +173,7 @@ export function generateRemoteEntry(
     if (initScope.indexOf(initToken) >= 0) return;
     initScope.push(initToken);
     initRes.initShareScopeMap('${options.shareScope}', shared);
+    initResolve(initRes)
     try {
       await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
         strategy: '${options.shareStrategy}',
@@ -182,7 +183,6 @@ export function generateRemoteEntry(
     } catch (e) {
       console.error(e)
     }
-    initResolve(initRes)
     return initRes
   }
 
@@ -206,11 +206,10 @@ const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG)
 export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID) {
   hostAutoInitModule.writeSync(`
     const remoteEntryPromise = import("${remoteEntryId}")
-    // __tla only serves as a hack for vite-plugin-top-level-await.
     Promise.resolve(remoteEntryPromise)
       .then(remoteEntry => {
-        return Promise.resolve(remoteEntry.__tla)
-          .then(remoteEntry.init).catch(remoteEntry.init)
+        return Promise.resolve(remoteEntry.init?.())
+          .then(() => remoteEntry.__tla)
       })
     `);
 }

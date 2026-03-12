@@ -453,8 +453,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
 
         // Don't patch the entry files that already have top-level await
         if (/await\s+init_\w+__loadShare__/.test(code)) return;
-        // Don't patch the loadShare chunk files themselves
-        if (code.includes('__esmMin')) return;
+        // Don't patch the loadShare chunk files themselves. Optimized dep chunks
+        // like react-dom/client also contain __esmMin helpers, so only skip files
+        // whose own id is a loadShare virtual module.
+        if (id.includes(LOAD_SHARE_TAG)) return;
 
         // Add top-level awaits after imports
         const awaits = [...initFns].map((fn) => `await ${fn}();`).join('\n');

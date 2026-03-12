@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareItem } from '../../utils/normalizeModuleFederationOptions';
-import { writeLoadShareModule } from '../virtualShared_preBuild';
+import { getSharedProviderImportId, writeLoadShareModule } from '../virtualShared_preBuild';
 
 const { writeSyncSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
@@ -17,22 +17,38 @@ vi.mock('../../utils/VirtualModule', () => {
   };
 });
 
-// Mock module/createRequire to return specific named exports
 vi.mock('module', async (importOriginal) => {
   const actual = await importOriginal<typeof import('module')>();
   return {
     ...actual,
-    createRequire: () => (pkg: string) => {
-      if (pkg === 'mock-package-with-reserved') {
-        return {
-          delete: 1, // reserved JS word
-          get: 2, // valid name
-          request: 3, // valid name
-          default: 4, // should be ignored
-          __esModule: true, // should be ignored
-        };
-      }
-      return {};
+    createRequire: () => {
+      const loader = ((pkg: string) => {
+        if (pkg === 'mock-package-with-reserved') {
+          return {
+            delete: 1, // reserved JS word
+            get: 2, // valid name
+            request: 3, // valid name
+            default: 4, // should be ignored
+            __esModule: true, // should be ignored
+          };
+        }
+        if (pkg === 'local-workspace-package') {
+          return {};
+        }
+        return {};
+      }) as ((pkg: string) => any) & { resolve: (pkg: string) => string };
+
+      loader.resolve = (pkg: string) => {
+        if (pkg === 'local-workspace-package') {
+          return '/workspace/packages/local-workspace-package/src/index.ts';
+        }
+        if (pkg === 'third-party-package') {
+          return '/workspace/node_modules/third-party-package/index.js';
+        }
+        throw new Error(`Cannot resolve ${pkg}`);
+      };
+
+      return loader;
     },
   };
 });
@@ -72,5 +88,15 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
     );
+  });
+
+  it('returns the local provider path for workspace shared packages', () => {
+    expect(getSharedProviderImportId('local-workspace-package')).toBe(
+      '/workspace/packages/local-workspace-package/src/index.ts'
+    );
+  });
+
+  it('falls back to the prebuild import id for node_modules shared packages', () => {
+    expect(getSharedProviderImportId('third-party-package')).toBe('mock-import-id');
   });
 });

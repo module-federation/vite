@@ -29,6 +29,18 @@ function getPackageNamedExports(pkg: string): string[] {
   }
 }
 
+function getLocalProviderImportPath(pkg: string): string | undefined {
+  try {
+    const projectRequire = createRequire(new URL('file://' + process.cwd() + '/package.json'));
+    const resolved = projectRequire.resolve(pkg);
+    return resolved.includes('/node_modules/') || resolved.includes('\\node_modules\\')
+      ? undefined
+      : resolved;
+  } catch {
+    return undefined;
+  }
+}
+
 // *** __prebuild__
 const preBuildCacheMap: Record<string, VirtualModule> = {};
 export const PREBUILD_TAG = '__prebuild__';
@@ -40,6 +52,10 @@ export function getPreBuildLibImportId(pkg: string): string {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
   const importId = preBuildCacheMap[pkg].getImportId();
   return importId;
+}
+
+export function getSharedProviderImportId(pkg: string): string {
+  return getLocalProviderImportPath(pkg) || getPreBuildLibImportId(pkg);
 }
 
 // *** __loadShare__

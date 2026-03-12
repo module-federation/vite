@@ -45,8 +45,11 @@ describe('ESM virtual modules', () => {
       viteConfig: { resolve: { preserveSymlinks: true } },
     });
     const allCode = getAllChunkCode(output);
-    // The CJS dep is replaced by a loadShare shim — verify the build succeeded
-    // and the shared module was properly resolved via the runtime
-    expect(allCode).toContain('loadShare("cjs-dep"');
+    // The CJS dep should still be registered as shared and resolved through the
+    // generated shared import map, and the exposed module should keep its exports.
+    expect(allCode).toContain('"cjs-dep": async () =>');
+    expect(allCode).toContain('usedShared["cjs-dep"]');
+    expect(allCode).toContain('message');
+    expect(allCode).toContain('sum');
   });
 });
