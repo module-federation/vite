@@ -16,9 +16,10 @@ export function generateExposes(options: NormalizedModuleFederationOptions, comm
         // In dev mode, append a timestamp to bust the browser's ESM module cache.
         // Without this, import() returns the cached (stale) module even after
         // the remote's Vite dev server has processed the HMR update.
-        const importExpr = command === 'serve'
-          ? `/* @vite-ignore */ ${importPath} + "?t=" + Date.now()`
-          : importPath;
+        const importExpr =
+          command === 'serve'
+            ? `/* @vite-ignore */ ${importPath} + "?t=" + Date.now()`
+            : importPath;
         return `
         ${JSON.stringify(key)}: async () => {
           const importModule = await import(${importExpr})
