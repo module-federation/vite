@@ -3,6 +3,7 @@ import * as path from 'pathe';
 import { Plugin } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
+import { inlineEntryScripts, sanitizeDevEntryPath } from '../utils/htmlEntryUtils';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 interface AddEntryOptions {
@@ -56,7 +57,7 @@ const addEntry = ({
           config.base +
           devEntryPath
             .replace(/\\\\?/g, '/')
-            .replace(/.+?\:([/\\])[/\\]?/, '$1')
+            .replace(/^[^:]+:([/\\])[/\\]?/, '$1')
             .replace(/^\//, '');
       },
       configureServer(server) {
@@ -74,12 +75,7 @@ const addEntry = ({
       transformIndexHtml(c) {
         if (!injectHtml()) return;
         clientInjected = true;
-        return c.replace(
-          '<head>',
-          `<head><script type="module" src=${JSON.stringify(
-            devEntryPath.replace(/.+?\:([/\\])[/\\]?/, '$1').replace(/\\\\?/g, '/')
-          )}></script>`
-        );
+        return inlineEntryScripts(c, devEntryPath);
       },
       transform(code, id) {
         if (id.includes('node_modules') || inject !== 'html' || htmlFilePath) {
@@ -87,10 +83,11 @@ const addEntry = ({
         }
 
         if (id.includes('.svelte-kit') && id.includes('internal.js')) {
-          const src = devEntryPath.replace(/.+?\:([/\\])[/\\]?/, '$1').replace(/\\\\?/g, '/');
           return code.replace(
             /<head>/g,
-            '<head><script type=\\"module\\" src=\\"' + src + '\\"></script>'
+            '<head><script type=\\"module\\" src=\\"' +
+              sanitizeDevEntryPath(devEntryPath) +
+              '\\"></script>'
           );
         }
       },
