@@ -203,8 +203,9 @@ export function generateRemoteEntry(
  */
 export const HOST_AUTO_INIT_TAG = '__H_A_I__';
 const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG);
-export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID) {
-  hostAutoInitModule.writeSync(`
+export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID, force?: boolean) {
+  hostAutoInitModule.writeSync(
+    `
     const remoteEntryPromise = import("${remoteEntryId}")
     // __tla only serves as a hack for vite-plugin-top-level-await.
     Promise.resolve(remoteEntryPromise)
@@ -212,7 +213,9 @@ export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID) {
         return Promise.resolve(remoteEntry.__tla)
           .then(remoteEntry.init).catch(remoteEntry.init)
       })
-    `);
+    `,
+    force
+  );
 }
 export function getHostAutoInitImportId() {
   return hostAutoInitModule.getImportId();

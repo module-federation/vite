@@ -63,9 +63,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       VirtualModule.ensureVirtualPackageExists();
 
       // Create core virtual modules
-      initVirtualModules(_command, getRemoteEntryId(options));
-
-      if (_command !== 'serve') return;
+      initVirtualModules(_command, getRemoteEntryId(options), true);
 
       const isRolldown = !!(this as any)?.meta?.rolldownVersion;
 
@@ -82,21 +80,27 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       // To prevent dep re-optimization deadlock, we also add all prebuild
       // module IDs to optimizeDeps.include so Vite pre-bundles them upfront.
       if (shared && Object.keys(shared).length > 0) {
-        config.optimizeDeps = config.optimizeDeps || {};
-        config.optimizeDeps.include = config.optimizeDeps.include || [];
-        // Include the runtimeInit virtual module so Vite pre-bundles it
-        // upfront instead of discovering it at runtime via loadShare imports.
-        config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
         for (const key of Object.keys(shared)) {
           if (key.endsWith('/')) continue;
           const shareItem = shared[key] as any;
-          getLoadShareModulePath(key, isRolldown);
-          writeLoadShareModule(key, shareItem, _command, isRolldown);
-          writePreBuildLibPath(key);
+          getLoadShareModulePath(key, isRolldown, _command);
+          writeLoadShareModule(key, shareItem, _command, isRolldown, true);
+          writePreBuildLibPath(key, true);
           addUsedShares(key);
-          config.optimizeDeps.include.push(getPreBuildLibImportId(key));
         }
         writeLocalSharedImportMap();
+
+        if (_command === 'serve') {
+          config.optimizeDeps = config.optimizeDeps || {};
+          config.optimizeDeps.include = config.optimizeDeps.include || [];
+          // Include the runtimeInit virtual module so Vite pre-bundles it
+          // upfront instead of discovering it at runtime via loadShare imports.
+          config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
+          for (const key of Object.keys(shared)) {
+            if (key.endsWith('/')) continue;
+            config.optimizeDeps.include.push(getPreBuildLibImportId(key));
+          }
+        }
       }
     },
   };
@@ -126,7 +130,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         VirtualModule.setRoot(config.root);
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
-        initVirtualModules(command, remoteEntryId);
+        initVirtualModules(command, remoteEntryId, true);
       },
     },
     aliasToArrayPlugin,

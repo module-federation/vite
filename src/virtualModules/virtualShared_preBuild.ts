@@ -32,9 +32,9 @@ function getPackageNamedExports(pkg: string): string[] {
 // *** __prebuild__
 const preBuildCacheMap: Record<string, VirtualModule> = {};
 export const PREBUILD_TAG = '__prebuild__';
-export function writePreBuildLibPath(pkg: string) {
+export function writePreBuildLibPath(pkg: string, force?: boolean) {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
-  preBuildCacheMap[pkg].writeSync('');
+  preBuildCacheMap[pkg].writeSync('', force);
 }
 export function getPreBuildLibImportId(pkg: string): string {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
@@ -63,7 +63,8 @@ export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
   command: string,
-  isRolldown: boolean
+  isRolldown: boolean,
+  force?: boolean
 ) {
   if (!loadShareCacheMap[pkg]) {
     const useESM = isRolldown || command === 'build';
@@ -92,7 +93,8 @@ export function writeLoadShareModule(
       : 'module.exports = exportModule';
   }
 
-  loadShareCacheMap[pkg].writeSync(`
+  loadShareCacheMap[pkg].writeSync(
+    `
     import ${JSON.stringify(getPreBuildLibImportId(pkg))};
     ${command !== 'build' ? `;() => import(${JSON.stringify(pkg)}).catch(() => {});` : ''}
     ${importLine}
@@ -105,5 +107,7 @@ export function writeLoadShareModule(
     }))
     const exportModule = ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))
     ${exportLine}
-  `);
+  `,
+    force
+  );
 }
