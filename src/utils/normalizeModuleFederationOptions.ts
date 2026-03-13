@@ -23,6 +23,7 @@ export type RemoteEntryType =
   | string;
 
 import * as fs from 'fs';
+import { createRequire } from 'node:module';
 import * as path from 'pathe';
 
 interface ExposesItem {
@@ -126,7 +127,8 @@ function removePathFromNpmPackage(packageString: string): string {
  */
 function searchPackageVersion(sharedName: string): string | undefined {
   try {
-    const sharedPath = require.resolve(sharedName);
+    const projectRequire = createRequire(process.cwd());
+    const sharedPath = projectRequire.resolve(sharedName);
     let potentialPackageJsonDir = path.dirname(sharedPath);
     const rootDir = path.parse(potentialPackageJsonDir).root;
     while (
@@ -135,7 +137,7 @@ function searchPackageVersion(sharedName: string): string | undefined {
     ) {
       const potentialPackageJsonPath = path.join(potentialPackageJsonDir, 'package.json');
       if (fs.existsSync(potentialPackageJsonPath)) {
-        const potentialPackageJson = require(potentialPackageJsonPath);
+        const potentialPackageJson = JSON.parse(fs.readFileSync(potentialPackageJsonPath, 'utf-8'));
         if (
           typeof potentialPackageJson == 'object' &&
           potentialPackageJson !== null &&
