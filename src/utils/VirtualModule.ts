@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFile, writeFileSync } from 'fs';
 import { dirname, join, parse, resolve, basename } from 'pathe';
-import { packageNameDecode, packageNameEncode } from '../utils/packageNameUtils';
+import { packageNameDecode, packageNameEncode } from '../utils/packageUtils';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 
 /**

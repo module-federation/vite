@@ -11,6 +11,7 @@
 
 import { createRequire } from 'module';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
+import { hasPackageDependency } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
 import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 
@@ -26,6 +27,18 @@ function getPackageNamedExports(pkg: string): string[] {
     );
   } catch {
     return [];
+  }
+}
+
+function getLocalProviderImportPath(pkg: string): string | undefined {
+  try {
+    const projectRequire = createRequire(new URL('file://' + process.cwd() + '/package.json'));
+    const resolved = projectRequire.resolve(pkg);
+    return resolved.includes('/node_modules/') || resolved.includes('\\node_modules\\')
+      ? undefined
+      : resolved;
+  } catch {
+    return undefined;
   }
 }
 
@@ -78,6 +91,9 @@ export function writeLoadShareModule(
   const awaitOrPlaceholder = useESM
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
+  const isVinext = hasPackageDependency('vinext');
+  const useSsrProviderFallback = isVinext && command === 'build' && pkg === 'react';
+  const providerImportId = getLocalProviderImportPath(pkg) || getPreBuildLibImportId(pkg);
   const namedExports = getPackageNamedExports(pkg);
   let exportLine: string;
   if (namedExports.length > 0) {
@@ -96,6 +112,13 @@ export function writeLoadShareModule(
     import ${JSON.stringify(getPreBuildLibImportId(pkg))};
     ${command !== 'build' ? `;() => import(${JSON.stringify(pkg)}).catch(() => {});` : ''}
     ${importLine}
+    ${
+      useSsrProviderFallback
+        ? `const providerModulePromise = typeof window === "undefined"
+      ? import(${JSON.stringify(providerImportId)})
+      : undefined`
+        : ''
+    }
     const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
       customShareInfo: {shareConfig:{
         singleton: ${shareItem.shareConfig.singleton},
@@ -103,7 +126,13 @@ export function writeLoadShareModule(
         requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
       }}
     }))
-    const exportModule = ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))
+    const exportModule = ${
+      useSsrProviderFallback
+        ? `(typeof window === "undefined"
+      ? ((await providerModulePromise)?.default ?? await providerModulePromise)
+      : ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory)))`
+        : `${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))`
+    }
     ${exportLine}
   `);
 }
