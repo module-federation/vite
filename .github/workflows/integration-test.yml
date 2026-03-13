@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        bundler: ['vite@5', 'vite@6', 'vite@7.3.1', 'vite@8.0.0-beta.15', 'rolldown-vite@7.3.1']
+        bundler: ["vite@5", "vite@6", "vite@7", "vite@8", "rolldown-vite@7"]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -34,7 +34,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: 'pnpm'
+          cache: "pnpm"
           registry-url: https://registry.npmjs.org/
 
       - run: corepack enable
