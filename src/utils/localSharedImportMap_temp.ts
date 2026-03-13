@@ -4,7 +4,7 @@
 import { mkdirSync, writeFileSync } from 'fs';
 import path from 'pathe';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
-import { packageNameEncode } from './packageNameUtils';
+import { packageNameEncode } from './packageUtils';
 
 export function getLocalSharedImportMapPath_temp() {
   const { name } = getNormalizeModuleFederationOptions();

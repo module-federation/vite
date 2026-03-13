@@ -4,6 +4,7 @@
 import { createFilter } from '@rollup/pluginutils';
 import MagicString from 'magic-string';
 import { Plugin } from 'vite';
+import { hasPackageDependency } from '../utils/packageUtils';
 
 type Walk = typeof import('estree-walker').walk;
 
@@ -40,6 +41,10 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
 
       const magicString = new MagicString(code);
       const walk = await loadWalk();
+      const isVinext = hasPackageDependency('vinext');
+      const defaultExportExpression = isVinext
+        ? '(__mfproxy__awaitdefault?.default ?? __mfproxy__awaitdefault)'
+        : '__mfproxy__awaitdefault';
 
       walk(ast, {
         enter(node: any) {
@@ -78,7 +83,7 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
               // example: export default foo;
               proxyStatement = `
                 const __mfproxy__awaitdefault = await ${declaration.name}();
-                const __mfproxy__default = __mfproxy__awaitdefault;
+                const __mfproxy__default = ${defaultExportExpression};
               `;
             } else if (
               declaration.type === 'CallExpression' ||
@@ -88,13 +93,13 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
               const declarationCode = code.slice(declaration.start, declaration.end);
               proxyStatement = `
                 const __mfproxy__awaitdefault = await (${declarationCode});
-                const __mfproxy__default = __mfproxy__awaitdefault;
+                const __mfproxy__default = ${defaultExportExpression};
               `;
             } else {
               // other
               proxyStatement = `
                 const __mfproxy__awaitdefault = await (${code.slice(declaration.start, declaration.end)});
-                const __mfproxy__default = __mfproxy__awaitdefault;
+                const __mfproxy__default = ${defaultExportExpression};
               `;
             }
 

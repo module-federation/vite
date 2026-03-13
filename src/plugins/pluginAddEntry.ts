@@ -4,6 +4,7 @@ import { Plugin } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
 import { inlineEntryScripts, sanitizeDevEntryPath } from '../utils/htmlEntryUtils';
+import { hasPackageDependency } from '../utils/packageUtils';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 interface AddEntryOptions {
@@ -193,6 +194,22 @@ const addEntry = ({
         }
       },
       transform(code, id) {
+        const isVinext = hasPackageDependency('vinext');
+        if (
+          isVinext &&
+          inject === 'html' &&
+          (id.includes('virtual:vite-rsc/entry-browser') ||
+            id.includes('virtual:vinext-app-browser-entry'))
+        ) {
+          const injection = `import ${JSON.stringify(getEntryPath())};\n`;
+          if (code.includes(injection.trim())) {
+            clientInjected = true;
+            return;
+          }
+          clientInjected = true;
+          return mapCodeToCodeWithSourcemap(injection + code);
+        }
+
         const shouldInject =
           (injectEntry() && entryFiles.some((file) => id.endsWith(file))) ||
           // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.

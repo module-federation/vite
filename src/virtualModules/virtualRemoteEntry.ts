@@ -7,6 +7,7 @@ import {
   getNormalizeShareItem,
   NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
+import { hasPackageDependency } from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
@@ -37,6 +38,7 @@ export function writeLocalSharedImportMap() {
   }
 }
 export function generateLocalSharedImportMap() {
+  const isVinext = hasPackageDependency('vinext');
   const options = getNormalizeModuleFederationOptions();
   return `
     import {loadShare} from "@module-federation/runtime";
@@ -50,7 +52,10 @@ export function generateLocalSharedImportMap() {
           ${
             shareItem?.shareConfig.import === false
               ? `throw new Error(\`Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
-              : `let pkg = await import("${getPreBuildLibImportId(pkg)}");
+              : isVinext && pkg === 'react'
+                ? `let pkg = await import("react");
+            return pkg;`
+                : `let pkg = await import("${getPreBuildLibImportId(pkg)}");
             return pkg;`
           }
         }
@@ -78,7 +83,9 @@ export function generateLocalSharedImportMap() {
               usedShared[${JSON.stringify(key)}].loaded = true
               const {${JSON.stringify(key)}: pkgDynamicImport} = importMap
               const res = await pkgDynamicImport()
-              const exportModule = {...res}
+              const exportModule = ${JSON.stringify(isVinext)} && ${JSON.stringify(key)} === "react"
+                ? (res?.default ?? res)
+                : {...res}
               // All npm packages pre-built by vite will be converted to esm
               Object.defineProperty(exportModule, "__esModule", {
                 value: true,
@@ -173,6 +180,7 @@ export function generateRemoteEntry(
     if (initScope.indexOf(initToken) >= 0) return;
     initScope.push(initToken);
     initRes.initShareScopeMap('${options.shareScope}', shared);
+    initResolve(initRes)
     try {
       await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
         strategy: '${options.shareStrategy}',
@@ -182,7 +190,6 @@ export function generateRemoteEntry(
     } catch (e) {
       console.error(e)
     }
-    initResolve(initRes)
     return initRes
   }
 
@@ -206,11 +213,11 @@ const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG)
 export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID) {
   hostAutoInitModule.writeSync(`
     const remoteEntryPromise = import("${remoteEntryId}")
-    // __tla only serves as a hack for vite-plugin-top-level-await.
     Promise.resolve(remoteEntryPromise)
       .then(remoteEntry => {
         return Promise.resolve(remoteEntry.__tla)
-          .then(remoteEntry.init).catch(remoteEntry.init)
+          .then(remoteEntry.init)
+          .catch(remoteEntry.init)
       })
     `);
 }

@@ -1,5 +1,7 @@
 import defu from 'defu';
 import { readFileSync } from 'fs';
+import { createRequire } from 'module';
+import path from 'pathe';
 import { Plugin, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
@@ -19,6 +21,7 @@ import {
   normalizeModuleFederationOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
+import { hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -54,6 +57,8 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
     enforce: 'pre',
     config(config: UserConfig, { command: _command }) {
       const root = config.root || process.cwd();
+      setPackageDetectionCwd(root);
+      const isVinext = hasPackageDependency('vinext');
 
       // Create the virtual module directory structure EARLY
       initVirtualModuleInfrastructure(root, virtualModuleDir);
@@ -90,6 +95,10 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         for (const key of Object.keys(shared)) {
           if (key.endsWith('/')) continue;
           const shareItem = shared[key] as any;
+          if (isVinext && key === 'react') {
+            addUsedShares(key);
+            continue;
+          }
           getLoadShareModulePath(key, isRolldown);
           writeLoadShareModule(key, shareItem, _command, isRolldown);
           writePreBuildLibPath(key);
@@ -104,6 +113,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
+  const isVinext = hasPackageDependency('vinext');
   const { name, remotes, shared, filename, hostInitInjectLocation } = options;
   if (!name) throw new Error('name is required');
 
@@ -115,6 +125,29 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   return [
     // This plugin runs FIRST to create virtual module files before optimization
     createEarlyVirtualModulesPlugin(options),
+    ...(isVinext
+      ? [
+          {
+            name: 'module-federation-vinext-react-server-build-alias',
+            apply: 'build' as const,
+            enforce: 'pre' as const,
+            resolveId(id) {
+              const reactServerEntryMap: Record<string, string> = {
+                'react/jsx-runtime': 'react/cjs/react-jsx-runtime.production.js',
+                'react/jsx-dev-runtime': 'react/cjs/react-jsx-dev-runtime.production.js',
+              };
+              if (!(id in reactServerEntryMap)) return;
+              const environmentName = (this as any)?.environment?.name;
+              if (!environmentName || environmentName === 'client') return;
+
+              const target = reactServerEntryMap[id];
+              const projectRequire = createRequire(new URL(`file://${process.cwd()}/package.json`));
+              const reactPackageJson = projectRequire.resolve('react/package.json');
+              return path.join(path.dirname(reactPackageJson), target.replace(/^react\//, ''));
+            },
+          },
+        ]
+      : []),
     {
       name: 'vite:module-federation-config',
       enforce: 'pre',
