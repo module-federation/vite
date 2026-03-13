@@ -15,7 +15,7 @@ export default defineConfig({
   },
   base: 'http://localhost:5176/testbase',
   plugins: [
-    react({ jsxImportSource: '@emotion/react', reactRefreshHost: 'http://localhost:5175' }),
+    react({ jsxImportSource: '@emotion/react' }),
     federation({
       name: '@namespace/viteViteRemote',
       exposes: {

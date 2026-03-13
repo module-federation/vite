@@ -8,6 +8,8 @@ import pluginDts from './plugins/pluginDts';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
+import pluginHmrHost from './plugins/pluginHmrHost';
+import pluginHmrRemote from './plugins/pluginHmrRemote';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
@@ -149,6 +151,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     }),
     pluginProxyRemoteEntry({ options, remoteEntryId, virtualExposesId }),
     pluginProxyRemotes(options),
+    pluginHmrRemote(options),
+    pluginHmrHost(options),
     ...pluginModuleParseEnd(
       (id: string) => {
         return (
