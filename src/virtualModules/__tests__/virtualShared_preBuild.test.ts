@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareItem } from '../../utils/normalizeModuleFederationOptions';
 import { writeLoadShareModule } from '../virtualShared_preBuild';
+import { getRuntimeInitGlobalKey } from '../virtualRuntimeInitStatus';
 
 const { writeSyncSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
@@ -72,5 +73,30 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
     );
+  });
+
+  it('inlines runtime init bootstrap in build mode instead of importing runtimeInit virtual module', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(`const globalKey = "${getRuntimeInitGlobalKey()}";`);
+    expect(generatedCode).toContain('const { initPromise } = globalThis[globalKey];');
+    expect(generatedCode).not.toContain('import { initPromise } from');
+    expect(generatedCode).not.toContain('require("mock-import-id")');
   });
 });

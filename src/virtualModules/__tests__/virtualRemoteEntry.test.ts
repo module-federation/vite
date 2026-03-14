@@ -141,10 +141,12 @@ describe('virtualRemoteEntry', () => {
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('Promise.resolve(remoteEntry.__tla)');
-    expect(generatedCode).toContain('.then(remoteEntry.init)');
-    expect(generatedCode).toContain('.catch(remoteEntry.init)');
-    expect(generatedCode).not.toContain('Promise.resolve(remoteEntry.init?.())');
-    expect(generatedCode).not.toContain('.then(() => remoteEntry.__tla)');
+    expect(generatedCode).toContain(
+      'const remoteEntry = await import("virtual:test-remote-entry");'
+    );
+    expect(generatedCode).toContain('await remoteEntry.init();');
+    expect(generatedCode).not.toContain('Promise.resolve(remoteEntry.__tla)');
+    expect(generatedCode).not.toContain('.then(remoteEntry.init)');
+    expect(generatedCode).not.toContain('.catch(remoteEntry.init)');
   });
 });
