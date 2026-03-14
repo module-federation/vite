@@ -12,7 +12,7 @@ import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
 import { getUsedRemotesMap } from './virtualRemotes';
-import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
+import { getRuntimeInitBootstrapCode } from './virtualRuntimeInitStatus';
 import { getPreBuildLibImportId } from './virtualShared_preBuild';
 
 let usedShares: Set<string> = new Set();
@@ -159,9 +159,8 @@ export function generateRemoteEntry(
   ${pluginImportNames.map((item) => item[1]).join('\n')}
   import exposesMap from "${virtualExposesId}"
   import {usedShared, usedRemotes} from "${getLocalSharedImportMapPath()}"
-  import {
-    initResolve
-  } from "${virtualRuntimeInitStatus.getImportId()}"
+  ${getRuntimeInitBootstrapCode()}
+  const { initResolve } = globalThis[globalKey];
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
   const mfName = ${JSON.stringify(options.name)}
@@ -212,13 +211,8 @@ export const HOST_AUTO_INIT_TAG = '__H_A_I__';
 const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG);
 export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID) {
   hostAutoInitModule.writeSync(`
-    const remoteEntryPromise = import("${remoteEntryId}")
-    Promise.resolve(remoteEntryPromise)
-      .then(remoteEntry => {
-        return Promise.resolve(remoteEntry.__tla)
-          .then(remoteEntry.init)
-          .catch(remoteEntry.init)
-      })
+    const remoteEntry = await import("${remoteEntryId}");
+    await remoteEntry.init();
     `);
 }
 export function getHostAutoInitImportId() {

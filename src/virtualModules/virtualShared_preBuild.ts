@@ -13,7 +13,7 @@ import { createRequire } from 'module';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
-import { virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
+import { getRuntimeInitBootstrapCode, virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
 
 function getPackageNamedExports(pkg: string): string[] {
   try {
@@ -86,7 +86,8 @@ export function writeLoadShareModule(
 
   const useESM = command === 'build' || isRolldown;
   const importLine = useESM
-    ? `import { initPromise } from "${virtualRuntimeInitStatus.getImportId()}"`
+    ? `${getRuntimeInitBootstrapCode()}
+    const { initPromise } = globalThis[globalKey];`
     : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
   const awaitOrPlaceholder = useESM
     ? 'await '

@@ -113,6 +113,16 @@ const addEntry = ({
         if (entryFiles && entryFiles.length > 0) {
           htmlFilePath = getFirstHtmlEntryFile(entryFiles);
         }
+
+        if (_command === 'serve' && htmlFilePath && fs.existsSync(htmlFilePath)) {
+          const htmlContent = fs.readFileSync(htmlFilePath, 'utf-8');
+          const scriptRegex = /<script\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
+          let match: RegExpExecArray | null;
+
+          while ((match = scriptRegex.exec(htmlContent)) !== null) {
+            entryFiles.push(match[1]);
+          }
+        }
       },
       buildStart() {
         if (_command === 'serve') return;
