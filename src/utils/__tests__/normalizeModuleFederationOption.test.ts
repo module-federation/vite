@@ -175,7 +175,7 @@ describe('normalizeModuleFederationOption', () => {
           from: '',
           name: 'dep2',
           scope: 'default',
-          version: undefined,
+          version: '2.0.0',
           shareConfig: {
             requiredVersion: '^2.0.0',
             singleton: true,

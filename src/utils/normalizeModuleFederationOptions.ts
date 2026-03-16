@@ -143,6 +143,12 @@ function searchPackageVersion(sharedName: string): string | undefined {
   return undefined;
 }
 
+function inferVersionFromRequiredVersion(requiredVersion?: string): string | undefined {
+  if (!requiredVersion) return undefined;
+  const match = requiredVersion.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/);
+  return match?.[0];
+}
+
 function normalizeShareItem(
   key: string,
   shareItem:
@@ -191,10 +197,12 @@ function normalizeShareItem(
       },
     };
   }
+  const explicitVersion =
+    shareItem.version || inferVersionFromRequiredVersion(shareItem.requiredVersion);
   return {
     name: key,
     from: '',
-    version: shareItem.version || version,
+    version: explicitVersion || version,
     scope: shareItem.shareScope || 'default',
     shareConfig: {
       import: typeof shareItem === 'object' ? shareItem.import : undefined,
