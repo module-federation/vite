@@ -1,5 +1,6 @@
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
+import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
@@ -14,6 +15,7 @@ export default defineConfig({
   },
   // base: 'http://localhost:5175',
   plugins: [
+    vue(),
     react(),
     federation({
       name: 'viteViteHost',

@@ -23,6 +23,7 @@
   "devDependencies": {
     "@swc/core": "~1.7.10",
     "@vitejs/plugin-react": "^5.1.2",
+    "@vitejs/plugin-vue": "^5.1.2",
     "vite": "^7.1.7",
     "vite-plugin-top-level-await": "^1.4.4"
   }

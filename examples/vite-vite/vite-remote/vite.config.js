@@ -1,5 +1,6 @@
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
+import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
@@ -15,6 +16,7 @@ export default defineConfig({
   },
   base: 'http://localhost:5176/testbase',
   plugins: [
+    vue(),
     react({ jsxImportSource: '@emotion/react', reactRefreshHost: 'http://localhost:5175' }),
     federation({
       name: '@namespace/viteViteRemote',
@@ -25,6 +27,7 @@ export default defineConfig({
         './MuiDemo': './src/MuiDemo.jsx',
         './StyledDemo': './src/StyledDemo.jsx',
         './EmotionDemo': './src/EmotionDemo.jsx',
+        './VueDemo': './src/VueDemo.vue',
         '.': './src/App.jsx',
       },
       dts: false,
