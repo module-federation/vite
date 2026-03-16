@@ -149,4 +149,25 @@ describe('virtualRemoteEntry', () => {
     expect(generatedCode).not.toContain('.then(remoteEntry.init)');
     expect(generatedCode).not.toContain('.catch(remoteEntry.init)');
   });
+
+  it('inlines a dedicated build-only initResolve bootstrap into remoteEntry', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    expect(code).toContain('const __mfResolveGlobalKey =');
+    expect(code).toContain('const initResolve = __mfResolveState.initResolve;');
+    expect(code).not.toContain('import { initResolve } from');
+  });
 });

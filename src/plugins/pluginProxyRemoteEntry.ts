@@ -77,7 +77,7 @@ export default function ({
     },
     load(id: string) {
       if (id === remoteEntryId) {
-        return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId));
+        return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
       }
       if (id === virtualExposesId) {
         return generateExposes(options);
@@ -90,7 +90,7 @@ export default function ({
       const transformedCode = (() => {
         if (!filter(id)) return;
         if (id.includes(remoteEntryId)) {
-          return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId));
+          return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
         }
         if (id === virtualExposesId) {
           return generateExposes(options);
