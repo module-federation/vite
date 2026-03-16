@@ -1,5 +1,9 @@
 import VirtualModule from '../utils/VirtualModule';
-import { getRuntimeInitBootstrapCode, virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
+import {
+  getRuntimeInitBootstrapCode,
+  getRuntimeInitPromiseBootstrapCode,
+  virtualRuntimeInitStatus,
+} from './virtualRuntimeInitStatus';
 
 const cacheRemoteMap: {
   [remote: string]: VirtualModule;
@@ -26,10 +30,13 @@ export function getUsedRemotesMap() {
 }
 export function generateRemotes(id: string, command: string, isRolldown: boolean) {
   const useESM = command === 'build' || isRolldown;
-  const importLine = useESM
-    ? `${getRuntimeInitBootstrapCode()}
+  const importLine =
+    command === 'build'
+      ? getRuntimeInitPromiseBootstrapCode()
+      : useESM
+        ? `${getRuntimeInitBootstrapCode()}
     const { initPromise } = globalThis[globalKey];`
-    : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
+        : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
   const awaitOrPlaceholder = useESM
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';

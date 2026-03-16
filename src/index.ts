@@ -217,9 +217,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         const runtimeInitId = virtualRuntimeInitStatus.getImportId();
         config.build = config.build || {};
 
-        config.build.rollupOptions = config.build.rollupOptions || {};
-        if (!Array.isArray(config.build.rollupOptions.output)) {
-          const output = (config.build.rollupOptions.output ||= {}) as any;
+        const applyManualChunks = (output: any) => {
           const existingManualChunks = output.manualChunks;
           output.manualChunks = function (id: string) {
             // Keep runtimeInitStatus in its own chunk to break TLA deadlock
@@ -242,6 +240,22 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
               }
             }
           };
+        };
+
+        config.build.rollupOptions = config.build.rollupOptions || {};
+        if (!Array.isArray(config.build.rollupOptions.output)) {
+          applyManualChunks((config.build.rollupOptions.output ||= {}) as any);
+        }
+
+        // Vite 8/Rolldown reads build.rolldownOptions instead of rollupOptions.
+        // Apply the same split there so runtimeInit and loadShare stay isolated
+        // under both bundlers.
+        const buildWithRolldown = config.build as typeof config.build & {
+          rolldownOptions?: { output?: any };
+        };
+        buildWithRolldown.rolldownOptions = buildWithRolldown.rolldownOptions || {};
+        if (!Array.isArray(buildWithRolldown.rolldownOptions.output)) {
+          applyManualChunks((buildWithRolldown.rolldownOptions.output ||= {}) as any);
         }
       },
       load(id) {

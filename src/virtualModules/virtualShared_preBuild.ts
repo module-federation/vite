@@ -13,7 +13,11 @@ import { createRequire } from 'module';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
-import { getRuntimeInitBootstrapCode, virtualRuntimeInitStatus } from './virtualRuntimeInitStatus';
+import {
+  getRuntimeInitBootstrapCode,
+  getRuntimeInitPromiseBootstrapCode,
+  virtualRuntimeInitStatus,
+} from './virtualRuntimeInitStatus';
 
 function getPackageNamedExports(pkg: string): string[] {
   try {
@@ -85,10 +89,13 @@ export function writeLoadShareModule(
   }
 
   const useESM = command === 'build' || isRolldown;
-  const importLine = useESM
-    ? `${getRuntimeInitBootstrapCode()}
+  const importLine =
+    command === 'build'
+      ? getRuntimeInitPromiseBootstrapCode()
+      : useESM
+        ? `${getRuntimeInitBootstrapCode()}
     const { initPromise } = globalThis[globalKey];`
-    : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
+        : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
   const awaitOrPlaceholder = useESM
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
