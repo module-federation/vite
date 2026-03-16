@@ -31,12 +31,12 @@ export function getLocalSharedImportMapPath() {
   return getLocalSharedImportMapPath_temp();
   // return localSharedImportMapModule.getPath()
 }
-let prevSharedCount: number | undefined;
+let prevLocalSharedImportMapContent: string | undefined;
 export function writeLocalSharedImportMap() {
-  const sharedCount = getUsedShares().size;
-  if (prevSharedCount !== sharedCount) {
-    prevSharedCount = sharedCount;
-    writeLocalSharedImportMap_temp(generateLocalSharedImportMap());
+  const nextContent = generateLocalSharedImportMap();
+  if (prevLocalSharedImportMapContent !== nextContent) {
+    prevLocalSharedImportMapContent = nextContent;
+    writeLocalSharedImportMap_temp(nextContent);
     //   localSharedImportMapModule.writeSync(generateLocalSharedImportMap(), true)
   }
 }
