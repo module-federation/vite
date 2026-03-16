@@ -66,9 +66,9 @@
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "dependencies": {
-    "@module-federation/dts-plugin": "2.2.0",
-    "@module-federation/runtime": "2.0.1",
-    "@module-federation/sdk": "2.0.1",
+    "@module-federation/dts-plugin": "2.2.1",
+    "@module-federation/runtime": "2.2.1",
+    "@module-federation/sdk": "2.2.1",
     "@rollup/pluginutils": "^5.3.0",
     "defu": "^6.1.4",
     "estree-walker": "^3.0.3",
