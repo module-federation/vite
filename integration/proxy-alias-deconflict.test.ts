@@ -99,4 +99,32 @@ describe('resolveProxyAlias', () => {
     expect(first.local).toBe('o');
     expect(second.local).toBe('second$1');
   });
+
+  it('does not reuse proxyLocal across separate proxy files in one chunk', () => {
+    const firstImport = `import{a as first$1}from"./proxy-a.js"`;
+    const secondImport = `import{b as second$1}from"./proxy-b.js"`;
+    let code = `${firstImport};${secondImport};console.log(app);`;
+    const claimedLocals = new Set<string>();
+
+    const rewriteImport = (
+      fullImport: string,
+      binding: { imported: string; local: string },
+      proxyLocal: string,
+      importPath: string
+    ) => {
+      const resolved = resolveProxyAlias(binding, proxyLocal, code, fullImport, claimedLocals);
+      claimedLocals.add(resolved.local);
+      code = code.replace(
+        fullImport,
+        `import{${binding.imported} as ${resolved.local}}from"${importPath}";`
+      );
+      return resolved;
+    };
+
+    const first = rewriteImport(firstImport, { imported: 'a', local: 'first$1' }, 'o', './proxy-a.js');
+    const second = rewriteImport(secondImport, { imported: 'b', local: 'second$1' }, 'o', './proxy-b.js');
+
+    expect(first.local).toBe('o');
+    expect(second.local).toBe('second$1');
+  });
 });

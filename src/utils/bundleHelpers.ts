@@ -15,7 +15,17 @@ export function resolveProxyAlias(
   const codeWithoutImport = code.replace(fullImport, '');
   const escapedLocal = binding.local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const localUsedInCode = new RegExp(`\\b${escapedLocal}\\b`).test(codeWithoutImport);
-  const canUseProxyLocal = !localUsedInCode && !claimedLocals.has(proxyLocal);
+  const claimedImportLocals = new Set<string>();
+  const importRe = /import\s*\{([^}]+)\}\s*from\s*["'][^"']+["']\s*;?/g;
+  let match: RegExpExecArray | null;
+  while ((match = importRe.exec(codeWithoutImport)) !== null) {
+    for (const spec of match[1].split(',')) {
+      const parts = spec.trim().split(/\s+as\s+/);
+      claimedImportLocals.add((parts[1] || parts[0]).trim());
+    }
+  }
+  const canUseProxyLocal =
+    !localUsedInCode && !claimedLocals.has(proxyLocal) && !claimedImportLocals.has(proxyLocal);
   const local = canUseProxyLocal ? proxyLocal : binding.local;
 
   return {

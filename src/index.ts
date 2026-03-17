@@ -371,6 +371,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
 
           let code = chunk.code;
           let modified = false;
+          const claimedLocals = new Set<string>();
 
           for (const [proxyFileName, proxyInfo] of proxyChunks) {
             // Match import from this specific proxy chunk
@@ -410,11 +411,13 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             // loadShare-dependent value.
             const inlineable: Array<{ local: string; funcBody: string }> = [];
             const nonInlineable: Array<{ imported: string; local: string }> = [];
-            const claimedLocals = new Set(bindings.map((binding) => binding.local));
+            const pendingLocals = new Set(bindings.map((binding) => binding.local));
 
             for (const b of bindings) {
+              pendingLocals.delete(b.local);
               const proxyLocal = exportMap[b.imported];
               if (!proxyLocal) {
+                claimedLocals.add(b.local);
                 nonInlineable.push(b);
                 continue;
               }
@@ -442,17 +445,16 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                   `function ${b.local}(`
                 );
                 inlineable.push({ local: b.local, funcBody: renamedFunc });
+                claimedLocals.add(b.local);
               } else {
-                // Temporarily free this binding's original local so the resolver can
-                // choose between its own slot and proxyLocal, while still treating
-                // earlier bindings' claimed locals as unavailable.
-                claimedLocals.delete(b.local);
+                const unavailableLocals = new Set(claimedLocals);
+                pendingLocals.forEach((local) => unavailableLocals.add(local));
                 const resolvedBinding = resolveProxyAlias(
                   b,
                   proxyLocal,
                   code,
                   fullImport,
-                  claimedLocals
+                  unavailableLocals
                 );
                 claimedLocals.add(resolvedBinding.local);
                 nonInlineable.push(resolvedBinding);
