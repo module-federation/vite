@@ -544,11 +544,12 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       _options: options,
       config(config, { command: _command }: { command: string }) {
         const isRolldown = !!(this as any)?.meta?.rolldownVersion;
+
         // For rolldown (Vite 8+ / rolldown-vite), resolve to ESM entry
-        // because rolldown cannot parse .cjs.cjs files
+        // because rolldown cannot parse dynamic import() in .cjs files
         let implementation = options.implementation;
         if (isRolldown) {
-          implementation = implementation.replace(/\.cjs\.cjs$/, '.esm.js');
+          implementation = implementation.replace(/\.cjs(\.js)?$/, '.js');
         }
         // TODO: singleton
         (config.resolve as any).alias.push({
