@@ -9,14 +9,18 @@ export function resolveProxyAlias(
   binding: { imported: string; local: string },
   proxyLocal: string,
   code: string,
-  fullImport: string
+  fullImport: string,
+  claimedLocals: Set<string> = new Set()
 ): { imported: string; local: string } {
   const codeWithoutImport = code.replace(fullImport, '');
   const escapedLocal = binding.local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const localUsedInCode = new RegExp(`\\b${escapedLocal}\\b`).test(codeWithoutImport);
+  const canUseProxyLocal = !localUsedInCode && !claimedLocals.has(proxyLocal);
+  const local = canUseProxyLocal ? proxyLocal : binding.local;
+
   return {
     imported: binding.imported,
-    local: localUsedInCode ? binding.local : proxyLocal,
+    local,
   };
 }
 

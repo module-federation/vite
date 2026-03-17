@@ -410,6 +410,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             // loadShare-dependent value.
             const inlineable: Array<{ local: string; funcBody: string }> = [];
             const nonInlineable: Array<{ imported: string; local: string }> = [];
+            const claimedLocals = new Set(bindings.map((binding) => binding.local));
 
             for (const b of bindings) {
               const proxyLocal = exportMap[b.imported];
@@ -442,7 +443,19 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 );
                 inlineable.push({ local: b.local, funcBody: renamedFunc });
               } else {
-                nonInlineable.push(resolveProxyAlias(b, proxyLocal, code, fullImport));
+                // Temporarily free this binding's original local so the resolver can
+                // choose between its own slot and proxyLocal, while still treating
+                // earlier bindings' claimed locals as unavailable.
+                claimedLocals.delete(b.local);
+                const resolvedBinding = resolveProxyAlias(
+                  b,
+                  proxyLocal,
+                  code,
+                  fullImport,
+                  claimedLocals
+                );
+                claimedLocals.add(resolvedBinding.local);
+                nonInlineable.push(resolvedBinding);
               }
             }
 
