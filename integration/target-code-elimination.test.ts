@@ -24,8 +24,8 @@ describe('target-specific code elimination', () => {
         mfOptions: { ...BASIC_REMOTE_MF_OPTIONS, target: 'node' },
       });
       const allCode = getAllChunkCode(output);
-      // Node builds keep eval() for script loading
-      expect(allCode).toMatch(/\beval\s*\(/);
+      // Node builds keep loadScriptNode for remote entry loading
+      expect(allCode).toMatch(/loadScriptNode/);
     });
   });
 });
