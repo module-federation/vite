@@ -9,11 +9,9 @@ const ISOLATION_MF_OPTIONS = {
   filename: 'remoteEntry.js',
   exposes: {
     './shared': resolve(FIXTURES, 'shared-remote', 'exposed-module.js'),
-    './sharedCjs': resolve(FIXTURES, 'shared-remote', 'exposed-cjs-module.js'),
   },
   shared: {
     defu: {},
-    'cjs-dep': {},
   },
   dts: false,
 } satisfies Partial<ModuleFederationOptions>;

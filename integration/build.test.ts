@@ -22,7 +22,8 @@ describe('build', () => {
       const remoteEntry = findChunk(output, 'remoteEntry');
       expect(remoteEntry).toBeDefined();
       expect(remoteEntry!.code).toContain('basicRemote');
-      expect(remoteEntry!.code).toContain('moduleCache');
+      expect(remoteEntry!.code).toContain('localSharedImportMapPromise');
+      expect(remoteEntry!.code).toContain('getExposesMap');
     });
 
     it('exposed module content is included in output', async () => {
