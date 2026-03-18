@@ -161,8 +161,6 @@ export function generateRemoteEntry(
   return `
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
   ${pluginImportNames.map((item) => item[1]).join('\n')}
-  import exposesMap from "${virtualExposesId}"
-  import {usedShared, usedRemotes} from "${getLocalSharedImportMapPath()}"
   ${
     command === 'build'
       ? getRuntimeInitResolveBootstrapCode()
@@ -171,7 +169,21 @@ export function generateRemoteEntry(
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
   const mfName = ${JSON.stringify(options.name)}
+  let localSharedImportMapPromise
+  let exposesMapPromise
+
+  async function getLocalSharedImportMap() {
+    localSharedImportMapPromise ??= import("${getLocalSharedImportMapPath()}")
+    return localSharedImportMapPromise
+  }
+
+  async function getExposesMap() {
+    exposesMapPromise ??= import("${virtualExposesId}").then((mod) => mod.default ?? mod)
+    return exposesMapPromise
+  }
+
   async function init(shared = {}, initScope = []) {
+    const {usedShared, usedRemotes} = await getLocalSharedImportMap()
     const initRes = runtimeInit({
       name: mfName,
       remotes: usedRemotes,
@@ -199,7 +211,8 @@ export function generateRemoteEntry(
     return initRes
   }
 
-  function getExposes(moduleName) {
+  async function getExposes(moduleName) {
+    const exposesMap = await getExposesMap()
     if (!(moduleName in exposesMap)) throw new Error(\`Module \${moduleName} does not exist in container.\`)
     return (exposesMap[moduleName])().then(res => () => res)
   }
