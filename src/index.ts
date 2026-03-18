@@ -1,5 +1,5 @@
 import defu from 'defu';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
 import { Plugin, UserConfig } from 'vite';
@@ -15,6 +15,10 @@ import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import { resolveProxyAlias } from './utils/bundleHelpers';
+import {
+  isFederationControlChunk,
+  sanitizeFederationControlChunk,
+} from './utils/controlChunkSanitizer';
 import {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -217,6 +221,32 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         const runtimeInitId = virtualRuntimeInitStatus.getImportId();
         config.build = config.build || {};
 
+        if (config.build.modulePreload !== false) {
+          const currentModulePreload =
+            config.build.modulePreload && typeof config.build.modulePreload === 'object'
+              ? config.build.modulePreload
+              : {};
+          const existingResolveDependencies = currentModulePreload.resolveDependencies;
+
+          config.build.modulePreload = {
+            ...currentModulePreload,
+            resolveDependencies(filename, deps, context) {
+              const resolvedDeps = existingResolveDependencies
+                ? existingResolveDependencies(filename, deps, context)
+                : deps;
+              const hostFile = path.basename(context.hostId);
+              const shouldSkipFederationPreload =
+                context.hostType === 'js' &&
+                (hostFile === options.filename ||
+                  hostFile.includes('hostInit') ||
+                  hostFile.includes('virtualExposes') ||
+                  hostFile.includes('localSharedImportMap'));
+
+              return shouldSkipFederationPreload ? [] : resolvedDeps;
+            },
+          };
+        }
+
         const applyManualChunks = (output: any) => {
           const existingManualChunks = output.manualChunks;
           output.manualChunks = function (id: string) {
@@ -299,6 +329,13 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         }
       },
       generateBundle(_, bundle) {
+        for (const [fileName, chunk] of Object.entries(bundle)) {
+          if (chunk.type !== 'chunk') continue;
+          if (!isFederationControlChunk(fileName, filename)) continue;
+
+          chunk.code = sanitizeFederationControlChunk(chunk.code, fileName, filename);
+        }
+
         // Pass 1 (rolldown-vite): Add top-level await for CJS init functions
         for (const [fileName, chunk] of Object.entries(bundle)) {
           if (chunk.type !== 'chunk') continue;
@@ -360,133 +397,162 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             proxyChunks.set(fileName, { code: chunk.code, fileName });
           }
         }
-        if (proxyChunks.size === 0) return;
+        if (proxyChunks.size > 0) {
+          // Extract helper functions from each proxy chunk.
+          // Proxy chunks export: standalone helpers + wrapped loadShare namespace.
+          // We only inline the standalone helpers; namespace deps are redirected.
+          for (const [fileName, chunk] of Object.entries(bundle)) {
+            if (chunk.type !== 'chunk') continue;
+            if (fileName.includes(LOAD_SHARE_TAG)) continue;
 
-        // Extract helper functions from each proxy chunk.
-        // Proxy chunks export: standalone helpers + wrapped loadShare namespace.
-        // We only inline the standalone helpers; namespace deps are redirected.
-        for (const [fileName, chunk] of Object.entries(bundle)) {
-          if (chunk.type !== 'chunk') continue;
-          if (fileName.includes(LOAD_SHARE_TAG)) continue;
+            let code = chunk.code;
+            let modified = false;
+            const claimedLocals = new Set<string>();
 
-          let code = chunk.code;
-          let modified = false;
-          const claimedLocals = new Set<string>();
+            for (const [proxyFileName, proxyInfo] of proxyChunks) {
+              // Match import from this specific proxy chunk
+              // Strip directory prefix (bundle keys use "assets/" but imports use "./")
+              const proxyBaseName = proxyFileName
+                .replace(/^.*\//, '')
+                .replace(/\.js$/, '')
+                .replace(/-[A-Za-z0-9_-]+$/, '');
+              const importRe = new RegExp(
+                `import\\s*\\{([^}]+)\\}\\s*from\\s*["']([^"']*${proxyBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"']*)["']\\s*;?`
+              );
+              const importMatch = importRe.exec(code);
+              if (!importMatch) continue;
 
-          for (const [proxyFileName, proxyInfo] of proxyChunks) {
-            // Match import from this specific proxy chunk
-            // Strip directory prefix (bundle keys use "assets/" but imports use "./")
-            const proxyBaseName = proxyFileName
-              .replace(/^.*\//, '')
-              .replace(/\.js$/, '')
-              .replace(/-[A-Za-z0-9_-]+$/, '');
-            const importRe = new RegExp(
-              `import\\s*\\{([^}]+)\\}\\s*from\\s*["']([^"']*${proxyBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"']*)["']\\s*;?`
-            );
-            const importMatch = importRe.exec(code);
-            if (!importMatch) continue;
+              const fullImport = importMatch[0];
+              const bindings = importMatch[1].split(',').map((s) => {
+                const parts = s.trim().split(/\s+as\s+/);
+                return {
+                  imported: parts[0].trim(),
+                  local: (parts[1] || parts[0]).trim(),
+                };
+              });
 
-            const fullImport = importMatch[0];
-            const bindings = importMatch[1].split(',').map((s) => {
-              const parts = s.trim().split(/\s+as\s+/);
-              return {
-                imported: parts[0].trim(),
-                local: (parts[1] || parts[0]).trim(),
-              };
-            });
-
-            // Parse the proxy chunk's export map: export{s as a, u as g, f as r}
-            const proxyCode = proxyInfo.code;
-            const exportMapMatch = proxyCode.match(/export\s*\{([^}]+)\}/);
-            if (!exportMapMatch) continue;
-            const exportMap: Record<string, string> = {};
-            for (const entry of exportMapMatch[1].split(',')) {
-              const parts = entry.trim().split(/\s+as\s+/);
-              if (parts.length === 2) {
-                exportMap[parts[1].trim()] = parts[0].trim();
+              // Parse the proxy chunk's export map: export{s as a, u as g, f as r}
+              const proxyCode = proxyInfo.code;
+              const exportMapMatch = proxyCode.match(/export\s*\{([^}]+)\}/);
+              if (!exportMapMatch) continue;
+              const exportMap: Record<string, string> = {};
+              for (const entry of exportMapMatch[1].split(',')) {
+                const parts = entry.trim().split(/\s+as\s+/);
+                if (parts.length === 2) {
+                  exportMap[parts[1].trim()] = parts[0].trim();
+                }
               }
-            }
 
-            // Classify each imported binding as a standalone function or a
-            // loadShare-dependent value.
-            const inlineable: Array<{ local: string; funcBody: string }> = [];
-            const nonInlineable: Array<{ imported: string; local: string }> = [];
-            const pendingLocals = new Set(bindings.map((binding) => binding.local));
+              // Classify each imported binding as a standalone function or a
+              // loadShare-dependent value.
+              const inlineable: Array<{ local: string; funcBody: string }> = [];
+              const nonInlineable: Array<{ imported: string; local: string }> = [];
+              const pendingLocals = new Set(bindings.map((binding) => binding.local));
 
-            for (const b of bindings) {
-              pendingLocals.delete(b.local);
-              const proxyLocal = exportMap[b.imported];
-              if (!proxyLocal) {
-                claimedLocals.add(b.local);
-                nonInlineable.push(b);
-                continue;
-              }
-              // Check if this is a function definition (standalone helper)
-              const funcRe = new RegExp(`function\\s+${proxyLocal}\\s*\\([^)]*\\)\\s*\\{`);
-              if (funcRe.test(proxyCode)) {
-                // Extract function body with balanced braces
-                const funcStart = proxyCode.search(funcRe);
-                let depth = 0;
-                let funcEnd = funcStart;
-                for (let i = proxyCode.indexOf('{', funcStart); i < proxyCode.length; i++) {
-                  if (proxyCode[i] === '{') depth++;
-                  else if (proxyCode[i] === '}') {
-                    depth--;
-                    if (depth === 0) {
-                      funcEnd = i + 1;
-                      break;
+              for (const b of bindings) {
+                pendingLocals.delete(b.local);
+                const proxyLocal = exportMap[b.imported];
+                if (!proxyLocal) {
+                  claimedLocals.add(b.local);
+                  nonInlineable.push(b);
+                  continue;
+                }
+                // Check if this is a function definition (standalone helper)
+                const funcRe = new RegExp(`function\\s+${proxyLocal}\\s*\\([^)]*\\)\\s*\\{`);
+                if (funcRe.test(proxyCode)) {
+                  // Extract function body with balanced braces
+                  const funcStart = proxyCode.search(funcRe);
+                  let depth = 0;
+                  let funcEnd = funcStart;
+                  for (let i = proxyCode.indexOf('{', funcStart); i < proxyCode.length; i++) {
+                    if (proxyCode[i] === '{') depth++;
+                    else if (proxyCode[i] === '}') {
+                      depth--;
+                      if (depth === 0) {
+                        funcEnd = i + 1;
+                        break;
+                      }
                     }
                   }
+                  const funcBody = proxyCode.slice(funcStart, funcEnd);
+                  // Rename function to match local binding name
+                  const renamedFunc = funcBody.replace(
+                    new RegExp(`function\\s+${proxyLocal}\\s*\\(`),
+                    `function ${b.local}(`
+                  );
+                  inlineable.push({ local: b.local, funcBody: renamedFunc });
+                  claimedLocals.add(b.local);
+                } else {
+                  const unavailableLocals = new Set(claimedLocals);
+                  pendingLocals.forEach((local) => unavailableLocals.add(local));
+                  const resolvedBinding = resolveProxyAlias(
+                    b,
+                    proxyLocal,
+                    code,
+                    fullImport,
+                    unavailableLocals
+                  );
+                  claimedLocals.add(resolvedBinding.local);
+                  nonInlineable.push(resolvedBinding);
                 }
-                const funcBody = proxyCode.slice(funcStart, funcEnd);
-                // Rename function to match local binding name
-                const renamedFunc = funcBody.replace(
-                  new RegExp(`function\\s+${proxyLocal}\\s*\\(`),
-                  `function ${b.local}(`
-                );
-                inlineable.push({ local: b.local, funcBody: renamedFunc });
-                claimedLocals.add(b.local);
-              } else {
-                const unavailableLocals = new Set(claimedLocals);
-                pendingLocals.forEach((local) => unavailableLocals.add(local));
-                const resolvedBinding = resolveProxyAlias(
-                  b,
-                  proxyLocal,
-                  code,
-                  fullImport,
-                  unavailableLocals
-                );
-                claimedLocals.add(resolvedBinding.local);
-                nonInlineable.push(resolvedBinding);
               }
+
+              // Also rewrite the import when only an alias was corrected.
+              const hasRenamedAlias = nonInlineable.some(
+                (b) => bindings.find((ob) => ob.imported === b.imported)?.local !== b.local
+              );
+              if (inlineable.length === 0 && !hasRenamedAlias) continue;
+
+              // Build the replacement
+              let replacement = '';
+              if (nonInlineable.length > 0) {
+                // Keep import for non-inlineable bindings only
+                const kept = nonInlineable
+                  .map((b) => (b.imported === b.local ? b.imported : `${b.imported} as ${b.local}`))
+                  .join(',');
+                replacement = `import{${kept}}from"${importMatch[2]}";`;
+              }
+              // Add inlined function definitions
+              replacement += inlineable.map((f) => f.funcBody).join('');
+
+              // Use a function to avoid '$' special handling in replacement strings ('$$' → '$').
+              code = code.replace(fullImport, () => replacement);
+              modified = true;
             }
 
-            // Also rewrite the import when only an alias was corrected.
-            const hasRenamedAlias = nonInlineable.some(
-              (b) => bindings.find((ob) => ob.imported === b.imported)?.local !== b.local
-            );
-            if (inlineable.length === 0 && !hasRenamedAlias) continue;
-
-            // Build the replacement
-            let replacement = '';
-            if (nonInlineable.length > 0) {
-              // Keep import for non-inlineable bindings only
-              const kept = nonInlineable
-                .map((b) => (b.imported === b.local ? b.imported : `${b.imported} as ${b.local}`))
-                .join(',');
-              replacement = `import{${kept}}from"${importMatch[2]}";`;
+            if (modified) {
+              chunk.code = code;
             }
-            // Add inlined function definitions
-            replacement += inlineable.map((f) => f.funcBody).join('');
-
-            // Use a function to avoid '$' special handling in replacement strings ('$$' → '$').
-            code = code.replace(fullImport, () => replacement);
-            modified = true;
           }
+        }
+      },
+    },
+    {
+      name: 'module-federation-strip-empty-preload-helper',
+      enforce: 'post' as const,
+      apply: 'build' as const,
+      renderChunk(code, chunk) {
+        if (!isFederationControlChunk(chunk.fileName, filename)) return;
 
-          if (modified) {
-            chunk.code = code;
-          }
+        const nextCode = sanitizeFederationControlChunk(code, chunk.fileName, filename);
+
+        return nextCode === code ? null : { code: nextCode, map: null };
+      },
+      writeBundle(outputOptions, bundle) {
+        if (!outputOptions.dir) return;
+
+        for (const chunk of Object.values(bundle)) {
+          if (chunk.type !== 'chunk') continue;
+          if (!isFederationControlChunk(chunk.fileName, filename)) continue;
+
+          const outputPath = path.join(outputOptions.dir, chunk.fileName);
+          const nextCode = sanitizeFederationControlChunk(
+            readFileSync(outputPath, 'utf-8'),
+            chunk.fileName,
+            filename
+          );
+
+          writeFileSync(outputPath, nextCode);
         }
       },
     },

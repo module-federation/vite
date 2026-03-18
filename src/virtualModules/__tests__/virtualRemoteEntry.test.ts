@@ -170,4 +170,32 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('const initResolve = __mfResolveState.initResolve;');
     expect(code).not.toContain('import { initResolve } from');
   });
+
+  it('loads local shared state and exposes lazily inside remoteEntry', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    expect(code).toContain(
+      'localSharedImportMapPromise ??= import("/virtual/localSharedImportMap.js")'
+    );
+    expect(code).toContain(
+      'exposesMapPromise ??= import("virtual:exposes").then((mod) => mod.default ?? mod)'
+    );
+    expect(code).toContain('const {usedShared, usedRemotes} = await getLocalSharedImportMap()');
+    expect(code).toContain('const exposesMap = await getExposesMap()');
+    expect(code).not.toContain('import exposesMap from');
+    expect(code).not.toContain('import {usedShared, usedRemotes} from');
+  });
 });

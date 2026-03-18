@@ -24,6 +24,18 @@ describe('shared dependencies', () => {
     expect(allCode).toContain('defu');
   });
 
+  it('keeps remoteEntry free of eager loadShare imports', async () => {
+    const output = await buildFixture({
+      fixture: 'shared-remote',
+      mfOptions: { ...SHARED_BASE_MF_OPTIONS, shared: { defu: {} } },
+    });
+    const remoteEntry = findChunk(output, 'remoteEntry');
+    expect(remoteEntry).toBeDefined();
+    expect(remoteEntry!.imports.some((file) => file.includes('__loadShare__'))).toBe(false);
+    expect(remoteEntry!.code).not.toMatch(/^import .*__loadShare__/m);
+    expect(remoteEntry!.code).not.toMatch(/^import .*virtualExposes/m);
+  });
+
   it('writes singleton config into remoteEntry', async () => {
     const output = await buildFixture({
       fixture: 'shared-remote',
@@ -32,10 +44,10 @@ describe('shared dependencies', () => {
         shared: { defu: { singleton: true } },
       },
     });
-    const remoteEntry = findChunk(output, 'remoteEntry');
-    expect(remoteEntry).toBeDefined();
+    const localSharedImportMap = findChunk(output, 'localSharedImportMap');
+    expect(localSharedImportMap).toBeDefined();
     // Vite minifies `true` to `!0`, so match either form
-    expect(remoteEntry!.code).toContain('singleton: true');
+    expect(localSharedImportMap!.code).toContain('singleton: true');
   });
 
   it('writes requiredVersion into remoteEntry', async () => {
@@ -46,9 +58,9 @@ describe('shared dependencies', () => {
         shared: { defu: { requiredVersion: '^6.0.0' } },
       },
     });
-    const remoteEntry = findChunk(output, 'remoteEntry');
-    expect(remoteEntry).toBeDefined();
-    expect(remoteEntry!.code).toContain('^6.0.0');
+    const localSharedImportMap = findChunk(output, 'localSharedImportMap');
+    expect(localSharedImportMap).toBeDefined();
+    expect(localSharedImportMap!.code).toContain('^6.0.0');
   });
 
   it('generates host-must-provide error when import is false', async () => {
@@ -59,13 +71,13 @@ describe('shared dependencies', () => {
         shared: { defu: { import: false } },
       },
     });
-    const remoteEntry = findChunk(output, 'remoteEntry');
-    expect(remoteEntry).toBeDefined();
+    const localSharedImportMap = findChunk(output, 'localSharedImportMap');
+    expect(localSharedImportMap).toBeDefined();
     // virtualRemoteEntry.ts:52 — throw in importMap when import === false
-    expect(remoteEntry!.code).toContain('must be provided by host');
+    expect(localSharedImportMap!.code).toContain('must be provided by host');
     // virtualRemoteEntry.ts:94 — shareConfig includes import: false
     // Vite minifies `false` to `!1`, so match either form
-    expect(remoteEntry!.code).toContain('import: false');
+    expect(localSharedImportMap!.code).toContain('import: false');
   });
 
   it('includes shared deps in manifest', async () => {
