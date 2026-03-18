@@ -16,7 +16,9 @@ const HOST_BASE_MF_OPTIONS = {
   dts: false,
 } satisfies Partial<ModuleFederationOptions>;
 
-const hostInitChunkRegex = /<script\s+type="module"\s+src="[^"]*hostInit[^"]*">/;
+// The hostInit script is now an inline module that awaits the chunk's __tla
+// to guarantee initPromise resolves before loadShare TLA chunks evaluate.
+const hostInitChunkRegex = /<script\s+type="module">await import\("[^"]*hostInit[^"]*"\)/;
 
 describe('host build', () => {
   it('transforms remote module imports into federation loadRemote() calls', async () => {

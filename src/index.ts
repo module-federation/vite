@@ -329,11 +329,61 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         }
       },
       generateBundle(_, bundle) {
+        // Sanitize federation control chunks (hostInit, virtualExposes, etc.)
         for (const [fileName, chunk] of Object.entries(bundle)) {
           if (chunk.type !== 'chunk') continue;
           if (!isFederationControlChunk(fileName, filename)) continue;
 
           chunk.code = sanitizeFederationControlChunk(chunk.code, fileName, filename);
+        }
+
+        // Pass 0a (rolldown): Remove side-effect imports of loadShare chunks
+        // from non-loadShare chunks (shared bundles, remoteEntry, etc.).
+        //
+        // Rolldown adds bare `import"./loadShare_chunk.js"` to shared bundles.
+        // These create circular TLA dependencies: loadShare TLA → loadShare()
+        // → import(sharedBundle) → sharedBundle waits for loadShare TLA → deadlock.
+        const loadShareBaseNames = new Set<string>();
+        for (const fileName of Object.keys(bundle)) {
+          if (fileName.includes(LOAD_SHARE_TAG)) {
+            loadShareBaseNames.add(fileName.split('/').pop()!);
+          }
+        }
+        if (loadShareBaseNames.size > 0) {
+          for (const [fileName, chunk] of Object.entries(bundle)) {
+            if (chunk.type !== 'chunk') continue;
+            if (fileName.includes(LOAD_SHARE_TAG)) continue;
+
+            for (const baseName of loadShareBaseNames) {
+              const sideEffect = `import"./${baseName}";`;
+              if (chunk.code.includes(sideEffect)) {
+                chunk.code = chunk.code.replaceAll(sideEffect, '');
+              }
+            }
+          }
+        }
+
+        // Pass 0b (rolldown): Eagerly evaluate lazy-init in loadShare chunks.
+        //
+        // Rolldown wraps loadShare modules with `var X = n(async () => {...})`.
+        // The exports are only populated after X() is called. Without eager
+        // evaluation, importing modules access undefined exports.
+        // Adding `await X();` at module scope converts the lazy pattern to
+        // browser-level TLA, ensuring exports are set before dependents run.
+        const lazyInitPattern = /(\w+)\s*=\s*\w+\(\(\s*async\s*\(\s*\)\s*=>\s*\{/;
+        for (const [fileName, chunk] of Object.entries(bundle)) {
+          if (chunk.type !== 'chunk') continue;
+          if (!fileName.includes(LOAD_SHARE_TAG)) continue;
+
+          const match = lazyInitPattern.exec(chunk.code);
+          if (!match) continue;
+
+          const lazyVar = match[1];
+          const exportIdx = chunk.code.lastIndexOf('export{');
+          if (exportIdx < 0) continue;
+
+          chunk.code =
+            chunk.code.slice(0, exportIdx) + `await ${lazyVar}();` + chunk.code.slice(exportIdx);
         }
 
         // Pass 1 (rolldown-vite): Add top-level await for CJS init functions

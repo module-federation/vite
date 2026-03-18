@@ -193,8 +193,17 @@ const addEntry = ({
             if (htmlAsset.type === 'chunk') return;
 
             const path = resolvePath(fileName);
+            // Use inline script with `await import()` + `await __tla` instead of
+            // an external script tag. Rolldown compiles top-level await into a
+            // `__tla` Promise export rather than preserving browser-level TLA.
+            // An external <script src="hostInit.js"> would evaluate as
+            // fire-and-forget (the browser sees no `await` keyword), so
+            // initPromise is never guaranteed to resolve before loadShare TLA
+            // chunks start evaluating. By explicitly awaiting the module's __tla
+            // here, we ensure init() completes before any subsequent module
+            // scripts execute.
             const scriptContent = `
-          <script type="module" src="${path}"></script>
+          <script type="module">await import("${path}").then(function(m){return m.__tla});</script>
         `;
 
             let htmlContent = htmlAsset.source.toString() || '';
