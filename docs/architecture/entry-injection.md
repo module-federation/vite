@@ -228,7 +228,7 @@ For `hostInit` with `inject: 'entry'`, the same thing happens — the init scrip
 
 ### Step 3: Inject into HTML (`generateBundle`)
 
-For `inject: 'html'` mode, the build plugin's `generateBundle` hook inserts a `<script>` tag into every HTML file in the bundle:
+For `inject: 'html'` mode, the build plugin's `generateBundle` hook inserts an inline `<script>` tag into every HTML file in the bundle:
 
 ```js
 generateBundle(options, bundle) {
@@ -241,16 +241,18 @@ generateBundle(options, bundle) {
       if (htmlAsset.type === 'chunk') return;  // skip non-asset HTML entries
 
       const path = resolvePath(fileName);
+      const scriptContent = `
+        <script type="module">await import("${path}").then(function(m){return m.__tla});</script>
+      `;
       let htmlContent = htmlAsset.source.toString();
-      htmlContent = htmlContent.replace(
-        '<head>',
-        `<head><script type="module" src="${path}"></script>`
-      );
+      htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
       htmlAsset.source = htmlContent;
     }
   }
 }
 ```
+
+The inline `await import().then(m => m.__tla)` pattern is critical for Vite 8+ (Rolldown). Rolldown compiles top-level await into a `__tla` Promise export rather than preserving browser-level TLA. An external `<script src="hostInit.js">` would evaluate as fire-and-forget (the browser sees no `await` keyword), so `initPromise` would never be guaranteed to resolve before `loadShare` TLA chunks evaluate. By explicitly awaiting the module's `__tla` here, we ensure `init()` completes before any subsequent module scripts execute.
 
 The `type === 'chunk'` guard prevents processing non-asset HTML entries — Rollup's bundle can contain both asset and chunk entries with `.html` extensions, and only assets have a `.source` property to modify. The script tag is inserted at the start of `<head>` — before any other scripts — so it runs as early as possible. This is the default behavior for `hostInit`.
 
@@ -371,7 +373,8 @@ Here's the complete picture for each invocation, in both modes:
 ┌─ hostInit (fileName: none, inject: 'html') ──────────────────────────────────┐
 │                                                                               │
 │  Build: Emits hostInit-xyz789.js as an anonymous chunk                        │
-│         <script type="module" src="/hostInit-xyz789.js"> injected into <head> │
+│         Inline <script type="module">await import("/hostInit-xyz789.js")      │
+│           .then(m => m.__tla)</script> injected into <head>                   │
 │                                                                               │
 │  Result: Runs before any app code, imports remoteEntry, calls init()          │
 │                                                                               │
@@ -426,8 +429,8 @@ Here's the complete picture for each invocation, in both modes:
 
 ```
 1. Browser requests index.html
-2. HTML contains <script type="module" src="hostInit-xyz789.js"> in <head>
-3. Browser fetches and executes hostInit
+2. HTML contains inline <script type="module">await import("hostInit-xyz789.js").then(m => m.__tla)</script> in <head>
+3. Browser fetches and executes hostInit (awaiting its __tla Promise)
 4. hostInit imports remoteEntry.js (build) or fetches it from dev server (dev)
 5. remoteEntry.init() runs:
    ├── Registers shared deps and remotes with the runtime
@@ -438,6 +441,6 @@ Here's the complete picture for each invocation, in both modes:
    now-initialized runtime
 ```
 
-The key ordering guarantee: because `hostInit` is injected into `<head>` as a separate `<script>` tag (in `'html'` mode), it starts loading before the app's bundled JS. By the time the app code runs and hits a `__loadShare__` or `__loadRemote__` import, `initPromise` has already resolved (or is about to). This is why `'html'` is the default for `hostInitInjectLocation` — it provides the earliest possible initialization.
+The key ordering guarantee: because `hostInit` is injected into `<head>` as an inline `<script type="module">` with an explicit `await import().then(m => m.__tla)`, it blocks subsequent module scripts until `init()` completes. This is critical for Vite 8+ (Rolldown) where top-level await is compiled into `__tla` Promise exports — without the explicit `await`, the script would be fire-and-forget and `initPromise` would not be guaranteed to resolve before `loadShare` TLA chunks evaluate. This is why `'html'` is the default for `hostInitInjectLocation` — it provides the earliest and most reliable initialization.
 
 With `inject: 'entry'`, the init import is at the top of the entry file, so it runs first within that file's execution, but the file itself may load later than a dedicated `<script>` tag would.

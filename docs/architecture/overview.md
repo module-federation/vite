@@ -300,6 +300,18 @@ This sequence is the same whether the app is a host, a remote, or both. The dist
 
 ## What can go wrong
 
+### TLA deadlock with Rolldown (Vite 8+)
+
+Rolldown compiles top-level await into `__tla` Promise exports rather than preserving browser-level TLA. This creates several deadlock scenarios:
+
+1. **Fire-and-forget hostInit** — An external `<script src="hostInit.js">` evaluates immediately without awaiting TLA, so `initPromise` may not resolve before `loadShare` chunks evaluate. Fix: hostInit is injected as an inline `<script type="module">await import("hostInit.js").then(m => m.__tla)</script>`.
+
+2. **Circular side-effect imports** — Rolldown adds bare `import"./loadShare_chunk.js"` to shared bundles, creating circular TLA dependencies. Fix: the `generateBundle` hook strips these side-effect imports from non-loadShare chunks.
+
+3. **Lazy-init wrappers** — Rolldown wraps loadShare modules with `var X = n(async () => {...})`, leaving exports undefined until `X()` is called. Fix: the `generateBundle` hook adds `await X();` before the export statement in loadShare chunks.
+
+These fixes are applied as post-processing in the `module-federation-esm-shims` plugin's `generateBundle` hook. The helper functions `removeSideEffectLoadShareImports()` and `eagerEvaluateLazyInit()` in `src/utils/bundleHelpers.ts` implement fixes 2 and 3 respectively.
+
 ### Module parse timeout (build only)
 
 During build, the plugin waits for all modules to be parsed before generating `remoteEntry.js` (so it knows which shared deps are actually used). If parsing takes longer than the timeout (default: 10 seconds, configurable via `moduleParseTimeout`), the plugin logs a warning and force-resolves:
@@ -335,4 +347,5 @@ Version negotiation (singleton conflicts, incompatible `requiredVersion` constra
 | `src/virtualModules/virtualRemotes.ts`            | Code generation for `__loadRemote__` modules                         |
 | `src/virtualModules/virtualShared_preBuild.ts`    | Code generation for `__loadShare__` and `__prebuild__` modules       |
 | `src/virtualModules/virtualExposes.ts`            | Code generation for the exposed modules map                          |
+| `src/utils/bundleHelpers.ts`                      | Post-processing helpers for Rolldown TLA fixes                       |
 | `src/virtualModules/virtualRuntimeInitStatus.ts`  | The `initPromise` / `initResolve` synchronization module             |
