@@ -297,41 +297,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
 
           const isRolldown = getIsRolldown(this);
 
-          if (!isRolldown) {
-            // Remove static imports/re-exports of prebuild modules to prevent
-            // Rollup from merging them into the loadShare chunk.  Without this,
-            // Rollup deduplicates and merges React code into the loadShare chunk,
-            // so get() in localSharedImportMap ends up dynamically importing the
-            // SAME chunk whose TLA is already executing → self-referential deadlock.
-            // The prebuild modules remain reachable via the dynamic import() in
-            // localSharedImportMap's get() function, which naturally creates a
-            // separate chunk.
-            code = code.replace(/import\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
-            code = code.replace(/export\s+\*\s+from\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
-
-            /**
-             * Shared/remote shims only have `export default exportModule`.
-             *
-             * We add a second named export (__moduleExports) that holds the full
-             * module namespace and point syntheticNamedExports at it.  This lets
-             * Rollup resolve named imports (e.g. `import { useState } from 'react'`)
-             * from the namespace while still applying its normal default-export
-             * interop — which is needed for libraries like @emotion/styled where
-             * `import styled from '@emotion/styled'` must receive the .default
-             * function, not the raw namespace object.
-             *
-             * Using 'default' as the syntheticNamedExports key would skip the
-             * interop and break default imports.
-             *
-             * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
-             */
-            code = code.replace(
-              'export default exportModule',
-              'export const __moduleExports = exportModule;\n' +
-                'export default exportModule.__esModule ? exportModule.default : exportModule'
-            );
-            return { code, syntheticNamedExports: '__moduleExports' };
-          } else {
+          if (isRolldown) {
             // Rolldown path — syntheticNamedExports is not supported by Rolldown,
             // so named exports must be provided explicitly.
             //
@@ -389,6 +355,40 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             );
             return { code };
           }
+
+          // Remove static imports/re-exports of prebuild modules to prevent
+          // Rollup from merging them into the loadShare chunk.  Without this,
+          // Rollup deduplicates and merges React code into the loadShare chunk,
+          // so get() in localSharedImportMap ends up dynamically importing the
+          // SAME chunk whose TLA is already executing → self-referential deadlock.
+          // The prebuild modules remain reachable via the dynamic import() in
+          // localSharedImportMap's get() function, which naturally creates a
+          // separate chunk.
+          code = code.replace(/import\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
+          code = code.replace(/export\s+\*\s+from\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
+
+          /**
+           * Shared/remote shims only have `export default exportModule`.
+           *
+           * We add a second named export (__moduleExports) that holds the full
+           * module namespace and point syntheticNamedExports at it.  This lets
+           * Rollup resolve named imports (e.g. `import { useState } from 'react'`)
+           * from the namespace while still applying its normal default-export
+           * interop — which is needed for libraries like @emotion/styled where
+           * `import styled from '@emotion/styled'` must receive the .default
+           * function, not the raw namespace object.
+           *
+           * Using 'default' as the syntheticNamedExports key would skip the
+           * interop and break default imports.
+           *
+           * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
+           */
+          code = code.replace(
+            'export default exportModule',
+            'export const __moduleExports = exportModule;\n' +
+              'export default exportModule.__esModule ? exportModule.default : exportModule'
+          );
+          return { code, syntheticNamedExports: '__moduleExports' };
         }
       },
       generateBundle(_, bundle) {
