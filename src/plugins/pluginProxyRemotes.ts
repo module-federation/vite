@@ -1,6 +1,7 @@
 import { createFilter } from '@rollup/pluginutils';
 import { Plugin } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { getIsRolldown } from '../utils/packageUtils';
 import { addUsedRemote, getRemoteVirtualModule } from '../virtualModules';
 const filter: (id: string) => boolean = createFilter();
 
@@ -11,7 +12,7 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     name: 'proxyRemotes',
     config(config, { command: _command }) {
       command = _command;
-      const isRolldown = !!(this as any)?.meta?.rolldownVersion;
+      const isRolldown = getIsRolldown(this);
       Object.keys(remotes).forEach((key) => {
         const remote = remotes[key];
         (config.resolve as any).alias.push({
