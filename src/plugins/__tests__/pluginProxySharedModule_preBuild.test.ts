@@ -7,6 +7,7 @@ const { hasPackageDependencyMock } = vi.hoisted(() => ({
 vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   setPackageDetectionCwd: vi.fn(),
+  getIsRolldown: () => false,
 }));
 
 import { proxySharedModule } from '../pluginProxySharedModule_preBuild';

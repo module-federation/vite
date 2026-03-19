@@ -25,7 +25,7 @@ import {
   normalizeModuleFederationOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -77,7 +77,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
 
       if (_command !== 'serve') return;
 
-      const isRolldown = !!(this as any)?.meta?.rolldownVersion;
+      const isRolldown = getIsRolldown(this);
 
       // Eagerly register configured remotes so they are available
       // when localSharedImportMap is loaded during dev (race condition fix)
@@ -295,7 +295,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
           let code = readFileSync(id, 'utf-8');
 
-          const isRolldown = !!this?.meta?.rolldownVersion;
+          const isRolldown = getIsRolldown(this);
 
           if (!isRolldown) {
             // Remove static imports/re-exports of prebuild modules to prevent
@@ -672,7 +672,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       // used to expose plugin options: https://github.com/rolldown/rolldown/discussions/2577#discussioncomment-11137593
       _options: options,
       config(config, { command: _command }: { command: string }) {
-        const isRolldown = !!(this as any)?.meta?.rolldownVersion;
+        const isRolldown = getIsRolldown(this);
 
         // For rolldown (Vite 8+ / rolldown-vite), resolve to ESM entry
         // because rolldown cannot parse dynamic import() in .cjs files
