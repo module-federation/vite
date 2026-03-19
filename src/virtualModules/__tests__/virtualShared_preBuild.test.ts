@@ -98,4 +98,25 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import { initPromise } from');
     expect(generatedCode).not.toContain('require("mock-import-id")');
   });
+
+  it('unwraps default exports for shared ESM modules', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
+  });
 });

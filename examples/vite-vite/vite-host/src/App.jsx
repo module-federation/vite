@@ -2,15 +2,13 @@ import R from 'react';
 import RD from 'react-dom/client';
 
 import App from '@namespace/viteViteRemote';
-import { AgGridDemo } from '@namespace/viteViteRemote/AgGridDemo';
 import App1 from '@namespace/viteViteRemote/App1';
-import { App2 } from '@namespace/viteViteRemote/App2';
-import { EmotionDemo } from '@namespace/viteViteRemote/EmotionDemo';
-import { MuiDemo } from '@namespace/viteViteRemote/MuiDemo';
+import App2 from '@namespace/viteViteRemote/App2';
+import EmotionDemo from '@namespace/viteViteRemote/EmotionDemo';
+import MuiDemo from '@namespace/viteViteRemote/MuiDemo';
 import StyledDemo from '@namespace/viteViteRemote/StyledDemo';
-import { ref } from 'vue';
+import AgGridDemo from '@namespace/viteViteRemote/AgGridDemo';
 
-console.log('Share Vue', ref);
 console.log('Share React', R, RD);
 
 export default function HostApp() {
@@ -31,17 +29,17 @@ export default function HostApp() {
       <h2>Vite Remote App2</h2>
       <App2 />
 
-      <h2>Vite Remote AgGridDemo</h2>
-      <AgGridDemo />
+      <h2>Emotion Styled Components Demo</h2>
+      <EmotionDemo />
 
-      <h3>Vite Remote MuiDemo</h3>
+      <h2>Vite Remote MuiDemo</h2>
       <MuiDemo />
 
       <h2>Styled Components Demo</h2>
       <StyledDemo />
 
-      <h2>Emotion Styled Components Demo</h2>
-      <EmotionDemo />
+      <h2>Vite Remote AgGridDemo</h2>
+      <AgGridDemo />
 
       <hr />
     </div>

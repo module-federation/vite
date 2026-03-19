@@ -42,6 +42,7 @@ import { addUsedShares } from './virtualModules/virtualRemoteEntry';
 import { addUsedRemote } from './virtualModules/virtualRemotes';
 import { virtualRuntimeInitStatus } from './virtualModules/virtualRuntimeInitStatus';
 import {
+  getLoadShareImportId,
   getLoadShareModulePath,
   getPreBuildLibImportId,
   writeLoadShareModule,
@@ -107,6 +108,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           writeLoadShareModule(key, shareItem, _command, isRolldown);
           writePreBuildLibPath(key);
           addUsedShares(key);
+          config.optimizeDeps.include.push(getLoadShareImportId(key, isRolldown, _command));
           config.optimizeDeps.include.push(getPreBuildLibImportId(key));
         }
         writeLocalSharedImportMap();

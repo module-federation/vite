@@ -1,11 +1,13 @@
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
+import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
 import { AgGridReact } from 'ag-grid-react';
 import { useState } from 'react';
 import './agGrid.css';
 
+ModuleRegistry.registerModules([AllCommunityModule]);
 
-export const AgGridDemo = ({ }) => {
+export function AgGridDemo() {
   const [rowData] = useState([
     { make: 'Toyota', model: 'Celica', price: 35000 },
     { make: 'Ford', model: 'Mondeo', price: 32000 },
@@ -17,21 +19,19 @@ export const AgGridDemo = ({ }) => {
   return (
     <div className="App">
       <div style={{ display: 'flex', flexDirection: 'row' }}>
-        <div
-          id="grid1"
-          className="ag-theme-alpine"
-          style={{ height: 400, width: 600, margin: '20px' }}
-        >
-          <AgGridReact rowData={rowData} columnDefs={columnDefs}></AgGridReact>
-        </div>
-        <div
-          id="grid2"
-          className="ag-theme-alpine"
-          style={{ height: 400, width: 600, margin: '20px' }}
-        >
-          <AgGridReact rowData={rowData} columnDefs={columnDefs}></AgGridReact>
-        </div>
+        {[1, 2].map((gridIndex) => (
+          <div
+            key={gridIndex}
+            id={`grid${gridIndex}`}
+            className="ag-theme-alpine"
+            style={{ height: 400, width: 600, margin: '20px' }}
+          >
+            <AgGridReact rowData={rowData} columnDefs={columnDefs} theme="legacy" />
+          </div>
+        ))}
       </div>
     </div>
   );
-};
+}
+
+export default AgGridDemo;
