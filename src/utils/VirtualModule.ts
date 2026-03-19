@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFile, writeFileSync } from 'fs';
 import { dirname, join, parse, resolve, basename } from 'pathe';
 import { packageNameDecode, packageNameEncode } from '../utils/packageUtils';
+import { createModuleFederationError } from './logger';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 
 /**
@@ -80,7 +81,7 @@ const cacheMap: {
 export function assertModuleFound(tag: string, str: string = ''): VirtualModule {
   const module = VirtualModule.findModule(tag, str);
   if (!module) {
-    throw new Error(
+    throw createModuleFederationError(
       `Module Federation shared module '${str}' not found. Please ensure it's installed as a dependency in your package.json.`
     );
   }

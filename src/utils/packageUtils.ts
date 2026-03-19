@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import path from 'pathe';
+import { createModuleFederationError } from './logger';
 
 type PackageJsonDependencyGroups = {
   dependencies?: Record<string, string>;
@@ -33,7 +34,9 @@ export function setPackageDetectionCwd(cwd: string) {
  * @returns {string} - The encoded file name.
  */
 export function packageNameEncode(name: string) {
-  if (typeof name !== 'string') throw new Error('A string package name is required');
+  if (typeof name !== 'string') {
+    throw createModuleFederationError('A string package name is required');
+  }
   return name
     .replace(/@/g, '_mf_0_')
     .replace(/\//g, '_mf_1_')
@@ -47,7 +50,9 @@ export function packageNameEncode(name: string) {
  * @returns {string} - The decoded package name.
  */
 export function packageNameDecode(encoded: string) {
-  if (typeof encoded !== 'string') throw new Error('A string encoded file name is required');
+  if (typeof encoded !== 'string') {
+    throw createModuleFederationError('A string encoded file name is required');
+  }
   return encoded
     .replace(/_mf_0_/g, '@')
     .replace(/_mf_1_/g, '/')

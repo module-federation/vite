@@ -4,6 +4,7 @@
 import { createFilter } from '@rollup/pluginutils';
 import MagicString from 'magic-string';
 import { Plugin } from 'vite';
+import { createModuleFederationError } from '../utils/logger';
 import { hasPackageDependency } from '../utils/packageUtils';
 
 type Walk = typeof import('estree-walker').walk;
@@ -36,7 +37,7 @@ export function PluginDevProxyModuleTopLevelAwait(): Plugin {
           allowReturnOutsideFunction: true,
         });
       } catch (e) {
-        throw new Error(`${id}: ${e}`);
+        throw createModuleFederationError(`${id}: ${e}`);
       }
 
       const magicString = new MagicString(code);
