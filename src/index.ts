@@ -19,6 +19,7 @@ import {
   isFederationControlChunk,
   sanitizeFederationControlChunk,
 } from './utils/controlChunkSanitizer';
+import { createModuleFederationError, mfWarn } from './utils/logger';
 import {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -121,7 +122,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const isVinext = hasPackageDependency('vinext');
   const { name, remotes, shared, filename, hostInitInjectLocation } = options;
-  if (!name) throw new Error('name is required');
+  if (!name) throw createModuleFederationError('name is required');
 
   const remoteEntryId = getRemoteEntryId(options);
   const virtualExposesId = getVirtualExposesId(options);
@@ -249,7 +250,19 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           };
         }
 
+        let warnedAboutCodeSplitting = false;
+        const ensureCodeSplitting = (output: any) => {
+          if (output?.codeSplitting !== false) return;
+          delete output.codeSplitting;
+          if (warnedAboutCodeSplitting) return;
+          warnedAboutCodeSplitting = true;
+          mfWarn(
+            'Ignoring `build.rolldownOptions.output.codeSplitting = false` because module federation requires chunk splitting.'
+          );
+        };
+
         const applyManualChunks = (output: any) => {
+          ensureCodeSplitting(output);
           const existingManualChunks = output.manualChunks;
           output.manualChunks = function (id: string) {
             // Keep runtimeInitStatus in its own chunk to break TLA deadlock
@@ -746,8 +759,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           'ENV_TARGET' in config.define &&
           config.define['ENV_TARGET'] !== JSON.stringify(options.target)
         ) {
-          console.warn(
-            `[module-federation] ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
+          mfWarn(
+            `ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
           );
         }
       },

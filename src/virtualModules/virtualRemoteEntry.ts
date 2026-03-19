@@ -54,7 +54,7 @@ export function generateLocalSharedImportMap() {
         ${JSON.stringify(pkg)}: async () => {
           ${
             shareItem?.shareConfig.import === false
-              ? `throw new Error(\`Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
+              ? `throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
               : isVinext && pkg === 'react'
                 ? `let pkg = await import("react");
             return pkg;`
@@ -81,7 +81,7 @@ export function generateLocalSharedImportMap() {
             from: ${JSON.stringify(options.name)},
             async get () {
               if (${shareItem.shareConfig.import === false}) {
-                throw new Error(\`Shared module '\${${JSON.stringify(key)}}' must be provided by host\`);
+                throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(key)}}' must be provided by host\`);
               }
               usedShared[${JSON.stringify(key)}].loaded = true
               const {${JSON.stringify(key)}: pkgDynamicImport} = importMap
@@ -206,14 +206,14 @@ export function generateRemoteEntry(
         initScope
       }));
     } catch (e) {
-      console.error(e)
+      console.error('[Module Federation]', e)
     }
     return initRes
   }
 
   async function getExposes(moduleName) {
     const exposesMap = await getExposesMap()
-    if (!(moduleName in exposesMap)) throw new Error(\`Module \${moduleName} does not exist in container.\`)
+    if (!(moduleName in exposesMap)) throw new Error(\`[Module Federation] Module \${moduleName} does not exist in container.\`)
     return (exposesMap[moduleName])().then(res => () => res)
   }
   export {

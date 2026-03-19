@@ -25,6 +25,7 @@ export type RemoteEntryType =
 import * as fs from 'fs';
 import { createRequire } from 'node:module';
 import * as path from 'pathe';
+import { createModuleFederationError, mfError } from './logger';
 import { removePathFromNpmPackage } from './packageUtils';
 
 interface ExposesItem {
@@ -178,11 +179,11 @@ function normalizeShareItem(
         version = require(localPath).version;
       } catch (e2) {
         version = searchPackageVersion(key);
-        if (!version) console.error(e1);
+        if (!version) mfError(e1);
       }
     }
   } catch (e) {
-    console.error(`Unexpected error resolving version for ${key}:`, e);
+    mfError(`Unexpected error resolving version for ${key}:`, e);
   }
   if (typeof shareItem === 'string') {
     return {
@@ -444,7 +445,7 @@ export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
   if (options.virtualModuleDir && options.virtualModuleDir.includes('/')) {
-    throw new Error(
+    throw createModuleFederationError(
       `Invalid virtualModuleDir: "${options.virtualModuleDir}". ` +
         `The virtualModuleDir option cannot contain slashes (/). ` +
         `Please use a single directory name like '__mf__virtual__your_app_name'.`

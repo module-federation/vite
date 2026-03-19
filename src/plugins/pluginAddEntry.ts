@@ -4,8 +4,9 @@ import { Plugin } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
 import { inlineEntryScripts, sanitizeDevEntryPath } from '../utils/htmlEntryUtils';
-import { hasPackageDependency } from '../utils/packageUtils';
+import { mfWarn } from '../utils/logger';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { hasPackageDependency } from '../utils/packageUtils';
 
 interface AddEntryOptions {
   entryName: string;
@@ -171,8 +172,8 @@ const addEntry = ({
           if (result && typeof result === 'object') {
             if ('runtime' in result) {
               // Runtime code cannot be used in <script src="">
-              console.warn(
-                '[vite-plugin-federation] renderBuiltUrl returned runtime code for HTML injection. ' +
+              mfWarn(
+                'renderBuiltUrl returned runtime code for HTML injection. ' +
                   'Runtime code cannot be used in <script src="">. Falling back to base path.'
               );
               return viteConfig.base + file;
