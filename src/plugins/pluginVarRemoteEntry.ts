@@ -1,6 +1,7 @@
 import { Plugin } from 'vite';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { createModuleFederationError, mfWarn } from '../utils/logger';
 
 const VarRemoteEntry = (): Plugin[] => {
   const mfOptions = getNormalizeModuleFederationOptions();
@@ -37,7 +38,6 @@ const VarRemoteEntry = (): Plugin[] => {
           ) {
             res.setHeader('Content-Type', 'text/javascript');
             res.setHeader('Access-Control-Allow-Origin', '*');
-            console.log({ filename });
             res.end(generateVarRemoteEntry(filename));
           } else {
             next();
@@ -70,7 +70,7 @@ const VarRemoteEntry = (): Plugin[] => {
         const isValidName = isValidVarName(name);
 
         if (!isValidName) {
-          viteConfig.logger.warn(
+          mfWarn(
             `Provided remote name "${name}" is not valid for "var" remoteEntry type, thus it's placed in globalThis['${name}'].\nIt may cause problems, so you would better want to use valid var name (see https://www.w3schools.com/js/js_variables.asp).`
           );
         }
@@ -78,7 +78,7 @@ const VarRemoteEntry = (): Plugin[] => {
         const remoteEntryFile = findRemoteEntryFile(mfOptions.filename, bundle);
 
         if (!remoteEntryFile)
-          throw new Error(
+          throw createModuleFederationError(
             `Couldn't find a remoteEntry chunk file for ${mfOptions.filename}, can't generate varRemoteEntry file`
           );
 
@@ -114,7 +114,7 @@ const VarRemoteEntry = (): Plugin[] => {
     function getScriptUrl() {
       const currentScript = document.currentScript;
       if (!currentScript) {
-        console.error("[VarRemoteEntry] ${varFilename} script should be called from sync <script> tag (document.currentScript is undefined)")
+        console.error("[Module Federation] ${varFilename} script should be called from sync <script> tag (document.currentScript is undefined)")
         return '/';
       }
       return document.currentScript.src.replace(/\\/[^/]*$/, '/');

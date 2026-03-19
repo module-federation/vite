@@ -3,15 +3,9 @@ import { checkAliasConflicts } from '../pluginCheckAliasConflicts';
 
 describe('pluginCheckAliasConflicts', () => {
   let consoleWarnSpy: any;
-  let mockLogger: any;
 
   beforeEach(() => {
     consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mockLogger = {
-      warn: vi.fn(),
-      info: vi.fn(),
-      error: vi.fn(),
-    };
   });
 
   afterEach(() => {
@@ -43,7 +37,6 @@ describe('pluginCheckAliasConflicts', () => {
     });
 
     const mockConfig = {
-      logger: mockLogger,
       resolve: {
         alias: [
           {
@@ -64,14 +57,14 @@ describe('pluginCheckAliasConflicts', () => {
 
     plugin.configResolved!(mockConfig as any);
 
-    expect(mockLogger.warn).toHaveBeenCalledTimes(4);
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      '\n[Module Federation] Detected alias conflicts with shared modules:'
+    expect(consoleWarnSpy).toHaveBeenCalledTimes(4);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[Module Federation] Detected alias conflicts with shared modules:'
     );
-    expect(mockLogger.warn).toHaveBeenCalledWith(
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Shared module "vue" is aliased by "vue"')
     );
-    expect(mockLogger.warn).toHaveBeenCalledWith(
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Shared module "pinia" is aliased by "pinia"')
     );
   });
@@ -92,7 +85,6 @@ describe('pluginCheckAliasConflicts', () => {
     });
 
     const mockConfig = {
-      logger: mockLogger,
       resolve: {
         alias: [
           {
@@ -105,7 +97,7 @@ describe('pluginCheckAliasConflicts', () => {
 
     plugin.configResolved!(mockConfig as any);
 
-    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('should not warn when shared is empty', () => {
@@ -114,7 +106,6 @@ describe('pluginCheckAliasConflicts', () => {
     });
 
     const mockConfig = {
-      logger: mockLogger,
       resolve: {
         alias: [
           {
@@ -127,7 +118,7 @@ describe('pluginCheckAliasConflicts', () => {
 
     plugin.configResolved!(mockConfig as any);
 
-    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('should handle regex alias patterns', () => {
@@ -146,7 +137,6 @@ describe('pluginCheckAliasConflicts', () => {
     });
 
     const mockConfig = {
-      logger: mockLogger,
       resolve: {
         alias: [
           {
@@ -159,8 +149,8 @@ describe('pluginCheckAliasConflicts', () => {
 
     plugin.configResolved!(mockConfig as any);
 
-    expect(mockLogger.warn).toHaveBeenCalled();
-    expect(mockLogger.warn).toHaveBeenCalledWith(
+    expect(consoleWarnSpy).toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Shared module "react" is aliased')
     );
   });
@@ -181,7 +171,6 @@ describe('pluginCheckAliasConflicts', () => {
     });
 
     const mockConfig = {
-      logger: mockLogger,
       resolve: {
         alias: [
           {
@@ -194,7 +183,7 @@ describe('pluginCheckAliasConflicts', () => {
 
     plugin.configResolved!(mockConfig as any);
 
-    expect(mockLogger.warn).toHaveBeenCalled();
+    expect(consoleWarnSpy).toHaveBeenCalled();
   });
 
   it('should work with undefined alias', () => {
@@ -213,7 +202,6 @@ describe('pluginCheckAliasConflicts', () => {
     });
 
     const mockConfig = {
-      logger: mockLogger,
       resolve: {
         alias: undefined,
       },
@@ -221,7 +209,7 @@ describe('pluginCheckAliasConflicts', () => {
 
     plugin.configResolved!(mockConfig as any);
 
-    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('should skip Module Federation internal aliases (replacement $1)', () => {
@@ -249,7 +237,6 @@ describe('pluginCheckAliasConflicts', () => {
     });
 
     const mockConfig = {
-      logger: mockLogger,
       resolve: {
         alias: [
           {
@@ -269,6 +256,6 @@ describe('pluginCheckAliasConflicts', () => {
     plugin.configResolved!(mockConfig as any);
 
     // Should not warn for internal MF aliases with replacement '$1'
-    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 });

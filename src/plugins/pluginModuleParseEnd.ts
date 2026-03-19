@@ -3,6 +3,7 @@
  * This plugin allows me to wait until all modules are built, and then expose them together.
  */
 import { Plugin } from 'vite';
+import { mfWarn } from '../utils/logger';
 
 let _resolve: any, _reject: any, _parseTimeout: any;
 
@@ -22,7 +23,7 @@ const promise = new Promise((resolve, reject) => {
 function setParseTimeout(timeout: number) {
   if (!_parseTimeout) {
     _parseTimeout = setTimeout(() => {
-      console.warn(`Parse timeout (${timeout}s) - forcing resolve`);
+      mfWarn(`Parse timeout (${timeout}s) - forcing resolve`);
       _resolve(1);
     }, timeout * 1000);
   }
@@ -31,7 +32,7 @@ function setParseTimeout(timeout: number) {
 function resetIdleTimeout(timeout: number) {
   clearTimeout(_parseTimeout);
   _parseTimeout = setTimeout(() => {
-    console.warn(
+    mfWarn(
       `moduleParseIdleTimeout: no module activity for ${timeout}s, forcing resolve. ` +
         'Some shared/remote dependencies may be missing. Consider increasing moduleParseIdleTimeout.'
     );

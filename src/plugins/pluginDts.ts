@@ -11,6 +11,7 @@ import { rpc, type DTSManagerOptions } from '@module-federation/dts-plugin/core'
 import * as path from 'pathe';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { createModuleFederationError, mfError } from '../utils/logger';
 
 type DevOptions = {
   disableLiveReload?: boolean;
@@ -165,7 +166,7 @@ const logDtsError = (error: unknown, dtsOptions?: NormalizedModuleFederationOpti
   if (typeof dtsOptions === 'object' && dtsOptions && dtsOptions.displayErrorInTerminal === false) {
     return;
   }
-  console.error(error);
+  mfError(error);
 };
 
 export default function pluginDts(options: NormalizedModuleFederationOptions): Plugin[] {
@@ -217,7 +218,7 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
       }
 
       if (!options.name) {
-        throw new Error('name is required if you want to enable dev server!');
+        throw createModuleFederationError('name is required if you want to enable dev server!');
       }
 
       const outputDir = resolveOutputDir(resolvedConfig);

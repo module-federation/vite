@@ -26,6 +26,7 @@ import {
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import { hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import { createModuleFederationError, mfWarn } from './utils/logger';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -121,7 +122,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const isVinext = hasPackageDependency('vinext');
   const { name, remotes, shared, filename, hostInitInjectLocation } = options;
-  if (!name) throw new Error('name is required');
+  if (!name) throw createModuleFederationError('name is required');
 
   const remoteEntryId = getRemoteEntryId(options);
   const virtualExposesId = getVirtualExposesId(options);
@@ -685,8 +686,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           'ENV_TARGET' in config.define &&
           config.define['ENV_TARGET'] !== JSON.stringify(options.target)
         ) {
-          console.warn(
-            `[module-federation] ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
+          mfWarn(
+            `ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
           );
         }
       },
