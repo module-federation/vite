@@ -295,39 +295,100 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
           let code = readFileSync(id, 'utf-8');
 
-          // Remove static imports/re-exports of prebuild modules to prevent
-          // Rollup from merging them into the loadShare chunk.  Without this,
-          // Rollup deduplicates and merges React code into the loadShare chunk,
-          // so get() in localSharedImportMap ends up dynamically importing the
-          // SAME chunk whose TLA is already executing → self-referential deadlock.
-          // The prebuild modules remain reachable via the dynamic import() in
-          // localSharedImportMap's get() function, which naturally creates a
-          // separate chunk.
-          code = code.replace(/import\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
-          code = code.replace(/export\s+\*\s+from\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
+          const isRolldown = !!this?.meta?.rolldownVersion;
 
-          /**
-           * Shared/remote shims only have `export default exportModule`.
-           *
-           * We add a second named export (__moduleExports) that holds the full
-           * module namespace and point syntheticNamedExports at it.  This lets
-           * Rollup resolve named imports (e.g. `import { useState } from 'react'`)
-           * from the namespace while still applying its normal default-export
-           * interop — which is needed for libraries like @emotion/styled where
-           * `import styled from '@emotion/styled'` must receive the .default
-           * function, not the raw namespace object.
-           *
-           * Using 'default' as the syntheticNamedExports key would skip the
-           * interop and break default imports.
-           *
-           * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
-           */
-          code = code.replace(
-            'export default exportModule',
-            'export const __moduleExports = exportModule;\n' +
+          if (!isRolldown) {
+            // Remove static imports/re-exports of prebuild modules to prevent
+            // Rollup from merging them into the loadShare chunk.  Without this,
+            // Rollup deduplicates and merges React code into the loadShare chunk,
+            // so get() in localSharedImportMap ends up dynamically importing the
+            // SAME chunk whose TLA is already executing → self-referential deadlock.
+            // The prebuild modules remain reachable via the dynamic import() in
+            // localSharedImportMap's get() function, which naturally creates a
+            // separate chunk.
+            code = code.replace(/import\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
+            code = code.replace(/export\s+\*\s+from\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
+
+            /**
+             * Shared/remote shims only have `export default exportModule`.
+             *
+             * We add a second named export (__moduleExports) that holds the full
+             * module namespace and point syntheticNamedExports at it.  This lets
+             * Rollup resolve named imports (e.g. `import { useState } from 'react'`)
+             * from the namespace while still applying its normal default-export
+             * interop — which is needed for libraries like @emotion/styled where
+             * `import styled from '@emotion/styled'` must receive the .default
+             * function, not the raw namespace object.
+             *
+             * Using 'default' as the syntheticNamedExports key would skip the
+             * interop and break default imports.
+             *
+             * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
+             */
+            code = code.replace(
+              'export default exportModule',
+              'export const __moduleExports = exportModule;\n' +
+                'export default exportModule.__esModule ? exportModule.default : exportModule'
+            );
+            return { code, syntheticNamedExports: '__moduleExports' };
+          } else {
+            // Rolldown path — syntheticNamedExports is not supported by Rolldown,
+            // so named exports must be provided explicitly.
+            //
+            // For __loadShare__ modules in dev mode, Rolldown's dep optimizer
+            // pre-bundles consumers (e.g. react-dom) and wraps the loadShare
+            // module with __esmMin/__commonJSMin helpers.  The CJS wrapper
+            // pattern `(init_...(), __toCommonJS(exports))` calls init but
+            // cannot await the resulting Promise — the synchronous comma
+            // expression discards it and immediately reads still-uninitialized
+            // exports.
+            //
+            // To fix this, writeLoadShareModule (in virtualShared_preBuild.ts)
+            // generates a synchronous pre-initialization from the prebuild
+            // module so exports are available immediately.  Here we convert the
+            // bare side-effect prebuild import into a default import so the
+            // prebuild value is accessible for that synchronous init.
+            if (id.includes(LOAD_SHARE_TAG)) {
+              code = code.replace(
+                /import\s+(["'][^"']*__prebuild__[^"']*["'])\s*;?/,
+                'import __mf_prebuild__ from $1;'
+              );
+              code = code.replace(
+                /export\s+\*\s+from\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g,
+                ''
+              );
+              const destructureMatch = code.match(/const\s*\{([^}]+)\}\s*=\s*exportModule\s*;/);
+              if (destructureMatch) {
+                const bindings = destructureMatch[1];
+                const vars = bindings.match(/__mf_\d+/g) || [];
+                code = code.replace(
+                  /const\s*\{([^}]+)\}\s*=\s*exportModule\s*;/,
+                  '({ $1 } = exportModule);'
+                );
+                code = code.replace(
+                  /const\s+exportModule\s*=\s*await\s+/,
+                  'let exportModule = __mf_prebuild__;\nlet ' +
+                    vars.join(', ') +
+                    ';\n({ ' +
+                    bindings.trim() +
+                    ' } = exportModule);\nexportModule = await '
+                );
+              } else {
+                code = code.replace(
+                  /const\s+exportModule\s*=\s*await\s+/,
+                  'let exportModule = __mf_prebuild__;\nexportModule = await '
+                );
+              }
+            } else {
+              // __loadRemote__ — just strip prebuild imports
+              code = code.replace(/import\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
+            }
+            code = code.replace(
+              'export default exportModule',
               'export default exportModule.__esModule ? exportModule.default : exportModule'
-          );
-          return { code, syntheticNamedExports: '__moduleExports' };
+            );
+            return { code };
+          }
         }
       },
       generateBundle(_, bundle) {

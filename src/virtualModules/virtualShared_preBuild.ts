@@ -103,6 +103,40 @@ export function writeLoadShareModule(
   const useSsrProviderFallback = isVinext && command === 'build' && pkg === 'react';
   const providerImportId = getLocalProviderImportPath(pkg) || getPreBuildLibImportId(pkg);
   const namedExports = getPackageNamedExports(pkg);
+
+  if (isRolldown && command !== 'build') {
+    const prebuildId = getPreBuildLibImportId(pkg);
+    let syncInitLines = 'let exportModule = __mf_prebuild_ns__.default ?? __mf_prebuild_ns__;\n';
+    let postAwaitDestructure = '';
+    let exportSection: string;
+
+    if (namedExports.length > 0) {
+      const varDecls = namedExports.map((_, i) => `__mf_${i}`).join(', ');
+      const destructurePairs = namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ');
+      const namedExportLine = namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ');
+      syncInitLines += `    let ${varDecls};\n    ({ ${destructurePairs} } = exportModule);\n`;
+      postAwaitDestructure = `\n    ({ ${destructurePairs} } = exportModule);`;
+      exportSection = `export default exportModule;${postAwaitDestructure}\n    export { ${namedExportLine} };`;
+    } else {
+      exportSection = `export default exportModule\n    export * from ${JSON.stringify(prebuildId)}`;
+    }
+    loadShareCacheMap[pkg].writeSync(`
+    import * as __mf_prebuild_ns__ from ${JSON.stringify(prebuildId)};
+    ;() => import(${JSON.stringify(pkg)}).catch(() => {});
+    ${importLine}
+    ${syncInitLines}    const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
+      customShareInfo: {shareConfig:{
+        singleton: ${shareItem.shareConfig.singleton},
+        strictVersion: ${shareItem.shareConfig.strictVersion},
+        requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
+      }}
+    }))
+    exportModule = ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))
+    ${exportSection}
+  `);
+    return;
+  }
+
   let exportLine: string;
   if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
