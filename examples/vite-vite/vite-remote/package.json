@@ -5,26 +5,28 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite build && vite serve"
+    "preview": "vite build && vite preview"
   },
   "dependencies": {
-    "@emotion/react": "^11.13.0",
-    "@emotion/styled": "^11.13.0",
+    "@emotion/react": "11.14.0",
+    "@emotion/styled": "11.14.1",
     "@module-federation/vite": "workspace:*",
-    "@mui/material": "^5.13.4",
-    "ag-grid-community": "^30.2.0",
-    "ag-grid-react": "^30.2.0",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
+    "@mui/material": "7.3.2",
+    "ag-grid-community": "34.1.2",
+    "ag-grid-react": "34.1.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "sass-embedded": "^1.77.8",
-    "styled-components": "5.3.3",
+    "styled-components": "6.1.19",
     "vue": "^3.4.37",
     "vue-router": "^4.4.3"
   },
   "devDependencies": {
     "@swc/core": "~1.7.10",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
     "@vitejs/plugin-react": "^5.1.2",
-    "vite": "^7.1.7",
+    "vite": "npm:rolldown-vite@^7.3.1",
     "vite-plugin-top-level-await": "^1.4.4"
   }
 }

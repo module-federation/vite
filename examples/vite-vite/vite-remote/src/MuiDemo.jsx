@@ -56,7 +56,7 @@ const theme = createTheme({
     },
 });
 
-export const MuiDemo = ({ }) => {
+export function MuiDemo() {
     return (
         <StyledEngineProvider injectFirst>
             <div className={styles.container}>
@@ -93,4 +93,6 @@ export const MuiDemo = ({ }) => {
             </div>
         </StyledEngineProvider>
     );
-};
+}
+
+export default MuiDemo;

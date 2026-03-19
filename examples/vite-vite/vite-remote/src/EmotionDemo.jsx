@@ -1,4 +1,11 @@
-import styled from '@emotion/styled';
+import * as emotionStyled from '@emotion/styled';
+
+const styled =
+  emotionStyled.default?.default ||
+  emotionStyled.default?.styled ||
+  emotionStyled.default ||
+  emotionStyled.styled ||
+  emotionStyled;
 
 const Heading = styled('h1')`
   background-color: ${props => props.bg};
@@ -6,7 +13,7 @@ const Heading = styled('h1')`
   color: ${props => props.fg};
 `;
 
-export const EmotionDemo = () => {
+export function EmotionDemo() {
     return (
         <div>
             <Heading bg="#008f68" fg="#fae042" pd="50px">
@@ -15,3 +22,5 @@ export const EmotionDemo = () => {
         </div>
     );
 }
+
+export default EmotionDemo;

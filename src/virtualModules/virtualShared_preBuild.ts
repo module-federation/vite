@@ -63,16 +63,16 @@ export function getPreBuildLibImportId(pkg: string): string {
 export const LOAD_SHARE_TAG = '__loadShare__';
 
 const loadShareCacheMap: Record<string, VirtualModule> = {};
-export function getLoadShareModulePath(pkg: string, isRolldown: boolean, command?: string): string {
+export function getLoadShareImportId(pkg: string, isRolldown: boolean, command?: string): string {
   if (!loadShareCacheMap[pkg]) {
-    // Use .mjs for build mode (ESM code) so @rollup/plugin-commonjs skips it.
-    // Without this, the CJS plugin creates a commonjs-proxy that shares helpers
-    // (getDefaultExportFromCjs) with prebuild chunks, creating a transitive
-    // dependency: prebuild → proxy → loadShare (TLA) → deadlock.
     const useESM = isRolldown || command === 'build';
     const ext = useESM ? '.mjs' : '.js';
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
   }
+  return loadShareCacheMap[pkg].getImportId();
+}
+export function getLoadShareModulePath(pkg: string, isRolldown: boolean, command?: string): string {
+  if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown, command);
   const filepath = loadShareCacheMap[pkg].getPath();
   return filepath;
 }
@@ -108,11 +108,11 @@ export function writeLoadShareModule(
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
     const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
     exportLine = useESM
-      ? `export default exportModule;\n    ${destructure}\n    ${namedExportLine}`
+      ? `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`
       : `module.exports = exportModule;\n    ${destructure}\n    Object.assign(module.exports, { ${namedExports.map((name, i) => `"${name}": __mf_${i}`).join(', ')} });`;
   } else {
     exportLine = useESM
-      ? `export default exportModule\n    export * from ${JSON.stringify(getPreBuildLibImportId(pkg))}`
+      ? `export default exportModule.default ?? exportModule\n    export * from ${JSON.stringify(getPreBuildLibImportId(pkg))}`
       : 'module.exports = exportModule';
   }
 
