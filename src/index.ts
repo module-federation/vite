@@ -19,6 +19,7 @@ import {
   isFederationControlChunk,
   sanitizeFederationControlChunk,
 } from './utils/controlChunkSanitizer';
+import { createModuleFederationError, mfWarn } from './utils/logger';
 import {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -26,7 +27,6 @@ import {
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import { hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
-import { createModuleFederationError, mfWarn } from './utils/logger';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -250,7 +250,19 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           };
         }
 
+        let warnedAboutCodeSplitting = false;
+        const ensureCodeSplitting = (output: any) => {
+          if (output?.codeSplitting !== false) return;
+          delete output.codeSplitting;
+          if (warnedAboutCodeSplitting) return;
+          warnedAboutCodeSplitting = true;
+          mfWarn(
+            'Ignoring `build.rolldownOptions.output.codeSplitting = false` because module federation requires chunk splitting.'
+          );
+        };
+
         const applyManualChunks = (output: any) => {
+          ensureCodeSplitting(output);
           const existingManualChunks = output.manualChunks;
           output.manualChunks = function (id: string) {
             // Keep runtimeInitStatus in its own chunk to break TLA deadlock
