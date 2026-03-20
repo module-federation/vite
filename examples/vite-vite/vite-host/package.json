@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite build && vite preview"
+    "preview": "vite build && vite preview",
+    "mixed": "vite"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -14,15 +15,15 @@
     "@mui/material": "7.3.2",
     "ag-grid-community": "34.1.2",
     "ag-grid-react": "34.1.2",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
     "styled-components": "6.1.19",
     "vue": "^3.4.37",
     "vue-router": "^4.4.3"
   },
   "devDependencies": {
-    "@types/react": "18.3.12",
-    "@types/react-dom": "18.3.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "@swc/core": "~1.7.10",
     "@vitejs/plugin-react": "^5.1.2",
     "vite": "^8.0.0",
