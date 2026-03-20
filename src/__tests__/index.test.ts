@@ -65,6 +65,19 @@ function getEsmShimsPlugin(): Plugin {
   return plugin;
 }
 
+function getFixPreloadPlugin(): Plugin {
+  const plugin = federation({
+    name: 'remote',
+    filename: 'remoteEntry.js',
+    exposes: {
+      '.': './src/App.tsx',
+    },
+  }).find((entry) => entry.name === 'module-federation-fix-preload');
+
+  if (!plugin) throw new Error('module-federation-fix-preload plugin not found');
+  return plugin;
+}
+
 describe('module-federation-esm-shims', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -206,7 +219,6 @@ describe('module-federation-esm-shims load hook', () => {
         );
 
         const result = loadHook.call(rolldownCtx, `/virtual/react${LOAD_SHARE_TAG}chunk.js`);
-        // Build path should NOT touch the destructure – only dev path does
         expect(result.code).toContain('const { useState } = exportModule;');
       });
     });
@@ -289,5 +301,39 @@ describe('module-federation-esm-shims load hook', () => {
       );
       expect(result.syntheticNamedExports).toBe('__moduleExports');
     });
+  });
+});
+
+describe('module-federation-fix-preload', () => {
+  it('keeps nested output paths working', () => {
+    const plugin = getFixPreloadPlugin();
+    const bundle = {
+      'static/js/preload-helper-abc.js': {
+        type: 'chunk',
+        fileName: 'static/js/preload-helper-abc.js',
+        code: 'const u=function(e){return new URL("../"+e,import.meta.url).href};modulepreload',
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['static/js/preload-helper-abc.js'].code).toContain(
+      'new URL("..\\u002F..\\u002F"+e,import.meta.url).href'
+    );
+  });
+
+  it('keeps root output paths working', () => {
+    const plugin = getFixPreloadPlugin();
+    const bundle = {
+      'preload-helper-abc.js': {
+        type: 'chunk',
+        fileName: 'preload-helper-abc.js',
+        code: 'const u=function(e){return new URL("../"+e,import.meta.url).href};modulepreload',
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
   });
 });
