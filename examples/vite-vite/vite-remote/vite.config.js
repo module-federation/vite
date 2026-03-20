@@ -4,18 +4,32 @@ import { defineConfig } from 'vite';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
 // https://vitejs.dev/config/
+const isMixed2 = process.env.MIXED_VV === '2';
+
 export default defineConfig({
   server: {
     open: false,
     port: 5176,
     origin: 'http://localhost:5176',
+    watch: isMixed2
+      ? {
+          ignored: ['**/.__mf__temp/**'],
+        }
+      : undefined,
   },
   preview: {
     port: 5176,
   },
   base: 'http://localhost:5176/testbase',
+  esbuild: isMixed2
+    ? {
+        jsx: 'automatic',
+        jsxDev: false,
+        jsxImportSource: '@emotion/react',
+      }
+    : undefined,
   plugins: [
-    react({ jsxImportSource: '@emotion/react', reactRefreshHost: 'http://localhost:5175' }),
+    !isMixed2 && react({ jsxImportSource: '@emotion/react' }),
     federation({
       name: '@namespace/viteViteRemote',
       exposes: {
@@ -49,7 +63,7 @@ export default defineConfig({
     }),
     // If you set build.target: "chrome89", you can remove this plugin
     false && topLevelAwait(),
-  ],
+  ].filter(Boolean),
   build: {
     target: 'chrome89',
     rollupOptions: {

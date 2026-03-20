@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite build && vite preview",
-    "mixed": "vite build && vite preview"
+    "mixed:1": "vite build && vite preview",
+    "mixed:2": "MIXED_VV=2 NODE_ENV=production vite"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
