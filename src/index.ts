@@ -50,6 +50,27 @@ import {
   writePreBuildLibPath,
 } from './virtualModules/virtualShared_preBuild';
 
+const UNSAFE_JS_SOURCE_CHAR_MAP: Record<string, string> = {
+  '<': '\\u003C',
+  '>': '\\u003E',
+  '/': '\\u002F',
+  '\\': '\\\\',
+  '\b': '\\b',
+  '\f': '\\f',
+  '\n': '\\n',
+  '\r': '\\r',
+  '\t': '\\t',
+  '\0': '\\0',
+  '\u2028': '\\u2028',
+  '\u2029': '\\u2029',
+};
+
+function escapeUnsafeJsSourceChars(str: string): string {
+  return str.replace(/[<>/\\\b\f\n\r\t\0\u2028\u2029]/g, (char) => {
+    return UNSAFE_JS_SOURCE_CHAR_MAP[char] ?? char;
+  });
+}
+
 /**
  * Plugin that runs FIRST to create virtual module files in the config hook.
  * This prevents 504 "Outdated Optimize Dep" errors by ensuring files exist
@@ -720,13 +741,18 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
               for (const chunk of Object.values(bundle)) {
                 if (chunk.type !== 'chunk') continue;
                 if (!chunk.code.includes('modulepreload')) continue;
+                const chunkDir = path.dirname(chunk.fileName);
+                const prefixToRoot = chunkDir === '.' ? '' : `${path.relative(chunkDir, '.')}/`;
+                const replacementExpr = prefixToRoot
+                  ? `${escapeUnsafeJsSourceChars(JSON.stringify(prefixToRoot))}+$1`
+                  : '$1';
                 // Match Vite's preload helper asset URL function across minifiers:
                 //   Rolldown (Vite 8):  t=function(e){return`/`+e}
                 //   esbuild (Vite 5-7): const o=e=>"/"+e  or  o=function(e){return"/"+e}
                 //   terser:             o=function(e,t){return'/'+e}
                 // Replace with import.meta.url-based resolution so assets
                 // resolve against the module's own origin, not the page origin.
-                const replacement = '=function($1){return new URL("../"+$1,import.meta.url).href}';
+                const replacement = `=function($1){return new URL(${replacementExpr},import.meta.url).href}`;
                 // Arrow function: e=>"/"+e or (e)=>"/"+e or (e,t)=>"/"+e
                 const replaced = chunk.code.replace(
                   /=\(?(\w+)(?:,\w+)?\)?\s*=>\s*["'`][^"'`]*["'`]\s*\+\s*\1/,
@@ -740,6 +766,14 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 chunk.code = chunk.code.replace(
                   /=function\((\w+)(?:,\w+)?\)\{return\s*["'`][^"'`]*["'`]\s*\+\s*\1\s*\}/,
                   replacement
+                );
+                chunk.code = chunk.code.replace(
+                  /=function\((\w+)(?:,\w+)?\)\{return new URL\("\.\.\/"\+\1,import\.meta\.url\)\.href\}/,
+                  replacement
+                );
+                chunk.code = chunk.code.replace(
+                  /new URL\("\.\.\/"\+(\w+),import\.meta\.url\)\.href/g,
+                  `new URL(${replacementExpr},import.meta.url).href`
                 );
               }
             },
