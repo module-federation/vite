@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Plugin } from 'vite';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mfWarn } = vi.hoisted(() => ({
   mfWarn: vi.fn(),
@@ -335,5 +335,174 @@ describe('module-federation-fix-preload', () => {
     plugin.generateBundle?.call({} as any, {} as any, bundle as any);
 
     expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
+  });
+});
+
+describe('module-federation-esm-shims load hook', () => {
+  let loadHook: Function;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setLoadFileContent(undefined);
+    const plugin = getEsmShimsPlugin();
+    const load = typeof plugin.load === 'function' ? plugin.load : (plugin.load as any)?.handler;
+    if (!load) throw new Error('load hook not found');
+    loadHook = load;
+  });
+
+  const rolldownCtx = { meta: { rolldownVersion: '1.0.0' } };
+  const rollupCtx = { meta: {} };
+
+  it('returns undefined for ids starting with null byte', () => {
+    const result = loadHook.call(rolldownCtx, '\0some-module');
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined for ids without load tags', () => {
+    const result = loadHook.call(rolldownCtx, '/src/app.ts');
+    expect(result).toBeUndefined();
+  });
+
+  describe('rolldown path', () => {
+    describe('LOAD_SHARE_TAG – build path (bare prebuild import)', () => {
+      it('removes bare prebuild imports', () => {
+        setLoadFileContent(
+          [
+            'import "virtual:__prebuild__react";',
+            'const exportModule = await loadShare("react");',
+            'export default exportModule',
+          ].join('\n')
+        );
+
+        const result = loadHook.call(rolldownCtx, `/virtual/react${LOAD_SHARE_TAG}chunk.js`);
+        expect(result.code).not.toContain('__prebuild__');
+        expect(result.code).toContain(
+          'export default exportModule.__esModule ? exportModule.default : exportModule'
+        );
+      });
+
+      it('removes all bare prebuild imports when there are multiple', () => {
+        setLoadFileContent(
+          [
+            'import "virtual:__prebuild__react";',
+            'import "virtual:__prebuild__react-dom";',
+            'const exportModule = await loadShare("react");',
+            'export default exportModule',
+          ].join('\n')
+        );
+
+        const result = loadHook.call(rolldownCtx, `/virtual/react${LOAD_SHARE_TAG}chunk.js`);
+        expect(result.code).not.toContain('import');
+        expect(result.code).not.toContain('__prebuild__');
+      });
+
+      it('strips export star from prebuild', () => {
+        setLoadFileContent(
+          [
+            'import "virtual:__prebuild__react";',
+            'export * from "virtual:__prebuild__react";',
+            'const exportModule = await loadShare("react");',
+            'export default exportModule',
+          ].join('\n')
+        );
+
+        const result = loadHook.call(rolldownCtx, `/virtual/react${LOAD_SHARE_TAG}chunk.js`);
+        expect(result.code).not.toContain('export *');
+      });
+
+      it('does not convert const destructure to assignment (build path)', () => {
+        setLoadFileContent(
+          [
+            'import "virtual:__prebuild__react";',
+            'const exportModule = await loadShare("react");',
+            'const { useState } = exportModule;',
+            'export default exportModule',
+          ].join('\n')
+        );
+
+        const result = loadHook.call(rolldownCtx, `/virtual/react${LOAD_SHARE_TAG}chunk.js`);
+        // Build path should NOT touch the destructure – only dev path does
+        expect(result.code).toContain('const { useState } = exportModule;');
+      });
+    });
+
+    describe('LOAD_SHARE_TAG – dev path (namespace import)', () => {
+      it('preserves namespace import and converts const destructure to assignment', () => {
+        setLoadFileContent(
+          [
+            'import * as __mf_prebuild_ns__ from "virtual:__prebuild__react_ns";',
+            'export * from "virtual:__prebuild__react_ns";',
+            'const exportModule = await loadShare("react");',
+            'const { useState, useEffect } = exportModule;',
+            'export default exportModule',
+          ].join('\n')
+        );
+
+        const result = loadHook.call(rolldownCtx, `/virtual/react${LOAD_SHARE_TAG}chunk.js`);
+        expect(result.code).toContain('import * as __mf_prebuild_ns__');
+        expect(result.code).toMatch(/\(\{\s*useState,\s*useEffect\s*\}\s*=\s*exportModule\);/);
+        expect(result.code).not.toContain('const {');
+        expect(result.code).not.toContain('export *');
+        expect(result.code).toContain(
+          'export default exportModule.__esModule ? exportModule.default : exportModule'
+        );
+      });
+
+      it('handles dev path without destructure', () => {
+        setLoadFileContent(
+          [
+            'import * as __mf_prebuild_ns__ from "virtual:__prebuild__react_ns";',
+            'const exportModule = await loadShare("react");',
+            'export default exportModule',
+          ].join('\n')
+        );
+
+        const result = loadHook.call(rolldownCtx, `/virtual/react${LOAD_SHARE_TAG}chunk.js`);
+        expect(result.code).toContain('import * as __mf_prebuild_ns__');
+        expect(result.code).toContain(
+          'export default exportModule.__esModule ? exportModule.default : exportModule'
+        );
+      });
+    });
+
+    describe('LOAD_REMOTE_TAG', () => {
+      it('strips prebuild imports and transforms default export', () => {
+        setLoadFileContent(
+          [
+            'import "virtual:__prebuild__remote";',
+            'const exportModule = await loadRemote("remote/module");',
+            'export default exportModule',
+          ].join('\n')
+        );
+
+        const result = loadHook.call(rolldownCtx, `/virtual/remote${LOAD_REMOTE_TAG}chunk.js`);
+        expect(result.code).not.toContain('__prebuild__');
+        expect(result.code).toContain(
+          'export default exportModule.__esModule ? exportModule.default : exportModule'
+        );
+      });
+    });
+  });
+
+  describe('rollup path', () => {
+    it('strips prebuild imports and export star, adds syntheticNamedExports', () => {
+      setLoadFileContent(
+        [
+          'import "virtual:__prebuild__react";',
+          'export * from "virtual:__prebuild__react";',
+          'const exportModule = await loadShare("react");',
+          'export default exportModule',
+        ].join('\n')
+      );
+
+      const result = loadHook.call(rollupCtx, `/virtual/react${LOAD_SHARE_TAG}chunk.js`);
+      expect(result.code).not.toContain('import');
+      expect(result.code).not.toContain('export *');
+      expect(result.code).toContain('export const __moduleExports = exportModule;');
+      expect(result.code).toContain(
+        'export default exportModule.__esModule ? exportModule.default : exportModule'
+      );
+      expect(result.syntheticNamedExports).toBe('__moduleExports');
+    });
   });
 });
