@@ -324,39 +324,44 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             //
             // To fix this, writeLoadShareModule (in virtualShared_preBuild.ts)
             // generates a synchronous pre-initialization from the prebuild
-            // module so exports are available immediately.  Here we convert the
-            // bare side-effect prebuild import into a default import so the
-            // prebuild value is accessible for that synchronous init.
+            // module so exports are available immediately.
             if (id.includes(LOAD_SHARE_TAG)) {
-              code = code.replace(
-                /import\s+(["'][^"']*__prebuild__[^"']*["'])\s*;?/,
-                'import __mf_prebuild__ from $1;'
+              // Detect whether this is a dev module (has namespace import from
+              // writeLoadShareModule's Rolldown dev path) or a build module
+              // (has a bare side-effect prebuild import).
+              const isBarePreBuildImport = /import\s+["'][^"']*__prebuild__[^"']*["']\s*;?/.test(
+                code
               );
+
+              if (isBarePreBuildImport) {
+                // Rolldown BUILD path: remove prebuild imports to prevent
+                // Rolldown from inlining shared package code into the
+                // loadShare chunk.  Inlining causes a self-referential TLA
+                // deadlock (same issue the Rollup path avoids).
+                // Named exports are already provided by the explicit
+                // destructure+export that writeLoadShareModule generates.
+                code = code.replace(/import\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g, '');
+              }
+
               code = code.replace(
                 /export\s+\*\s+from\s+["'][^"']*__prebuild__[^"']*["']\s*;?/g,
                 ''
               );
-              const destructureMatch = code.match(/const\s*\{([^}]+)\}\s*=\s*exportModule\s*;/);
-              if (destructureMatch) {
-                const bindings = destructureMatch[1];
-                const vars = bindings.match(/__mf_\d+/g) || [];
-                code = code.replace(
-                  /const\s*\{([^}]+)\}\s*=\s*exportModule\s*;/,
-                  '({ $1 } = exportModule);'
-                );
-                code = code.replace(
-                  /const\s+exportModule\s*=\s*await\s+/,
-                  'let exportModule = __mf_prebuild__;\nlet ' +
-                    vars.join(', ') +
-                    ';\n({ ' +
-                    bindings.trim() +
-                    ' } = exportModule);\nexportModule = await '
-                );
-              } else {
-                code = code.replace(
-                  /const\s+exportModule\s*=\s*await\s+/,
-                  'let exportModule = __mf_prebuild__;\nexportModule = await '
-                );
+
+              if (!isBarePreBuildImport) {
+                // Rolldown DEV path: the code already has
+                // `import * as __mf_prebuild_ns__` and sync init from
+                // writeLoadShareModule — no import transformation needed.
+                // But we still need to convert const declarations to let
+                // for the sync pre-initialization to work.
+                const destructureMatch = code.match(/const\s*\{([^}]+)\}\s*=\s*exportModule\s*;/);
+                if (destructureMatch) {
+                  const bindings = destructureMatch[1];
+                  code = code.replace(
+                    /const\s*\{([^}]+)\}\s*=\s*exportModule\s*;/,
+                    '({ $1 } = exportModule);'
+                  );
+                }
               }
             } else {
               // __loadRemote__ — just strip prebuild imports
