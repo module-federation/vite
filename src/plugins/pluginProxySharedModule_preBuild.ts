@@ -1,7 +1,7 @@
 import { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
-import { hasPackageDependency, setPackageDetectionCwd } from '../utils/packageUtils';
+import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from '../utils/packageUtils';
 import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
@@ -51,7 +51,7 @@ export function proxySharedModule(options: {
         const root = config.root || process.cwd();
         setPackageDetectionCwd(root);
         isVinext = hasPackageDependency('vinext');
-        const isRolldown = !!(this as any)?.meta?.rolldownVersion;
+        const isRolldown = getIsRolldown(this);
         _command = command;
 
         (config.resolve as any).alias.push(
