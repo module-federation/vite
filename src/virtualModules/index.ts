@@ -17,6 +17,7 @@ export {
   addUsedRemote,
   getRemoteVirtualModule,
   getUsedRemotesMap,
+  invalidateRemoteVirtualModule,
   LOAD_REMOTE_TAG,
 } from './virtualRemotes';
 

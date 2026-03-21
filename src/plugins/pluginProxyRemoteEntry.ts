@@ -1,13 +1,18 @@
 import { createFilter } from '@rollup/pluginutils';
+import { IncomingMessage, ServerResponse } from 'http';
+import * as path from 'pathe';
 import { fileURLToPath } from 'url';
-import { Plugin } from 'vite';
+import { Logger, ModuleNode, Plugin, ViteDevServer } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
+import { matchesMfHmrUrl, onServerReady } from '../utils/hmrUtils';
+import { formatModuleFederationMessage } from '../utils/logger';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { resolvePublicPath } from '../utils/publicPath';
 import { generateExposes, generateRemoteEntry, getHostAutoInitPath } from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
 
 const filter: (id: string) => boolean = createFilter();
+const MAX_WALK_DEPTH = 50;
 
 interface ProxyRemoteEntryParams {
   options: NormalizedModuleFederationOptions;
@@ -21,14 +26,71 @@ export default function ({
   virtualExposesId,
 }: ProxyRemoteEntryParams): Plugin {
   let viteConfig: any, _command: string;
+  const clients = new Set<ServerResponse>();
+  let exposeFiles = new Set<string>();
+  let server: ViteDevServer;
+  let logger: Logger;
+  let pathsResolved = false;
+
+  function broadcast(data: object) {
+    const message = `data: ${JSON.stringify(data)}\n\n`;
+    clients.forEach((client) => {
+      try {
+        client.write(message);
+      } catch {
+        clients.delete(client);
+      }
+    });
+  }
+
   return {
     name: 'proxyRemoteEntry',
     enforce: 'post',
     configResolved(config) {
       viteConfig = config;
+      logger = config.logger;
     },
     config(config, { command }) {
       _command = command;
+    },
+    configureServer(_server) {
+      server = _server;
+
+      // Serve-only federation HMR channel: remotes publish expose changes to hosts over SSE.
+      _server.middlewares.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
+        if (!matchesMfHmrUrl(req.url, _server.config.base)) {
+          next();
+          return;
+        }
+
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Accept',
+          });
+          res.end();
+          return;
+        }
+
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+          'X-Accel-Buffering': 'no',
+        });
+        res.write(`data: ${JSON.stringify({ type: 'mf:connected', name: options.name })}\n\n`);
+
+        clients.add(res);
+        req.on('close', () => {
+          clients.delete(res);
+        });
+      });
+
+      return () => {
+        onServerReady(_server, resolveExposePaths);
+      };
     },
     async buildStart() {
       // Emit each exposed module as a chunk entry so the bundler properly
@@ -46,6 +108,29 @@ export default function ({
           });
         }
       }
+    },
+    async handleHotUpdate(ctx) {
+      // Serve-only: notify hosts only when the changed file belongs to an exposed module graph.
+      if (_command !== 'serve') return;
+      if (!pathsResolved) {
+        await resolveExposePaths();
+      }
+      if (!isExposedChange(ctx.file, ctx.modules)) return;
+
+      logger.info(formatModuleFederationMessage(`Exposed modules changed in "${options.name}"`));
+
+      if (clients.size > 0) {
+        broadcast({
+          type: 'mf:update',
+          remoteName: options.name,
+          timestamp: Date.now(),
+        });
+      }
+
+      const exposeModule = server.moduleGraph.getModuleById(virtualExposesId);
+      if (!exposeModule) return;
+
+      return [...ctx.modules, exposeModule];
     },
     async resolveId(id: string, importer?: string) {
       if (id === remoteEntryId) {
@@ -80,7 +165,7 @@ export default function ({
         return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
       }
       if (id === virtualExposesId) {
-        return generateExposes(options);
+        return generateExposes(options, _command);
       }
       if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
         return id;
@@ -93,7 +178,7 @@ export default function ({
           return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
         }
         if (id === virtualExposesId) {
-          return generateExposes(options);
+          return generateExposes(options, _command);
         }
         if (id.includes(getHostAutoInitPath())) {
           if (_command === 'serve') {
@@ -124,4 +209,72 @@ export default function ({
       return mapCodeToCodeWithSourcemap(transformedCode);
     },
   };
+
+  async function resolveExposePaths() {
+    if (!server) return;
+
+    const nextFiles = new Set<string>();
+
+    for (const exposeItem of Object.values(options.exposes)) {
+      const absPath = await resolveExposePath(exposeItem.import);
+      if (!absPath) continue;
+      nextFiles.add(absPath);
+    }
+
+    exposeFiles = nextFiles;
+    pathsResolved = true;
+  }
+
+  async function resolveExposePath(id: string): Promise<string | null> {
+    try {
+      const resolved = await server.pluginContainer.resolveId(id);
+      if (resolved?.id) {
+        return normalizeFilePath(resolved.id);
+      }
+    } catch {}
+
+    if (id.startsWith('.')) {
+      return normalizeFilePath(path.resolve(server.config.root, id));
+    }
+
+    if (id.startsWith('/')) {
+      return normalizeFilePath(path.resolve(server.config.root, id.slice(1)));
+    }
+
+    return null;
+  }
+
+  function isExposedChange(changedFile: string, modules: readonly ModuleNode[]): boolean {
+    if (exposeFiles.has(normalizeFilePath(changedFile))) return true;
+
+    const visited = new Set<string>();
+    for (let i = 0; i < modules.length; i++) {
+      if (walkImporters(modules[i], visited, 0)) return true;
+    }
+
+    return false;
+  }
+
+  function walkImporters(mod: ModuleNode, visited: Set<string>, depth: number): boolean {
+    if (depth > MAX_WALK_DEPTH) return false;
+
+    const modId = mod.file || mod.id;
+    if (!modId) return false;
+
+    const normalizedId = normalizeFilePath(modId);
+    if (visited.has(normalizedId)) return false;
+    visited.add(normalizedId);
+
+    if (exposeFiles.has(normalizedId)) return true;
+
+    for (const importer of mod.importers) {
+      if (walkImporters(importer, visited, depth + 1)) return true;
+    }
+
+    return false;
+  }
+}
+
+function normalizeFilePath(id: string): string {
+  return path.resolve(id.split('?')[0]);
 }
