@@ -1,6 +1,6 @@
 {
   "name": "@module-federation/vite",
-  "version": "1.13.1",
+  "version": "1.13.2",
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "main": "./lib/index.cjs",
@@ -67,9 +67,9 @@
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "dependencies": {
-    "@module-federation/dts-plugin": "2.2.2",
-    "@module-federation/runtime": "2.2.2",
-    "@module-federation/sdk": "2.2.2",
+    "@module-federation/dts-plugin": "2.2.3",
+    "@module-federation/runtime": "2.2.3",
+    "@module-federation/sdk": "2.2.3",
     "@rollup/pluginutils": "^5.3.0",
     "defu": "^6.1.4",
     "estree-walker": "^3.0.3",
