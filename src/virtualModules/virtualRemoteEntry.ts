@@ -16,7 +16,7 @@ import {
   getRuntimeInitBootstrapCode,
   getRuntimeInitResolveBootstrapCode,
 } from './virtualRuntimeInitStatus';
-import { getPreBuildLibImportId } from './virtualShared_preBuild';
+import { getSharedImportSource } from './virtualShared_preBuild';
 
 let usedShares: Set<string> = new Set();
 export function getUsedShares() {
@@ -58,7 +58,7 @@ export function generateLocalSharedImportMap() {
               : isVinext && pkg === 'react'
                 ? `let pkg = await import("react");
             return pkg;`
-                : `let pkg = await import("${getPreBuildLibImportId(pkg)}");
+                : `let pkg = await import(${JSON.stringify(getSharedImportSource(pkg, shareItem))});
             return pkg;`
           }
         }

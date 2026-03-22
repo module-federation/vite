@@ -6,6 +6,11 @@ const { writeSyncSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
 }));
 
+vi.mock('../../utils/packageUtils', () => ({
+  hasPackageDependency: vi.fn(() => false),
+  getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
+}));
+
 // Mock VirtualModule to capture written code
 vi.mock('../../utils/VirtualModule', () => {
   return {
@@ -22,17 +27,35 @@ vi.mock('module', async (importOriginal) => {
   const actual = await importOriginal<typeof import('module')>();
   return {
     ...actual,
-    createRequire: () => (pkg: string) => {
-      if (pkg === 'mock-package-with-reserved') {
-        return {
-          delete: 1, // reserved JS word
-          get: 2, // valid name
-          request: 3, // valid name
-          default: 4, // should be ignored
-          __esModule: true, // should be ignored
-        };
-      }
-      return {};
+    createRequire: (from: string | URL) => {
+      const fromPath = String(from);
+      const req = ((pkg: string) => {
+        if (pkg === 'mock-package-with-reserved') {
+          return {
+            delete: 1,
+            get: 2,
+            request: 3,
+            default: 4,
+            __esModule: true,
+          };
+        }
+        if (pkg === 'transitive-pkg') {
+          throw new Error('MODULE_NOT_FOUND');
+        }
+        return {};
+      }) as NodeJS.Require;
+
+      req.resolve = (pkg: string) => {
+        if (pkg === 'transitive-pkg') {
+          if (!fromPath.includes('/repo/package.json')) {
+            throw new Error('MODULE_NOT_FOUND');
+          }
+          return '/repo/packages/pkg-b/dist/index.js';
+        }
+        return `/resolved/${pkg}`;
+      };
+
+      return req;
     },
   };
 });
@@ -118,5 +141,52 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
+  });
+
+  it('uses shareConfig.import as the concrete import source when provided', () => {
+    const pkg = 'transitive-pkg';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/abs/pkg-b/dist/index.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('import "/abs/pkg-b/dist/index.js";');
+    expect(generatedCode).toContain('export * from "/abs/pkg-b/dist/index.js"');
+    expect(generatedCode).not.toContain('import "mock-import-id";');
+  });
+
+  it('auto-detects workspace package entry when the shared dep is not directly resolvable', () => {
+    const pkg = 'transitive-pkg';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('import "/repo/packages/pkg-b/dist/index.js";');
+    expect(generatedCode).toContain('export * from "/repo/packages/pkg-b/dist/index.js"');
+    expect(generatedCode).not.toContain('import "mock-import-id";');
   });
 });

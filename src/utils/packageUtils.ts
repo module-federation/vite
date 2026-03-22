@@ -19,6 +19,10 @@ function getDependencyCacheKey(cwd: string, dependencyName: string) {
 export function setPackageDetectionCwd(cwd: string) {
   packageDetectionCwd = cwd;
 }
+
+export function getPackageDetectionCwd() {
+  return packageDetectionCwd || process.cwd();
+}
 /**
  * Escaping rules:
  * Convert using the format __${mapping}__, where _ and $ are not allowed in npm package names but can be used in variable names.

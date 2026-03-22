@@ -10,8 +10,9 @@
  */
 
 import { createRequire } from 'module';
+import path from 'pathe';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
-import { hasPackageDependency } from '../utils/packageUtils';
+import { getPackageDetectionCwd, hasPackageDependency } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
 import {
   getRuntimeInitBootstrapCode,
@@ -19,12 +20,31 @@ import {
   virtualRuntimeInitStatus,
 } from './virtualRuntimeInitStatus';
 
+function escapeGeneratedStringLiteral(value: string): string {
+  return JSON.stringify(value).replace(/[<>\u2028\u2029]/g, (char) => {
+    switch (char) {
+      case '<':
+        return '\\u003C';
+      case '>':
+        return '\\u003E';
+      case '\u2028':
+        return '\\u2028';
+      case '\u2029':
+        return '\\u2029';
+      default:
+        return char;
+    }
+  });
+}
+
 function getPackageNamedExports(pkg: string): string[] {
   try {
     // Resolve from the project root (process.cwd()) so that shared packages
     // like react are found even when the plugin is installed in a nested
     // pnpm store location where peer dependencies are not hoisted.
-    const projectRequire = createRequire(new URL('file://' + process.cwd() + '/package.json'));
+    const projectRequire = createRequire(
+      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+    );
     const mod = projectRequire(pkg);
     return Object.keys(mod).filter(
       (k) => k !== 'default' && k !== '__esModule' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)
@@ -36,7 +56,9 @@ function getPackageNamedExports(pkg: string): string[] {
 
 function getLocalProviderImportPath(pkg: string): string | undefined {
   try {
-    const projectRequire = createRequire(new URL('file://' + process.cwd() + '/package.json'));
+    const projectRequire = createRequire(
+      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+    );
     const resolved = projectRequire.resolve(pkg);
     return resolved.includes('/node_modules/') || resolved.includes('\\node_modules\\')
       ? undefined
@@ -46,17 +68,57 @@ function getLocalProviderImportPath(pkg: string): string | undefined {
   }
 }
 
+function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
+  try {
+    const projectRequire = createRequire(new URL(`file://${path.join(root, 'package.json')}`));
+    return projectRequire.resolve(pkg);
+  } catch {
+    return undefined;
+  }
+}
+
+export function getConcreteSharedImportSource(
+  pkg: string,
+  shareItem?: ShareItem
+): string | undefined {
+  const configuredImport = shareItem?.shareConfig.import;
+  if (typeof configuredImport === 'string') return configuredImport;
+
+  const projectRoot = getPackageDetectionCwd();
+  if (tryResolveImportFromPackageRoot(pkg, projectRoot)) {
+    return undefined;
+  }
+
+  let currentDir = path.dirname(projectRoot);
+  while (currentDir !== path.dirname(currentDir)) {
+    const resolved = tryResolveImportFromPackageRoot(pkg, currentDir);
+    if (resolved) return resolved;
+    currentDir = path.dirname(currentDir);
+  }
+
+  return tryResolveImportFromPackageRoot(pkg, currentDir);
+}
+
 // *** __prebuild__
 const preBuildCacheMap: Record<string, VirtualModule> = {};
+const preBuildShareItemMap: Record<string, ShareItem | undefined> = {};
 export const PREBUILD_TAG = '__prebuild__';
-export function writePreBuildLibPath(pkg: string) {
+export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
-  preBuildCacheMap[pkg].writeSync('');
+  preBuildShareItemMap[pkg] = shareItem;
+  preBuildCacheMap[pkg].writeSync('', true);
 }
 export function getPreBuildLibImportId(pkg: string): string {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
   const importId = preBuildCacheMap[pkg].getImportId();
   return importId;
+}
+export function getPreBuildShareItem(pkg: string): ShareItem | undefined {
+  return preBuildShareItemMap[pkg];
+}
+
+export function getSharedImportSource(pkg: string, shareItem?: ShareItem): string {
+  return getConcreteSharedImportSource(pkg, shareItem) || getPreBuildLibImportId(pkg);
 }
 
 // *** __loadShare__
@@ -101,7 +163,11 @@ export function writeLoadShareModule(
     : '/*mf top-level-await placeholder replacement mf*/';
   const isVinext = hasPackageDependency('vinext');
   const useSsrProviderFallback = isVinext && command === 'build' && pkg === 'react';
-  const providerImportId = getLocalProviderImportPath(pkg) || getPreBuildLibImportId(pkg);
+  const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
+  const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg);
+  const devImportSource = concreteSharedImportSource || pkg;
+  const providerImportId =
+    getLocalProviderImportPath(pkg) || concreteSharedImportSource || sharedImportSource;
   const namedExports = getPackageNamedExports(pkg);
   let exportLine: string;
   if (namedExports.length > 0) {
@@ -112,22 +178,23 @@ export function writeLoadShareModule(
       : `module.exports = exportModule;\n    ${destructure}\n    Object.assign(module.exports, { ${namedExports.map((name, i) => `"${name}": __mf_${i}`).join(', ')} });`;
   } else {
     exportLine = useESM
-      ? `export default exportModule.default ?? exportModule\n    export * from ${JSON.stringify(getPreBuildLibImportId(pkg))}`
+      ? `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`
       : 'module.exports = exportModule';
   }
 
-  loadShareCacheMap[pkg].writeSync(`
-    import ${JSON.stringify(getPreBuildLibImportId(pkg))};
-    ${command !== 'build' ? `;() => import(${JSON.stringify(pkg)}).catch(() => {});` : ''}
+  loadShareCacheMap[pkg].writeSync(
+    `
+    import ${escapeGeneratedStringLiteral(sharedImportSource)};
+    ${command !== 'build' ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});` : ''}
     ${importLine}
     ${
       useSsrProviderFallback
         ? `const providerModulePromise = typeof window === "undefined"
-      ? import(${JSON.stringify(providerImportId)})
+      ? import(${escapeGeneratedStringLiteral(providerImportId)})
       : undefined`
         : ''
     }
-    const res = initPromise.then(runtime => runtime.loadShare(${JSON.stringify(pkg)}, {
+    const res = initPromise.then(runtime => runtime.loadShare(${escapeGeneratedStringLiteral(pkg)}, {
       customShareInfo: {shareConfig:{
         singleton: ${shareItem.shareConfig.singleton},
         strictVersion: ${shareItem.shareConfig.strictVersion},
@@ -142,5 +209,7 @@ export function writeLoadShareModule(
         : `${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))`
     }
     ${exportLine}
-  `);
+  `,
+    true
+  );
 }

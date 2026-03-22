@@ -21,8 +21,11 @@ export {
 } from './virtualRemotes';
 
 export {
+  getConcreteSharedImportSource,
   getLoadShareModulePath,
   getPreBuildLibImportId,
+  getPreBuildShareItem,
+  getSharedImportSource,
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
   writeLoadShareModule,
