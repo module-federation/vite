@@ -9,10 +9,15 @@
  * 2. __loadShare__: load shareModule (mfRuntime.loadShare('vue'))
  */
 
+import { existsSync, readFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
-import { getPackageDetectionCwd, hasPackageDependency } from '../utils/packageUtils';
+import {
+  getPackageDetectionCwd,
+  hasPackageDependency,
+  removePathFromNpmPackage,
+} from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
 import {
   getRuntimeInitBootstrapCode,
@@ -37,6 +42,147 @@ function escapeGeneratedStringLiteral(value: string): string {
   });
 }
 
+const localRequire = createRequire(import.meta.url);
+
+function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
+  try {
+    const projectRequire = createRequire(
+      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+    );
+    return projectRequire.resolve(pkg);
+  } catch {
+    return undefined;
+  }
+}
+
+function getInstalledPackageJsonPath(pkg: string): string | undefined {
+  try {
+    const packageName = removePathFromNpmPackage(pkg);
+    const projectRequire = createRequire(
+      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+    );
+    let resolvedPath: string | undefined;
+
+    try {
+      resolvedPath = projectRequire.resolve(pkg);
+    } catch {
+      resolvedPath = projectRequire.resolve(packageName);
+    }
+
+    let currentDir = path.dirname(resolvedPath);
+    const rootDir = path.parse(currentDir).root;
+
+    while (currentDir !== rootDir) {
+      const packageJsonPath = path.join(currentDir, 'package.json');
+      if (existsSync(packageJsonPath)) {
+        const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as { name?: string };
+        if (packageJson.name === packageName) return packageJsonPath;
+      }
+      currentDir = path.dirname(currentDir);
+    }
+
+    const rootPackageJsonPath = path.join(rootDir, 'package.json');
+    if (existsSync(rootPackageJsonPath)) {
+      const packageJson = JSON.parse(readFileSync(rootPackageJsonPath, 'utf-8')) as {
+        name?: string;
+      };
+      if (packageJson.name === packageName) return rootPackageJsonPath;
+    }
+  } catch {
+    const packageName = removePathFromNpmPackage(pkg);
+    let currentDir = getPackageDetectionCwd();
+    const rootDir = path.parse(currentDir).root;
+
+    while (currentDir !== rootDir) {
+      const packageJsonPath = path.join(currentDir, 'node_modules', packageName, 'package.json');
+      if (existsSync(packageJsonPath)) return packageJsonPath;
+      currentDir = path.dirname(currentDir);
+    }
+
+    const rootPackageJsonPath = path.join(rootDir, 'node_modules', packageName, 'package.json');
+    return existsSync(rootPackageJsonPath) ? rootPackageJsonPath : undefined;
+  }
+}
+
+function resolveImportTarget(exportsField: unknown): string | undefined {
+  if (typeof exportsField === 'string') return exportsField;
+  if (!exportsField || typeof exportsField !== 'object') return undefined;
+
+  const record = exportsField as Record<string, unknown>;
+  const preferredConditions = ['import', 'module', 'default'];
+  for (const condition of preferredConditions) {
+    const target = resolveImportTarget(record[condition]);
+    if (target) return target;
+  }
+
+  for (const target of Object.values(record)) {
+    const resolved = resolveImportTarget(target);
+    if (resolved) return resolved;
+  }
+
+  return undefined;
+}
+
+function getPackageEsmEntryPath(pkg: string): string | undefined {
+  try {
+    const resolvedEntryPath = resolvePackageEntryFromProjectRoot(pkg);
+    const packageJsonPath = getInstalledPackageJsonPath(pkg);
+    if (!packageJsonPath) return resolvedEntryPath;
+
+    const packageName = removePathFromNpmPackage(pkg);
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as {
+      exports?: Record<string, unknown> | string;
+      module?: string;
+    };
+    const subpath = pkg === packageName ? '.' : `.${pkg.slice(packageName.length)}`;
+
+    const exportsField =
+      typeof packageJson.exports === 'string'
+        ? subpath === '.'
+          ? packageJson.exports
+          : undefined
+        : (packageJson.exports?.[subpath] ??
+          (subpath === '.'
+            ? (packageJson.exports?.['.'] ??
+              (packageJson.exports &&
+              !Object.keys(packageJson.exports).some((key) => key.startsWith('.'))
+                ? packageJson.exports
+                : undefined))
+            : undefined));
+
+    const target = resolveImportTarget(exportsField) || packageJson.module;
+    if (!target) return resolvedEntryPath;
+
+    return path.resolve(path.dirname(packageJsonPath), target);
+  } catch {
+    return resolvePackageEntryFromProjectRoot(pkg);
+  }
+}
+
+function getEsmNamedExports(pkg: string): string[] {
+  try {
+    const entryPath = getPackageEsmEntryPath(pkg);
+    if (!entryPath) return [];
+
+    const { initSync, parse } = localRequire('es-module-lexer') as typeof import('es-module-lexer');
+    initSync();
+    const source = readFileSync(entryPath, 'utf-8');
+    const [, exports] = parse(source, entryPath);
+
+    return exports
+      .map((item) => item.n)
+      .filter(
+        (name): name is string =>
+          !!name &&
+          name !== 'default' &&
+          name !== '__esModule' &&
+          /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+      );
+  } catch {
+    return [];
+  }
+}
+
 function getPackageNamedExports(pkg: string): string[] {
   try {
     // Resolve from the project root (process.cwd()) so that shared packages
@@ -50,7 +196,7 @@ function getPackageNamedExports(pkg: string): string[] {
       (k) => k !== 'default' && k !== '__esModule' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)
     );
   } catch {
-    return [];
+    return getEsmNamedExports(pkg);
   }
 }
 
