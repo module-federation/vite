@@ -17,12 +17,50 @@ vi.mock('../../utils/VirtualModule', () => {
   };
 });
 
+vi.mock('fs', () => ({
+  existsSync: vi.fn((filePath: string) =>
+    filePath.endsWith('node_modules/mock-package-esm-only/package.json')
+  ),
+  readFileSync: vi.fn((filePath: string) => {
+    if (filePath.endsWith('node_modules/mock-package-esm-only/package.json')) {
+      return JSON.stringify({
+        name: 'mock-package-esm-only',
+        exports: {
+          './stores': {
+            import: './dist/stores.js',
+          },
+        },
+      });
+    }
+    if (filePath.endsWith('node_modules/mock-package-esm-only/dist/stores.js')) {
+      return 'export const useCounter = () => 1; export function useLogger() {}';
+    }
+    throw new Error(`Unexpected readFileSync path: ${filePath}`);
+  }),
+}));
+
 // Mock module/createRequire to return specific named exports
 vi.mock('module', async (importOriginal) => {
   const actual = await importOriginal<typeof import('module')>();
   return {
     ...actual,
     createRequire: () => (pkg: string) => {
+      if (pkg === 'es-module-lexer') {
+        return {
+          initSync: vi.fn(),
+          parse: vi.fn((source: string) => [
+            [],
+            source.includes('useCounter')
+              ? [{ n: 'useCounter' }, { n: 'useLogger' }, { n: 'default' }]
+              : [],
+          ]),
+        };
+      }
+      if (pkg === 'mock-package-esm-only/stores') {
+        const error = new Error('ERR_PACKAGE_PATH_NOT_EXPORTED');
+        (error as Error & { code?: string }).code = 'ERR_PACKAGE_PATH_NOT_EXPORTED';
+        throw error;
+      }
       if (pkg === 'mock-package-with-reserved') {
         return {
           delete: 1, // reserved JS word
@@ -118,5 +156,30 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
+  });
+
+  it('falls back to parsing ESM exports when require() cannot load the shared package', () => {
+    const pkg = 'mock-package-esm-only/stores';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'const { useCounter: __mf_0, useLogger: __mf_1 } = exportModule;'
+    );
+    expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
+    expect(generatedCode).not.toContain('export * from');
   });
 });
