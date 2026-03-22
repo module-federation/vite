@@ -97,17 +97,19 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       // Create core virtual modules
       initVirtualModules(_command, getRemoteEntryId(options));
 
-      if (_command !== 'serve') return;
-
-      const isRolldown = getIsRolldown(this);
-
-      // Eagerly register configured remotes so they are available
-      // when localSharedImportMap is loaded during dev (race condition fix)
+      // Eagerly register configured remotes before localSharedImportMap is
+      // first written. In build, remoteEntry can be traced before app modules
+      // hit the remote alias resolver, which otherwise leaves usedRemotes empty
+      // in the emitted localSharedImportMap chunk.
       if (remotes && Object.keys(remotes).length > 0) {
         for (const key of Object.keys(remotes)) {
           addUsedRemote(key, key);
         }
       }
+
+      if (_command !== 'serve') return;
+
+      const isRolldown = getIsRolldown(this);
 
       // Create shared module virtual files BEFORE optimization and register
       // shares eagerly so localSharedImportMap has content on first load.
