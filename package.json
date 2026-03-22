@@ -72,6 +72,7 @@
     "@module-federation/sdk": "2.2.3",
     "@rollup/pluginutils": "^5.3.0",
     "defu": "^6.1.4",
+    "es-module-lexer": "^1.7.0",
     "estree-walker": "^3.0.3",
     "magic-string": "^0.30.21",
     "pathe": "^2.0.3"
