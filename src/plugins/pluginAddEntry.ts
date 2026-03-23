@@ -6,7 +6,7 @@ import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap'
 import { inlineEntryScripts, sanitizeDevEntryPath } from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { hasPackageDependency } from '../utils/packageUtils';
+import { matchSSRFrameworkEntry } from '../utils/ssrUtils';
 
 interface AddEntryOptions {
   entryName: string;
@@ -205,13 +205,12 @@ const addEntry = ({
         }
       },
       transform(code, id) {
-        const isVinext = hasPackageDependency('vinext');
-        if (
-          isVinext &&
-          inject === 'html' &&
-          (id.includes('virtual:vite-rsc/entry-browser') ||
-            id.includes('virtual:vinext-app-browser-entry'))
-        ) {
+        // Unified SSR framework entry injection
+        // Handles Vinext, TanStack Start, and other SSR frameworks without index.html
+        // Note: SSR frameworks use virtual entry points, so we inject regardless of
+        // the hostInitInjectLocation setting - their virtual browser entries need MF runtime
+        const matchedFramework = matchSSRFrameworkEntry(id);
+        if (matchedFramework) {
           const injection = `import ${JSON.stringify(getEntryPath())};\n`;
           if (code.includes(injection.trim())) {
             clientInjected = true;

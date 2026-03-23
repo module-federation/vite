@@ -109,41 +109,96 @@ describe('pluginProxySharedModule_preBuild', () => {
     preBuildShareItemMap.clear();
   });
 
-  for (const testCase of [
-    {
-      name: 'does not proxy react through loadShare in serve mode when vinext is enabled',
-      source: 'react',
-      hasVinext: true,
-      aliasExpected: false,
-      shouldProxy: false,
-    },
-    {
-      name: 'proxies react through loadShare in serve mode when vinext is disabled',
-      source: 'react',
-      hasVinext: false,
-      aliasExpected: true,
-      shouldProxy: true,
-    },
-    {
-      name: 'proxies non-react shared modules through loadShare in serve mode when vinext is enabled',
-      source: 'vue',
-      hasVinext: true,
-      aliasExpected: true,
-      shouldProxy: true,
-    },
-    {
-      name: 'proxies non-react shared modules through loadShare in serve mode when vinext is disabled',
-      source: 'vue',
-      hasVinext: false,
-      aliasExpected: true,
-      shouldProxy: true,
-    },
-  ]) {
-    it(testCase.name, async () => {
-      hasPackageDependencyMock.mockImplementation((pkg: string) => {
-        return pkg === 'vinext' ? testCase.hasVinext : false;
-      });
+  describe('Vinext React handling', () => {
+    for (const testCase of [
+      {
+        name: 'does not proxy react through loadShare in serve mode when vinext is enabled',
+        source: 'react',
+        hasVinext: true,
+        aliasExpected: false,
+        shouldProxy: false,
+      },
+      {
+        name: 'proxies react through loadShare in serve mode when vinext is disabled',
+        source: 'react',
+        hasVinext: false,
+        aliasExpected: true,
+        shouldProxy: true,
+      },
+      {
+        name: 'proxies non-react shared modules through loadShare in serve mode when vinext is enabled',
+        source: 'vue',
+        hasVinext: true,
+        aliasExpected: true,
+        shouldProxy: true,
+      },
+      {
+        name: 'proxies non-react shared modules through loadShare in serve mode when vinext is disabled',
+        source: 'vue',
+        hasVinext: false,
+        aliasExpected: true,
+        shouldProxy: true,
+      },
+    ]) {
+      it(testCase.name, async () => {
+        hasPackageDependencyMock.mockImplementation((pkg: string) => {
+          return pkg === 'vinext' ? testCase.hasVinext : false;
+        });
 
+        const plugins = proxySharedModule({ shared: makeShared() });
+        const proxyPlugin = plugins[1];
+        const config = {
+          resolve: {
+            alias: [] as Array<{
+              find: RegExp;
+              customResolver?: (source: string, importer: string) => unknown;
+            }>,
+          },
+        };
+
+        proxyPlugin.config?.call(
+          {
+            meta: {},
+            resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+          },
+          config as any,
+          {
+            command: 'serve',
+            mode: 'development',
+          }
+        );
+
+        const alias = config.resolve.alias.find((entry) => entry.find.test(testCase.source));
+        if (!testCase.aliasExpected) {
+          expect(alias).toBeUndefined();
+          return;
+        }
+
+        expect(alias).toBeDefined();
+
+        if (testCase.shouldProxy) {
+          expect(alias?.customResolver).toBeTypeOf('function');
+          return;
+        }
+
+        const resolution = await alias?.customResolver?.call(
+          {
+            resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+          },
+          testCase.source,
+          '/src/main.ts'
+        );
+        expect(resolution).toBeUndefined();
+      });
+    }
+  });
+
+  describe('SSR environment bypass', () => {
+    beforeEach(() => {
+      hasPackageDependencyMock.mockReturnValue(false);
+    });
+
+    it('bypasses MF aliasing when environment.name === "ssr"', async () => {
       const plugins = proxySharedModule({ shared: makeShared() });
       const proxyPlugin = plugins[1];
       const config = {
@@ -167,29 +222,95 @@ describe('pluginProxySharedModule_preBuild', () => {
         }
       );
 
-      const alias = config.resolve.alias.find((entry) => entry.find.test(testCase.source));
-      if (!testCase.aliasExpected) {
-        expect(alias).toBeUndefined();
-        return;
-      }
-
+      const alias = config.resolve.alias.find((entry) => entry.find.test('react'));
       expect(alias).toBeDefined();
+      expect(alias?.customResolver).toBeTypeOf('function');
 
-      if (testCase.shouldProxy) {
-        expect(alias?.customResolver).toBeTypeOf('function');
-        return;
-      }
+      const context = {
+        environment: { name: 'ssr' },
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      };
 
-      const resolution = await alias?.customResolver?.call(
-        {
-          resolve: async (id: string) => ({ id: `/resolved/${id}` }),
-        },
-        testCase.source,
-        '/src/main.ts'
-      );
+      // SSR bypass returns undefined early to let Vite resolve from node_modules
+      const resolution = await alias?.customResolver?.call(context, 'react', '/src/main.ts');
       expect(resolution).toBeUndefined();
     });
-  }
+
+    it('does not bypass MF aliasing when environment.name === "client"', () => {
+      const plugins = proxySharedModule({ shared: makeShared() });
+      const proxyPlugin = plugins[1];
+      const config = {
+        resolve: {
+          alias: [] as Array<{
+            find: RegExp;
+            customResolver?: (source: string, importer: string) => unknown;
+          }>,
+        },
+      };
+
+      proxyPlugin.config?.call(
+        {
+          meta: {},
+          resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+        },
+        config as any,
+        {
+          command: 'serve',
+          mode: 'development',
+        }
+      );
+
+      const alias = config.resolve.alias.find((entry) => entry.find.test('react'));
+      expect(alias).toBeDefined();
+      expect(alias?.customResolver).toBeTypeOf('function');
+
+      const context = {
+        environment: { name: 'client' },
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      };
+
+      // Non-SSR environment should NOT return undefined early - it will attempt
+      // to proxy through MF infrastructure (which throws here since MF isn't initialized)
+      expect(() => alias?.customResolver?.call(context, 'react', '/src/main.ts')).toThrow();
+    });
+
+    it('does not bypass MF aliasing when environment is undefined', () => {
+      const plugins = proxySharedModule({ shared: makeShared() });
+      const proxyPlugin = plugins[1];
+      const config = {
+        resolve: {
+          alias: [] as Array<{
+            find: RegExp;
+            customResolver?: (source: string, importer: string) => unknown;
+          }>,
+        },
+      };
+
+      proxyPlugin.config?.call(
+        {
+          meta: {},
+          resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+        },
+        config as any,
+        {
+          command: 'serve',
+          mode: 'development',
+        }
+      );
+
+      const alias = config.resolve.alias.find((entry) => entry.find.test('vue'));
+      expect(alias).toBeDefined();
+      expect(alias?.customResolver).toBeTypeOf('function');
+
+      const context = {
+        // No environment property - simulates Vite < 6 or non-environment-aware context
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      };
+
+      // Without environment info, should NOT bypass - will attempt MF proxy
+      expect(() => alias?.customResolver?.call(context, 'vue', '/src/main.ts')).toThrow();
+    });
+  });
 
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {
     hasPackageDependencyMock.mockReturnValue(false);

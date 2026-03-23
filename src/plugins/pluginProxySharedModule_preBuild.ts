@@ -3,6 +3,7 @@ import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap'
 import { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from '../utils/packageUtils';
 import { PromiseStore } from '../utils/PromiseStore';
+import { isSSREnvironment, ResolverContext } from '../utils/ssrUtils';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
   addUsedShares,
@@ -76,7 +77,10 @@ export function proxySharedModule(options: {
                 // Intercept all shared requests and proxy them to loadShare
                 find: new RegExp(pattern),
                 replacement: '$1',
-                customResolver(source: string, importer: string) {
+                customResolver(this: ResolverContext, source: string, importer: string) {
+                  // Skip MF aliasing in SSR - use native Node resolution
+                  if (isSSREnvironment(this)) return;
+
                   if (/\.css$/.test(source)) return;
                   // Hard-stop proxying bare React in dev. Vite's RSC pipeline
                   // expects the native server React entry, and wrapping `react`
@@ -128,7 +132,10 @@ export function proxySharedModule(options: {
                 : {
                     find: new RegExp(`(.*${PREBUILD_TAG}.*)`),
                     replacement: '$1',
-                    async customResolver(source: string, importer: string) {
+                    async customResolver(this: ResolverContext, source: string, importer: string) {
+                      // Skip MF aliasing in SSR - use native Node resolution
+                      if (isSSREnvironment(this)) return;
+
                       const module = assertModuleFound(PREBUILD_TAG, source) as VirtualModule;
                       const pkgName = module.name;
                       const importSource = getPrebuildResolutionSource(
