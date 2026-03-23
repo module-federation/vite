@@ -8,8 +8,8 @@ export {
   getHostAutoInitImportId,
   getHostAutoInitPath,
   getLocalSharedImportMapPath,
-  getUsedShares,
   getRemoteEntryId,
+  getUsedShares,
   writeLocalSharedImportMap,
 } from './virtualRemoteEntry';
 
@@ -22,15 +22,18 @@ export {
 } from './virtualRemotes';
 
 export {
+  getConcreteSharedImportSource,
   getLoadShareModulePath,
   getPreBuildLibImportId,
+  getPreBuildShareItem,
+  getSharedImportSource,
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
   writeLoadShareModule,
   writePreBuildLibPath,
 } from './virtualShared_preBuild';
 
-export { generateExposes } from './virtualExposes';
+export { generateExposes, getExposesCssMapPlaceholder } from './virtualExposes';
 
 export function initVirtualModules(command: string, remoteEntryId?: string) {
   writeLocalSharedImportMap();

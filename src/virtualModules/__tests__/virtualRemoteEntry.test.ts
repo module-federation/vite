@@ -57,6 +57,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       version: '19.2.4',
       scope: 'default',
       shareConfig: {
+        import: pkg === 'custom-import' ? '/abs/custom-import.js' : undefined,
         singleton: true,
         requiredVersion: '^19.2.4',
         strictVersion: false,
@@ -74,6 +75,15 @@ vi.mock('../virtualRemotes', () => {
 vi.mock('../virtualShared_preBuild', () => {
   return {
     getPreBuildLibImportId: (pkg: string) => `virtual:prebuild:${pkg}`,
+    getSharedImportSource: (
+      pkg: string,
+      shareItem?: { shareConfig?: { import?: string | false } }
+    ) =>
+      typeof shareItem?.shareConfig?.import === 'string'
+        ? shareItem.shareConfig.import
+        : pkg === 'transitive-no-override'
+          ? '/workspace/packages/transitive-no-override/dist/index.js'
+          : `virtual:prebuild:${pkg}`,
   };
 });
 
@@ -98,7 +108,7 @@ describe('virtualRemoteEntry', () => {
       name: 'uses shared provider for react in localSharedImportMap when vinext is disabled',
       pkg: 'react',
       hasVinext: false,
-      expectedImport: 'virtual:prebuild:react',
+      expectedImport: 'let pkg = await import("virtual:prebuild:react");',
       expectedExportShape: ': {...res}',
       unexpectedImport: 'let pkg = await import("react");',
     },
@@ -106,7 +116,7 @@ describe('virtualRemoteEntry', () => {
       name: 'uses prebuild import for non-react modules in localSharedImportMap',
       pkg: 'vue',
       hasVinext: true,
-      expectedImport: 'virtual:prebuild:vue',
+      expectedImport: 'let pkg = await import("virtual:prebuild:vue");',
       expectedExportShape: ': {...res}',
       unexpectedImport: 'let pkg = await import("vue");',
     },
@@ -128,6 +138,36 @@ describe('virtualRemoteEntry', () => {
       expect(code).not.toContain(testCase.unexpectedImport);
     });
   }
+
+  it('uses configured share import path in localSharedImportMap', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('custom-import');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('let pkg = await import("/abs/custom-import.js");');
+    expect(code).not.toContain('virtual:prebuild:custom-import');
+  });
+
+  it('uses auto-detected workspace import path in localSharedImportMap', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('transitive-no-override');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain(
+      'let pkg = await import("/workspace/packages/transitive-no-override/dist/index.js");'
+    );
+    expect(code).not.toContain('virtual:prebuild:transitive-no-override');
+  });
 
   it('writes host auto init waiting on __tla before init', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => {

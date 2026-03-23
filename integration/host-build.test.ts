@@ -27,6 +27,10 @@ describe('host build', () => {
     const allCode = getAllChunkCode(output);
     expect(allCode).toContain('loadRemote');
     expect(allCode).toContain('remote1/Module');
+    const localSharedImportMap = findChunk(output, 'localSharedImportMap');
+    expect(localSharedImportMap).toBeDefined();
+    expect(localSharedImportMap!.code).toContain('name: "remote1"');
+    expect(localSharedImportMap!.code).toContain('entry: "http://localhost:3001/remoteEntry.js"');
   });
 
   it('adds federation bootstrap script to HTML <head> when hostInitInjectLocation is html', async () => {

@@ -97,28 +97,28 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       // Create core virtual modules
       initVirtualModules(_command, getRemoteEntryId(options));
 
-      if (_command !== 'serve') return;
-
       const isRolldown = getIsRolldown(this);
 
-      // Eagerly register configured remotes so they are available
-      // when localSharedImportMap is loaded during dev (race condition fix)
+      // Eagerly register configured remotes before localSharedImportMap is
+      // first written. In build, remoteEntry can be traced before app modules
+      // hit the remote alias resolver, which otherwise leaves usedRemotes empty
+      // in the emitted localSharedImportMap chunk.
       if (remotes && Object.keys(remotes).length > 0) {
         for (const key of Object.keys(remotes)) {
           addUsedRemote(key, key);
         }
       }
 
-      // Create shared module virtual files BEFORE optimization and register
-      // shares eagerly so localSharedImportMap has content on first load.
-      // To prevent dep re-optimization deadlock, we also add all prebuild
-      // module IDs to optimizeDeps.include so Vite pre-bundles them upfront.
+      // Create shared module virtual files EARLY and register shares eagerly
+      // so localSharedImportMap has content on first load in both serve/build.
       if (shared && Object.keys(shared).length > 0) {
-        config.optimizeDeps = config.optimizeDeps || {};
-        config.optimizeDeps.include = config.optimizeDeps.include || [];
-        // Include the runtimeInit virtual module so Vite pre-bundles it
-        // upfront instead of discovering it at runtime via loadShare imports.
-        config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
+        if (_command === 'serve') {
+          config.optimizeDeps = config.optimizeDeps || {};
+          config.optimizeDeps.include = config.optimizeDeps.include || [];
+          // Include the runtimeInit virtual module so Vite pre-bundles it
+          // upfront instead of discovering it at runtime via loadShare imports.
+          config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
+        }
         for (const key of Object.keys(shared)) {
           if (key.endsWith('/')) continue;
           const shareItem = shared[key] as any;
@@ -128,10 +128,12 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           }
           getLoadShareModulePath(key, isRolldown);
           writeLoadShareModule(key, shareItem, _command, isRolldown);
-          writePreBuildLibPath(key);
+          writePreBuildLibPath(key, shareItem);
           addUsedShares(key);
-          config.optimizeDeps.include.push(getLoadShareImportId(key, isRolldown, _command));
-          config.optimizeDeps.include.push(getPreBuildLibImportId(key));
+          if (_command === 'serve') {
+            config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command));
+            config.optimizeDeps.include!.push(getPreBuildLibImportId(key));
+          }
         }
         writeLocalSharedImportMap();
       }

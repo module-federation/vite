@@ -3,12 +3,23 @@ import { IncomingMessage, ServerResponse } from 'http';
 import * as path from 'pathe';
 import { fileURLToPath } from 'url';
 import { Logger, ModuleNode, Plugin, ViteDevServer } from 'vite';
-import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
+import {
+  addCssAssetsToAllExports,
+  collectCssAssets,
+  createEmptyAssetMap,
+  processModuleAssets,
+} from '../utils/cssModuleHelpers';
 import { matchesMfHmrUrl, onServerReady } from '../utils/hmrUtils';
 import { formatModuleFederationMessage } from '../utils/logger';
+import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { resolvePublicPath } from '../utils/publicPath';
-import { generateExposes, generateRemoteEntry, getHostAutoInitPath } from '../virtualModules';
+import {
+  generateExposes,
+  generateRemoteEntry,
+  getExposesCssMapPlaceholder,
+  getHostAutoInitPath,
+} from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
 
 const filter: (id: string) => boolean = createFilter();
@@ -25,7 +36,7 @@ export default function ({
   remoteEntryId,
   virtualExposesId,
 }: ProxyRemoteEntryParams): Plugin {
-  let viteConfig: any, _command: string;
+  let viteConfig: any, _command: string, root: string;
   const clients = new Set<ServerResponse>();
   let exposeFiles = new Set<string>();
   let server: ViteDevServer;
@@ -49,6 +60,7 @@ export default function ({
     configResolved(config) {
       viteConfig = config;
       logger = config.logger;
+      root = config.root;
     },
     config(config, { command }) {
       _command = command;
@@ -207,6 +219,79 @@ export default function ({
       })();
 
       return mapCodeToCodeWithSourcemap(transformedCode);
+    },
+    generateBundle(_, bundle) {
+      if (_command !== 'build') return;
+
+      const filesMap: Record<
+        string,
+        {
+          js: { sync: string[]; async: string[] };
+          css: { sync: string[]; async: string[] };
+        }
+      > = {};
+      const exposeEntries = Object.entries(options.exposes);
+      const allCssAssets = options.bundleAllCSS ? collectCssAssets(bundle) : new Set<string>();
+
+      processModuleAssets(bundle, filesMap, (modulePath) => {
+        const absoluteModulePath = path.resolve(root, modulePath);
+        const matchedExpose = exposeEntries.find(([_, exposeOptions]) => {
+          const exposePath = path.resolve(root, exposeOptions.import);
+          if (absoluteModulePath === exposePath) {
+            return true;
+          }
+
+          const stripKnownJsExt = (filePath: string) => {
+            const ext = path.extname(filePath);
+            return ['.ts', '.tsx', '.jsx', '.mjs', '.cjs'].includes(ext)
+              ? path.join(path.dirname(filePath), path.basename(filePath, ext))
+              : filePath;
+          };
+
+          return stripKnownJsExt(absoluteModulePath) === stripKnownJsExt(exposePath);
+        });
+
+        return matchedExpose?.[1].import;
+      });
+
+      if (options.bundleAllCSS) {
+        addCssAssetsToAllExports(filesMap, allCssAssets);
+      }
+
+      const ensureRelativeImportPath = (fromFile: string, toFile: string) => {
+        let relativePath = path.relative(path.dirname(fromFile), toFile);
+        if (!relativePath.startsWith('.')) {
+          relativePath = `./${relativePath}`;
+        }
+        return relativePath;
+      };
+
+      const placeholderValue = getExposesCssMapPlaceholder();
+      const placeholderPatterns = [
+        JSON.stringify(placeholderValue),
+        `'${placeholderValue}'`,
+        `\`${placeholderValue}\``,
+      ];
+      for (const file of Object.values(bundle)) {
+        if (file.type !== 'chunk' || !file.code.includes(placeholderValue)) continue;
+
+        // virtualExposes can be wrapped into helper chunks, so patch every chunk
+        // that still carries the placeholder.
+        const cssAssetMap = exposeEntries.reduce<Record<string, string[]>>(
+          (acc, [exposeKey, expose]) => {
+            const assets = filesMap[expose.import] || createEmptyAssetMap();
+            acc[exposeKey] = [...assets.css.sync, ...assets.css.async].map((cssAsset) =>
+              ensureRelativeImportPath(file.fileName, cssAsset)
+            );
+            return acc;
+          },
+          {}
+        );
+
+        for (const placeholderPattern of placeholderPatterns) {
+          file.code = file.code.replace(placeholderPattern, JSON.stringify(cssAssetMap));
+        }
+      }
     },
   };
 
