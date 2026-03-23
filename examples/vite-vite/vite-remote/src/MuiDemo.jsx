@@ -1,5 +1,5 @@
 import { css } from '@emotion/react';
-import { createTheme, Paper, StyledEngineProvider, ThemeProvider, Typography } from '@mui/material';
+import { createTheme, Paper, ThemeProvider, Typography } from '@mui/material';
 import Button from '@mui/material/Button';
 import React from 'react';
 import styles from './Mui5Widget.module.css';
@@ -58,40 +58,38 @@ const theme = createTheme({
 
 export function MuiDemo() {
     return (
-        <StyledEngineProvider injectFirst>
-            <div className={styles.container}>
-                <div>
-                    <Button variant="contained">Button OutSide Theme</Button>
-                </div>
-                <div>
-                    <ThemeProvider theme={theme}>
-                        <Button variant="contained">Button Theme Styled </Button>
-                    </ThemeProvider>
-                </div>
-                <div>
-                    <ThemeProvider theme={theme}>
-                        <Button variant="contained" sx={{ bgcolor: 'background.paper' }}>
-                            Button Theme Styled overriden
-                        </Button>
-                    </ThemeProvider>
-                </div>
-                <div>
-                    <Button variant="contained" css={emotionClass}>
-                        Button Emotion Styled
-                    </Button>
-                </div>
-
-                <div>
-                    <Button variant="contained" className={styles.myButton}>
-                        Button CSS Module Styled
-                    </Button>
-                </div>
-
-                <Paper component="footer" sx={FooterClasses.root} elevation={3} id="footer-paper-container">
-                    <Typography variant="subtitle1">Text inside typography</Typography>
-                </Paper>
+        <div className={styles.container}>
+            <div>
+                <Button variant="contained">Button OutSide Theme</Button>
             </div>
-        </StyledEngineProvider>
+            <div>
+                <ThemeProvider theme={theme}>
+                    <Button variant="contained">Button Theme Styled </Button>
+                </ThemeProvider>
+            </div>
+            <div>
+                <ThemeProvider theme={theme}>
+                    <Button variant="contained" sx={{ bgcolor: 'background.paper' }}>
+                        Button Theme Styled overriden
+                    </Button>
+                </ThemeProvider>
+            </div>
+            <div>
+                <Button variant="contained" css={emotionClass}>
+                    Button Emotion Styled
+                </Button>
+            </div>
+
+            <div>
+                <Button variant="contained" className={styles.myButton}>
+                    Button CSS Module Styled
+                </Button>
+            </div>
+
+            <Paper component="footer" sx={FooterClasses.root} elevation={3} id="footer-paper-container">
+                <Typography variant="subtitle1">Text inside typography</Typography>
+            </Paper>
+        </div>
     );
 }
 
