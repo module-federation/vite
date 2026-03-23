@@ -1,12 +1,14 @@
 import { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
-import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
+import { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from '../utils/packageUtils';
 import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
   addUsedShares,
+  getConcreteSharedImportSource,
   generateLocalSharedImportMap,
+  getPreBuildShareItem,
   getLoadShareModulePath,
   getLocalSharedImportMapPath,
   PREBUILD_TAG,
@@ -15,6 +17,10 @@ import {
   writePreBuildLibPath,
 } from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
+
+function getPrebuildResolutionSource(pkgName: string, shareItem?: ShareItem): string {
+  return getConcreteSharedImportSource(pkgName, shareItem) || pkgName;
+}
 
 export function proxySharedModule(options: {
   shared?: NormalizedShared;
@@ -97,7 +103,7 @@ export function proxySharedModule(options: {
                   }
                   const loadSharePath = getLoadShareModulePath(source, isRolldown, command);
                   writeLoadShareModule(source, shared[key], command, isRolldown);
-                  writePreBuildLibPath(source);
+                  writePreBuildLibPath(source, shared[key]);
                   addUsedShares(source);
                   writeLocalSharedImportMap();
                   return (this as any).resolve(loadSharePath, importer);
@@ -116,7 +122,7 @@ export function proxySharedModule(options: {
                     replacement: function ($1: string) {
                       const module = assertModuleFound(PREBUILD_TAG, $1) as VirtualModule;
                       const pkgName = module.name;
-                      return pkgName;
+                      return getPrebuildResolutionSource(pkgName, getPreBuildShareItem(pkgName));
                     },
                   }
                 : {
@@ -125,9 +131,13 @@ export function proxySharedModule(options: {
                     async customResolver(source: string, importer: string) {
                       const module = assertModuleFound(PREBUILD_TAG, source) as VirtualModule;
                       const pkgName = module.name;
-                      const result = await (this as any)
-                        .resolve(pkgName, importer)
-                        .then((item: any) => item.id);
+                      const importSource = getPrebuildResolutionSource(
+                        pkgName,
+                        getPreBuildShareItem(pkgName)
+                      );
+                      const resolved = await (this as any).resolve(importSource, importer);
+                      if (!resolved?.id) return;
+                      const result = resolved.id;
                       if (_config && !result.includes(_config.cacheDir)) {
                         // save pre-bunding module id
                         savePrebuild.set(pkgName, Promise.resolve(result));
@@ -156,7 +166,7 @@ export function proxySharedModule(options: {
             return;
           }
           writeLoadShareModule(key, shared[key], _command, isRolldown);
-          writePreBuildLibPath(key);
+          writePreBuildLibPath(key, shared[key]);
           addUsedShares(key);
         });
         writeLocalSharedImportMap();
