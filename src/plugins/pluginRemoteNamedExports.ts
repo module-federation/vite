@@ -18,6 +18,7 @@
  * statically resolve the set of exported names from a federated remote at
  * build time.  Use explicit named re-exports instead.
  */
+import { init as initEsLexer, parse as parseEsImports } from 'es-module-lexer';
 import MagicString from 'magic-string';
 import type { Plugin } from 'vite';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
@@ -27,9 +28,405 @@ import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
 
 const JS_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?|vue|svelte)(?:\?|$)/;
 
+// ── Normalized import descriptors ─────────────────────────────────
+
+interface StaticImportInfo {
+  kind: 'static';
+  source: string;
+  start: number;
+  end: number;
+  named: Array<{ imported: string; local: string }>;
+  defaultLocal?: string;
+  namespaceLocal?: string;
+}
+
+interface ReexportInfo {
+  kind: 'reexport';
+  source: string;
+  start: number;
+  end: number;
+  specifiers: Array<{ local: string; exported: string }>;
+}
+
+interface ExportAllInfo {
+  kind: 'export-all';
+  source: string;
+  start: number;
+  end: number;
+}
+
+interface DynamicImportInfo {
+  kind: 'dynamic';
+  start: number;
+  end: number;
+  originalText: string;
+}
+
+type ImportInfo = StaticImportInfo | ReexportInfo | ExportAllInfo | DynamicImportInfo;
+
+// ── Shared rewrite logic ──────────────────────────────────────────
+
+function wrapDynamicImport(original: string): string {
+  return (
+    `${original}.then(function(__mf_m__) {\n` +
+    `  if (!__mf_m__ || !__mf_m__.__moduleExports) return __mf_m__;\n` +
+    `  var __mf_ns__ = Object.create(null);\n` +
+    `  Object.defineProperty(__mf_ns__, Symbol.toStringTag, { value: "Module" });\n` +
+    `  var __mf_e__ = __mf_m__.__moduleExports;\n` +
+    `  Object.keys(__mf_e__).forEach(function(k) { if (k !== "__esModule") __mf_ns__[k] = __mf_e__[k] });\n` +
+    `  if ("default" in __mf_m__) __mf_ns__.default = __mf_m__.default;\n` +
+    `  return __mf_ns__;\n` +
+    `})`
+  );
+}
+
+function applyRewrites(
+  code: string,
+  imports: ImportInfo[],
+  id: string
+): { code: string; map: ReturnType<MagicString['generateMap']> } | undefined {
+  if (imports.length === 0) return;
+
+  const ms = new MagicString(code);
+  let changed = false;
+  // Per-file counter — deterministic regardless of file processing order.
+  let counter = 0;
+
+  for (const imp of imports) {
+    switch (imp.kind) {
+      case 'static': {
+        const src = JSON.stringify(imp.source);
+
+        if (imp.namespaceLocal && !imp.defaultLocal && imp.named.length === 0) {
+          // import * as ns from "remote/xxx"
+          ms.overwrite(
+            imp.start,
+            imp.end,
+            `import { __moduleExports as ${imp.namespaceLocal} } from ${src};`
+          );
+        } else {
+          const nsId = `__mf_ns_${counter++}`;
+          const importParts: string[] = [];
+
+          if (imp.defaultLocal) importParts.push(`default as ${imp.defaultLocal}`);
+          importParts.push(`__moduleExports as ${nsId}`);
+
+          const destructParts = imp.named.map((s) =>
+            s.imported === s.local ? s.local : `${s.imported}: ${s.local}`
+          );
+
+          let rewrite = `import { ${importParts.join(', ')} } from ${src};`;
+          if (destructParts.length > 0)
+            rewrite += `\nconst { ${destructParts.join(', ')} } = ${nsId};`;
+
+          ms.overwrite(imp.start, imp.end, rewrite);
+        }
+        changed = true;
+        break;
+      }
+
+      case 'reexport': {
+        const src = JSON.stringify(imp.source);
+        const nsId = `__mf_ns_${counter++}`;
+
+        const vars = imp.specifiers.map((s) => {
+          const tmp = `__mf_re_${counter++}`;
+          return { ...s, tmp };
+        });
+
+        const importLine = `import { __moduleExports as ${nsId} } from ${src};`;
+        const varLines = vars
+          .map((v) => `const ${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];`)
+          .join('\n');
+        const exportLine = `export { ${vars.map((v) => `${v.tmp} as ${v.exported}`).join(', ')} };`;
+
+        ms.overwrite(imp.start, imp.end, `${importLine}\n${varLines}\n${exportLine}`);
+        changed = true;
+        break;
+      }
+
+      case 'export-all': {
+        console.warn(
+          `[module-federation] "export * from '${imp.source}'" is not supported ` +
+            `with Rolldown — use explicit named re-exports instead. (${id})`
+        );
+        break;
+      }
+
+      case 'dynamic': {
+        ms.overwrite(imp.start, imp.end, wrapDynamicImport(imp.originalText));
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  if (!changed) return;
+  return {
+    code: ms.toString(),
+    map: ms.generateMap({ hires: true }),
+  };
+}
+
+// ── AST-based collection ──────────────────────────────────────────
+
+async function collectFromAST(
+  ast: any,
+  code: string,
+  isRemoteImport: (source: string) => boolean
+): Promise<ImportInfo[]> {
+  const walk = await loadWalk();
+  const result: ImportInfo[] = [];
+
+  walk(ast, {
+    enter(node: any) {
+      // ── static imports ──────────────────────────────────────
+      if (node.type === 'ImportDeclaration' && node.source?.value) {
+        if (!isRemoteImport(node.source.value)) return;
+
+        const specifiers = node.specifiers || [];
+        // Filter out inline type-only specifiers (e.g. `import { type Foo, bar }`)
+        // to guard against parsers that support TypeScript syntax.
+        const named = specifiers
+          .filter((s: any) => s.type === 'ImportSpecifier' && s.importKind !== 'type')
+          .map((s: any) => ({
+            imported: s.imported.name ?? s.imported.value,
+            local: s.local.name,
+          }));
+        const defaultSpec = specifiers.find((s: any) => s.type === 'ImportDefaultSpecifier');
+        const nsSpec = specifiers.find((s: any) => s.type === 'ImportNamespaceSpecifier');
+
+        // default-only → already works, skip
+        if (named.length === 0 && !nsSpec) return;
+
+        result.push({
+          kind: 'static',
+          source: node.source.value,
+          start: node.start,
+          end: node.end,
+          named,
+          defaultLocal: defaultSpec?.local.name,
+          namespaceLocal: nsSpec?.local.name,
+        });
+      }
+
+      // ── re-exports: export { foo } from "remote/xxx" ──────
+      if (
+        node.type === 'ExportNamedDeclaration' &&
+        node.source?.value &&
+        isRemoteImport(node.source.value)
+      ) {
+        const specifiers = (node.specifiers || [])
+          .filter((s: any) => s.exportKind !== 'type')
+          .map((s: any) => ({
+            local: s.local.name ?? s.local.value,
+            exported: s.exported.name ?? s.exported.value,
+          }));
+
+        if (specifiers.length === 0) return;
+
+        result.push({
+          kind: 'reexport',
+          source: node.source.value,
+          start: node.start,
+          end: node.end,
+          specifiers,
+        });
+      }
+
+      // ── export * from "remote/xxx" (unsupported) ──────────
+      if (
+        node.type === 'ExportAllDeclaration' &&
+        node.source?.value &&
+        isRemoteImport(node.source.value)
+      ) {
+        this.skip();
+        result.push({
+          kind: 'export-all',
+          source: node.source.value,
+          start: node.start,
+          end: node.end,
+        });
+      }
+
+      // ── dynamic imports: import("remote/xxx") ─────────────
+      if (node.type === 'ImportExpression') {
+        const source = node.source;
+
+        if (
+          source.type !== 'Literal' &&
+          source.type !== 'StringLiteral' &&
+          source.type !== 'TemplateLiteral'
+        )
+          return;
+
+        const value =
+          source.type === 'TemplateLiteral'
+            ? source.quasis?.length === 1
+              ? source.quasis[0].value?.cooked
+              : undefined
+            : source.value;
+
+        if (!value || !isRemoteImport(value)) return;
+
+        result.push({
+          kind: 'dynamic',
+          start: node.start,
+          end: node.end,
+          originalText: code.slice(node.start, node.end),
+        });
+      }
+    },
+  });
+
+  return result;
+}
+
+// ── es-module-lexer fallback collection ───────────────────────────
+//
+// NOTE: Specifier parsing uses regex (e.g. /\{([^}]*)\}/ and .split(','))
+// which does not handle exotic specifiers like string literals
+// (`export { foo as "bar-baz" }`).  This is acceptable because federated
+// remote module names are always valid JS identifiers.
+
+async function collectFromEsLexer(
+  code: string,
+  isRemoteImport: (source: string) => boolean
+): Promise<ImportInfo[] | undefined> {
+  await initEsLexer;
+
+  let imports;
+  try {
+    [imports] = parseEsImports(code);
+  } catch {
+    // es-module-lexer cannot parse non-JS content (e.g. .vue SFC files
+    // before the vue plugin extracts the <script> block).
+    return;
+  }
+
+  const result: ImportInfo[] = [];
+
+  for (const imp of imports) {
+    // Skip import.meta (d === -2)
+    if (imp.d === -2) continue;
+    if (!imp.n || !isRemoteImport(imp.n)) continue;
+
+    const stmtText = code.slice(imp.ss, imp.se);
+
+    // ── dynamic imports: import("remote/xxx") ────────────────
+    if (imp.d >= 0) {
+      result.push({
+        kind: 'dynamic',
+        start: imp.ss,
+        end: imp.se,
+        originalText: stmtText,
+      });
+      continue;
+    }
+
+    // ── export * from "remote/xxx" (unsupported) ─────────────
+    if (/^\s*export\s*\*\s/.test(stmtText)) {
+      result.push({
+        kind: 'export-all',
+        source: imp.n,
+        start: imp.ss,
+        end: imp.se,
+      });
+      continue;
+    }
+
+    // ── re-exports: export { foo } from "remote/xxx" ────────
+    if (/^\s*export\s/.test(stmtText)) {
+      const braceMatch = stmtText.match(/\{([^}]*)\}/);
+      if (!braceMatch) continue;
+
+      const specs = braceMatch[1]
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 0);
+
+      if (specs.length === 0) continue;
+
+      const specifiers = specs.map((s: string) => {
+        const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/);
+        return {
+          local: asMatch ? asMatch[1] : s,
+          exported: asMatch ? asMatch[2] : s,
+        };
+      });
+
+      result.push({
+        kind: 'reexport',
+        source: imp.n,
+        start: imp.ss,
+        end: imp.se,
+        specifiers,
+      });
+      continue;
+    }
+
+    // ── static imports ───────────────────────────────────────
+    const importMatch = stmtText.match(/^import\s+([\s\S]*?)\s+from\s/);
+    if (!importMatch) continue;
+
+    const specifiersPart = importMatch[1].trim();
+    // Skip type-only imports: import type { ... } from "..."
+    if (/^type\s/.test(specifiersPart)) continue;
+
+    // import * as ns from "remote/xxx"
+    const nsMatch = specifiersPart.match(/^\*\s+as\s+(\w+)$/);
+    if (nsMatch) {
+      result.push({
+        kind: 'static',
+        source: imp.n,
+        start: imp.ss,
+        end: imp.se,
+        named: [],
+        namespaceLocal: nsMatch[1],
+      });
+      continue;
+    }
+
+    // Parse named specifiers from { ... }
+    const braceMatch = specifiersPart.match(/\{([^}]*)\}/);
+    if (!braceMatch) continue; // default-only
+
+    const namedSpecifiers = braceMatch[1]
+      .split(',')
+      .map((s: string) => s.trim())
+      // Filter out inline type specifiers: import { type Foo, bar } from "..."
+      .filter((s: string) => s.length > 0 && !s.startsWith('type '));
+
+    if (namedSpecifiers.length === 0) continue;
+
+    // Check for default import: import Default, { ... } from ...
+    const defaultMatch = specifiersPart.match(/^(\w+)\s*,/);
+
+    const named = namedSpecifiers.map((s: string) => {
+      const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/);
+      return {
+        imported: asMatch ? asMatch[1] : s,
+        local: asMatch ? asMatch[2] : s,
+      };
+    });
+
+    result.push({
+      kind: 'static',
+      source: imp.n,
+      start: imp.ss,
+      end: imp.se,
+      named,
+      defaultLocal: defaultMatch?.[1],
+    });
+  }
+
+  return result;
+}
+
+// ── Plugin factory ────────────────────────────────────────────────
+
 export function pluginRemoteNamedExports(options: NormalizedModuleFederationOptions): Plugin {
   const remoteNames = Object.keys(options.remotes);
-  let counter = 0;
   let rolldown: boolean | undefined;
 
   function isRemoteImport(source: string): boolean {
@@ -52,152 +449,20 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
       // Quick bail-out: does the source mention any remote name?
       if (!remoteNames.some((name) => code.includes(name))) return;
 
-      let ast: any;
+      let imports: ImportInfo[] | undefined;
+
       try {
-        ast = this.parse(code);
+        const ast = this.parse(code);
+        imports = await collectFromAST(ast, code, isRemoteImport);
       } catch {
-        return;
+        // this.parse() delegates to acorn which does not support TypeScript
+        // syntax (import type, interfaces, generics, etc.).  Fall back to
+        // es-module-lexer so TS/TSX consumer files are still transformed.
+        imports = await collectFromEsLexer(code, isRemoteImport);
       }
 
-      const ms = new MagicString(code);
-      const walk = await loadWalk();
-      let changed = false;
-
-      walk(ast, {
-        enter(node: any) {
-          // ── static imports ──────────────────────────────────────
-          if (node.type === 'ImportDeclaration' && node.source?.value) {
-            if (!isRemoteImport(node.source.value)) return;
-
-            const specifiers = node.specifiers || [];
-            const named = specifiers.filter((s: any) => s.type === 'ImportSpecifier');
-            const defaultSpec = specifiers.find((s: any) => s.type === 'ImportDefaultSpecifier');
-            const nsSpec = specifiers.find((s: any) => s.type === 'ImportNamespaceSpecifier');
-
-            // default-only → already works, skip
-            if (named.length === 0 && !nsSpec) return;
-
-            const src = JSON.stringify(node.source.value);
-            const nsId = `__mf_ns_${counter++}`;
-
-            if (nsSpec && specifiers.length === 1) {
-              // import * as ns from "remote/test"
-              ms.overwrite(
-                node.start,
-                node.end,
-                `import { __moduleExports as ${nsSpec.local.name} } from ${src};`
-              );
-            } else {
-              const importParts: string[] = [];
-
-              if (defaultSpec) importParts.push(`default as ${defaultSpec.local.name}`);
-
-              importParts.push(`__moduleExports as ${nsId}`);
-
-              const destructParts = named.map((s: any) => {
-                const imported = s.imported.name ?? s.imported.value;
-                const local = s.local.name;
-                return imported === local ? local : `${imported}: ${local}`;
-              });
-
-              let rewrite = `import { ${importParts.join(', ')} } from ${src};`;
-
-              if (destructParts.length > 0)
-                rewrite += `\nconst { ${destructParts.join(', ')} } = ${nsId};`;
-
-              ms.overwrite(node.start, node.end, rewrite);
-            }
-            changed = true;
-          }
-
-          // ── re-exports: export { foo } from "remote/test" ──────
-          if (
-            node.type === 'ExportNamedDeclaration' &&
-            node.source?.value &&
-            isRemoteImport(node.source.value)
-          ) {
-            const specifiers = node.specifiers || [];
-
-            if (specifiers.length === 0) return;
-
-            const src = JSON.stringify(node.source.value);
-            const nsId = `__mf_ns_${counter++}`;
-
-            const vars = specifiers.map((s: any) => {
-              const local = s.local.name ?? s.local.value;
-              const exported = s.exported.name ?? s.exported.value;
-              const tmp = `__mf_re_${counter++}`;
-              return { local, exported, tmp };
-            });
-
-            const importLine = `import { __moduleExports as ${nsId} } from ${src};`;
-            const varLines = vars
-              .map((v: any) => `const ${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];`)
-              .join('\n');
-            const exportLine = `export { ${vars
-              .map((v: any) => `${v.tmp} as ${v.exported}`)
-              .join(', ')} };`;
-
-            ms.overwrite(node.start, node.end, `${importLine}\n${varLines}\n${exportLine}`);
-            changed = true;
-          }
-
-          // ── export * from "remote/test" (unsupported) ──────────
-          if (
-            node.type === 'ExportAllDeclaration' &&
-            node.source?.value &&
-            isRemoteImport(node.source.value)
-          ) {
-            this.skip();
-            console.warn(
-              `[module-federation] "export * from '${node.source.value}'" is not supported ` +
-                `with Rolldown — use explicit named re-exports instead. (${id})`
-            );
-          }
-
-          // ── dynamic imports: import("remote/test") ─────────────
-          if (node.type === 'ImportExpression') {
-            const source = node.source;
-
-            if (
-              source.type !== 'Literal' &&
-              source.type !== 'StringLiteral' &&
-              source.type !== 'TemplateLiteral'
-            )
-              return;
-
-            const value =
-              source.type === 'TemplateLiteral'
-                ? source.quasis?.length === 1
-                  ? source.quasis[0].value?.cooked
-                  : undefined
-                : source.value;
-
-            if (!value || !isRemoteImport(value)) return;
-
-            const original = code.slice(node.start, node.end);
-            const wrapper =
-              `${original}.then(function(__mf_m__){` +
-              `if(!__mf_m__||!__mf_m__.__moduleExports)return __mf_m__;` +
-              `var __mf_ns__=Object.create(null);` +
-              `Object.defineProperty(__mf_ns__,Symbol.toStringTag,{value:"Module"});` +
-              `var __mf_e__=__mf_m__.__moduleExports;` +
-              `Object.keys(__mf_e__).forEach(function(k){if(k!=="__esModule")__mf_ns__[k]=__mf_e__[k]});` +
-              `if("default" in __mf_m__)__mf_ns__.default=__mf_m__.default;` +
-              `return __mf_ns__})`;
-
-            ms.overwrite(node.start, node.end, wrapper);
-            changed = true;
-          }
-        },
-      });
-
-      if (!changed) return;
-
-      return {
-        code: ms.toString(),
-        map: ms.generateMap({ hires: true }),
-      };
+      if (!imports) return;
+      return applyRewrites(code, imports, id);
     },
   };
 }
