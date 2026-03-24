@@ -165,6 +165,42 @@ describe('vite:module-federation-early-init', () => {
   });
 });
 
+function getEarlyInitPluginWithImportFalse(): Plugin {
+  const plugin = federation({
+    name: 'remote',
+    filename: 'remoteEntry.js',
+    shared: {
+      vue: { singleton: true, import: false },
+      pinia: { singleton: true, import: false },
+    },
+  }).find((entry) => entry.name === 'vite:module-federation-early-init');
+
+  if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+  return plugin;
+}
+
+describe('vite:module-federation-early-init with import: false', () => {
+  it('excludes import: false shared deps from optimizeDeps and prebuild', () => {
+    const plugin = getEarlyInitPluginWithImportFalse();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({ meta: {} } as any, config, { command: 'serve', mode: 'test' });
+
+    // Should not include prebuild or loadShare for import: false deps
+    const includeStr = config.optimizeDeps.include.join(',');
+    expect(includeStr).not.toContain('vue');
+    expect(includeStr).not.toContain('pinia');
+    // Should still include runtimeInit
+    expect(config.optimizeDeps.include).toContain(virtualRuntimeInitStatus.getImportId());
+  });
+});
+
 describe('module-federation-fix-preload', () => {
   it('keeps nested output paths working', () => {
     const plugin = getFixPreloadPlugin();

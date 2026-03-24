@@ -128,9 +128,13 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           }
           getLoadShareModulePath(key, isRolldown);
           writeLoadShareModule(key, shareItem, _command, isRolldown);
-          writePreBuildLibPath(key, shareItem);
+          // Skip prebuild for shared deps with import: false — the host must
+          // provide them, so no local fallback source is needed.
+          if (shareItem.shareConfig?.import !== false) {
+            writePreBuildLibPath(key, shareItem);
+          }
           addUsedShares(key);
-          if (_command === 'serve') {
+          if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
             if (!isRolldown) {
               // In non-Rolldown Vite (< 8), loadShare modules are CJS and
               // don't use real TLA, so the dep optimizer handles them fine.

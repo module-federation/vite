@@ -191,6 +191,48 @@ describe('pluginProxySharedModule_preBuild', () => {
     });
   }
 
+  it('skips prebuild for import: false shared deps in configResolved', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      ...makeShared(),
+      'host-only': {
+        name: 'host-only',
+        from: '',
+        version: undefined,
+        scope: 'default',
+        shareConfig: {
+          import: false,
+          singleton: true,
+          requiredVersion: '*',
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: { alias: [] as any[] },
+    };
+
+    proxyPlugin.config?.call(
+      { meta: {}, resolve: async (id: string) => ({ id: `/resolved/${id}` }) },
+      config as any,
+      { command: 'serve', mode: 'development' }
+    );
+    proxyPlugin.configResolved?.({
+      cacheDir: '/vite/deps',
+      experimental: { rolldownDev: false },
+    } as any);
+
+    // import: false dep should not have a prebuild entry
+    expect(preBuildShareItemMap.has('host-only')).toBe(false);
+    // Normal deps should still have prebuild entries
+    expect(preBuildShareItemMap.has('react')).toBe(true);
+    expect(preBuildShareItemMap.has('vue')).toBe(true);
+  });
+
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 

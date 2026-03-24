@@ -103,7 +103,9 @@ export function proxySharedModule(options: {
                   }
                   const loadSharePath = getLoadShareModulePath(source, isRolldown, command);
                   writeLoadShareModule(source, shared[key], command, isRolldown);
-                  writePreBuildLibPath(source, shared[key]);
+                  if (shared[key].shareConfig.import !== false) {
+                    writePreBuildLibPath(source, shared[key]);
+                  }
                   addUsedShares(source);
                   writeLocalSharedImportMap();
                   return (this as any).resolve(loadSharePath, importer);
@@ -166,7 +168,11 @@ export function proxySharedModule(options: {
             return;
           }
           writeLoadShareModule(key, shared[key], _command, isRolldown);
-          writePreBuildLibPath(key, shared[key]);
+          // Skip prebuild for shared deps with import: false — the host must
+          // provide them, so no local fallback source is needed.
+          if (shared[key].shareConfig.import !== false) {
+            writePreBuildLibPath(key, shared[key]);
+          }
           addUsedShares(key);
         });
         writeLocalSharedImportMap();

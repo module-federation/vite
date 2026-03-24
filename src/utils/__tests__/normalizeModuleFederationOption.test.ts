@@ -1,7 +1,20 @@
+import { vi } from 'vitest';
 import {
   ModuleFederationOptions,
   normalizeModuleFederationOptions,
 } from '../normalizeModuleFederationOptions';
+
+const { mfErrorSpy } = vi.hoisted(() => ({
+  mfErrorSpy: vi.fn(),
+}));
+
+vi.mock('../logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../logger')>();
+  return {
+    ...actual,
+    mfError: (...args: unknown[]) => mfErrorSpy(...args),
+  };
+});
 
 describe('normalizeModuleFederationOption', () => {
   const minimalOptions: ModuleFederationOptions = {
@@ -181,6 +194,36 @@ describe('normalizeModuleFederationOption', () => {
             singleton: true,
             strictVersion: true,
           },
+        },
+      });
+    });
+
+    it('skips package.json resolution for import: false and does not error', () => {
+      mfErrorSpy.mockClear();
+
+      const result = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          'not-installed-pkg': {
+            import: false,
+            singleton: true,
+          },
+        },
+      }).shared;
+
+      // Should not trigger any mfError calls for unresolvable packages
+      expect(mfErrorSpy).not.toHaveBeenCalled();
+
+      expect(result['not-installed-pkg']).toEqual({
+        from: '',
+        name: 'not-installed-pkg',
+        scope: 'default',
+        version: undefined,
+        shareConfig: {
+          import: false,
+          requiredVersion: '*',
+          singleton: true,
+          strictVersion: false,
         },
       });
     });

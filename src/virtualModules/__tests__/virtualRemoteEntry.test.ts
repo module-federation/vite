@@ -211,6 +211,34 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('import { initResolve } from');
   });
 
+  it('includes __VUE_HMR_RUNTIME__ shim in remoteEntry', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    // Shim must guard against existing runtime
+    expect(code).toContain("if (typeof __VUE_HMR_RUNTIME__ === 'undefined')");
+    // Shim must provide all three methods Vue's HMR expects
+    expect(code).toContain(
+      'globalThis.__VUE_HMR_RUNTIME__ = { createRecord() {}, rerender() {}, reload() {} }'
+    );
+    // Shim must appear before any imports so it's defined when component code executes
+    const shimIndex = code.indexOf('__VUE_HMR_RUNTIME__');
+    const importIndex = code.indexOf('import {init as runtimeInit');
+    expect(shimIndex).toBeLessThan(importIndex);
+  });
+
   it('loads local shared state and exposes lazily inside remoteEntry', async () => {
     const mod = await import('../virtualRemoteEntry');
 

@@ -159,6 +159,14 @@ export function generateRemoteEntry(
   });
 
   return `
+  // Shim Vue HMR runtime for dev-compiled components loaded by a non-Vite host.
+  // When a remote is served by a Vite dev server, Vue's SFC compiler injects HMR
+  // hooks that reference __VUE_HMR_RUNTIME__. This global only exists on pages
+  // served by Vite's client runtime. When a production host loads the remote,
+  // the HMR calls would throw. This no-op shim prevents that.
+  if (typeof __VUE_HMR_RUNTIME__ === 'undefined') {
+    globalThis.__VUE_HMR_RUNTIME__ = { createRecord() {}, rerender() {}, reload() {} };
+  }
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
   ${pluginImportNames.map((item) => item[1]).join('\n')}
   ${
