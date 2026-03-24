@@ -310,11 +310,23 @@ export function writeLoadShareModule(
 
   // import: false means the host must provide this module — the remote has no local copy.
   // Generate a minimal loadShare module that just delegates to the runtime.
-  // No prebuild imports, no named export proxying, no dev warming imports.
+  // No prebuild imports, no dev warming imports.
   if (shareItem.shareConfig.import === false) {
-    const exportLine = useESM
-      ? 'export default exportModule.default ?? exportModule'
-      : 'module.exports = exportModule';
+    // For ESM builds, try to detect named exports from locally installed devDependencies.
+    // This enables `import { ref } from 'vue'` even though the module is provided by the host.
+    // For packages that aren't installed, fall back to default-only export (CJS interop
+    // in dev mode, default export in build mode).
+    const namedExports = useESM ? getPackageNamedExports(pkg) : [];
+    let exportLine: string;
+    if (useESM && namedExports.length > 0) {
+      const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
+      const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
+      exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
+    } else {
+      exportLine = useESM
+        ? 'export default exportModule.default ?? exportModule'
+        : 'module.exports = exportModule';
+    }
     loadShareCacheMap[pkg].writeSync(
       `
     ${importLine}
