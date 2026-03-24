@@ -48,16 +48,17 @@ describe('inlineEntryScripts', () => {
     expect(result).toContain(`await import("/src/main.js")`);
   });
 
-  it('sanitizes initSrc with protocol prefix', () => {
+  it('sanitizes initSrc with protocol prefix (already root-relative)', () => {
     const html = '<body><script type="module" src="/src/main.js"></script></body>';
-    const result = inlineEntryScripts(html, 'file:///home/user/project/init.js');
-    expect(result).toContain(`await import("//home/user/project/init.js")`);
+    // devEntryPath is now built root-relative in pluginAddEntry; sanitize only normalizes slashes
+    const result = inlineEntryScripts(html, '/node_modules/__mf__virtual/init.js');
+    expect(result).toContain(`await import("/node_modules/__mf__virtual/init.js")`);
   });
 
   it('sanitizes initSrc with backslashes', () => {
     const html = '<body><script type="module" src="/src/main.js"></script></body>';
-    const result = inlineEntryScripts(html, 'C:\\Users\\project\\init.js');
-    expect(result).toContain(`await import("/Users/project/init.js")`);
+    const result = inlineEntryScripts(html, '/node_modules\\__mf__virtual\\init.js');
+    expect(result).toContain(`await import("/node_modules/__mf__virtual/init.js")`);
   });
 });
 
@@ -66,11 +67,15 @@ describe('sanitizeDevEntryPath', () => {
     expect(sanitizeDevEntryPath('/src/main.js')).toBe('/src/main.js');
   });
 
-  it('strips protocol prefix', () => {
-    expect(sanitizeDevEntryPath('file:///home/user/init.js')).toBe('//home/user/init.js');
+  it('passes through paths without backslashes', () => {
+    expect(sanitizeDevEntryPath('/node_modules/__mf__virtual/init.js')).toBe(
+      '/node_modules/__mf__virtual/init.js'
+    );
   });
 
   it('converts backslashes to forward slashes', () => {
-    expect(sanitizeDevEntryPath('C:\\Users\\project\\init.js')).toBe('/Users/project/init.js');
+    expect(sanitizeDevEntryPath('/node_modules\\__mf__virtual\\init.js')).toBe(
+      '/node_modules/__mf__virtual/init.js'
+    );
   });
 });

@@ -1,5 +1,7 @@
 export function sanitizeDevEntryPath(devEntryPath: string): string {
-  return devEntryPath.replace(/^[^:]+:([/\\])[/\\]?/, '$1').replace(/\\\\?/g, '/');
+  // devEntryPath is already root-relative at this point (built in pluginAddEntry),
+  // just normalize any remaining backslashes for use in HTML/URLs.
+  return devEntryPath.replace(/\\\\?/g, '/');
 }
 
 /**

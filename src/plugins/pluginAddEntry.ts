@@ -52,15 +52,20 @@ const addEntry = ({
       configResolved(config) {
         viteConfig = config;
         const resolvedEntryPath = getEntryPath();
-        devEntryPath = resolvedEntryPath.startsWith('virtual:mf')
-          ? '@id/' + resolvedEntryPath
-          : resolvedEntryPath;
-        devEntryPath =
-          config.base +
-          devEntryPath
-            .replace(/\\\\?/g, '/')
-            .replace(/^[^:]+:([/\\])[/\\]?/, '$1')
-            .replace(/^\//, '');
+        if (resolvedEntryPath.startsWith('virtual:mf')) {
+          devEntryPath = config.base + '@id/' + resolvedEntryPath;
+        } else {
+          // Convert absolute filesystem path to root-relative URL path.
+          // On Windows, naive drive-letter stripping leaves the full directory
+          // tree in the URL (e.g. /Repositories/.../node_modules/...) causing 404s.
+          // Instead, compute the path relative to Vite's project root.
+          const normalized = resolvedEntryPath.replace(/\\\\?/g, '/');
+          const root = config.root.replace(/\\\\?/g, '/').replace(/\/$/, '');
+          const relativePath = normalized.startsWith(root + '/')
+            ? normalized.slice(root.length)
+            : '/' + normalized.replace(/^[A-Za-z]:[\\/]/, '');
+          devEntryPath = config.base + relativePath.replace(/^\//, '');
+        }
       },
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
