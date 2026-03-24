@@ -3,7 +3,11 @@ import * as path from 'pathe';
 import { Plugin } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
-import { inlineEntryScripts, sanitizeDevEntryPath } from '../utils/htmlEntryUtils';
+import {
+  injectEntryScript,
+  rewriteEntryScripts,
+  sanitizeDevEntryPath,
+} from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
@@ -25,6 +29,7 @@ const addEntry = ({
   fileName,
   inject = 'entry',
 }: AddEntryOptions): Plugin[] => {
+  const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
   const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
   let devEntryPath = '';
   let entryFiles: string[] = [];
@@ -52,15 +57,20 @@ const addEntry = ({
       configResolved(config) {
         viteConfig = config;
         const resolvedEntryPath = getEntryPath();
-        devEntryPath = resolvedEntryPath.startsWith('virtual:mf')
-          ? '@id/' + resolvedEntryPath
-          : resolvedEntryPath;
-        devEntryPath =
-          config.base +
-          devEntryPath
-            .replace(/\\\\?/g, '/')
-            .replace(/^[^:]+:([/\\])[/\\]?/, '$1')
-            .replace(/^\//, '');
+        if (resolvedEntryPath.startsWith('virtual:mf')) {
+          devEntryPath = config.base + '@id/' + resolvedEntryPath;
+        } else {
+          // Convert absolute filesystem path to root-relative URL path.
+          // On Windows, naive drive-letter stripping leaves the full directory
+          // tree in the URL (e.g. /Repositories/.../node_modules/...) causing 404s.
+          // Instead, compute the path relative to Vite's project root.
+          const normalized = resolvedEntryPath.replace(/\\\\?/g, '/');
+          const root = config.root.replace(/\\\\?/g, '/').replace(/\/$/, '');
+          const relativePath = normalized.startsWith(root + '/')
+            ? normalized.slice(root.length)
+            : '/' + normalized.replace(/^[A-Za-z]:[\\/]/, '');
+          devEntryPath = config.base + relativePath.replace(/^\//, '');
+        }
       },
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
@@ -77,7 +87,31 @@ const addEntry = ({
       transformIndexHtml(c) {
         if (!injectHtml()) return;
         clientInjected = true;
-        return inlineEntryScripts(c, devEntryPath);
+        const html = rewriteEntryScripts(c, (originalSrc) => {
+          const query = new URLSearchParams({
+            init: sanitizeDevEntryPath(devEntryPath),
+            entry: originalSrc,
+          }).toString();
+          return `${viteConfig.base}@id/${DEV_HTML_PROXY_PREFIX}${query}`;
+        });
+        return html === c ? injectEntryScript(c, devEntryPath) : html;
+      },
+      resolveId(id) {
+        if (id.startsWith(DEV_HTML_PROXY_PREFIX)) {
+          return id;
+        }
+      },
+      load(id) {
+        if (!id.startsWith(DEV_HTML_PROXY_PREFIX)) return;
+        const params = new URLSearchParams(id.slice(DEV_HTML_PROXY_PREFIX.length));
+        const initSrc = params.get('init');
+        const entrySrc = params.get('entry');
+        if (!initSrc || !entrySrc) return;
+        return `
+const baseUrl = document.baseURI || window.location.href;
+await import(new URL(${JSON.stringify(initSrc)}, baseUrl).href);
+await import(new URL(${JSON.stringify(entrySrc)}, baseUrl).href);
+`;
       },
       transform(code, id) {
         if (id.includes('node_modules') || inject !== 'html' || htmlFilePath) {

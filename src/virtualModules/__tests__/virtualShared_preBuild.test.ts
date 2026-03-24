@@ -2,8 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareItem } from '../../utils/normalizeModuleFederationOptions';
 import { writeLoadShareModule } from '../virtualShared_preBuild';
 
-const { writeSyncSpy } = vi.hoisted(() => ({
+const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
+  mfWarnSpy: vi.fn(),
+}));
+
+vi.mock('../../utils/logger', () => ({
+  mfWarn: mfWarnSpy,
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
@@ -109,6 +114,7 @@ vi.mock('module', async (importOriginal) => {
 describe('writeLoadShareModule', () => {
   beforeEach(() => {
     writeSyncSpy.mockClear();
+    mfWarnSpy.mockClear();
   });
 
   it('should alias named exports instead of using bare identifiers to avoid syntax errors', () => {
@@ -236,6 +242,128 @@ describe('writeLoadShareModule', () => {
     );
     expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
     expect(generatedCode).not.toContain('export * from');
+  });
+
+  it('does not reference prebuild modules when import: false', () => {
+    const pkg = 'host-only-dep';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // Should not have any static import statement (no prebuild to import)
+    expect(generatedCode).not.toMatch(/import\s+["']/);
+    // Should not have export * (no local source to re-export from)
+    expect(generatedCode).not.toContain('export *');
+    // Should still call loadShare via the runtime
+    expect(generatedCode).toContain('runtime.loadShare');
+    // CJS serve mode uses module.exports
+    expect(generatedCode).toContain('module.exports = exportModule');
+  });
+
+  it('does not reference prebuild modules when import: false in build mode', () => {
+    const pkg = 'host-only-dep';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('export *');
+    expect(generatedCode).toContain('runtime.loadShare');
+    expect(generatedCode).toContain('export default exportModule');
+  });
+
+  it('generates named re-exports for import: false when package is installed as devDependency', () => {
+    // mock-package-with-reserved is resolvable in the test mock setup
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // Should NOT reference prebuild modules
+    expect(generatedCode).not.toContain('__prebuild__');
+    // Should still use loadShare runtime
+    expect(generatedCode).toContain('runtime.loadShare');
+    // Should have named exports destructured from the runtime-provided module
+    expect(generatedCode).toContain('__mf_0 as delete');
+    expect(generatedCode).toContain('__mf_1 as get');
+    expect(generatedCode).toContain('__mf_2 as request');
+    expect(generatedCode).toContain('export default exportModule');
+  });
+
+  it('falls back to default-only export for import: false when package is not installed', () => {
+    // host-only-dep is NOT resolvable in the test mock setup
+    const pkg = 'host-only-dep';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    mfWarnSpy.mockClear();
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // No named export destructuring — package not installed, can't detect exports
+    expect(generatedCode).not.toMatch(/const\s*\{.*__mf_\d+/);
+    expect(generatedCode).not.toContain('export {');
+    // Only default export
+    expect(generatedCode).toContain('export default exportModule');
+    // Should warn about missing named exports in ESM build
+    expect(mfWarnSpy).toHaveBeenCalledWith(expect.stringContaining('not installed locally'));
+    expect(mfWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Install it as a devDependency')
+    );
   });
 
   it('auto-detects workspace package entry when the shared dep is not directly resolvable', () => {

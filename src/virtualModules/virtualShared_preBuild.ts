@@ -12,6 +12,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
+import { mfWarn } from '../utils/logger';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getPackageDetectionCwd,
@@ -307,6 +308,52 @@ export function writeLoadShareModule(
   const awaitOrPlaceholder = useESM
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
+
+  // import: false means the host must provide this module — the remote has no local copy.
+  // Generate a minimal loadShare module that just delegates to the runtime.
+  // No prebuild imports, no dev warming imports.
+  if (shareItem.shareConfig.import === false) {
+    // For ESM builds, try to detect named exports from locally installed devDependencies.
+    // This enables `import { ref } from 'vue'` even though the module is provided by the host.
+    // For packages that aren't installed, fall back to default-only export (CJS interop
+    // in dev mode, default export in build mode).
+    const namedExports = useESM ? getPackageNamedExports(pkg) : [];
+    let exportLine: string;
+    if (useESM && namedExports.length > 0) {
+      const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
+      const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
+      exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
+    } else {
+      if (useESM) {
+        mfWarn(
+          `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
+            `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +
+            `  Install it as a devDependency to enable named export detection.`
+        );
+      }
+      exportLine = useESM
+        ? 'export default exportModule.default ?? exportModule'
+        : 'module.exports = exportModule';
+    }
+    loadShareCacheMap[pkg].writeSync(
+      `
+    ${importLine}
+    const res = initPromise.then(runtime => runtime.loadShare(${escapeGeneratedStringLiteral(pkg)}, {
+      customShareInfo: {shareConfig:{
+        singleton: ${shareItem.shareConfig.singleton},
+        strictVersion: ${shareItem.shareConfig.strictVersion},
+        requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
+      }}
+    }))
+    const exportModule = ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))
+    ${exportLine}
+  `,
+      true
+    );
+    return;
+  }
+
+  // Normal path: package is installed locally, create full loadShare with prebuild fallback.
   const isVinext = hasPackageDependency('vinext');
   const useSsrProviderFallback = isVinext && command === 'build' && pkg === 'react';
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);

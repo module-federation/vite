@@ -128,10 +128,22 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           }
           getLoadShareModulePath(key, isRolldown);
           writeLoadShareModule(key, shareItem, _command, isRolldown);
-          writePreBuildLibPath(key, shareItem);
+          // Skip prebuild for shared deps with import: false — the host must
+          // provide them, so no local fallback source is needed.
+          if (shareItem.shareConfig?.import !== false) {
+            writePreBuildLibPath(key, shareItem);
+          }
           addUsedShares(key);
-          if (_command === 'serve') {
-            config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command));
+          if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
+            if (!isRolldown) {
+              // In non-Rolldown Vite (< 8), loadShare modules are CJS and
+              // don't use real TLA, so the dep optimizer handles them fine.
+              config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command));
+            }
+            // When isRolldown (Vite 8+), loadShare modules are ESM with
+            // top-level await. Including them in optimizeDeps causes the dep
+            // optimizer to convert ESM→CJS, stripping `await` and turning
+            // shared modules into unresolved Promises (breaks Pinia plugins, etc).
             config.optimizeDeps.include!.push(getPreBuildLibImportId(key));
           }
         }

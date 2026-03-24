@@ -1,24 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { inlineEntryScripts, sanitizeDevEntryPath } from '../htmlEntryUtils';
+import { injectEntryScript, rewriteEntryScripts, sanitizeDevEntryPath } from '../htmlEntryUtils';
 
 const INIT_SRC = '/__mf__virtual/hostAutoInit.js';
 
-describe('inlineEntryScripts', () => {
-  it('inlines init import into a module script tag', () => {
+describe('rewriteEntryScripts', () => {
+  it('rewrites a module script tag to a proxy src', () => {
     const html = '<html><body><script type="module" src="/src/main.js"></script></body></html>';
-    const result = inlineEntryScripts(html, INIT_SRC);
-    expect(result).toContain(
-      `<script type="module">await import("/__mf__virtual/hostAutoInit.js");await import("/src/main.js");</script>`
-    );
+    const result = rewriteEntryScripts(html, (src) => `/proxy?entry=${encodeURIComponent(src)}`);
+    expect(result).toContain(`<script type="module" src="/proxy?entry=%2Fsrc%2Fmain.js"></script>`);
   });
 
   it('preserves @vite/client script tag', () => {
     const html =
       '<head><script type="module" src="/@vite/client"></script></head>' +
       '<body><script type="module" src="/src/main.js"></script></body>';
-    const result = inlineEntryScripts(html, INIT_SRC);
+    const result = rewriteEntryScripts(html, (src) => `/proxy?entry=${encodeURIComponent(src)}`);
     expect(result).toContain('src="/@vite/client"');
-    expect(result).toContain(`await import("/src/main.js")`);
+    expect(result).toContain(`src="/proxy?entry=%2Fsrc%2Fmain.js"`);
   });
 
   it('handles multiple entry scripts', () => {
@@ -27,37 +25,30 @@ describe('inlineEntryScripts', () => {
       '<script type="module" src="/src/app1.js"></script>' +
       '<script type="module" src="/src/app2.js"></script>' +
       '</body>';
-    const result = inlineEntryScripts(html, INIT_SRC);
-    expect(result).toContain(`await import("/src/app1.js")`);
-    expect(result).toContain(`await import("/src/app2.js")`);
-    expect(result).not.toContain('src="/src/app1.js"');
-    expect(result).not.toContain('src="/src/app2.js"');
+    const result = rewriteEntryScripts(html, (src) => `/proxy?entry=${encodeURIComponent(src)}`);
+    expect(result).toContain(`src="/proxy?entry=%2Fsrc%2Fapp1.js"`);
+    expect(result).toContain(`src="/proxy?entry=%2Fsrc%2Fapp2.js"`);
   });
 
-  it('falls back to separate script tag when no entry scripts exist', () => {
+  it('returns html unchanged when no entry scripts exist', () => {
     const html = '<html><head></head><body></body></html>';
-    const result = inlineEntryScripts(html, INIT_SRC);
-    expect(result).toContain(
-      `<head><script type="module" src="/__mf__virtual/hostAutoInit.js"></script>`
-    );
+    expect(rewriteEntryScripts(html, (src) => src)).toBe(html);
   });
 
   it('handles single-quoted src attributes', () => {
     const html = "<body><script type='module' src='/src/main.js'></script></body>";
-    const result = inlineEntryScripts(html, INIT_SRC);
-    expect(result).toContain(`await import("/src/main.js")`);
+    const result = rewriteEntryScripts(html, (src) => `/proxy?entry=${encodeURIComponent(src)}`);
+    expect(result).toContain(`src="/proxy?entry=%2Fsrc%2Fmain.js"`);
   });
+});
 
-  it('sanitizes initSrc with protocol prefix', () => {
-    const html = '<body><script type="module" src="/src/main.js"></script></body>';
-    const result = inlineEntryScripts(html, 'file:///home/user/project/init.js');
-    expect(result).toContain(`await import("//home/user/project/init.js")`);
-  });
-
-  it('sanitizes initSrc with backslashes', () => {
-    const html = '<body><script type="module" src="/src/main.js"></script></body>';
-    const result = inlineEntryScripts(html, 'C:\\Users\\project\\init.js');
-    expect(result).toContain(`await import("/Users/project/init.js")`);
+describe('injectEntryScript', () => {
+  it('falls back to separate script tag when no entry scripts exist', () => {
+    const html = '<html><head></head><body></body></html>';
+    const result = injectEntryScript(html, INIT_SRC);
+    expect(result).toContain(
+      `<head><script type="module" src="/__mf__virtual/hostAutoInit.js"></script>`
+    );
   });
 });
 
@@ -66,11 +57,15 @@ describe('sanitizeDevEntryPath', () => {
     expect(sanitizeDevEntryPath('/src/main.js')).toBe('/src/main.js');
   });
 
-  it('strips protocol prefix', () => {
-    expect(sanitizeDevEntryPath('file:///home/user/init.js')).toBe('//home/user/init.js');
+  it('passes through paths without backslashes', () => {
+    expect(sanitizeDevEntryPath('/node_modules/__mf__virtual/init.js')).toBe(
+      '/node_modules/__mf__virtual/init.js'
+    );
   });
 
   it('converts backslashes to forward slashes', () => {
-    expect(sanitizeDevEntryPath('C:\\Users\\project\\init.js')).toBe('/Users/project/init.js');
+    expect(sanitizeDevEntryPath('/node_modules\\__mf__virtual\\init.js')).toBe(
+      '/node_modules/__mf__virtual/init.js'
+    );
   });
 });
