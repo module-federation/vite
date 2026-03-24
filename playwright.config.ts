@@ -13,6 +13,12 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
+    {
+      command: "pnpm run preview-vv",
+      url: "http://localhost:5175",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
   ],
   use: {
     trace: "retain-on-failure",
@@ -25,6 +31,24 @@ export default defineConfig({
       testDir: "e2e/vite-webpack-rspack",
       use: {
         baseURL: "http://localhost:5173",
+        browserName: "chromium",
+      },
+    },
+    {
+      name: "vite-vite-host",
+      testDir: "e2e/vite-vite/tests",
+      testMatch: "host-preview.spec.ts",
+      use: {
+        baseURL: "http://localhost:5175",
+        browserName: "chromium",
+      },
+    },
+    {
+      name: "vite-vite-remote",
+      testDir: "e2e/vite-vite/tests",
+      testMatch: "remote-preview.spec.ts",
+      use: {
+        baseURL: "http://localhost:5176",
         browserName: "chromium",
       },
     },

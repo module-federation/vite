@@ -6,4 +6,10 @@ test.describe('vite-vite remote preview', () => {
     const heading = page.getByRole('heading', { name: 'Vite + React', exact: true });
     await expect(heading).toBeVisible();
   });
+
+  test('renders shared-lib component', async ({ page }) => {
+    await page.goto('/');
+    const label = page.getByText('[shared-lib] Remote');
+    await expect(label).toBeVisible();
+  });
 });

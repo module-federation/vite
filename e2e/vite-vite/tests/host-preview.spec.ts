@@ -22,6 +22,18 @@ test.describe('vite-vite host preview', () => {
     await expect(emotionText).toBeVisible();
   });
 
+  test('renders shared-lib component on host', async ({ page }) => {
+    await page.goto('/');
+    const label = page.getByText('[shared-lib] Host');
+    await expect(label).toBeVisible();
+  });
+
+  test('renders shared-lib component from remote', async ({ page }) => {
+    await page.goto('/');
+    const label = page.getByText('[shared-lib] Remote');
+    await expect(label).toBeVisible();
+  });
+
   test('renders Styled Components demo from remote', async ({ page }) => {
     await page.goto('/');
     const heading = page.getByRole('heading', {
