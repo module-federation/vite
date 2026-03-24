@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Plugin } from 'vite';
+import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
 
 const { mfWarn } = vi.hoisted(() => ({
   mfWarn: vi.fn(),
@@ -24,8 +25,8 @@ vi.mock('../utils/logger', async () => {
 });
 
 import { federation } from '../index';
-import { LOAD_SHARE_TAG } from '../virtualModules';
-import { getRuntimeInitImportId } from '../virtualModules/virtualRuntimeInitStatus';
+import { getPreBuildLibImportId, LOAD_SHARE_TAG } from '../virtualModules';
+import { virtualRuntimeInitStatus, getRuntimeInitImportId } from '../virtualModules/virtualRuntimeInitStatus';
 
 function getEsmShimsPlugin(): Plugin {
   const plugin = federation({
@@ -47,6 +48,21 @@ function getFixPreloadPlugin(): Plugin {
   }).find((entry) => entry.name === 'module-federation-fix-preload');
 
   if (!plugin) throw new Error('module-federation-fix-preload plugin not found');
+  return plugin;
+}
+
+function getEarlyInitPlugin(): Plugin {
+  const plugin = federation({
+    name: 'host',
+    filename: 'remoteEntry.js',
+    shared: {
+      vue: {
+        singleton: false,
+      },
+    },
+  }).find((entry) => entry.name === 'vite:module-federation-early-init');
+
+  if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
   return plugin;
 }
 
@@ -105,6 +121,47 @@ describe('module-federation-esm-shims', () => {
     expect(
       (objectOutput.manualChunks as unknown as Function)('/src/other/index.ts')
     ).toBeUndefined();
+  });
+});
+
+describe('vite:module-federation-early-init', () => {
+  it('skips loadShare optimizeDeps include in Rolldown serve, but keeps prebuild include', () => {
+    const plugin = getEarlyInitPlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call(
+      {
+        meta: { rolldownVersion: '1.0.0' },
+      } as any,
+      config,
+      { command: 'serve', mode: 'test' }
+    );
+
+    expect(config.optimizeDeps.include).toContain(virtualRuntimeInitStatus.getImportId());
+    expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
+    expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('vue', true, 'serve'));
+  });
+
+  it('keeps loadShare optimizeDeps include in non-Rolldown serve', () => {
+    const plugin = getEarlyInitPlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({ meta: {} } as any, config, { command: 'serve', mode: 'test' });
+
+    expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
+    expect(config.optimizeDeps.include).toContain(getLoadShareImportId('vue', false, 'serve'));
   });
 });
 
