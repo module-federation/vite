@@ -26,7 +26,7 @@ vi.mock('../utils/logger', async () => {
 
 import { federation } from '../index';
 import { getPreBuildLibImportId, LOAD_SHARE_TAG } from '../virtualModules';
-import { virtualRuntimeInitStatus, getRuntimeInitImportId } from '../virtualModules/virtualRuntimeInitStatus';
+import { getRuntimeInitImportId } from '../virtualModules/virtualRuntimeInitStatus';
 
 function getEsmShimsPlugin(): Plugin {
   const plugin = federation({
@@ -143,7 +143,7 @@ describe('vite:module-federation-early-init', () => {
       { command: 'serve', mode: 'test' }
     );
 
-    expect(config.optimizeDeps.include).toContain(virtualRuntimeInitStatus.getImportId());
+    expect(config.optimizeDeps.include).toContain(getRuntimeInitImportId('serve'));
     expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
     expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('vue', true, 'serve'));
   });

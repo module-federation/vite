@@ -134,7 +134,9 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             if (!isRolldown) {
               // In non-Rolldown Vite (< 8), loadShare modules are CJS and
               // don't use real TLA, so the dep optimizer handles them fine.
-              config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command, options));
+              config.optimizeDeps.include!.push(
+                getLoadShareImportId(key, isRolldown, _command, options)
+              );
             }
             // When isRolldown (Vite 8+), loadShare modules are ESM with
             // top-level await. Including them in optimizeDeps causes the dep
