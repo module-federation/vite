@@ -22,15 +22,20 @@ export function stripEmptyPreloadCalls(code: string): string {
       while (cursor < nextCode.length) {
         const char = nextCode[cursor];
         if (char === '(') depth++;
-        else if (char === ')') depth--;
-        else if (depth === 0 && nextCode.startsWith(',[],import.meta.url)', cursor)) {
+        else if (char === ')') {
+          depth--;
+          if (depth < 0) break;
+        } else if (depth === 0 && nextCode.startsWith(',[],import.meta.url)', cursor)) {
           replacementEnd = cursor;
           break;
         }
         cursor++;
       }
 
-      if (replacementEnd === -1) break;
+      if (replacementEnd === -1) {
+        start = nextCode.indexOf(marker, start + marker.length);
+        continue;
+      }
 
       const expression = nextCode.slice(exprStart, replacementEnd);
       nextCode =
