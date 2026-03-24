@@ -9,7 +9,8 @@ test.describe('vite-vite remote preview', () => {
 
   test('renders shared-lib component', async ({ page }) => {
     await page.goto('/');
-    const label = page.getByText('[shared-lib] Remote');
-    await expect(label).toBeVisible();
+    const counter = page.getByTestId('shared-counter-[shared-lib] Remote');
+    await expect(counter).toBeVisible();
+    await expect(counter.locator('strong')).toHaveText('[shared-lib] Remote');
   });
 });
