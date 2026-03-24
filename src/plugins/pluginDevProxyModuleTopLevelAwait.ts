@@ -4,17 +4,9 @@
 import { createFilter } from '@rollup/pluginutils';
 import MagicString from 'magic-string';
 import { Plugin } from 'vite';
+import { loadWalk } from '../utils/loadWalk';
 import { createModuleFederationError } from '../utils/logger';
 import { hasPackageDependency } from '../utils/packageUtils';
-
-type Walk = typeof import('estree-walker').walk;
-
-let walkPromise: Promise<Walk> | null = null;
-
-function loadWalk(): Promise<Walk> {
-  walkPromise ||= import('estree-walker').then(({ walk }) => walk);
-  return walkPromise;
-}
 
 export function PluginDevProxyModuleTopLevelAwait(): Plugin {
   const filterFunction = createFilter();

@@ -11,6 +11,7 @@ import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
+import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
@@ -224,6 +225,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     }),
     pluginProxyRemoteEntry({ options, remoteEntryId, virtualExposesId }),
     pluginProxyRemotes(options),
+    pluginRemoteNamedExports(options),
     ...pluginModuleParseEnd(
       (id: string) => {
         return (
@@ -375,6 +377,13 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
             'export const __moduleExports = exportModule;\n' +
               'export default exportModule.__esModule ? exportModule.default : exportModule'
           );
+          // Rollup supports syntheticNamedExports to resolve named imports
+          // from the __moduleExports namespace.  Rolldown (Vite 8+) does not
+          // support this — the pluginRemoteNamedExports transform handles
+          // named-export resolution on the consumer side instead.
+          if (getIsRolldown(this)) {
+            return { code };
+          }
           return { code, syntheticNamedExports: '__moduleExports' };
         }
       },
