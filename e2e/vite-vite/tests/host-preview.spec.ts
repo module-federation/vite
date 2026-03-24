@@ -30,4 +30,28 @@ test.describe('vite-vite host preview', () => {
     });
     await expect(heading).toBeVisible();
   });
+
+  test('renders shared-lib component on host', async ({ page }) => {
+    await page.goto('/');
+    const counter = page.getByTestId('shared-counter-[shared-lib] Host');
+    await expect(counter).toBeVisible();
+    await expect(counter.locator('strong')).toHaveText('[shared-lib] Host');
+  });
+
+  test('shared-lib counter increments on host', async ({ page }) => {
+    await page.goto('/');
+    const counter = page.getByTestId('shared-counter-[shared-lib] Host');
+    const button = counter.getByRole('button');
+    await expect(button).toHaveText('count: 0');
+    await button.click();
+    await button.click();
+    await expect(button).toHaveText('count: 2');
+  });
+
+  test('renders shared-lib component from remote', async ({ page }) => {
+    await page.goto('/');
+    const counter = page.getByTestId('shared-counter-[shared-lib] Remote');
+    await expect(counter).toBeVisible();
+    await expect(counter.locator('strong')).toHaveText('[shared-lib] Remote');
+  });
 });
