@@ -3,8 +3,10 @@ import {
   writeLocalSharedImportMap_temp,
 } from '../utils/localSharedImportMap_temp';
 import {
+  getModuleFederationScopeKey,
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  ModuleFederationScopeOptions,
   NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
@@ -18,35 +20,63 @@ import {
 } from './virtualRuntimeInitStatus';
 import { getSharedImportSource } from './virtualShared_preBuild';
 
-let usedShares: Set<string> = new Set();
-export function getUsedShares() {
+const usedSharesByScope = new Map<string, Set<string>>();
+const prevLocalSharedImportMapContentByScope = new Map<string, string>();
+const hostAutoInitModules = new Map<string, VirtualModule>();
+
+function resolveScopeOptions(options?: ModuleFederationScopeOptions): ModuleFederationScopeOptions {
+  return options || getNormalizeModuleFederationOptions();
+}
+
+function resolveNormalizedOptions(
+  options?: NormalizedModuleFederationOptions
+): NormalizedModuleFederationOptions {
+  return options || getNormalizeModuleFederationOptions();
+}
+
+function getUsedSharesSet(options?: ModuleFederationScopeOptions) {
+  const scopeKey = getModuleFederationScopeKey(resolveScopeOptions(options));
+  let usedShares = usedSharesByScope.get(scopeKey);
+
+  if (!usedShares) {
+    usedShares = new Set();
+    usedSharesByScope.set(scopeKey, usedShares);
+  }
+
   return usedShares;
 }
-export function addUsedShares(pkg: string) {
-  usedShares.add(pkg);
+
+export function getUsedShares(options?: ModuleFederationScopeOptions) {
+  return getUsedSharesSet(options);
 }
-// *** Expose locally provided shared modules here
-const localSharedImportMapModule = new VirtualModule('localSharedImportMap');
-export function getLocalSharedImportMapPath() {
-  return getLocalSharedImportMapPath_temp();
-  // return localSharedImportMapModule.getPath()
+
+export function addUsedShares(pkg: string, options?: ModuleFederationScopeOptions) {
+  getUsedSharesSet(options).add(pkg);
 }
-let prevLocalSharedImportMapContent: string | undefined;
-export function writeLocalSharedImportMap() {
-  const nextContent = generateLocalSharedImportMap();
-  if (prevLocalSharedImportMapContent !== nextContent) {
-    prevLocalSharedImportMapContent = nextContent;
-    writeLocalSharedImportMap_temp(nextContent);
-    //   localSharedImportMapModule.writeSync(generateLocalSharedImportMap(), true)
+
+export function getLocalSharedImportMapPath(options?: ModuleFederationScopeOptions) {
+  const resolvedOptions = resolveScopeOptions(options);
+  return getLocalSharedImportMapPath_temp(resolvedOptions.name);
+}
+
+export function writeLocalSharedImportMap(options?: NormalizedModuleFederationOptions) {
+  const resolvedOptions = resolveNormalizedOptions(options);
+  const scopeKey = getModuleFederationScopeKey(resolvedOptions);
+  const nextContent = generateLocalSharedImportMap(resolvedOptions);
+
+  if (prevLocalSharedImportMapContentByScope.get(scopeKey) !== nextContent) {
+    prevLocalSharedImportMapContentByScope.set(scopeKey, nextContent);
+    writeLocalSharedImportMap_temp(nextContent, resolvedOptions.name);
   }
 }
-export function generateLocalSharedImportMap() {
+
+export function generateLocalSharedImportMap(options?: NormalizedModuleFederationOptions) {
+  const resolvedOptions = resolveNormalizedOptions(options);
   const isVinext = hasPackageDependency('vinext');
-  const options = getNormalizeModuleFederationOptions();
   return `
     import {loadShare} from "@module-federation/runtime";
     const importMap = {
-      ${Array.from(getUsedShares())
+      ${Array.from(getUsedShares(resolvedOptions))
         .sort()
         .map((pkg) => {
           const shareItem = getNormalizeShareItem(pkg);
@@ -58,7 +88,7 @@ export function generateLocalSharedImportMap() {
               : isVinext && pkg === 'react'
                 ? `let pkg = await import("react");
             return pkg;`
-                : `let pkg = await import(${JSON.stringify(getSharedImportSource(pkg, shareItem))});
+                : `let pkg = await import(${JSON.stringify(getSharedImportSource(pkg, shareItem, resolvedOptions))});
             return pkg;`
           }
         }
@@ -67,7 +97,7 @@ export function generateLocalSharedImportMap() {
         .join(',')}
     }
       const usedShared = {
-      ${Array.from(getUsedShares())
+      ${Array.from(getUsedShares(resolvedOptions))
         .sort()
         .map((key) => {
           const shareItem = getNormalizeShareItem(key);
@@ -78,7 +108,7 @@ export function generateLocalSharedImportMap() {
             version: ${JSON.stringify(shareItem.version)},
             scope: [${JSON.stringify(shareItem.scope)}],
             loaded: false,
-            from: ${JSON.stringify(options.name)},
+            from: ${JSON.stringify(resolvedOptions.name)},
             async get () {
               if (${shareItem.shareConfig.import === false}) {
                 throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(key)}}' must be provided by host\`);
@@ -89,7 +119,6 @@ export function generateLocalSharedImportMap() {
               const exportModule = ${JSON.stringify(isVinext)} && ${JSON.stringify(key)} === "react"
                 ? (res?.default ?? res)
                 : {...res}
-              // All npm packages pre-built by vite will be converted to esm
               Object.defineProperty(exportModule, "__esModule", {
                 value: true,
                 enumerable: false
@@ -109,9 +138,9 @@ export function generateLocalSharedImportMap() {
         .filter((x) => x !== null)
         .join(',')}
     }
-      const usedRemotes = [${Object.keys(getUsedRemotesMap())
+      const usedRemotes = [${Object.keys(getUsedRemotesMap(resolvedOptions))
         .map((key) => {
-          const remote = options.remotes[key];
+          const remote = resolvedOptions.remotes[key];
           if (!remote) return null;
           return `
                 {
@@ -163,8 +192,8 @@ export function generateRemoteEntry(
   ${pluginImportNames.map((item) => item[1]).join('\n')}
   ${
     command === 'build'
-      ? getRuntimeInitResolveBootstrapCode()
-      : getRuntimeInitBootstrapCode() + '\n  const { initResolve } = globalThis[globalKey];'
+      ? getRuntimeInitResolveBootstrapCode(options)
+      : getRuntimeInitBootstrapCode(options) + '\n  const { initResolve } = globalThis[globalKey];'
   }
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
@@ -173,7 +202,7 @@ export function generateRemoteEntry(
   let exposesMapPromise
 
   async function getLocalSharedImportMap() {
-    localSharedImportMapPromise ??= import("${getLocalSharedImportMapPath()}")
+    localSharedImportMapPromise ??= import("${getLocalSharedImportMapPath(options)}")
     return localSharedImportMapPromise
   }
 
@@ -191,7 +220,6 @@ export function generateRemoteEntry(
       plugins: [${pluginImportNames.map((item) => `${item[0]}(${item[2]})`).join(', ')}],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
-    // handling circular init calls
     var initToken = initTokens[shareScopeName];
     if (!initToken)
       initToken = initTokens[shareScopeName] = { from: mfName };
@@ -223,21 +251,39 @@ export function generateRemoteEntry(
   `;
 }
 
-/**
- * Inject entry file, automatically init when used as host,
- * and will not inject remoteEntry
- */
 export const HOST_AUTO_INIT_TAG = '__H_A_I__';
-const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG);
-export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID) {
-  hostAutoInitModule.writeSync(`
+
+function getHostAutoInitModule(options?: ModuleFederationScopeOptions) {
+  const resolvedOptions = resolveScopeOptions(options);
+  const scopeKey = getModuleFederationScopeKey(resolvedOptions);
+  let hostAutoInitModule = hostAutoInitModules.get(scopeKey);
+
+  if (!hostAutoInitModule) {
+    hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG, '', {
+      name: resolvedOptions.name,
+      virtualModuleDir: resolvedOptions.virtualModuleDir,
+    });
+    hostAutoInitModules.set(scopeKey, hostAutoInitModule);
+  }
+
+  return hostAutoInitModule;
+}
+
+export function writeHostAutoInit(
+  remoteEntryId = REMOTE_ENTRY_ID,
+  options?: ModuleFederationScopeOptions
+) {
+  getHostAutoInitModule(options).writeSync(
+    `
     const remoteEntry = await import("${remoteEntryId}");
     await remoteEntry.init();
-    `);
+    `,
+    true
+  );
 }
-export function getHostAutoInitImportId() {
-  return hostAutoInitModule.getImportId();
+export function getHostAutoInitImportId(options?: ModuleFederationScopeOptions) {
+  return getHostAutoInitModule(options).getImportId();
 }
-export function getHostAutoInitPath() {
-  return hostAutoInitModule.getPath();
+export function getHostAutoInitPath(options?: ModuleFederationScopeOptions) {
+  return getHostAutoInitModule(options).getPath();
 }

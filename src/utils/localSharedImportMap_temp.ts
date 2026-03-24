@@ -6,12 +6,12 @@ import path from 'pathe';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 import { packageNameEncode } from './packageUtils';
 
-export function getLocalSharedImportMapPath_temp() {
-  const { name } = getNormalizeModuleFederationOptions();
-  return path.resolve('.__mf__temp', packageNameEncode(name), 'localSharedImportMap');
+export function getLocalSharedImportMapPath_temp(name?: string) {
+  const scopeName = name || getNormalizeModuleFederationOptions().name;
+  return path.resolve('.__mf__temp', packageNameEncode(scopeName), 'localSharedImportMap');
 }
-export function writeLocalSharedImportMap_temp(content: string) {
-  const localSharedImportMapId = getLocalSharedImportMapPath_temp();
+export function writeLocalSharedImportMap_temp(content: string, name?: string) {
+  const localSharedImportMapId = getLocalSharedImportMapPath_temp(name);
   createFile(
     localSharedImportMapId + '.js',
     '\n// Windows temporarily needs this file, https://github.com/module-federation/vite/issues/68\n' +

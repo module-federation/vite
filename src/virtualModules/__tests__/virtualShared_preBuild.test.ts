@@ -1,15 +1,45 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareItem } from '../../utils/normalizeModuleFederationOptions';
-import { writeLoadShareModule } from '../virtualShared_preBuild';
+import { getPreBuildLibImportId, writeLoadShareModule } from '../virtualShared_preBuild';
 
 const { writeSyncSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
 }));
 
-vi.mock('../../utils/packageUtils', () => ({
-  hasPackageDependency: vi.fn(() => false),
-  getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
-}));
+const getLastGeneratedModuleCode = () => {
+  const generatedCode = [...writeSyncSpy.mock.calls]
+    .map((call) => call[0])
+    .filter((code): code is string => typeof code === 'string' && code.length > 0)
+    .at(-1);
+
+  if (!generatedCode) {
+    throw new Error('Expected a generated virtual module body');
+  }
+
+  return generatedCode;
+};
+
+vi.mock('../../utils/packageUtils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/packageUtils')>();
+  return {
+    ...actual,
+    hasPackageDependency: vi.fn(() => false),
+    getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
+  };
+});
+
+vi.mock('../../utils/normalizeModuleFederationOptions', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../utils/normalizeModuleFederationOptions')>();
+  return {
+    ...actual,
+    getNormalizeModuleFederationOptions: () => ({
+      name: 'test-app',
+      filename: 'remoteEntry.js',
+      virtualModuleDir: '__mf__virtual',
+    }),
+  };
+});
 
 // Mock VirtualModule to capture written code
 vi.mock('../../utils/VirtualModule', () => {
@@ -111,6 +141,11 @@ describe('writeLoadShareModule', () => {
     writeSyncSpy.mockClear();
   });
 
+  it('materializes the prebuild placeholder before returning its import id', () => {
+    expect(getPreBuildLibImportId('mock-package-with-reserved')).toBe('mock-import-id');
+    expect(writeSyncSpy).toHaveBeenCalledWith('');
+  });
+
   it('should alias named exports instead of using bare identifiers to avoid syntax errors', () => {
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {
@@ -128,7 +163,7 @@ describe('writeLoadShareModule', () => {
     writeLoadShareModule(pkg, mockShareItem, 'build', false);
 
     expect(writeSyncSpy).toHaveBeenCalled();
-    const generatedCode = writeSyncSpy.mock.calls[0][0];
+    const generatedCode = getLastGeneratedModuleCode();
 
     // Destructuring should alias the keys
     // const { delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule;
@@ -160,7 +195,7 @@ describe('writeLoadShareModule', () => {
     writeLoadShareModule(pkg, mockShareItem, 'build', false);
 
     expect(writeSyncSpy).toHaveBeenCalled();
-    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const generatedCode = getLastGeneratedModuleCode();
 
     expect(generatedCode).toContain('const __mfPromiseGlobalKey =');
     expect(generatedCode).toContain('const initPromise = __mfPromiseState.initPromise;');
@@ -184,7 +219,7 @@ describe('writeLoadShareModule', () => {
 
     writeLoadShareModule(pkg, mockShareItem, 'build', false);
 
-    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const generatedCode = getLastGeneratedModuleCode();
 
     expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
   });
@@ -206,7 +241,7 @@ describe('writeLoadShareModule', () => {
 
     writeLoadShareModule(pkg, mockShareItem, 'build', false);
 
-    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const generatedCode = getLastGeneratedModuleCode();
 
     expect(generatedCode).toContain('import "/abs/pkg-b/dist/index.js";');
     expect(generatedCode).toContain('export * from "/abs/pkg-b/dist/index.js"');
@@ -229,7 +264,7 @@ describe('writeLoadShareModule', () => {
 
     writeLoadShareModule(pkg, mockShareItem, 'build', false);
 
-    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const generatedCode = getLastGeneratedModuleCode();
 
     expect(generatedCode).toContain(
       'const { useCounter: __mf_0, useLogger: __mf_1 } = exportModule;'
@@ -254,7 +289,7 @@ describe('writeLoadShareModule', () => {
 
     writeLoadShareModule(pkg, mockShareItem, 'build', false);
 
-    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const generatedCode = getLastGeneratedModuleCode();
 
     expect(generatedCode).toContain('import "/repo/packages/pkg-b/dist/index.js";');
     expect(generatedCode).toContain('export * from "/repo/packages/pkg-b/dist/index.js"');

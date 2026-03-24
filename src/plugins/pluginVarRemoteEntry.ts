@@ -1,10 +1,9 @@
 import { Plugin } from 'vite';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
-import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { createModuleFederationError, mfWarn } from '../utils/logger';
 
-const VarRemoteEntry = (): Plugin[] => {
-  const mfOptions = getNormalizeModuleFederationOptions();
+const VarRemoteEntry = (mfOptions: NormalizedModuleFederationOptions): Plugin[] => {
   const { name, varFilename, filename } = mfOptions;
 
   let viteConfig: any;
@@ -101,9 +100,7 @@ const VarRemoteEntry = (): Plugin[] => {
    * @returns Complete "var" remoteEntry.js file source
    */
   function generateVarRemoteEntry(remoteEntryFile: string) {
-    const options = getNormalizeModuleFederationOptions();
-
-    const { name, varFilename } = options;
+    const { name, varFilename } = mfOptions;
 
     const isValidName = isValidVarName(name);
 

@@ -1,50 +1,104 @@
 import VirtualModule from '../utils/VirtualModule';
 import {
+  getModuleFederationScopeKey,
+  getNormalizeModuleFederationOptions,
+  ModuleFederationScopeOptions,
+} from '../utils/normalizeModuleFederationOptions';
+import {
   getRuntimeInitBootstrapCode,
+  getRuntimeInitImportId,
   getRuntimeInitPromiseBootstrapCode,
-  virtualRuntimeInitStatus,
 } from './virtualRuntimeInitStatus';
 
-const cacheRemoteMap: {
-  [remote: string]: VirtualModule;
-} = {};
+const cacheRemoteMap = new Map<string, VirtualModule>();
+const usedRemotesMap = new Map<string, Record<string, Set<string>>>();
+
+function resolveScopeOptions(options?: ModuleFederationScopeOptions): ModuleFederationScopeOptions {
+  return options || getNormalizeModuleFederationOptions();
+}
+
+function getRemoteCacheKey(
+  remote: string,
+  command: string,
+  isRolldown: boolean,
+  options?: ModuleFederationScopeOptions
+) {
+  const resolvedOptions = resolveScopeOptions(options);
+  const format = isRolldown || command === 'build' ? 'esm' : 'cjs';
+  return `${getModuleFederationScopeKey(resolvedOptions)}:${format}:${remote}`;
+}
+
 export const LOAD_REMOTE_TAG = '__loadRemote__';
-export function getRemoteVirtualModule(remote: string, command: string, isRolldown: boolean) {
-  if (!cacheRemoteMap[remote]) {
+
+export function getRemoteVirtualModule(
+  remote: string,
+  command: string,
+  isRolldown: boolean,
+  options?: ModuleFederationScopeOptions
+) {
+  const resolvedOptions = resolveScopeOptions(options);
+  const cacheKey = getRemoteCacheKey(remote, command, isRolldown, resolvedOptions);
+  let virtual = cacheRemoteMap.get(cacheKey);
+
+  if (!virtual) {
     const ext = isRolldown ? '.mjs' : '.js';
-    cacheRemoteMap[remote] = new VirtualModule(remote, LOAD_REMOTE_TAG, ext);
-    cacheRemoteMap[remote].writeSync(generateRemotes(remote, command, isRolldown));
+    virtual = new VirtualModule(remote, LOAD_REMOTE_TAG, ext, {
+      name: resolvedOptions.name,
+      virtualModuleDir: resolvedOptions.virtualModuleDir,
+    });
+    virtual.writeSync(generateRemotes(remote, command, isRolldown, resolvedOptions));
+    cacheRemoteMap.set(cacheKey, virtual);
   }
-  const virtual = cacheRemoteMap[remote];
+
   return virtual;
 }
-const usedRemotesMap: Record<string, Set<string>> = {
-  // remote1: {remote1/App, remote1, remote1/Button}
-};
-export function addUsedRemote(remoteKey: string, remoteModule: string) {
-  if (!usedRemotesMap[remoteKey]) usedRemotesMap[remoteKey] = new Set();
-  usedRemotesMap[remoteKey].add(remoteModule);
+
+export function addUsedRemote(
+  remoteKey: string,
+  remoteModule: string,
+  options?: ModuleFederationScopeOptions
+) {
+  const scopeKey = getModuleFederationScopeKey(resolveScopeOptions(options));
+  let scopeRemotes = usedRemotesMap.get(scopeKey);
+
+  if (!scopeRemotes) {
+    scopeRemotes = {};
+    usedRemotesMap.set(scopeKey, scopeRemotes);
+  }
+
+  if (!scopeRemotes[remoteKey]) scopeRemotes[remoteKey] = new Set();
+  scopeRemotes[remoteKey].add(remoteModule);
 }
-export function getUsedRemotesMap() {
-  return usedRemotesMap;
+
+export function getUsedRemotesMap(options?: ModuleFederationScopeOptions) {
+  const scopeKey = getModuleFederationScopeKey(resolveScopeOptions(options));
+  let scopeRemotes = usedRemotesMap.get(scopeKey);
+
+  if (!scopeRemotes) {
+    scopeRemotes = {};
+    usedRemotesMap.set(scopeKey, scopeRemotes);
+  }
+
+  return scopeRemotes;
 }
-export function generateRemotes(id: string, command: string, isRolldown: boolean) {
+
+export function generateRemotes(
+  id: string,
+  command: string,
+  isRolldown: boolean,
+  options?: ModuleFederationScopeOptions
+) {
   const useESM = command === 'build' || isRolldown;
   const importLine =
     command === 'build'
-      ? getRuntimeInitPromiseBootstrapCode()
+      ? getRuntimeInitPromiseBootstrapCode(options)
       : useESM
-        ? `${getRuntimeInitBootstrapCode()}
+        ? `${getRuntimeInitBootstrapCode(options)}
     const { initPromise } = globalThis[globalKey];`
-        : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
+        : `const {initPromise} = require("${getRuntimeInitImportId(command, options)}")`;
   const awaitOrPlaceholder = useESM
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
-  // In dev+ESM mode (rolldown/Vite 8), unwrap the module namespace to avoid
-  // double-wrapping: loadRemote returns {default: Component}, and
-  // "export default exportModule" would make import() return
-  // {default: {default: Component}}, breaking React.lazy.
-  // In build mode, the module-federation-esm-shims plugin handles this.
   const exportLine =
     command === 'serve' && useESM
       ? 'export default exportModule.default ?? exportModule'

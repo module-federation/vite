@@ -35,17 +35,23 @@ vi.mock('../../utils/localSharedImportMap_temp', () => {
   };
 });
 
-vi.mock('../../utils/packageUtils', () => {
+vi.mock('../../utils/packageUtils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/packageUtils')>();
   return {
+    ...actual,
     hasPackageDependency: hasPackageDependencyMock,
   };
 });
 
-vi.mock('../../utils/normalizeModuleFederationOptions', () => {
+vi.mock('../../utils/normalizeModuleFederationOptions', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../utils/normalizeModuleFederationOptions')>();
   return {
+    ...actual,
     getNormalizeModuleFederationOptions: () => ({
       name: 'host',
       filename: 'remoteEntry.js',
+      virtualModuleDir: '__mf__virtual',
       remotes: {},
       shareScope: 'default',
       runtimePlugins: [],

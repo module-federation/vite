@@ -5,46 +5,80 @@
 import { Plugin } from 'vite';
 import { mfWarn } from '../utils/logger';
 
-let _resolve: any, _reject: any, _parseTimeout: any;
+export interface ModuleParseState {
+  promise: Promise<number>;
+  resolve: (value: number) => void;
+  reject: (error: unknown) => void;
+  parseTimeout: ReturnType<typeof setTimeout> | null;
+  exposesParseEnd: boolean;
+  parseStartSet: Set<string>;
+  parseEndSet: Set<string>;
+}
 
-const promise = new Promise((resolve, reject) => {
-  _resolve = (v: any) => {
-    clearTimeout(_parseTimeout);
-    _parseTimeout = null;
-    resolve(v);
-  };
-  _reject = (e: any) => {
-    clearTimeout(_parseTimeout);
-    _parseTimeout = null;
-    reject(e);
-  };
-});
+function resetModuleParsePromise(state: ModuleParseState) {
+  let resolve!: (value: number) => void;
+  let reject!: (error: unknown) => void;
 
-function setParseTimeout(timeout: number) {
-  if (!_parseTimeout) {
-    _parseTimeout = setTimeout(() => {
+  state.promise = new Promise<number>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  state.resolve = (value: number) => {
+    clearTimeout(state.parseTimeout ?? undefined);
+    state.parseTimeout = null;
+    resolve(value);
+  };
+  state.reject = (error: unknown) => {
+    clearTimeout(state.parseTimeout ?? undefined);
+    state.parseTimeout = null;
+    reject(error);
+  };
+}
+
+export function createModuleParseState(): ModuleParseState {
+  const state: ModuleParseState = {
+    promise: Promise.resolve(1),
+    resolve: () => {},
+    reject: () => {},
+    parseTimeout: null,
+    exposesParseEnd: false,
+    parseStartSet: new Set<string>(),
+    parseEndSet: new Set<string>(),
+  };
+
+  resetModuleParsePromise(state);
+
+  return state;
+}
+
+function setParseTimeout(state: ModuleParseState, timeout: number) {
+  if (!state.parseTimeout) {
+    state.parseTimeout = setTimeout(() => {
       mfWarn(`Parse timeout (${timeout}s) - forcing resolve`);
-      _resolve(1);
+      state.resolve(1);
     }, timeout * 1000);
   }
 }
 
-function resetIdleTimeout(timeout: number) {
-  clearTimeout(_parseTimeout);
-  _parseTimeout = setTimeout(() => {
+function resetIdleTimeout(state: ModuleParseState, timeout: number) {
+  clearTimeout(state.parseTimeout ?? undefined);
+  state.parseTimeout = setTimeout(() => {
     mfWarn(
       `moduleParseIdleTimeout: no module activity for ${timeout}s, forcing resolve. ` +
         'Some shared/remote dependencies may be missing. Consider increasing moduleParseIdleTimeout.'
     );
-    _resolve(1);
+    state.resolve(1);
   }, timeout * 1000);
 }
 
-let parsePromise = promise;
-let exposesParseEnd = false;
-
-const parseStartSet = new Set();
-const parseEndSet = new Set();
+function resetParseTrackingState(state: ModuleParseState) {
+  clearTimeout(state.parseTimeout ?? undefined);
+  state.parseTimeout = null;
+  state.exposesParseEnd = false;
+  state.parseStartSet.clear();
+  state.parseEndSet.clear();
+  resetModuleParsePromise(state);
+}
 
 interface ModuleParseOptions {
   moduleParseTimeout: number;
@@ -52,15 +86,18 @@ interface ModuleParseOptions {
   virtualExposesId: string;
 }
 
-export default function (excludeFn: Function, options: ModuleParseOptions): Plugin[] {
+export default function (
+  excludeFn: Function,
+  options: ModuleParseOptions,
+  state: ModuleParseState
+): Plugin[] {
   const idleTimeout = options.moduleParseIdleTimeout;
   return [
     {
       name: '_',
       apply: 'serve',
       config() {
-        // No waiting in development mode
-        _resolve(1);
+        state.resolve(1);
       },
     },
     {
@@ -68,17 +105,18 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       name: 'parseStart',
       apply: 'build',
       buildStart() {
+        resetParseTrackingState(state);
         if (idleTimeout) {
-          resetIdleTimeout(idleTimeout);
+          resetIdleTimeout(state, idleTimeout);
         } else {
-          setParseTimeout(options.moduleParseTimeout);
+          setParseTimeout(state, options.moduleParseTimeout);
         }
       },
       load(id) {
         if (excludeFn(id)) {
           return;
         }
-        parseStartSet.add(id);
+        state.parseStartSet.add(id);
       },
     },
     {
@@ -88,22 +126,19 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       moduleParsed(module) {
         const id = module.id;
         if (id === options.virtualExposesId) {
-          // When the entry JS file is empty and only contains exposes export code, it’s necessary to wait for the exposes modules to be resolved in order to collect the dependencies being used.
-          exposesParseEnd = true;
+          state.exposesParseEnd = true;
         }
         if (idleTimeout) {
-          // Reset idle timer on every module — any activity means the build is still progressing.
-          resetIdleTimeout(idleTimeout);
+          resetIdleTimeout(state, idleTimeout);
         }
         if (excludeFn(id)) {
           return;
         }
-        parseEndSet.add(id);
-        if (exposesParseEnd && parseStartSet.size === parseEndSet.size) {
-          _resolve(1);
+        state.parseEndSet.add(id);
+        if (state.exposesParseEnd && state.parseStartSet.size === state.parseEndSet.size) {
+          state.resolve(1);
         }
       },
     },
   ];
 }
-export { parsePromise };

@@ -365,6 +365,15 @@ export interface NormalizedModuleFederationOptions extends Omit<
   moduleParseIdleTimeout?: number;
 }
 
+export type ModuleFederationScopeOptions = Pick<
+  NormalizedModuleFederationOptions,
+  'name' | 'filename' | 'virtualModuleDir'
+>;
+
+export function getModuleFederationScopeKey(options: ModuleFederationScopeOptions) {
+  return `${options.virtualModuleDir}:${options.name}:${options.filename}`;
+}
+
 type HostInitInjectLocationOptions = 'entry' | 'html';
 
 interface PluginDevOptions {
@@ -444,6 +453,11 @@ export function getNormalizeShareItem(key: string) {
 export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
+  const hasExplicitModuleParseTimeout = Object.prototype.hasOwnProperty.call(
+    options,
+    'moduleParseTimeout'
+  );
+
   if (options.virtualModuleDir && options.virtualModuleDir.includes('/')) {
     throw createModuleFederationError(
       `Invalid virtualModuleDir: "${options.virtualModuleDir}". ` +
@@ -475,7 +489,9 @@ export function normalizeModuleFederationOptions(
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
     bundleAllCSS: options.bundleAllCSS || false,
     moduleParseTimeout: options.moduleParseTimeout || 10,
-    moduleParseIdleTimeout: options.moduleParseIdleTimeout,
+    moduleParseIdleTimeout:
+      options.moduleParseIdleTimeout ??
+      (hasExplicitModuleParseTimeout ? undefined : options.moduleParseTimeout || 10),
     varFilename: options.varFilename,
     target: options.target,
   });

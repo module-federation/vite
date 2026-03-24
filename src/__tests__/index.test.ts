@@ -25,7 +25,7 @@ vi.mock('../utils/logger', async () => {
 
 import { federation } from '../index';
 import { LOAD_SHARE_TAG } from '../virtualModules';
-import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
+import { getRuntimeInitImportId } from '../virtualModules/virtualRuntimeInitStatus';
 
 function getEsmShimsPlugin(): Plugin {
   const plugin = federation({
@@ -74,7 +74,7 @@ describe('module-federation-esm-shims', () => {
 
   it('keeps federation chunks isolated and preserves existing manualChunks behavior', () => {
     const plugin = getEsmShimsPlugin();
-    const runtimeInitId = virtualRuntimeInitStatus.getImportId();
+    const runtimeInitId = getRuntimeInitImportId('build');
     const functionOutput = {
       manualChunks: vi.fn((_id: string) => 'existing-fn-chunk'),
     };

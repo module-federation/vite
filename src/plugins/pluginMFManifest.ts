@@ -1,10 +1,7 @@
 import * as path from 'pathe';
 import type { PluginContext } from 'rollup';
 import { Plugin } from 'vite';
-import {
-  getNormalizeModuleFederationOptions,
-  getNormalizeShareItem,
-} from '../utils/normalizeModuleFederationOptions';
+import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getUsedRemotesMap, getUsedShares } from '../virtualModules';
 
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
@@ -19,14 +16,14 @@ import {
   trackAsset,
 } from '../utils/cssModuleHelpers';
 import { resolvePublicPath } from '../utils/publicPath';
+import { removePathFromNpmPackage } from '../utils/packageUtils';
 
 // Helper to build share key map with proper context typing
 interface BuildFileToShareKeyMapContext {
   resolve: PluginContext['resolve'];
 }
 
-const Manifest = (): Plugin[] => {
-  const mfOptions = getNormalizeModuleFederationOptions();
+const Manifest = (mfOptions: NormalizedModuleFederationOptions): Plugin[] => {
   const { name, filename, getPublicPath, manifest: manifestOptions, varFilename } = mfOptions;
 
   let mfManifestName: string = '';
@@ -199,7 +196,7 @@ const Manifest = (): Plugin[] => {
 
         // Process shared modules
         const fileToShareKey = await buildFileToShareKeyMap(
-          getUsedShares(),
+          getUsedShares(mfOptions),
           this.resolve.bind(this)
         );
         processModuleAssets(bundle, filesMap, (modulePath) => fileToShareKey.get(modulePath));
@@ -227,7 +224,7 @@ const Manifest = (): Plugin[] => {
    * @returns Complete manifest object
    */
   function generateMFManifest(preloadMap: PreloadMap) {
-    const options = getNormalizeModuleFederationOptions();
+    const options = mfOptions;
     const { name, varFilename } = options;
     const remoteEntry = {
       name: remoteEntryFile,
@@ -244,7 +241,7 @@ const Manifest = (): Plugin[] => {
       : undefined;
 
     // Process remotes
-    const remotes = Array.from(Object.entries(getUsedRemotesMap())).flatMap(
+    const remotes = Array.from(Object.entries(getUsedRemotesMap(options))).flatMap(
       ([remoteKey, modules]) =>
         Array.from(modules).map((moduleKey) => ({
           federationContainerName: options.remotes[remoteKey].entry,
@@ -255,9 +252,15 @@ const Manifest = (): Plugin[] => {
     );
 
     // Process shared dependencies
-    const shared = Array.from(getUsedShares())
+    const shared = Array.from(getUsedShares(options))
       .map((shareKey) => {
-        const shareItem = getNormalizeShareItem(shareKey);
+        const normalizedShareKey = removePathFromNpmPackage(shareKey);
+        const shareItem =
+          options.shared[shareKey] ||
+          options.shared[normalizedShareKey] ||
+          options.shared[`${normalizedShareKey}/`];
+        if (!shareItem) return undefined;
+
         const assets = preloadMap[shareKey] || createEmptyAssetMap();
 
         return {

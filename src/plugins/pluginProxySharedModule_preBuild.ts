@@ -1,8 +1,13 @@
 import { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
-import { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
+import {
+  NormalizedModuleFederationOptions,
+  NormalizedShared,
+  ShareItem,
+} from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from '../utils/packageUtils';
 import { PromiseStore } from '../utils/PromiseStore';
+import type { ModuleParseState } from './pluginModuleParseEnd';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
   addUsedShares,
@@ -16,18 +21,19 @@ import {
   writeLocalSharedImportMap,
   writePreBuildLibPath,
 } from '../virtualModules';
-import { parsePromise } from './pluginModuleParseEnd';
 
 function getPrebuildResolutionSource(pkgName: string, shareItem?: ShareItem): string {
   return getConcreteSharedImportSource(pkgName, shareItem) || pkgName;
 }
 
-export function proxySharedModule(options: {
-  shared?: NormalizedShared;
+export function proxySharedModule(params: {
+  options: NormalizedModuleFederationOptions;
+  parseState: ModuleParseState;
   include?: string | string[];
   exclude?: string | string[];
 }): Plugin[] {
-  const { shared = {} } = options;
+  const { options: mfOptions, parseState } = params;
+  const { shared = {} } = mfOptions;
   let _config: ResolvedConfig | undefined;
   let _command = 'serve';
   let isVinext = false;
@@ -38,14 +44,14 @@ export function proxySharedModule(options: {
       name: 'generateLocalSharedImportMap',
       enforce: 'post',
       load(id) {
-        if (id.includes(getLocalSharedImportMapPath())) {
-          return parsePromise.then((_) => generateLocalSharedImportMap());
+        if (id.includes(getLocalSharedImportMapPath(mfOptions))) {
+          return parseState.promise.then((_) => generateLocalSharedImportMap(mfOptions));
         }
       },
       transform(_, id) {
-        if (id.includes(getLocalSharedImportMapPath())) {
+        if (id.includes(getLocalSharedImportMapPath(mfOptions))) {
           return mapCodeToCodeWithSourcemap(
-            parsePromise.then((_) => generateLocalSharedImportMap())
+            parseState.promise.then((_) => generateLocalSharedImportMap(mfOptions))
           );
         }
       },
@@ -101,11 +107,16 @@ export function proxySharedModule(options: {
                   if (key.endsWith('/') && source !== key.slice(0, -1)) {
                     return;
                   }
-                  const loadSharePath = getLoadShareModulePath(source, isRolldown, command);
-                  writeLoadShareModule(source, shared[key], command, isRolldown);
-                  writePreBuildLibPath(source, shared[key]);
-                  addUsedShares(source);
-                  writeLocalSharedImportMap();
+                  const loadSharePath = getLoadShareModulePath(
+                    source,
+                    isRolldown,
+                    command,
+                    mfOptions
+                  );
+                  writeLoadShareModule(source, shared[key], command, isRolldown, mfOptions);
+                  writePreBuildLibPath(source, shared[key], mfOptions);
+                  addUsedShares(source, mfOptions);
+                  writeLocalSharedImportMap(mfOptions);
                   return (this as any).resolve(loadSharePath, importer);
                 },
               };
@@ -122,7 +133,10 @@ export function proxySharedModule(options: {
                     replacement: function ($1: string) {
                       const module = assertModuleFound(PREBUILD_TAG, $1) as VirtualModule;
                       const pkgName = module.name;
-                      return getPrebuildResolutionSource(pkgName, getPreBuildShareItem(pkgName));
+                      return getPrebuildResolutionSource(
+                        pkgName,
+                        getPreBuildShareItem(pkgName, mfOptions)
+                      );
                     },
                   }
                 : {
@@ -133,7 +147,7 @@ export function proxySharedModule(options: {
                       const pkgName = module.name;
                       const importSource = getPrebuildResolutionSource(
                         pkgName,
-                        getPreBuildShareItem(pkgName)
+                        getPreBuildShareItem(pkgName, mfOptions)
                       );
                       const resolved = await (this as any).resolve(importSource, importer);
                       if (!resolved?.id) return;
@@ -162,14 +176,14 @@ export function proxySharedModule(options: {
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/')) return;
           if (isVinext && key === 'react') {
-            addUsedShares(key);
+            addUsedShares(key, mfOptions);
             return;
           }
-          writeLoadShareModule(key, shared[key], _command, isRolldown);
-          writePreBuildLibPath(key, shared[key]);
-          addUsedShares(key);
+          writeLoadShareModule(key, shared[key], _command, isRolldown, mfOptions);
+          writePreBuildLibPath(key, shared[key], mfOptions);
+          addUsedShares(key, mfOptions);
         });
-        writeLocalSharedImportMap();
+        writeLocalSharedImportMap(mfOptions);
       },
     },
   ];

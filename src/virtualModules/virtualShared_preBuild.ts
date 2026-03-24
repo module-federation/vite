@@ -12,7 +12,12 @@
 import { existsSync, readFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
-import { ShareItem } from '../utils/normalizeModuleFederationOptions';
+import {
+  getModuleFederationScopeKey,
+  getNormalizeModuleFederationOptions,
+  ModuleFederationScopeOptions,
+  ShareItem,
+} from '../utils/normalizeModuleFederationOptions';
 import {
   getPackageDetectionCwd,
   hasPackageDependency,
@@ -21,8 +26,8 @@ import {
 import VirtualModule from '../utils/VirtualModule';
 import {
   getRuntimeInitBootstrapCode,
+  getRuntimeInitImportId,
   getRuntimeInitPromiseBootstrapCode,
-  virtualRuntimeInitStatus,
 } from './virtualRuntimeInitStatus';
 
 function escapeGeneratedStringLiteral(value: string): string {
@@ -245,72 +250,153 @@ export function getConcreteSharedImportSource(
   return tryResolveImportFromPackageRoot(pkg, currentDir);
 }
 
-// *** __prebuild__
-const preBuildCacheMap: Record<string, VirtualModule> = {};
-const preBuildShareItemMap: Record<string, ShareItem | undefined> = {};
-export const PREBUILD_TAG = '__prebuild__';
-export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
-  preBuildShareItemMap[pkg] = shareItem;
-  preBuildCacheMap[pkg].writeSync('', true);
-}
-export function getPreBuildLibImportId(pkg: string): string {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
-  const importId = preBuildCacheMap[pkg].getImportId();
-  return importId;
-}
-export function getPreBuildShareItem(pkg: string): ShareItem | undefined {
-  return preBuildShareItemMap[pkg];
+function resolveScopeOptions(options?: ModuleFederationScopeOptions): ModuleFederationScopeOptions {
+  return options || getNormalizeModuleFederationOptions();
 }
 
-export function getSharedImportSource(pkg: string, shareItem?: ShareItem): string {
-  return getConcreteSharedImportSource(pkg, shareItem) || getPreBuildLibImportId(pkg);
+function getScopedSharedKey(pkg: string, options?: ModuleFederationScopeOptions) {
+  return `${getModuleFederationScopeKey(resolveScopeOptions(options))}:${pkg}`;
+}
+
+function getLoadShareCacheKey(
+  pkg: string,
+  command: string | undefined,
+  isRolldown: boolean,
+  options?: ModuleFederationScopeOptions
+) {
+  const format = isRolldown || command === 'build' ? 'esm' : 'cjs';
+  return `${getScopedSharedKey(pkg, options)}:${format}`;
+}
+
+function createScopedVirtualModule(
+  pkg: string,
+  tag: string,
+  suffix: string,
+  options?: ModuleFederationScopeOptions
+) {
+  const resolvedOptions = resolveScopeOptions(options);
+  return new VirtualModule(pkg, tag, suffix, {
+    name: resolvedOptions.name,
+    virtualModuleDir: resolvedOptions.virtualModuleDir,
+  });
+}
+
+// *** __prebuild__
+const preBuildCacheMap = new Map<string, VirtualModule>();
+const preBuildShareItemMap = new Map<string, ShareItem | undefined>();
+export const PREBUILD_TAG = '__prebuild__';
+export function writePreBuildLibPath(
+  pkg: string,
+  shareItem?: ShareItem,
+  options?: ModuleFederationScopeOptions
+) {
+  const scopedKey = getScopedSharedKey(pkg, options);
+  let preBuildModule = preBuildCacheMap.get(scopedKey);
+
+  if (!preBuildModule) {
+    preBuildModule = createScopedVirtualModule(pkg, PREBUILD_TAG, '', options);
+    preBuildCacheMap.set(scopedKey, preBuildModule);
+  }
+
+  preBuildShareItemMap.set(scopedKey, shareItem);
+  preBuildModule.writeSync('', true);
+}
+export function getPreBuildLibImportId(
+  pkg: string,
+  options?: ModuleFederationScopeOptions
+): string {
+  const scopedKey = getScopedSharedKey(pkg, options);
+  let preBuildModule = preBuildCacheMap.get(scopedKey);
+
+  if (!preBuildModule) {
+    preBuildModule = createScopedVirtualModule(pkg, PREBUILD_TAG, '', options);
+    preBuildCacheMap.set(scopedKey, preBuildModule);
+  }
+
+  preBuildModule.writeSync('');
+  const importId = preBuildModule.getImportId();
+  return importId;
+}
+export function getPreBuildShareItem(
+  pkg: string,
+  options?: ModuleFederationScopeOptions
+): ShareItem | undefined {
+  return preBuildShareItemMap.get(getScopedSharedKey(pkg, options));
+}
+
+export function getSharedImportSource(
+  pkg: string,
+  shareItem?: ShareItem,
+  options?: ModuleFederationScopeOptions
+): string {
+  return getConcreteSharedImportSource(pkg, shareItem) || getPreBuildLibImportId(pkg, options);
 }
 
 // *** __loadShare__
 export const LOAD_SHARE_TAG = '__loadShare__';
 
-const loadShareCacheMap: Record<string, VirtualModule> = {};
-export function getLoadShareImportId(pkg: string, isRolldown: boolean, command?: string): string {
-  if (!loadShareCacheMap[pkg]) {
+const loadShareCacheMap = new Map<string, VirtualModule>();
+export function getLoadShareImportId(
+  pkg: string,
+  isRolldown: boolean,
+  command?: string,
+  options?: ModuleFederationScopeOptions
+): string {
+  const cacheKey = getLoadShareCacheKey(pkg, command, isRolldown, options);
+  let loadShareModule = loadShareCacheMap.get(cacheKey);
+
+  if (!loadShareModule) {
     const useESM = isRolldown || command === 'build';
     const ext = useESM ? '.mjs' : '.js';
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
+    loadShareModule = createScopedVirtualModule(pkg, LOAD_SHARE_TAG, ext, options);
+    loadShareCacheMap.set(cacheKey, loadShareModule);
   }
-  return loadShareCacheMap[pkg].getImportId();
+
+  return loadShareModule.getImportId();
 }
-export function getLoadShareModulePath(pkg: string, isRolldown: boolean, command?: string): string {
-  if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown, command);
-  const filepath = loadShareCacheMap[pkg].getPath();
+export function getLoadShareModulePath(
+  pkg: string,
+  isRolldown: boolean,
+  command?: string,
+  options?: ModuleFederationScopeOptions
+): string {
+  const cacheKey = getLoadShareCacheKey(pkg, command, isRolldown, options);
+  if (!loadShareCacheMap.has(cacheKey)) getLoadShareImportId(pkg, isRolldown, command, options);
+  const filepath = loadShareCacheMap.get(cacheKey)!.getPath();
   return filepath;
 }
 export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
   command: string,
-  isRolldown: boolean
+  isRolldown: boolean,
+  options?: ModuleFederationScopeOptions
 ) {
-  if (!loadShareCacheMap[pkg]) {
+  const cacheKey = getLoadShareCacheKey(pkg, command, isRolldown, options);
+  let loadShareModule = loadShareCacheMap.get(cacheKey);
+
+  if (!loadShareModule) {
     const useESM = isRolldown || command === 'build';
     const ext = useESM ? '.mjs' : '.js';
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
+    loadShareModule = createScopedVirtualModule(pkg, LOAD_SHARE_TAG, ext, options);
+    loadShareCacheMap.set(cacheKey, loadShareModule);
   }
 
   const useESM = command === 'build' || isRolldown;
   const importLine =
     command === 'build'
-      ? getRuntimeInitPromiseBootstrapCode()
+      ? getRuntimeInitPromiseBootstrapCode(options)
       : useESM
-        ? `${getRuntimeInitBootstrapCode()}
+        ? `${getRuntimeInitBootstrapCode(options)}
     const { initPromise } = globalThis[globalKey];`
-        : `const {initPromise} = require("${virtualRuntimeInitStatus.getImportId()}")`;
+        : `const {initPromise} = require("${getRuntimeInitImportId(command, options)}")`;
   const awaitOrPlaceholder = useESM
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
   const isVinext = hasPackageDependency('vinext');
   const useSsrProviderFallback = isVinext && command === 'build' && pkg === 'react';
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
-  const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg);
+  const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg, options);
   const devImportSource = concreteSharedImportSource || pkg;
   const providerImportId =
     getLocalProviderImportPath(pkg) || concreteSharedImportSource || sharedImportSource;
@@ -328,7 +414,7 @@ export function writeLoadShareModule(
       : 'module.exports = exportModule';
   }
 
-  loadShareCacheMap[pkg].writeSync(
+  loadShareModule.writeSync(
     `
     import ${escapeGeneratedStringLiteral(sharedImportSource)};
     ${command !== 'build' ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});` : ''}

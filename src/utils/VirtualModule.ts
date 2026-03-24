@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, writeFile, writeFileSync } from 'fs';
 import { dirname, join, parse, resolve, basename } from 'pathe';
 import { packageNameDecode, packageNameEncode } from '../utils/packageUtils';
 import { createModuleFederationError } from './logger';
-import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
+import {
+  getNormalizeModuleFederationOptions,
+  ModuleFederationScopeOptions,
+} from './normalizeModuleFederationOptions';
 
 /**
  * Initialize virtual module infrastructure BEFORE VirtualModule class is used.
@@ -88,11 +91,15 @@ export function assertModuleFound(tag: string, str: string = ''): VirtualModule 
   return module;
 }
 
+type VirtualModuleContext = Pick<ModuleFederationScopeOptions, 'name' | 'virtualModuleDir'>;
+
 export default class VirtualModule {
   name: string;
   tag: string;
   suffix: string;
   inited: boolean = false;
+  lastWrite: string | undefined;
+  context: VirtualModuleContext | undefined;
 
   /**
    * Set the root path for finding node_modules
@@ -107,9 +114,11 @@ export default class VirtualModule {
   /**
    * Ensure virtual package directory exists
    */
-  static ensureVirtualPackageExists() {
+  static ensureVirtualPackageExists(
+    options?: Pick<ModuleFederationScopeOptions, 'virtualModuleDir'>
+  ) {
     const nodeModulesDir = getNodeModulesDir();
-    const { virtualModuleDir } = getNormalizeModuleFederationOptions();
+    const { virtualModuleDir } = options || getNormalizeModuleFederationOptions();
     const virtualPackagePath = resolve(nodeModulesDir, virtualModuleDir);
 
     mkdirSync(virtualPackagePath, { recursive: true });
@@ -132,35 +141,63 @@ export default class VirtualModule {
     return undefined;
   }
 
-  constructor(name: string, tag: string = '__mf_v__', suffix = '') {
+  constructor(name: string, tag: string = '__mf_v__', suffix = '', context?: VirtualModuleContext) {
     this.name = name;
     this.tag = tag;
     this.suffix = suffix || getSuffix(name);
+    this.context = context;
     if (!cacheMap[this.tag]) cacheMap[this.tag] = {};
     cacheMap[this.tag][this.name] = this;
   }
 
+  private getContext() {
+    if (!this.context) {
+      const { name, virtualModuleDir } = getNormalizeModuleFederationOptions();
+      this.context = { name, virtualModuleDir };
+    }
+
+    return this.context;
+  }
+
+  private materializeMissingFile(path: string) {
+    if (this.lastWrite === undefined || existsSync(path)) return;
+
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, this.lastWrite);
+  }
+
+  private getResolvedPath(importId: string) {
+    return resolve(getNodeModulesDir(), importId);
+  }
+
   getPath() {
-    return resolve(getNodeModulesDir(), this.getImportId());
+    const importId = this.getImportId();
+    const path = this.getResolvedPath(importId);
+    this.materializeMissingFile(path);
+    return path;
   }
 
   getImportId() {
-    const { name: mfName, virtualModuleDir } = getNormalizeModuleFederationOptions();
-    return `${virtualModuleDir}/${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`;
+    const { name: mfName, virtualModuleDir } = this.getContext();
+    const importId = `${virtualModuleDir}/${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`;
+    this.materializeMissingFile(this.getResolvedPath(importId));
+    return importId;
   }
 
   writeSync(code: string, force?: boolean) {
-    if (!force && this.inited) return;
+    const path = this.getPath();
+    this.lastWrite = code;
+    if (!force && this.inited && existsSync(path)) return;
     if (!this.inited) {
       this.inited = true;
     }
-    const path = this.getPath();
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, code);
   }
 
   write(code: string) {
     const path = this.getPath();
+    this.lastWrite = code;
     mkdirSync(dirname(path), { recursive: true });
     writeFile(path, code, function () {});
   }

@@ -32,7 +32,35 @@ describe('normalizeModuleFederationOption', () => {
       getPublicPath: undefined,
       publicPath: undefined,
       moduleParseTimeout: 10,
+      moduleParseIdleTimeout: 10,
     });
+  });
+
+  it('defaults to idle-based module parsing for first builds', () => {
+    const normalized = normalizeModuleFederationOptions(minimalOptions);
+
+    expect(normalized.moduleParseTimeout).toBe(10);
+    expect(normalized.moduleParseIdleTimeout).toBe(10);
+  });
+
+  it('preserves explicit fixed moduleParseTimeout behavior unless idle timeout is also set', () => {
+    const normalized = normalizeModuleFederationOptions({
+      ...minimalOptions,
+      moduleParseTimeout: 30,
+    });
+
+    expect(normalized.moduleParseTimeout).toBe(30);
+    expect(normalized.moduleParseIdleTimeout).toBeUndefined();
+  });
+
+  it('uses an explicit idle timeout when provided', () => {
+    const normalized = normalizeModuleFederationOptions({
+      ...minimalOptions,
+      moduleParseIdleTimeout: 3,
+    });
+
+    expect(normalized.moduleParseTimeout).toBe(10);
+    expect(normalized.moduleParseIdleTimeout).toBe(3);
   });
 
   describe('exposes', () => {

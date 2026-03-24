@@ -2,6 +2,7 @@ import { createFilter } from '@rollup/pluginutils';
 import * as path from 'pathe';
 import { fileURLToPath } from 'url';
 import { Plugin } from 'vite';
+import type { ModuleParseState } from './pluginModuleParseEnd';
 import {
   addCssAssetsToAllExports,
   collectCssAssets,
@@ -17,7 +18,6 @@ import {
   getExposesCssMapPlaceholder,
   getHostAutoInitPath,
 } from '../virtualModules';
-import { parsePromise } from './pluginModuleParseEnd';
 
 const filter: (id: string) => boolean = createFilter();
 
@@ -25,12 +25,14 @@ interface ProxyRemoteEntryParams {
   options: NormalizedModuleFederationOptions;
   remoteEntryId: string;
   virtualExposesId: string;
+  parseState: ModuleParseState;
 }
 
 export default function ({
   options,
   remoteEntryId,
   virtualExposesId,
+  parseState,
 }: ProxyRemoteEntryParams): Plugin {
   let viteConfig: any, _command: string, root: string;
   return {
@@ -67,7 +69,7 @@ export default function ({
       if (id === virtualExposesId) {
         return virtualExposesId;
       }
-      if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
+      if (_command === 'serve' && id.includes(getHostAutoInitPath(options))) {
         return id;
       }
       // When the virtual remote entry imports a bare specifier (e.g. a runtime
@@ -90,12 +92,14 @@ export default function ({
     },
     load(id: string) {
       if (id === remoteEntryId) {
-        return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
+        return parseState.promise.then((_) =>
+          generateRemoteEntry(options, virtualExposesId, _command)
+        );
       }
       if (id === virtualExposesId) {
         return generateExposes(options);
       }
-      if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
+      if (_command === 'serve' && id.includes(getHostAutoInitPath(options))) {
         return id;
       }
     },
@@ -103,12 +107,14 @@ export default function ({
       const transformedCode = (() => {
         if (!filter(id)) return;
         if (id.includes(remoteEntryId)) {
-          return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
+          return parseState.promise.then((_) =>
+            generateRemoteEntry(options, virtualExposesId, _command)
+          );
         }
         if (id === virtualExposesId) {
           return generateExposes(options);
         }
-        if (id.includes(getHostAutoInitPath())) {
+        if (id.includes(getHostAutoInitPath(options))) {
           if (_command === 'serve') {
             const host =
               typeof viteConfig.server?.host === 'string' && viteConfig.server.host !== '0.0.0.0'

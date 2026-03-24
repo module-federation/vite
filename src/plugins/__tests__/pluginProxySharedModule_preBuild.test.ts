@@ -4,12 +4,16 @@ const { hasPackageDependencyMock } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn(),
 }));
 
-vi.mock('../../utils/packageUtils', () => ({
-  hasPackageDependency: hasPackageDependencyMock,
-  setPackageDetectionCwd: vi.fn(),
-  getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
-  getIsRolldown: () => false,
-}));
+vi.mock('../../utils/packageUtils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/packageUtils')>();
+  return {
+    ...actual,
+    hasPackageDependency: hasPackageDependencyMock,
+    setPackageDetectionCwd: vi.fn(),
+    getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
+    getIsRolldown: () => false,
+  };
+});
 
 vi.mock('../../utils/VirtualModule', () => ({
   default: class MockVirtualModule {
@@ -31,7 +35,11 @@ vi.mock('../../utils/VirtualModule', () => ({
 }));
 
 import { proxySharedModule } from '../pluginProxySharedModule_preBuild';
-import { NormalizedShared } from '../../utils/normalizeModuleFederationOptions';
+import { createModuleParseState } from '../pluginModuleParseEnd';
+import {
+  normalizeModuleFederationOptions,
+  NormalizedShared,
+} from '../../utils/normalizeModuleFederationOptions';
 
 const preBuildShareItemMap = new Map<string, NormalizedShared[string]>();
 
@@ -103,6 +111,13 @@ function makeShared(): NormalizedShared {
   };
 }
 
+function makeOptions(shared: NormalizedShared) {
+  return normalizeModuleFederationOptions({
+    name: 'test-app',
+    shared,
+  });
+}
+
 describe('pluginProxySharedModule_preBuild', () => {
   beforeEach(() => {
     hasPackageDependencyMock.mockReset();
@@ -144,7 +159,10 @@ describe('pluginProxySharedModule_preBuild', () => {
         return pkg === 'vinext' ? testCase.hasVinext : false;
       });
 
-      const plugins = proxySharedModule({ shared: makeShared() });
+      const plugins = proxySharedModule({
+        options: makeOptions(makeShared()),
+        parseState: createModuleParseState(),
+      });
       const proxyPlugin = plugins[1];
       const config = {
         resolve: {
@@ -194,7 +212,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      options: makeOptions(makeShared()),
+      parseState: createModuleParseState(),
+    });
     const proxyPlugin = plugins[1];
     const config = {
       resolve: {
@@ -233,7 +254,10 @@ describe('pluginProxySharedModule_preBuild', () => {
     };
     delete shared.transitive;
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      options: makeOptions(shared),
+      parseState: createModuleParseState(),
+    });
     const proxyPlugin = plugins[1];
     const config = {
       resolve: {
@@ -270,7 +294,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('resolves prebuild aliases to auto-detected workspace sources without explicit share.import', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      options: makeOptions(makeShared()),
+      parseState: createModuleParseState(),
+    });
     const proxyPlugin = plugins[1];
     const config = {
       resolve: {
@@ -299,7 +326,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('uses auto-detected workspace sources in serve prebuild resolution without null deref', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      options: makeOptions(makeShared()),
+      parseState: createModuleParseState(),
+    });
     const proxyPlugin = plugins[1];
     const config = {
       resolve: {

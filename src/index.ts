@@ -8,7 +8,7 @@ import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
 import pluginDts from './plugins/pluginDts';
 import pluginManifest from './plugins/pluginMFManifest';
-import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
+import pluginModuleParseEnd, { createModuleParseState } from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
@@ -41,7 +41,7 @@ import {
 import { getVirtualExposesId } from './virtualModules/virtualExposes';
 import { addUsedShares } from './virtualModules/virtualRemoteEntry';
 import { addUsedRemote } from './virtualModules/virtualRemotes';
-import { virtualRuntimeInitStatus } from './virtualModules/virtualRuntimeInitStatus';
+import { getRuntimeInitImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
   getLoadShareImportId,
   getLoadShareModulePath,
@@ -92,10 +92,10 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
 
       // Set root for VirtualModule class
       VirtualModule.setRoot(root);
-      VirtualModule.ensureVirtualPackageExists();
+      VirtualModule.ensureVirtualPackageExists(options);
 
       // Create core virtual modules
-      initVirtualModules(_command, getRemoteEntryId(options));
+      initVirtualModules(_command, options, getRemoteEntryId(options));
 
       const isRolldown = getIsRolldown(this);
 
@@ -105,7 +105,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       // in the emitted localSharedImportMap chunk.
       if (remotes && Object.keys(remotes).length > 0) {
         for (const key of Object.keys(remotes)) {
-          addUsedRemote(key, key);
+          addUsedRemote(key, key, options);
         }
       }
 
@@ -117,25 +117,27 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           config.optimizeDeps.include = config.optimizeDeps.include || [];
           // Include the runtimeInit virtual module so Vite pre-bundles it
           // upfront instead of discovering it at runtime via loadShare imports.
-          config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
+          config.optimizeDeps.include.push(getRuntimeInitImportId(_command, options));
         }
         for (const key of Object.keys(shared)) {
           if (key.endsWith('/')) continue;
           const shareItem = shared[key] as any;
           if (isVinext && key === 'react') {
-            addUsedShares(key);
+            addUsedShares(key, options);
             continue;
           }
-          getLoadShareModulePath(key, isRolldown);
-          writeLoadShareModule(key, shareItem, _command, isRolldown);
-          writePreBuildLibPath(key, shareItem);
-          addUsedShares(key);
+          getLoadShareModulePath(key, isRolldown, _command, options);
+          writeLoadShareModule(key, shareItem, _command, isRolldown, options);
+          writePreBuildLibPath(key, shareItem, options);
+          addUsedShares(key, options);
           if (_command === 'serve') {
-            config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command));
-            config.optimizeDeps.include!.push(getPreBuildLibImportId(key));
+            config.optimizeDeps.include!.push(
+              getLoadShareImportId(key, isRolldown, _command, options)
+            );
+            config.optimizeDeps.include!.push(getPreBuildLibImportId(key, options));
           }
         }
-        writeLocalSharedImportMap();
+        writeLocalSharedImportMap(options);
       }
     },
   };
@@ -151,6 +153,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const virtualExposesId = getVirtualExposesId(options);
 
   let command: string;
+  const moduleParseState = createModuleParseState();
 
   return [
     // This plugin runs FIRST to create virtual module files before optimization
@@ -188,8 +191,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         // Set root path
         VirtualModule.setRoot(config.root);
         // Ensure virtual package directory exists
-        VirtualModule.ensureVirtualPackageExists();
-        initVirtualModules(command, remoteEntryId);
+        VirtualModule.ensureVirtualPackageExists(options);
+        initVirtualModules(command, options, remoteEntryId);
       },
     },
     aliasToArrayPlugin,
@@ -203,32 +206,39 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     }),
     ...addEntry({
       entryName: 'hostInit',
-      entryPath: () => getHostAutoInitPath(),
+      entryPath: () => getHostAutoInitPath(options),
       inject: hostInitInjectLocation,
     }),
     ...addEntry({
       entryName: 'virtualExposes',
       entryPath: virtualExposesId,
     }),
-    pluginProxyRemoteEntry({ options, remoteEntryId, virtualExposesId }),
+    pluginProxyRemoteEntry({
+      options,
+      remoteEntryId,
+      virtualExposesId,
+      parseState: moduleParseState,
+    }),
     pluginProxyRemotes(options),
     ...pluginModuleParseEnd(
       (id: string) => {
         return (
-          id.includes(getHostAutoInitImportId()) ||
+          id.includes(getHostAutoInitImportId(options)) ||
           id.includes(remoteEntryId) ||
           id.includes(virtualExposesId) ||
-          id.includes(getLocalSharedImportMapPath())
+          id.includes(getLocalSharedImportMapPath(options))
         );
       },
       {
         moduleParseTimeout: options.moduleParseTimeout,
         moduleParseIdleTimeout: options.moduleParseIdleTimeout,
         virtualExposesId,
-      }
+      },
+      moduleParseState
     ),
     ...proxySharedModule({
-      shared,
+      options,
+      parseState: moduleParseState,
     }),
     {
       name: 'module-federation-esm-shims',
@@ -244,7 +254,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         // to break TLA deadlock: loadShare has TLA waiting for initPromise,
         // remoteEntry resolves initPromise via initResolve — if both are in the
         // same chunk, the TLA blocks remoteEntry from ever executing.
-        const runtimeInitId = virtualRuntimeInitStatus.getImportId();
+        const runtimeInitId = getRuntimeInitImportId(command || 'build', options);
         config.build = config.build || {};
 
         if (config.build.modulePreload !== false) {
@@ -704,7 +714,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           // Vite 5-7: virtual modules use CJS for dev, need interop
           config.optimizeDeps.needsInterop ||= [];
           config.optimizeDeps.needsInterop.push(virtualDir);
-          config.optimizeDeps.needsInterop.push(getLocalSharedImportMapPath());
+          config.optimizeDeps.needsInterop.push(getLocalSharedImportMapPath(options));
         }
 
         // Resolve target: explicit option > SSR detection > 'web'
@@ -727,8 +737,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         }
       },
     },
-    ...pluginManifest(),
-    ...pluginVarRemoteEntry(),
+    ...pluginManifest(options),
+    ...pluginVarRemoteEntry(options),
     // Fix preload helper for federated remotes: Vite's preload helper resolves
     // asset URLs against the page origin (e.g. host), but remote chunks need
     // to resolve against their own origin. Replace the hardcoded base URL

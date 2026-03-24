@@ -74,4 +74,26 @@ describe('VirtualModule writeSync', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('recreates a previously written virtual module when the file is missing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mf-vm-'));
+    try {
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      normalizeModuleFederationOptions({
+        name: 'analytics',
+      });
+      VirtualModule.setRoot(root);
+
+      const vm = new VirtualModule('runtimeInit', '__mf_v__', '.js');
+      vm.writeSync('export const value = 1;');
+      rmSync(vm.getPath(), { force: true });
+
+      vm.writeSync('export const value = 1;');
+
+      expect(existsSync(vm.getPath())).toBe(true);
+      expect(readFileSync(vm.getPath(), 'utf8')).toBe('export const value = 1;');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
