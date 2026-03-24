@@ -26,6 +26,39 @@ describe('controlChunkSanitizer', () => {
     ).toBe('import "./other.js";export const usedShared = {};');
   });
 
+  it('preserves preload helpers with non-empty dependency arrays', () => {
+    const code =
+      'import{_ as o}from"./preload-helper-BDBacUwf.js";' +
+      'const n={' +
+      '"@byte/api":async()=>await import("./index-DaqjAZdf.js"),' +
+      '"@byte/ui":async()=>await o(()=>import("./index-Bc0YS1wt.js"),__vite__mapDeps([0]),import.meta.url),' +
+      '"@byte/user-session":async()=>await o(()=>import("./index-BV4s8wZv.js"),[],import.meta.url),' +
+      '"react":async()=>await import("./index-DlZQ-_sN.js")' +
+      '}';
+
+    const result = stripEmptyPreloadCalls(code);
+
+    expect(result).toContain(
+      '"@byte/ui":async()=>await o(()=>import("./index-Bc0YS1wt.js"),__vite__mapDeps([0]),import.meta.url)'
+    );
+
+    expect(result).toContain('"@byte/user-session":async()=>await import("./index-BV4s8wZv.js")');
+
+    expect(result).not.toMatch(/await import\([^)]+\),__vite__mapDeps/);
+  });
+
+  it('does not break when only non-empty preload helpers exist', () => {
+    const code =
+      'import{_ as o}from"./preload-helper.js";' +
+      'const n={' +
+      '"@byte/ui":async()=>await o(()=>import("./ui.js"),__vite__mapDeps([0]),import.meta.url)' +
+      '}';
+
+    const result = stripEmptyPreloadCalls(code);
+
+    expect(result).toContain('o(()=>import("./ui.js"),__vite__mapDeps([0]),import.meta.url)');
+  });
+
   it('detects federation control chunks', () => {
     expect(isFederationControlChunk('remoteEntry.js', 'remoteEntry.js')).toBe(true);
     expect(isFederationControlChunk('assets/hostInit-abc.js', 'remoteEntry.js')).toBe(true);
