@@ -59,6 +59,7 @@ export default defineConfig({
         '@emotion/react': {},
         '@emotion/styled': { singleton: true },
         '@mui/material': {},
+        '@vite-vite/shared-lib': { singleton: true },
       },
     }),
     // If you set build.target: "chrome89", you can remove this plugin

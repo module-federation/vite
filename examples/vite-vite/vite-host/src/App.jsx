@@ -1,5 +1,6 @@
 import R from 'react';
 import RD from 'react-dom/client';
+import { SharedCounter, formatLabel } from '@vite-vite/shared-lib';
 
 import App from '@namespace/viteViteRemote';
 import App1 from '@namespace/viteViteRemote/App1';
@@ -18,6 +19,9 @@ export default function HostApp() {
         Vite React (v {R.version}) app running from Host in{' '}
         <i> {import.meta.env.DEV ? ' Dev ' : ' prod '} mode </i>
       </p>
+      <h2>Shared Library</h2>
+      <SharedCounter label={formatLabel('Host')} />
+
       <hr />
 
       <h2>Vite Remote Default App</h2>

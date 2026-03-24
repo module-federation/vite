@@ -36,6 +36,7 @@ export default defineConfig({
         'styled-components': { singleton: true },
         '@emotion/styled': {},
         '@mui/material': {},
+        '@vite-vite/shared-lib': { singleton: true },
       },
       runtimePlugins: ['./src/mfPlugins'],
     }),
