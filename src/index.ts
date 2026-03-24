@@ -368,8 +368,13 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
            */
           code = code.replace(
             'export default exportModule',
-            'export const __moduleExports = exportModule;\n' +
-              'export default exportModule.__esModule ? exportModule.default : exportModule'
+            'const __moduleNamespace = ' +
+              '(exportModule && typeof exportModule === "object" && "default" in exportModule && ' +
+              'Object.keys(exportModule).length === 1 && ' +
+              'exportModule.default && typeof exportModule.default === "object") ' +
+              '? exportModule.default : exportModule;\n' +
+              'export const __moduleExports = __moduleNamespace;\n' +
+              'export default __moduleNamespace.__esModule ? __moduleNamespace.default : __moduleNamespace'
           );
           return { code, syntheticNamedExports: '__moduleExports' };
         }

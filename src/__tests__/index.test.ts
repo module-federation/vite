@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { Plugin } from 'vite';
 import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
 
@@ -25,7 +28,7 @@ vi.mock('../utils/logger', async () => {
 });
 
 import { federation } from '../index';
-import { getPreBuildLibImportId, LOAD_SHARE_TAG } from '../virtualModules';
+import { getPreBuildLibImportId, LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
 function getEsmShimsPlugin(): Plugin {
@@ -121,6 +124,27 @@ describe('module-federation-esm-shims', () => {
     expect(
       (objectOutput.manualChunks as unknown as Function)('/src/other/index.ts')
     ).toBeUndefined();
+  });
+
+  it('unwraps default-only wrapper when generating synthetic named exports', () => {
+    const plugin = getEsmShimsPlugin();
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'mf-vite-test-'));
+    const file = path.join(tempDir, `remote${LOAD_REMOTE_TAG}.mjs`);
+    writeFileSync(file, 'const exportModule = {};\nexport default exportModule\n');
+
+    try {
+      const transformed = plugin.load?.call({} as any, file) as
+        | undefined
+        | { code?: string; syntheticNamedExports?: string };
+
+      expect(transformed?.syntheticNamedExports).toBe('__moduleExports');
+      expect(transformed?.code).toContain('const __moduleNamespace =');
+      expect(transformed?.code).toContain('Object.keys(exportModule).length === 1');
+      expect(transformed?.code).toContain('export const __moduleExports = __moduleNamespace;');
+      expect(transformed?.code).toContain('export default __moduleNamespace.__esModule');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
