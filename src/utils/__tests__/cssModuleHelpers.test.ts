@@ -233,19 +233,10 @@ describe('cssModuleHelpers', () => {
       const shareKeys = new Set(['react']);
       const resolveFn = vi.fn().mockResolvedValue({ id: 'path/to/react.js' });
 
-      // Mock getNormalizeModuleFederationOptions
-      vi.mock('../normalizeModuleFederationOptions', () => ({
-        getNormalizeModuleFederationOptions: vi.fn(() => ({
-          name: 'test-app',
-          virtualModuleDir: '__mf_virtual_test',
-          bundleAllCSS: false,
-        })),
-        normalizeModuleFederationOptions: vi.fn((options) => ({
-          name: 'test-app',
-          virtualModuleDir: '__mf_virtual_test',
-          bundleAllCSS: options.bundleAllCSS || false,
-        })),
-      }));
+      normalizeModuleFederationOptions({
+        name: 'test-app',
+        virtualModuleDir: '__mf_virtual_test',
+      });
 
       const result = await buildFileToShareKeyMap(shareKeys, resolveFn);
       expect(result.get('path/to/react.js')).toBe('react');
