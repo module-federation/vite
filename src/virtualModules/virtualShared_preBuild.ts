@@ -12,6 +12,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
+import { mfWarn } from '../utils/logger';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getPackageDetectionCwd,
@@ -323,6 +324,13 @@ export function writeLoadShareModule(
       const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
       exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
     } else {
+      if (useESM) {
+        mfWarn(
+          `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
+            `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +
+            `  Install it as a devDependency to enable named export detection.`
+        );
+      }
       exportLine = useESM
         ? 'export default exportModule.default ?? exportModule'
         : 'module.exports = exportModule';
