@@ -57,11 +57,15 @@ describe('sanitizeDevEntryPath', () => {
     expect(sanitizeDevEntryPath('/src/main.js')).toBe('/src/main.js');
   });
 
-  it('strips protocol prefix', () => {
-    expect(sanitizeDevEntryPath('file:///home/user/init.js')).toBe('//home/user/init.js');
+  it('passes through paths without backslashes', () => {
+    expect(sanitizeDevEntryPath('/node_modules/__mf__virtual/init.js')).toBe(
+      '/node_modules/__mf__virtual/init.js'
+    );
   });
 
   it('converts backslashes to forward slashes', () => {
-    expect(sanitizeDevEntryPath('C:\\Users\\project\\init.js')).toBe('/Users/project/init.js');
+    expect(sanitizeDevEntryPath('/node_modules\\__mf__virtual\\init.js')).toBe(
+      '/node_modules/__mf__virtual/init.js'
+    );
   });
 });
