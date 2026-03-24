@@ -105,4 +105,42 @@ describe('pluginAddEntry', () => {
     expect(result?.code).toContain('import "/virtual/hostInit.js";');
     expect(result?.code).toContain('export const browserEntry = true;');
   });
+
+  it('rewrites dev html entry scripts to external proxy modules instead of inline scripts', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-html-'));
+    fs.writeFileSync(path.join(tempDir, 'index.html'), '<html></html>');
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: 'virtual:mf-host-init',
+      inject: 'html',
+    });
+
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+    servePlugin.config?.({}, { command: 'serve', mode: 'development' });
+    buildPlugin.config?.(
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    servePlugin.configResolved?.({
+      base: '/',
+      root: tempDir,
+      build: { rollupOptions: {} },
+    } as any);
+    buildPlugin.configResolved?.({
+      base: '/',
+      root: tempDir,
+      build: { rollupOptions: {} },
+    } as any);
+
+    const result = servePlugin.transformIndexHtml?.(
+      '<html><head><script type="module" src="/@vite/client"></script></head><body><script type="module" src="/src/main.tsx"></script></body></html>'
+    );
+
+    expect(result).toContain('src="/@vite/client"');
+    expect(result).toContain('src="/@id/virtual:mf-html-entry-proxy?');
+    expect(result).not.toContain('await import(');
+    expect(result).not.toContain('<script type="module">');
+  });
 });

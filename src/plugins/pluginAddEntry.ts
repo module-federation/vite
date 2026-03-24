@@ -3,7 +3,11 @@ import * as path from 'pathe';
 import { Plugin } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
-import { inlineEntryScripts, sanitizeDevEntryPath } from '../utils/htmlEntryUtils';
+import {
+  injectEntryScript,
+  rewriteEntryScripts,
+  sanitizeDevEntryPath,
+} from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
@@ -25,6 +29,7 @@ const addEntry = ({
   fileName,
   inject = 'entry',
 }: AddEntryOptions): Plugin[] => {
+  const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
   const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
   let devEntryPath = '';
   let entryFiles: string[] = [];
@@ -82,7 +87,31 @@ const addEntry = ({
       transformIndexHtml(c) {
         if (!injectHtml()) return;
         clientInjected = true;
-        return inlineEntryScripts(c, devEntryPath);
+        const html = rewriteEntryScripts(c, (originalSrc) => {
+          const query = new URLSearchParams({
+            init: sanitizeDevEntryPath(devEntryPath),
+            entry: originalSrc,
+          }).toString();
+          return `${viteConfig.base}@id/${DEV_HTML_PROXY_PREFIX}${query}`;
+        });
+        return html === c ? injectEntryScript(c, devEntryPath) : html;
+      },
+      resolveId(id) {
+        if (id.startsWith(DEV_HTML_PROXY_PREFIX)) {
+          return id;
+        }
+      },
+      load(id) {
+        if (!id.startsWith(DEV_HTML_PROXY_PREFIX)) return;
+        const params = new URLSearchParams(id.slice(DEV_HTML_PROXY_PREFIX.length));
+        const initSrc = params.get('init');
+        const entrySrc = params.get('entry');
+        if (!initSrc || !entrySrc) return;
+        return `
+const baseUrl = document.baseURI || window.location.href;
+await import(new URL(${JSON.stringify(initSrc)}, baseUrl).href);
+await import(new URL(${JSON.stringify(entrySrc)}, baseUrl).href);
+`;
       },
       transform(code, id) {
         if (id.includes('node_modules') || inject !== 'html' || htmlFilePath) {
