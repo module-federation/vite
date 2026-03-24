@@ -238,6 +238,62 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('export * from');
   });
 
+  it('does not reference prebuild modules when import: false', () => {
+    const pkg = 'host-only-dep';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // Should not have any static import statement (no prebuild to import)
+    expect(generatedCode).not.toMatch(/import\s+["']/);
+    // Should not have export * (no local source to re-export from)
+    expect(generatedCode).not.toContain('export *');
+    // Should still call loadShare via the runtime
+    expect(generatedCode).toContain('runtime.loadShare');
+    // CJS serve mode uses module.exports
+    expect(generatedCode).toContain('module.exports = exportModule');
+  });
+
+  it('does not reference prebuild modules when import: false in build mode', () => {
+    const pkg = 'host-only-dep';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('export *');
+    expect(generatedCode).toContain('runtime.loadShare');
+    expect(generatedCode).toContain('export default exportModule');
+  });
+
   it('auto-detects workspace package entry when the shared dep is not directly resolvable', () => {
     const pkg = 'transitive-pkg';
     const mockShareItem: ShareItem = {

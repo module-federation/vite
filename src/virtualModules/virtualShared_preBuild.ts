@@ -307,6 +307,33 @@ export function writeLoadShareModule(
   const awaitOrPlaceholder = useESM
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
+
+  // import: false means the host must provide this module — the remote has no local copy.
+  // Generate a minimal loadShare module that just delegates to the runtime.
+  // No prebuild imports, no named export proxying, no dev warming imports.
+  if (shareItem.shareConfig.import === false) {
+    const exportLine = useESM
+      ? 'export default exportModule.default ?? exportModule'
+      : 'module.exports = exportModule';
+    loadShareCacheMap[pkg].writeSync(
+      `
+    ${importLine}
+    const res = initPromise.then(runtime => runtime.loadShare(${escapeGeneratedStringLiteral(pkg)}, {
+      customShareInfo: {shareConfig:{
+        singleton: ${shareItem.shareConfig.singleton},
+        strictVersion: ${shareItem.shareConfig.strictVersion},
+        requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
+      }}
+    }))
+    const exportModule = ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))
+    ${exportLine}
+  `,
+      true
+    );
+    return;
+  }
+
+  // Normal path: package is installed locally, create full loadShare with prebuild fallback.
   const isVinext = hasPackageDependency('vinext');
   const useSsrProviderFallback = isVinext && command === 'build' && pkg === 'react';
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);

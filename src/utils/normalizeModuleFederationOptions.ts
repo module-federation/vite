@@ -165,25 +165,32 @@ function normalizeShareItem(
       }
 ): ShareItem {
   let version: string | undefined;
-  try {
+
+  const isImportFalse = typeof shareItem === 'object' && shareItem.import === false;
+
+  // Skip package.json resolution when import: false — this app doesn't
+  // provide the package, so it may not be installed at all.
+  if (!isImportFalse) {
     try {
-      version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
-    } catch (e1) {
       try {
-        const localPath = path.join(
-          process.cwd(),
-          'node_modules',
-          removePathFromNpmPackage(key),
-          'package.json'
-        );
-        version = require(localPath).version;
-      } catch (e2) {
-        version = searchPackageVersion(key);
-        if (!version) mfError(e1);
+        version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
+      } catch (e1) {
+        try {
+          const localPath = path.join(
+            process.cwd(),
+            'node_modules',
+            removePathFromNpmPackage(key),
+            'package.json'
+          );
+          version = require(localPath).version;
+        } catch (e2) {
+          version = searchPackageVersion(key);
+          if (!version) mfError(e1);
+        }
       }
+    } catch (e) {
+      mfError(`Unexpected error resolving version for ${key}:`, e);
     }
-  } catch (e) {
-    mfError(`Unexpected error resolving version for ${key}:`, e);
   }
   if (typeof shareItem === 'string') {
     return {
