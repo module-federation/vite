@@ -1,0 +1,146 @@
+:root {
+  color: #f5efe0;
+  background:
+    radial-gradient(circle at top, rgba(255, 176, 89, 0.2), transparent 32%),
+    linear-gradient(180deg, #18110f 0%, #0f0b0a 100%);
+  font-family:
+    'IBM Plex Sans',
+    'Avenir Next',
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  background: #ffb059;
+  color: #281a11;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.8rem 1.1rem;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+pre {
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.shell {
+  margin: 0 auto;
+  max-width: 960px;
+  padding: 48px 20px 64px;
+}
+
+.panel {
+  backdrop-filter: blur(18px);
+  background: rgba(30, 22, 19, 0.8);
+  border: 1px solid rgba(255, 176, 89, 0.16);
+  border-radius: 28px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+  margin-bottom: 18px;
+  padding: 24px;
+}
+
+.hero h1,
+.flow h2,
+.output h2 {
+  font-family:
+    'IBM Plex Mono',
+    'SFMono-Regular',
+    monospace;
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 6vw, 3.8rem);
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  margin: 0.35rem 0 0.75rem;
+  max-width: 11ch;
+}
+
+.eyebrow {
+  color: #ffb059;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.lede {
+  color: #d2c7bf;
+  font-size: 1.05rem;
+  margin: 0;
+  max-width: 58ch;
+}
+
+.flow {
+  display: grid;
+  gap: 16px;
+}
+
+.step {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 20px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: auto 1fr auto;
+  padding: 18px;
+}
+
+.step span {
+  align-items: center;
+  border: 1px solid rgba(255, 176, 89, 0.32);
+  border-radius: 999px;
+  color: #ffb059;
+  display: inline-flex;
+  font-family:
+    'IBM Plex Mono',
+    'SFMono-Regular',
+    monospace;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.step h2,
+.output h2 {
+  margin: 0 0 0.35rem;
+}
+
+.step p {
+  color: #d2c7bf;
+  margin: 0;
+}
+
+.output {
+  display: grid;
+  gap: 12px;
+}
+
+.error {
+  color: #ff8f8f;
+}
+
+@media (max-width: 720px) {
+  .step {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,70 @@
+:root {
+  color: #f7f4ef;
+  background:
+    radial-gradient(circle at bottom right, rgba(84, 160, 255, 0.28), transparent 28%),
+    linear-gradient(180deg, #0d1a2d 0%, #08111e 100%);
+  font-family:
+    'IBM Plex Sans',
+    'Avenir Next',
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+code {
+  font-family:
+    'IBM Plex Mono',
+    'SFMono-Regular',
+    monospace;
+}
+
+.standalone,
+.card {
+  backdrop-filter: blur(18px);
+  background: rgba(14, 28, 49, 0.72);
+  border: 1px solid rgba(141, 195, 255, 0.24);
+  border-radius: 28px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.22);
+}
+
+.standalone {
+  margin: 48px auto;
+  max-width: 720px;
+  padding: 28px;
+}
+
+.card {
+  margin-top: 18px;
+  padding: 22px;
+}
+
+.tag {
+  color: #8dc3ff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+}
+
+h1,
+h3 {
+  font-family:
+    'IBM Plex Mono',
+    'SFMono-Regular',
+    monospace;
+  margin: 0 0 0.75rem;
+}
+
+p {
+  color: #d6dce6;
+  margin: 0;
+}
