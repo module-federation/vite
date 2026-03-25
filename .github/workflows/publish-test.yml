@@ -27,6 +27,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
           registry-url: https://registry.npmjs.org/
 
       - run: corepack enable
@@ -79,6 +80,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
           registry-url: https://registry.npmjs.org/
 
       - run: corepack enable
