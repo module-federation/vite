@@ -55,6 +55,7 @@ jobs:
         with:
           node-version: 24
           cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
           registry-url: https://registry.npmjs.org/
 
       - run: corepack enable
