@@ -89,7 +89,7 @@ export function getExtFromNpmPackage(packageString: string) {
 }
 
 /**
- * Detect whether the current bundler is Rolldown (Vite 8+) by checking
+ * Detect whether the current runtime is Vite 8+ (with rolldown internally) by checking
  * for `meta.rolldownVersion` on the plugin hook context.
  */
 export function getIsRolldown(ctx: unknown): boolean {

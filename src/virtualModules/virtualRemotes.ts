@@ -40,7 +40,7 @@ export function generateRemotes(id: string, command: string, isRolldown: boolean
   const awaitOrPlaceholder = useESM
     ? 'await '
     : '/*mf top-level-await placeholder replacement mf*/';
-  // In dev+ESM mode (rolldown/Vite 8), unwrap the module namespace to avoid
+  // In dev+ESM mode (Vite 8+), unwrap the module namespace to avoid
   // double-wrapping: loadRemote returns {default: Component}, and
   // "export default exportModule" would make import() return
   // {default: {default: Component}}, breaking React.lazy.
