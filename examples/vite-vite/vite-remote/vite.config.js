@@ -48,9 +48,7 @@ export default defineConfig({
       shared: {
         vue: {},
         'react/': {},
-        react: {
-          requiredVersion: '18',
-        },
+        react: {},
         'react-dom/': {},
         'react-dom': {},
         'styled-components': { singleton: true },

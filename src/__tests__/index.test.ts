@@ -201,6 +201,87 @@ describe('vite:module-federation-early-init with import: false', () => {
   });
 });
 
+function getEarlyInitPluginWithTrailingSlash(): Plugin {
+  const plugin = federation({
+    name: 'host',
+    filename: 'remoteEntry.js',
+    shared: {
+      'ag-grid-community/': {
+        singleton: true,
+      },
+    },
+  }).find((entry) => entry.name === 'vite:module-federation-early-init');
+
+  if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+  return plugin;
+}
+
+describe('vite:module-federation-early-init with trailing-slash keys', () => {
+  it('registers preBuild but not loadShare in Rolldown serve', () => {
+    const plugin = getEarlyInitPluginWithTrailingSlash();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call(
+      {
+        meta: { rolldownVersion: '1.0.0' },
+      } as any,
+      config,
+      { command: 'serve', mode: 'test' }
+    );
+
+    expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('ag-grid-community'));
+    expect(config.optimizeDeps.include).not.toContain(
+      getLoadShareImportId('ag-grid-community', true, 'serve')
+    );
+  });
+
+  it('registers both preBuild and loadShare in non-Rolldown serve', () => {
+    const plugin = getEarlyInitPluginWithTrailingSlash();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({ meta: {} } as any, config, { command: 'serve', mode: 'test' });
+
+    expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('ag-grid-community'));
+    expect(config.optimizeDeps.include).toContain(
+      getLoadShareImportId('ag-grid-community', false, 'serve')
+    );
+  });
+
+  it('excludes trailing-slash import: false deps from optimizeDeps and prebuild', () => {
+    const plugin = federation({
+      name: 'remote',
+      filename: 'remoteEntry.js',
+      shared: {
+        'vue/': { singleton: true, import: false },
+      },
+    }).find((entry) => entry.name === 'vite:module-federation-early-init')!;
+
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: { include: [] },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({ meta: {} } as any, config, { command: 'serve', mode: 'test' });
+
+    const includeStr = config.optimizeDeps.include.join(',');
+    expect(includeStr).not.toContain('vue');
+    expect(config.optimizeDeps.include).toContain(virtualRuntimeInitStatus.getImportId());
+  });
+});
+
 describe('module-federation-fix-preload', () => {
   it('keeps nested output paths working', () => {
     const plugin = getFixPreloadPlugin();

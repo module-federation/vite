@@ -26,9 +26,7 @@ export default defineConfig({
       manifest: true,
       shared: {
         vue: {},
-        'react/': {
-          requiredVersion: '18',
-        },
+        'react/': {},
         'react-dom': {},
         'ag-grid-community': {},
         'ag-grid-react': {},

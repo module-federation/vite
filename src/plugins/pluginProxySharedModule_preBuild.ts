@@ -162,18 +162,18 @@ export function proxySharedModule(options: {
         // pre-bundles them upfront without triggering re-optimization.
         const isRolldown = !!(config as any).experimental?.rolldownDev;
         Object.keys(shared).forEach((key) => {
-          if (key.endsWith('/')) return;
-          if (isVinext && key === 'react') {
-            addUsedShares(key);
+          const pkg = key.endsWith('/') ? key.slice(0, -1) : key;
+          if (isVinext && pkg === 'react') {
+            addUsedShares(pkg);
             return;
           }
-          writeLoadShareModule(key, shared[key], _command, isRolldown);
+          writeLoadShareModule(pkg, shared[key], _command, isRolldown);
           // Skip prebuild for shared deps with import: false — the host must
           // provide them, so no local fallback source is needed.
           if (shared[key].shareConfig.import !== false) {
-            writePreBuildLibPath(key, shared[key]);
+            writePreBuildLibPath(pkg, shared[key]);
           }
-          addUsedShares(key);
+          addUsedShares(pkg);
         });
         writeLocalSharedImportMap();
       },

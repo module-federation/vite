@@ -338,6 +338,96 @@ describe('pluginProxySharedModule_preBuild', () => {
     ).toBe('/workspace/packages/transitive-no-override/dist/index.js');
   });
 
+  it('processes trailing-slash keys with base package name in configResolved', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      'react/': {
+        name: 'react/',
+        from: '',
+        version: '19.2.4',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: { alias: [] as any[] },
+    };
+
+    proxyPlugin.config?.call(
+      { meta: {}, resolve: async (id: string) => ({ id: `/resolved/${id}` }) },
+      config as any,
+      { command: 'serve', mode: 'development' }
+    );
+    proxyPlugin.configResolved?.({
+      cacheDir: '/vite/deps',
+      experimental: { rolldownDev: false },
+    } as any);
+
+    // Should register prebuild under base name 'react', not 'react/'
+    expect(preBuildShareItemMap.has('react')).toBe(true);
+    expect(preBuildShareItemMap.has('react/')).toBe(false);
+  });
+
+  it('skips prebuild for trailing-slash import: false deps in configResolved', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      'vue/': {
+        name: 'vue/',
+        from: '',
+        version: '3.4.0',
+        scope: 'default',
+        shareConfig: {
+          import: false,
+          singleton: true,
+          requiredVersion: '*',
+          strictVersion: false,
+        },
+      },
+      react: {
+        name: 'react',
+        from: '',
+        version: '19.2.4',
+        scope: 'default',
+        shareConfig: {
+          singleton: false,
+          requiredVersion: '^19.2.4',
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: { alias: [] as any[] },
+    };
+
+    proxyPlugin.config?.call(
+      { meta: {}, resolve: async (id: string) => ({ id: `/resolved/${id}` }) },
+      config as any,
+      { command: 'serve', mode: 'development' }
+    );
+    proxyPlugin.configResolved?.({
+      cacheDir: '/vite/deps',
+      experimental: { rolldownDev: false },
+    } as any);
+
+    // Trailing-slash import: false should not have prebuild
+    expect(preBuildShareItemMap.has('vue')).toBe(false);
+    expect(preBuildShareItemMap.has('vue/')).toBe(false);
+    // Normal dep should still have prebuild
+    expect(preBuildShareItemMap.has('react')).toBe(true);
+  });
+
   it('uses auto-detected workspace sources in serve prebuild resolution without null deref', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 

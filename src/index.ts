@@ -120,31 +120,36 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
         }
         for (const key of Object.keys(shared)) {
-          if (key.endsWith('/')) continue;
+          // Trailing-slash keys (e.g. "ag-grid-community/") act as package-prefix
+          // shares. Derive the base package name so virtual modules and
+          // optimizeDeps entries are registered upfront — otherwise Vite discovers
+          // them at runtime, triggering dep re-optimization that strips TLA from
+          // loadShare modules.
+          const pkg = key.endsWith('/') ? key.slice(0, -1) : key;
           const shareItem = shared[key] as any;
-          if (isVinext && key === 'react') {
-            addUsedShares(key);
+          if (isVinext && pkg === 'react') {
+            addUsedShares(pkg);
             continue;
           }
-          getLoadShareModulePath(key, isRolldown);
-          writeLoadShareModule(key, shareItem, _command, isRolldown);
+          getLoadShareModulePath(pkg, isRolldown);
+          writeLoadShareModule(pkg, shareItem, _command, isRolldown);
           // Skip prebuild for shared deps with import: false — the host must
           // provide them, so no local fallback source is needed.
           if (shareItem.shareConfig?.import !== false) {
-            writePreBuildLibPath(key, shareItem);
+            writePreBuildLibPath(pkg, shareItem);
           }
-          addUsedShares(key);
+          addUsedShares(pkg);
           if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
             if (!isRolldown) {
               // In non-Rolldown Vite (< 8), loadShare modules are CJS and
               // don't use real TLA, so the dep optimizer handles them fine.
-              config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command));
+              config.optimizeDeps.include!.push(getLoadShareImportId(pkg, isRolldown, _command));
             }
             // When isRolldown (Vite 8+), loadShare modules are ESM with
             // top-level await. Including them in optimizeDeps causes the dep
             // optimizer to convert ESM→CJS, stripping `await` and turning
             // shared modules into unresolved Promises (breaks Pinia plugins, etc).
-            config.optimizeDeps.include!.push(getPreBuildLibImportId(key));
+            config.optimizeDeps.include!.push(getPreBuildLibImportId(pkg));
           }
         }
         writeLocalSharedImportMap();
