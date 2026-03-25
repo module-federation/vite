@@ -31,7 +31,9 @@ vi.mock('fs', () => ({
   existsSync: vi.fn(
     (filePath: string) =>
       filePath.endsWith('node_modules/mock-package-esm-only/package.json') ||
-      filePath.endsWith('/mock-package-esm-only/package.json')
+      filePath.endsWith('/mock-package-esm-only/package.json') ||
+      filePath.endsWith('node_modules/mock-jsx-package/package.json') ||
+      filePath.endsWith('/mock-jsx-package/package.json')
   ),
   readFileSync: vi.fn((filePath: string) => {
     if (
@@ -50,6 +52,19 @@ vi.mock('fs', () => ({
     if (filePath.endsWith('node_modules/mock-package-esm-only/dist/stores.js')) {
       return 'export const useCounter = () => 1; export function useLogger() {}';
     }
+    if (
+      filePath.endsWith('node_modules/mock-jsx-package/package.json') ||
+      filePath.endsWith('/mock-jsx-package/package.json')
+    ) {
+      return JSON.stringify({
+        name: 'mock-jsx-package',
+        type: 'module',
+        exports: { '.': './src/index.jsx' },
+      });
+    }
+    if (filePath.endsWith('mock-jsx-package/src/index.jsx')) {
+      return `import React from 'react';\nexport function SharedCounter({ label }) { return <div>{label}</div>; }\nexport function formatLabel(text) { return text; }`;
+    }
     throw new Error(`Unexpected readFileSync path: ${filePath}`);
   }),
 }));
@@ -65,12 +80,18 @@ vi.mock('module', async (importOriginal) => {
         if (pkg === 'es-module-lexer') {
           return {
             initSync: vi.fn(),
-            parse: vi.fn((source: string) => [
-              [],
-              source.includes('useCounter')
-                ? [{ n: 'useCounter' }, { n: 'useLogger' }, { n: 'default' }]
-                : [],
-            ]),
+            parse: vi.fn((source: string) => {
+              // Simulate es-module-lexer failing on JSX syntax
+              if (/return\s+\(?\s*</.test(source)) {
+                throw new Error('Parse error: unexpected token');
+              }
+              return [
+                [],
+                source.includes('useCounter')
+                  ? [{ n: 'useCounter' }, { n: 'useLogger' }, { n: 'default' }]
+                  : [],
+              ];
+            }),
           };
         }
         if (pkg === 'mock-package-with-reserved') {
@@ -90,6 +111,9 @@ vi.mock('module', async (importOriginal) => {
           (error as Error & { code?: string }).code = 'ERR_PACKAGE_PATH_NOT_EXPORTED';
           throw error;
         }
+        if (pkg === 'mock-jsx-package') {
+          throw new Error('ERR_REQUIRE_ESM');
+        }
         return {};
       }) as NodeJS.Require;
 
@@ -102,6 +126,9 @@ vi.mock('module', async (importOriginal) => {
         }
         if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
           return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
+        }
+        if (pkg === 'mock-jsx-package') {
+          return '/repo/apps/remote/node_modules/mock-jsx-package/src/index.jsx';
         }
         return `/resolved/${pkg}`;
       };
@@ -364,6 +391,32 @@ describe('writeLoadShareModule', () => {
     expect(mfWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Install it as a devDependency')
     );
+  });
+
+  it('falls back to regex-based export detection when es-module-lexer cannot parse JSX', () => {
+    const pkg = 'mock-jsx-package';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // Should detect named exports via regex fallback (not fall through to export *)
+    expect(generatedCode).toContain(
+      'const { SharedCounter: __mf_0, formatLabel: __mf_1 } = exportModule;'
+    );
+    expect(generatedCode).toContain('export { __mf_0 as SharedCounter, __mf_1 as formatLabel };');
+    expect(generatedCode).not.toContain('export * from');
   });
 
   it('auto-detects workspace package entry when the shared dep is not directly resolvable', () => {

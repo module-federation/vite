@@ -161,13 +161,19 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
 }
 
 function getEsmNamedExports(pkg: string): string[] {
-  try {
-    const entryPath = getPackageEsmEntryPath(pkg);
-    if (!entryPath) return [];
+  const entryPath = getPackageEsmEntryPath(pkg);
+  if (!entryPath) return [];
 
+  let source: string;
+  try {
+    source = readFileSync(entryPath, 'utf-8');
+  } catch {
+    return [];
+  }
+
+  try {
     const { initSync, parse } = localRequire('es-module-lexer') as typeof import('es-module-lexer');
     initSync();
-    const source = readFileSync(entryPath, 'utf-8');
     const [, exports] = parse(source, entryPath);
 
     return exports
@@ -180,8 +186,37 @@ function getEsmNamedExports(pkg: string): string[] {
           /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
       );
   } catch {
-    return [];
+    // Fallback: regex-based detection for files es-module-lexer can't parse (JSX/TSX)
+    return getNamedExportsViaRegex(source);
   }
+}
+
+function getNamedExportsViaRegex(source: string): string[] {
+  const names: string[] = [];
+
+  // Match: export function Foo, export async function Foo, export const Foo, export class Foo, etc.
+  const declRegex =
+    /export\s+(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
+  let match: RegExpExecArray | null;
+  while ((match = declRegex.exec(source)) !== null) {
+    names.push(match[1]);
+  }
+
+  // Match: export { Foo, Bar as Baz } and export { Foo } from '...'
+  const listRegex = /export\s*\{([^}]+)\}/g;
+  while ((match = listRegex.exec(source)) !== null) {
+    const specifiers = match[1].split(',');
+    for (const spec of specifiers) {
+      const trimmed = spec.trim();
+      // "Foo as Bar" → take "Bar" (the exported name); "Foo" → take "Foo"
+      const asMatch = trimmed.match(/(?:\S+\s+as\s+)?([A-Za-z_$][A-Za-z0-9_$]*)$/);
+      if (asMatch) {
+        names.push(asMatch[1]);
+      }
+    }
+  }
+
+  return names.filter((name) => name !== 'default' && name !== '__esModule');
 }
 
 function getPackageNamedExports(pkg: string): string[] {
