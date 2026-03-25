@@ -45,9 +45,12 @@ export function generateRemotes(id: string, command: string, isRolldown: boolean
   // "export default exportModule" would make import() return
   // {default: {default: Component}}, breaking React.lazy.
   // In build mode, the module-federation-esm-shims plugin handles this.
+  // In dev+ESM mode (rolldown/Vite 8), export __moduleExports alongside
+  // default so that the consumer-side transform plugin can extract named
+  // exports (Rolldown does not support syntheticNamedExports).
   const exportLine =
     command === 'serve' && useESM
-      ? 'export default exportModule.default ?? exportModule'
+      ? 'export const __moduleExports = exportModule;\nexport default exportModule.default ?? exportModule'
       : useESM
         ? 'export default exportModule'
         : 'module.exports = exportModule';
