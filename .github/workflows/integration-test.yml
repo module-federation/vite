@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        bundler: ["vite@5", "vite@6", "vite@7", "vite@8", "rolldown-vite@7"]
+        bundler: ["vite@5", "vite@6", "vite@7", "vite@8"]
     steps:
       - name: Checkout
         uses: actions/checkout@v5

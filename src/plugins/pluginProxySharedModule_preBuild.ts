@@ -160,7 +160,7 @@ export function proxySharedModule(options: {
         // is now prevented by adding prebuild IDs to optimizeDeps.include
         // in the config hook (createEarlyVirtualModulesPlugin), so Vite
         // pre-bundles them upfront without triggering re-optimization.
-        const isRolldown = !!(config as any).experimental?.rolldownDev;
+        const isRolldown = getIsRolldown(this);
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/')) return;
           if (isVinext && key === 'react') {

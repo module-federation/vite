@@ -249,7 +249,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       config(config) {
         // Force loadShare modules and runtimeInitStatus into separate chunks.
         //
-        // For Rolldown (rolldown-vite): loadShare chunks need separate TLA barriers
+        // For Vite 8+: loadShare chunks need separate TLA barriers
         // so the generateBundle hook can patch CJS factories with top-level await.
         //
         // For Rollup (standard vite): runtimeInitStatus MUST be in its own chunk
@@ -327,7 +327,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           applyManualChunks((config.build.rollupOptions.output ||= {}) as any);
         }
 
-        // Vite 8/Rolldown reads build.rolldownOptions instead of rollupOptions.
+        // Vite 8+ reads build.rolldownOptions instead of rollupOptions.
         // Apply the same split there so runtimeInit and loadShare stay isolated
         // under both bundlers.
         const buildWithRolldown = config.build as typeof config.build & {
@@ -386,7 +386,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           chunk.code = sanitizeFederationControlChunk(chunk.code, fileName, filename);
         }
 
-        // Pass 1 (rolldown-vite): Add top-level await for CJS init functions
+        // Pass 1: Add top-level await for CJS init functions
         for (const [fileName, chunk] of Object.entries(bundle)) {
           if (chunk.type !== 'chunk') continue;
           if (fileName.includes(LOAD_SHARE_TAG)) continue;
@@ -661,8 +661,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       config(config, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
 
-        // For rolldown (Vite 8+ / rolldown-vite), resolve to ESM entry
-        // because rolldown cannot parse dynamic import() in .cjs files
+        // For Vite 8+, resolve to ESM entry
+        // because Vite 8's internal bundler cannot parse dynamic import() in .cjs files
         let implementation = options.implementation;
         if (isRolldown) {
           implementation = implementation.replace(/\.cjs(\.js)?$/, '.js');
@@ -710,7 +710,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         });
 
         if (isRolldown) {
-          // Vite 8+ / rolldown-vite: virtual modules use ESM, set target for top-level await
+          // Vite 8+: virtual modules use ESM, set target for top-level await
           config.build = defu(config.build || {}, { target: 'esnext' });
         } else {
           // Vite 5-7: virtual modules use CJS for dev, need interop
@@ -761,7 +761,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                   ? `${escapeUnsafeJsSourceChars(JSON.stringify(prefixToRoot))}+$1`
                   : '$1';
                 // Match Vite's preload helper asset URL function across minifiers:
-                //   Rolldown (Vite 8):  t=function(e){return`/`+e}
+                //   Vite 8+:  t=function(e){return`/`+e}
                 //   esbuild (Vite 5-7): const o=e=>"/"+e  or  o=function(e){return"/"+e}
                 //   terser:             o=function(e,t){return'/'+e}
                 // Replace with import.meta.url-based resolution so assets
