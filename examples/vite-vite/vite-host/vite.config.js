@@ -27,15 +27,24 @@ export default defineConfig({
       shared: {
         vue: {},
         'react/': {
-          requiredVersion: '18',
+          singleton: true,
+          requiredVersion: '^19.2.4',
         },
-        'react-dom': {},
+        'react-dom': {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+        },
+        react: {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+        },
+        'react-dom/': {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+        },
         'ag-grid-community': {},
         'ag-grid-react': {},
-        '@emotion/react': {},
-        'styled-components': { singleton: true },
-        '@emotion/styled': {},
-        '@mui/material': {},
+        '@vite-vite/shared-lib': { singleton: true },
       },
       runtimePlugins: ['./src/mfPlugins'],
     }),

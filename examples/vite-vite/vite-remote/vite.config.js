@@ -47,18 +47,25 @@ export default defineConfig({
       manifest: true,
       shared: {
         vue: {},
-        'react/': {},
-        react: {
-          requiredVersion: '18',
+        'react/': {
+          singleton: true,
+          requiredVersion: '^19.2.4',
         },
-        'react-dom/': {},
-        'react-dom': {},
-        'styled-components': { singleton: true },
+        react: {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+        },
+        'react-dom/': {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+        },
+        'react-dom': {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+        },
         'ag-grid-community/': {},
         'ag-grid-react': {},
-        '@emotion/react': {},
-        '@emotion/styled': { singleton: true },
-        '@mui/material': {},
+        '@vite-vite/shared-lib': { singleton: true },
       },
     }),
     // If you set build.target: "chrome89", you can remove this plugin

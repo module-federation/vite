@@ -24,10 +24,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: PNPM Install
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org/
+
       - name: Enable Corepack and Setup PNPM
         run: |
           corepack enable
           corepack prepare pnpm@10.28.2 --activate
+
+      - name: Restore Playwright Browser Cache
+        uses: actions/cache@v4
+        with:
+          path: /root/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-chromium-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-chromium-
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
@@ -35,8 +56,8 @@ jobs:
       - name: Install Chromium Browser
         run: pnpm playwright install --with-deps chromium
 
-      - name: Build Projects
-        run: pnpm build
+      - name: Build Libs
+        run: pnpm build && pnpm build:shared-lib
 
       - name: Run Playwright Tests
         run: pnpm playwright test
