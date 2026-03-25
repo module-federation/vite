@@ -88,7 +88,7 @@ describe('module-federation-esm-shims', () => {
     expect(mfWarn).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps federation chunks isolated and preserves existing manualChunks behavior', () => {
+  it('ignores user manualChunks and warns, keeps federation chunks isolated', () => {
     const plugin = getEsmShimsPlugin();
     const runtimeInitId = virtualRuntimeInitStatus.getImportId();
     const functionOutput = {
@@ -109,18 +109,23 @@ describe('module-federation-esm-shims', () => {
     const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
     configHook?.call({} as any, config, { command: 'build', mode: 'test' });
 
+    // Federation chunks are still isolated
     expect(functionOutput.manualChunks(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
     expect(functionOutput.manualChunks(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
       `react${LOAD_SHARE_TAG}chunk.js`
     );
-    expect(functionOutput.manualChunks('/src/custom.ts')).toBe('existing-fn-chunk');
+    // User's manualChunks is ignored — non-federation modules return undefined
+    expect(functionOutput.manualChunks('/src/custom.ts')).toBeUndefined();
 
-    expect((objectOutput.manualChunks as unknown as Function)('/src/react/index.ts')).toBe(
-      'vendor'
-    );
+    expect(
+      (objectOutput.manualChunks as unknown as Function)('/src/react/index.ts')
+    ).toBeUndefined();
     expect(
       (objectOutput.manualChunks as unknown as Function)('/src/other/index.ts')
     ).toBeUndefined();
+
+    // Warning was emitted (once for both outputs)
+    expect(mfWarn).toHaveBeenCalled();
   });
 });
 

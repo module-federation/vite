@@ -296,9 +296,18 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           );
         };
 
+        let warnedAboutManualChunks = false;
         const applyManualChunks = (output: any) => {
           ensureCodeSplitting(output);
-          const existingManualChunks = output.manualChunks;
+          if (output.manualChunks && !warnedAboutManualChunks) {
+            warnedAboutManualChunks = true;
+            mfWarn(
+              'Ignoring `build.rollupOptions.output.manualChunks` because it conflicts with module federation. ' +
+                'Module federation transforms shared dependency imports with top-level await, and grouping ' +
+                'these transformed modules into a single chunk creates circular async dependencies that cause ' +
+                'the application to silently hang.'
+            );
+          }
           output.manualChunks = function (id: string) {
             // Keep runtimeInitStatus in its own chunk to break TLA deadlock
             if (id.includes(runtimeInitId)) {
@@ -308,16 +317,6 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
               // Use the virtual module path as the chunk name
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';
-            }
-            if (typeof existingManualChunks === 'function') {
-              return existingManualChunks.apply(this, arguments as any);
-            }
-            if (existingManualChunks && typeof existingManualChunks === 'object') {
-              for (const [key, ids] of Object.entries(existingManualChunks)) {
-                if (Array.isArray(ids) && ids.some((v) => id.includes(v))) {
-                  return key;
-                }
-              }
             }
           };
         };
