@@ -23,6 +23,8 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ### [More examples here](https://github.com/module-federation/vite/tree/main/examples)<br>
 
+Includes a pure runtime host example in [`examples/vite-runtime-register`](./examples/vite-runtime-register).
+
 ## Try this crazy example with all these bundlers together
 
 <img src="./docs/multi-example.png"/>

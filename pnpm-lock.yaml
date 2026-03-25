@@ -158,6 +158,44 @@ importers:
         specifier: ^1.4.1
         version: 1.4.4(@swc/helpers@0.5.3)(rollup@4.59.0)(vite@5.4.3(@types/node@25.3.3)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6))
 
+  examples/vite-runtime-register/vite-host:
+    dependencies:
+      '@module-federation/runtime':
+        specifier: 2.2.3
+        version: 2.2.3
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: 19.2.4
+        version: 19.2.4(react@19.2.4)
+    devDependencies:
+      '@vitejs/plugin-react':
+        specifier: ^5.1.2
+        version: 5.1.2(rolldown-vite@7.3.1(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
+      vite:
+        specifier: npm:rolldown-vite@^7.3.1
+        version: rolldown-vite@7.3.1(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
+
+  examples/vite-runtime-register/vite-remote:
+    dependencies:
+      '@module-federation/vite':
+        specifier: workspace:*
+        version: link:../../..
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: 19.2.4
+        version: 19.2.4(react@19.2.4)
+    devDependencies:
+      '@vitejs/plugin-react':
+        specifier: ^5.1.2
+        version: 5.1.2(rolldown-vite@7.3.1(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
+      vite:
+        specifier: npm:rolldown-vite@^7.3.1
+        version: rolldown-vite@7.3.1(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
+
   examples/vite-vite/vite-host:
     dependencies:
       '@emotion/react':
