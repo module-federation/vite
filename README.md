@@ -170,6 +170,16 @@ const RemoteMFE = defineAsyncComponent( 👈
 </template>
 ```
 
+## ⚠️ `codeSplitting: false` is not supported
+
+Do not set `build.rolldownOptions.output.codeSplitting` to `false` with this plugin — it will be **automatically ignored**.
+Module federation requires chunk splitting to isolate shared dependencies and remote entries into separate chunks.
+
+## ⚠️ `manualChunks` is not supported
+
+Do not use `build.rollupOptions.output.manualChunks` with this plugin — it will be **automatically ignored**.
+Module federation transforms shared dependency imports with top-level `await`, and grouping these transformed modules into a single chunk creates circular async dependencies that cause the application to silently hang.
+
 ### So far so good 🎉
 
 Now you are ready to use Module Federation in Vite!
