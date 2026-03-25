@@ -1,11 +1,4 @@
-import * as emotionStyled from '@emotion/styled';
-
-const styled =
-  emotionStyled.default?.default ||
-  emotionStyled.default?.styled ||
-  emotionStyled.default ||
-  emotionStyled.styled ||
-  emotionStyled;
+import styled from '@emotion/styled';
 
 const Heading = styled('h1')`
   background-color: ${props => props.bg};

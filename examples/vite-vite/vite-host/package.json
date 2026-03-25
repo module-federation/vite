@@ -13,6 +13,7 @@
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@module-federation/vite": "workspace:*",
+    "@vite-vite/shared-lib": "workspace:*",
     "@mui/material": "7.3.2",
     "ag-grid-community": "34.1.2",
     "ag-grid-react": "34.1.2",

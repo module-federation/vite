@@ -8,3 +8,4 @@ lib
 reports/*
 nohup.out
 .playwright-mcp
+examples/vite-vite/shared-lib/src/*.js

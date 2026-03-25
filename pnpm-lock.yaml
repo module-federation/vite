@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@module-federation/dts-plugin':
         specifier: 2.2.3
-        version: 2.2.3(typescript@5.5.3)
+        version: 2.2.3(typescript@5.9.3)
       '@module-federation/runtime':
         specifier: 2.2.3
         version: 2.2.3
@@ -62,7 +62,7 @@ importers:
         version: 4.47.1
       tsdown:
         specifier: ^0.21.0
-        version: 0.21.0(typescript@5.5.3)
+        version: 0.21.0(typescript@5.9.3)
       vite:
         specifier: ^8.0.0
         version: 8.0.0(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
@@ -74,7 +74,7 @@ importers:
     dependencies:
       '@module-federation/vite':
         specifier: '*'
-        version: 1.11.0(rollup@4.59.0)(typescript@5.5.3)(vite@8.0.0(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
+        version: 1.11.0(rollup@4.59.0)(typescript@5.9.3)(vite@8.0.0(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
     devDependencies:
       resolve-esm:
         specifier: 2.0.3
@@ -84,7 +84,7 @@ importers:
     dependencies:
       '@module-federation/vite':
         specifier: '*'
-        version: 1.11.0(rollup@4.59.0)(typescript@5.5.3)(vite@8.0.0(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
+        version: 1.11.0(rollup@4.59.0)(typescript@5.9.3)(vite@8.0.0(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
     devDependencies:
       resolve-esm:
         specifier: 2.0.3
@@ -140,10 +140,10 @@ importers:
         version: 18.3.1(react@18.3.1)
       vue:
         specifier: ^3.4.35
-        version: 3.5.13(typescript@5.5.3)
+        version: 3.5.13(typescript@5.9.3)
       vue-router:
         specifier: ^4.4.0
-        version: 4.4.3(vue@3.5.13(typescript@5.5.3))
+        version: 4.4.3(vue@3.5.13(typescript@5.9.3))
     devDependencies:
       '@swc/core':
         specifier: ~1.6.0
@@ -198,13 +198,16 @@ importers:
 
   examples/vite-vite/shared-lib:
     dependencies:
-      react:
-        specifier: 19.2.4
-        version: 19.2.4
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
 
   examples/vite-vite/vite-host:
     dependencies:
@@ -220,6 +223,9 @@ importers:
       '@mui/material':
         specifier: 7.3.2
         version: 7.3.2(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(@types/react@19.2.14)(react@19.2.4))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@vite-vite/shared-lib':
+        specifier: workspace:*
+        version: link:../shared-lib
       ag-grid-community:
         specifier: 34.1.2
         version: 34.1.2
@@ -237,10 +243,10 @@ importers:
         version: 6.1.19(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       vue:
         specifier: ^3.4.37
-        version: 3.5.13(typescript@5.5.3)
+        version: 3.5.13(typescript@5.9.3)
       vue-router:
         specifier: ^4.4.3
-        version: 4.4.3(vue@3.5.13(typescript@5.5.3))
+        version: 4.4.3(vue@3.5.13(typescript@5.9.3))
     devDependencies:
       '@swc/core':
         specifier: ~1.7.10
@@ -275,6 +281,9 @@ importers:
       '@mui/material':
         specifier: 7.3.2
         version: 7.3.2(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(@types/react@19.2.14)(react@19.2.4))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@vite-vite/shared-lib':
+        specifier: workspace:*
+        version: link:../shared-lib
       ag-grid-community:
         specifier: 34.1.2
         version: 34.1.2
@@ -295,10 +304,10 @@ importers:
         version: 6.1.19(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       vue:
         specifier: ^3.4.37
-        version: 3.4.38(typescript@5.5.3)
+        version: 3.4.38(typescript@5.9.3)
       vue-router:
         specifier: ^4.4.3
-        version: 4.4.3(vue@3.4.38(typescript@5.5.3))
+        version: 4.4.3(vue@3.4.38(typescript@5.9.3))
     devDependencies:
       '@swc/core':
         specifier: ~1.7.10
@@ -459,7 +468,7 @@ importers:
         version: 8.4.49
       postcss-loader:
         specifier: ^8.0.0
-        version: 8.1.1(@rspack/core@1.0.4(@swc/helpers@0.5.3))(postcss@8.4.49)(typescript@5.5.3)(webpack@5.97.1(esbuild@0.27.3))
+        version: 8.1.1(@rspack/core@1.0.4(@swc/helpers@0.5.3))(postcss@8.4.49)(typescript@5.9.3)(webpack@5.97.1(esbuild@0.27.3))
       react-refresh:
         specifier: ^0.14.0
         version: 0.14.2
@@ -6987,6 +6996,11 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   unconfig-core@7.5.0:
     resolution: {integrity: sha512-Su3FauozOGP44ZmKdHy2oE6LPjk51M/TRRjHv2HNCWiDvfvCoxC2lno6jevMA91MYAdCdwP05QnWdWpSbncX/w==}
 
@@ -9378,7 +9392,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@module-federation/dts-plugin@0.21.6(typescript@5.5.3)':
+  '@module-federation/dts-plugin@0.21.6(typescript@5.9.3)':
     dependencies:
       '@module-federation/error-codes': 0.21.6
       '@module-federation/managers': 0.21.6
@@ -9395,7 +9409,7 @@ snapshots:
       log4js: 6.9.1
       node-schedule: 2.1.1
       rambda: 9.4.1
-      typescript: 5.5.3
+      typescript: 5.9.3
       ws: 8.18.0
     transitivePeerDependencies:
       - bufferutil
@@ -9403,7 +9417,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@module-federation/dts-plugin@2.2.3(typescript@5.5.3)':
+  '@module-federation/dts-plugin@2.2.3(typescript@5.9.3)':
     dependencies:
       '@module-federation/error-codes': 2.2.3
       '@module-federation/managers': 2.2.3
@@ -9419,7 +9433,7 @@ snapshots:
       log4js: 6.9.1
       node-schedule: 2.1.1
       rambda: 9.4.1
-      typescript: 5.5.3
+      typescript: 5.9.3
       ws: 8.18.0
     transitivePeerDependencies:
       - bufferutil
@@ -9584,9 +9598,9 @@ snapshots:
       fs-extra: 9.1.0
       resolve: 1.22.8
 
-  '@module-federation/vite@1.11.0(rollup@4.59.0)(typescript@5.5.3)(vite@8.0.0(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))':
+  '@module-federation/vite@1.11.0(rollup@4.59.0)(typescript@5.9.3)(vite@8.0.0(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))':
     dependencies:
-      '@module-federation/dts-plugin': 0.21.6(typescript@5.5.3)
+      '@module-federation/dts-plugin': 0.21.6(typescript@5.9.3)
       '@module-federation/runtime': 0.21.6
       '@module-federation/sdk': 0.21.6
       '@rollup/pluginutils': 5.3.0(rollup@4.59.0)
@@ -10769,17 +10783,23 @@ snapshots:
       '@vue/shared': 3.5.13
       csstype: 3.1.3
 
-  '@vue/server-renderer@3.4.38(vue@3.4.38(typescript@5.5.3))':
+  '@vue/server-renderer@3.4.38(vue@3.4.38(typescript@5.9.3))':
     dependencies:
       '@vue/compiler-ssr': 3.4.38
       '@vue/shared': 3.4.38
-      vue: 3.4.38(typescript@5.5.3)
+      vue: 3.4.38(typescript@5.9.3)
 
   '@vue/server-renderer@3.5.13(vue@3.5.13(typescript@5.5.3))':
     dependencies:
       '@vue/compiler-ssr': 3.5.13
       '@vue/shared': 3.5.13
       vue: 3.5.13(typescript@5.5.3)
+
+  '@vue/server-renderer@3.5.13(vue@3.5.13(typescript@5.9.3))':
+    dependencies:
+      '@vue/compiler-ssr': 3.5.13
+      '@vue/shared': 3.5.13
+      vue: 3.5.13(typescript@5.9.3)
 
   '@vue/shared@3.4.38': {}
 
@@ -11379,14 +11399,14 @@ snapshots:
       path-type: 4.0.0
       yaml: 1.10.2
 
-  cosmiconfig@9.0.0(typescript@5.5.3):
+  cosmiconfig@9.0.0(typescript@5.9.3):
     dependencies:
       env-paths: 2.2.1
       import-fresh: 3.3.0
       js-yaml: 4.1.0
       parse-json: 5.2.0
     optionalDependencies:
-      typescript: 5.5.3
+      typescript: 5.9.3
 
   cron-parser@4.9.0:
     dependencies:
@@ -12893,9 +12913,9 @@ snapshots:
       semver: 7.6.3
       webpack: 5.97.1(esbuild@0.27.3)(webpack-cli@4.10.0)
 
-  postcss-loader@8.1.1(@rspack/core@1.0.4(@swc/helpers@0.5.3))(postcss@8.4.49)(typescript@5.5.3)(webpack@5.97.1(esbuild@0.27.3)):
+  postcss-loader@8.1.1(@rspack/core@1.0.4(@swc/helpers@0.5.3))(postcss@8.4.49)(typescript@5.9.3)(webpack@5.97.1(esbuild@0.27.3)):
     dependencies:
-      cosmiconfig: 9.0.0(typescript@5.5.3)
+      cosmiconfig: 9.0.0(typescript@5.9.3)
       jiti: 1.21.6
       postcss: 8.4.49
       semver: 7.6.3
@@ -13518,7 +13538,7 @@ snapshots:
     dependencies:
       glob: 10.4.5
 
-  rolldown-plugin-dts@0.22.3(rolldown@1.0.0-rc.7)(typescript@5.5.3):
+  rolldown-plugin-dts@0.22.3(rolldown@1.0.0-rc.7)(typescript@5.9.3):
     dependencies:
       '@babel/generator': 8.0.0-rc.2
       '@babel/helper-validator-identifier': 8.0.0-rc.2
@@ -13531,7 +13551,7 @@ snapshots:
       obug: 2.1.1
       rolldown: 1.0.0-rc.7
     optionalDependencies:
-      typescript: 5.5.3
+      typescript: 5.9.3
     transitivePeerDependencies:
       - oxc-resolver
 
@@ -14129,7 +14149,7 @@ snapshots:
 
   ts-toolbelt@9.6.0: {}
 
-  tsdown@0.21.0(typescript@5.5.3):
+  tsdown@0.21.0(typescript@5.9.3):
     dependencies:
       ansis: 4.2.0
       cac: 7.0.0
@@ -14140,7 +14160,7 @@ snapshots:
       obug: 2.1.1
       picomatch: 4.0.3
       rolldown: 1.0.0-rc.7
-      rolldown-plugin-dts: 0.22.3(rolldown@1.0.0-rc.7)(typescript@5.5.3)
+      rolldown-plugin-dts: 0.22.3(rolldown@1.0.0-rc.7)(typescript@5.9.3)
       semver: 7.7.4
       tinyexec: 1.0.2
       tinyglobby: 0.2.15
@@ -14148,7 +14168,7 @@ snapshots:
       unconfig-core: 7.5.0
       unrun: 0.2.30
     optionalDependencies:
-      typescript: 5.5.3
+      typescript: 5.9.3
     transitivePeerDependencies:
       - '@ts-macro/tsc'
       - '@typescript/native-preview'
@@ -14182,6 +14202,8 @@ snapshots:
   typescript@4.9.5: {}
 
   typescript@5.5.3: {}
+
+  typescript@5.9.3: {}
 
   unconfig-core@7.5.0:
     dependencies:
@@ -14363,25 +14385,25 @@ snapshots:
       - tsx
       - yaml
 
-  vue-router@4.4.3(vue@3.4.38(typescript@5.5.3)):
+  vue-router@4.4.3(vue@3.4.38(typescript@5.9.3)):
     dependencies:
       '@vue/devtools-api': 6.6.3
-      vue: 3.4.38(typescript@5.5.3)
+      vue: 3.4.38(typescript@5.9.3)
 
-  vue-router@4.4.3(vue@3.5.13(typescript@5.5.3)):
+  vue-router@4.4.3(vue@3.5.13(typescript@5.9.3)):
     dependencies:
       '@vue/devtools-api': 6.6.3
-      vue: 3.5.13(typescript@5.5.3)
+      vue: 3.5.13(typescript@5.9.3)
 
-  vue@3.4.38(typescript@5.5.3):
+  vue@3.4.38(typescript@5.9.3):
     dependencies:
       '@vue/compiler-dom': 3.4.38
       '@vue/compiler-sfc': 3.4.38
       '@vue/runtime-dom': 3.4.38
-      '@vue/server-renderer': 3.4.38(vue@3.4.38(typescript@5.5.3))
+      '@vue/server-renderer': 3.4.38(vue@3.4.38(typescript@5.9.3))
       '@vue/shared': 3.4.38
     optionalDependencies:
-      typescript: 5.5.3
+      typescript: 5.9.3
 
   vue@3.5.13(typescript@5.5.3):
     dependencies:
@@ -14392,6 +14414,16 @@ snapshots:
       '@vue/shared': 3.5.13
     optionalDependencies:
       typescript: 5.5.3
+
+  vue@3.5.13(typescript@5.9.3):
+    dependencies:
+      '@vue/compiler-dom': 3.5.13
+      '@vue/compiler-sfc': 3.5.13
+      '@vue/runtime-dom': 3.5.13
+      '@vue/server-renderer': 3.5.13(vue@3.5.13(typescript@5.9.3))
+      '@vue/shared': 3.5.13
+    optionalDependencies:
+      typescript: 5.9.3
 
   watchpack@2.4.2:
     dependencies:
