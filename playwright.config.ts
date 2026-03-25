@@ -4,12 +4,19 @@ export default defineConfig({
   testDir: "tests",
   timeout: 30 * 1000,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: process.env.CI ? 2 : undefined,
+  fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   webServer: [
     {
-      command: "pnpm run multi-example",
+      command: "pnpm run multi-example:ci",
       url: "http://localhost:5173",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: "pnpm run preview-vv:ci",
+      url: "http://localhost:5175",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
@@ -25,6 +32,24 @@ export default defineConfig({
       testDir: "e2e/vite-webpack-rspack",
       use: {
         baseURL: "http://localhost:5173",
+        browserName: "chromium",
+      },
+    },
+    {
+      name: "vite-vite-host",
+      testDir: "e2e/vite-vite/tests",
+      testMatch: "host-preview.spec.ts",
+      use: {
+        baseURL: "http://localhost:5175",
+        browserName: "chromium",
+      },
+    },
+    {
+      name: "vite-vite-remote",
+      testDir: "e2e/vite-vite/tests",
+      testMatch: "remote-preview.spec.ts",
+      use: {
+        baseURL: "http://localhost:5176",
         browserName: "chromium",
       },
     },
