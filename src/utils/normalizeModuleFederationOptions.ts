@@ -260,23 +260,22 @@ function normalizeLibrary(library: any): any {
   return library;
 }
 
-interface ManifestOptions {
+export interface PluginManifestOptions {
   filePath?: string;
   disableAssetsAnalyze?: boolean;
   fileName?: string;
 }
-function normalizeManifest(manifest: ModuleFederationOptions['manifest'] = false) {
+function normalizeManifest(manifest: ModuleFederationOptions['manifest']) {
+  if (manifest === undefined) {
+    return undefined;
+  }
   if (typeof manifest === 'boolean') {
     return manifest;
   }
-  return Object.assign(
-    {
-      filePath: '',
-      disableAssetsAnalyze: false,
-      fileName: 'mf-manifest.json',
-    },
-    manifest
-  );
+  return {
+    ...manifest,
+    fileName: manifest.fileName || 'mf-manifest.json',
+  };
 }
 
 export type ModuleFederationOptions = {
@@ -318,7 +317,7 @@ export type ModuleFederationOptions = {
   runtimePlugins?: Array<string | [string, Record<string, unknown>]>;
   getPublicPath?: string;
   implementation?: string;
-  manifest?: ManifestOptions | boolean;
+  manifest?: PluginManifestOptions | boolean;
   dev?: boolean | PluginDevOptions;
   dts?: boolean | PluginDtsOptions;
   shareStrategy?: ShareStrategy;
@@ -363,7 +362,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
   shared: NormalizedShared;
   runtimePlugins: Array<string | [string, Record<string, unknown>]>;
   implementation: string;
-  manifest: ManifestOptions | boolean;
+  manifest?: PluginManifestOptions | boolean;
   shareStrategy: ShareStrategy;
   virtualModuleDir: string;
   hostInitInjectLocation: HostInitInjectLocationOptions;
