@@ -169,6 +169,21 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('virtual:prebuild:transitive-no-override');
   });
 
+  it('deduplicates singleton shared entries when the same package is registered with trailing-slash and base keys', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('shared-lib');
+    mod.addUsedShares('shared-lib/');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('"shared-lib": async () => {');
+    expect(code).not.toContain('"shared-lib/": async () => {');
+    expect(code).not.toContain('name: "shared-lib/"');
+  });
+
   it('writes host auto init waiting on __tla before init', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => {
       return pkg === 'vinext';

@@ -128,7 +128,28 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
   try {
     const resolvedEntryPath = resolvePackageEntryFromProjectRoot(pkg);
     const packageJsonPath = getInstalledPackageJsonPath(pkg);
-    if (!packageJsonPath) return resolvedEntryPath;
+    if (!packageJsonPath) {
+      if (resolvedEntryPath?.endsWith('package.json')) {
+        try {
+          const fallbackPackageJson = JSON.parse(readFileSync(resolvedEntryPath, 'utf-8')) as {
+            exports?: Record<string, unknown> | string;
+            module?: string;
+          };
+          const fallbackExportTarget =
+            typeof fallbackPackageJson.exports === 'string'
+              ? fallbackPackageJson.exports
+              : resolveImportTarget(fallbackPackageJson.exports?.['.']);
+          const fallbackTarget =
+            resolveImportTarget(fallbackExportTarget) || fallbackPackageJson.module;
+          if (fallbackTarget) {
+            return path.resolve(path.dirname(resolvedEntryPath), fallbackTarget);
+          }
+        } catch {
+          // ignore and use resolved entry path
+        }
+      }
+      return resolvedEntryPath;
+    }
 
     const packageName = removePathFromNpmPackage(pkg);
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as {
@@ -151,7 +172,14 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
                 : undefined))
             : undefined));
 
-    const target = resolveImportTarget(exportsField) || packageJson.module;
+    const explicitDotExport =
+      packageJson.exports && typeof packageJson.exports === 'object'
+        ? packageJson.exports['.']
+        : undefined;
+    const target =
+      resolveImportTarget(exportsField) ||
+      resolveImportTarget(explicitDotExport) ||
+      packageJson.module;
     if (!target) return resolvedEntryPath;
 
     return path.resolve(path.dirname(packageJsonPath), target);
@@ -161,27 +189,69 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
 }
 
 function getEsmNamedExports(pkg: string): string[] {
+  let source: string;
   try {
     const entryPath = getPackageEsmEntryPath(pkg);
     if (!entryPath) return [];
 
     const { initSync, parse } = localRequire('es-module-lexer') as typeof import('es-module-lexer');
     initSync();
-    const source = readFileSync(entryPath, 'utf-8');
+    source = readFileSync(entryPath, 'utf-8');
     const [, exports] = parse(source, entryPath);
 
-    return exports
+    const names = exports
       .map((item) => item.n)
-      .filter(
-        (name): name is string =>
-          !!name &&
-          name !== 'default' &&
-          name !== '__esModule' &&
-          /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-      );
+      .filter((name): name is string => isValidEsmExportName(name));
+    if (names.length > 0) {
+      return names;
+    }
+
+    return getNamedExportsViaRegex(source);
   } catch {
-    return [];
+    return source ? getNamedExportsViaRegex(source) : [];
   }
+}
+
+function getNamedExportsViaRegex(source: string): string[] {
+  const names = new Set<string>();
+  const declRegex =
+    /export\s+(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
+
+  let match: RegExpExecArray | null;
+  while ((match = declRegex.exec(source)) !== null) {
+    const name = match[1];
+    if (isValidEsmExportName(name)) {
+      names.add(name);
+    }
+  }
+
+  const listRegex = /export\s*\{([^}]+)\}/g;
+  while ((match = listRegex.exec(source)) !== null) {
+    const specifiers = match[1].split(',');
+    for (const specifier of specifiers) {
+      const trimmed = specifier.trim();
+      if (/^type\b/.test(trimmed)) continue;
+      const asMatch = trimmed.match(/(?:\S+\s+as\s+)?([A-Za-z_$][A-Za-z0-9_$]*)$/);
+      if (asMatch) {
+        const name = asMatch[1];
+        if (isValidEsmExportName(name)) {
+          names.add(name);
+        }
+      }
+    }
+  }
+
+  return [...names];
+}
+
+function isValidEsmExportName(name: string | undefined): name is string {
+  return (
+    !!name &&
+    name !== 'default' &&
+    name !== '__esModule' &&
+    name !== 'type' &&
+    /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+  );
 }
 
 function getPackageNamedExports(pkg: string): string[] {
@@ -193,9 +263,7 @@ function getPackageNamedExports(pkg: string): string[] {
       new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
     );
     const mod = projectRequire(pkg);
-    return Object.keys(mod).filter(
-      (k) => k !== 'default' && k !== '__esModule' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)
-    );
+    return Object.keys(mod).filter((k) => isValidEsmExportName(k));
   } catch {
     return getEsmNamedExports(pkg);
   }

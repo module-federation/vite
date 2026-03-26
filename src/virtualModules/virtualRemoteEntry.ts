@@ -22,8 +22,22 @@ let usedShares: Set<string> = new Set();
 export function getUsedShares() {
   return usedShares;
 }
+
+function getNormalizedSharedPackageKey(pkg: string): string {
+  if (!pkg.endsWith('/')) return pkg;
+
+  const basePackage = pkg.endsWith('/') ? pkg.slice(0, -1) : pkg;
+  const baseShareItem = getNormalizeShareItem(basePackage);
+  const slashShareItem = getNormalizeShareItem(pkg);
+
+  if (!baseShareItem || !slashShareItem) return pkg;
+  if (!baseShareItem.shareConfig.singleton || !slashShareItem.shareConfig.singleton) return pkg;
+
+  return basePackage;
+}
+
 export function addUsedShares(pkg: string) {
-  usedShares.add(pkg);
+  usedShares.add(getNormalizedSharedPackageKey(pkg));
 }
 // *** Expose locally provided shared modules here
 const localSharedImportMapModule = new VirtualModule('localSharedImportMap');

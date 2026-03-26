@@ -6,6 +6,7 @@ const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
   mfWarnSpy: vi.fn(),
 }));
+const parseSpy = vi.hoisted(() => vi.fn((source: string) => [[], []]));
 
 vi.mock('../../utils/logger', () => ({
   mfWarn: mfWarnSpy,
@@ -31,6 +32,7 @@ vi.mock('fs', () => ({
   existsSync: vi.fn(
     (filePath: string) =>
       filePath.endsWith('node_modules/mock-package-esm-only/package.json') ||
+      filePath.endsWith('node_modules/mock-package-typeonly/package.json') ||
       filePath.endsWith('/mock-package-esm-only/package.json')
   ),
   readFileSync: vi.fn((filePath: string) => {
@@ -47,8 +49,24 @@ vi.mock('fs', () => ({
         },
       });
     }
+    if (
+      filePath.endsWith('node_modules/mock-package-typeonly/package.json') ||
+      filePath.endsWith('/mock-package-typeonly/package.json')
+    ) {
+      return JSON.stringify({
+        name: 'mock-package-typeonly',
+        type: 'module',
+        module: './src/index.jsx',
+        exports: {
+          '.': './src/index.jsx',
+        },
+      });
+    }
     if (filePath.endsWith('node_modules/mock-package-esm-only/dist/stores.js')) {
       return 'export const useCounter = () => 1; export function useLogger() {}';
+    }
+    if (filePath.endsWith('node_modules/mock-package-typeonly/src/index.jsx')) {
+      return `// __TYPE_ONLY_EXPORT__\nexport { type TestType } from './foo';\nexport function formatLabel() { return 'type-only export test'; }`;
     }
     throw new Error(`Unexpected readFileSync path: ${filePath}`);
   }),
@@ -65,12 +83,15 @@ vi.mock('module', async (importOriginal) => {
         if (pkg === 'es-module-lexer') {
           return {
             initSync: vi.fn(),
-            parse: vi.fn((source: string) => [
-              [],
-              source.includes('useCounter')
-                ? [{ n: 'useCounter' }, { n: 'useLogger' }, { n: 'default' }]
-                : [],
-            ]),
+            parse: parseSpy.mockImplementation((source: string) => {
+              if (source.includes('useCounter')) {
+                return [[], [{ n: 'useCounter' }, { n: 'useLogger' }, { n: 'default' }]];
+              }
+              if (source.includes('__TYPE_ONLY_EXPORT__')) {
+                return [[], [{ n: 'type' }, { n: 'formatLabel' }]];
+              }
+              return [[], []];
+            }),
           };
         }
         if (pkg === 'mock-package-with-reserved') {
@@ -81,6 +102,9 @@ vi.mock('module', async (importOriginal) => {
             default: 4,
             __esModule: true,
           };
+        }
+        if (pkg === 'mock-package-typeonly' || pkg.startsWith('mock-package-typeonly/')) {
+          throw new Error('MODULE_NOT_FOUND');
         }
         if (pkg === 'transitive-pkg') {
           throw new Error('MODULE_NOT_FOUND');
@@ -103,6 +127,9 @@ vi.mock('module', async (importOriginal) => {
         if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
           return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
         }
+        if (pkg === 'mock-package-typeonly' || pkg.startsWith('mock-package-typeonly/')) {
+          return '/repo/apps/remote/node_modules/mock-package-typeonly/src/index.jsx';
+        }
         return `/resolved/${pkg}`;
       };
 
@@ -115,6 +142,34 @@ describe('writeLoadShareModule', () => {
   beforeEach(() => {
     writeSyncSpy.mockClear();
     mfWarnSpy.mockClear();
+    parseSpy.mockClear();
+  });
+
+  it('does not treat `type` as a real export for type-only re-exports', () => {
+    const pkg = 'mock-package-typeonly';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    expect(parseSpy).toHaveBeenCalledWith(
+      expect.stringContaining('__TYPE_ONLY_EXPORT__'),
+      expect.anything()
+    );
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const { formatLabel: __mf_0 } = exportModule;');
+    expect(generatedCode).toContain('export { __mf_0 as formatLabel };');
+    expect(generatedCode).not.toContain('as type');
   });
 
   it('should alias named exports instead of using bare identifiers to avoid syntax errors', () => {

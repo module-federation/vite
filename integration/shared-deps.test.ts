@@ -116,4 +116,26 @@ describe('shared dependencies', () => {
     expect(defuEntry).toBeDefined();
     expect(defuEntry?.singleton).toBe(true);
   });
+
+  it('deduplicates singleton shared entries in manifest for base package and trailing-slash key', async () => {
+    const output = await buildFixture({
+      fixture: 'shared-remote',
+      mfOptions: {
+        ...SHARED_BASE_MF_OPTIONS,
+        manifest: true,
+        shared: {
+          defu: { singleton: true },
+          'defu/': { singleton: true },
+        },
+      },
+    });
+
+    const manifest = parseManifest(output) as Record<string, unknown>;
+    expect(manifest).toBeDefined();
+    const shared = manifest.shared as Array<{ name: string; singleton?: boolean }>;
+    const defuEntries = shared.filter((entry) => entry.name === 'defu');
+
+    expect(defuEntries).toHaveLength(1);
+    expect(defuEntries[0]?.singleton).toBe(true);
+  });
 });
