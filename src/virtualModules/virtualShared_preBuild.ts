@@ -9,9 +9,10 @@
  * 2. __loadShare__: load shareModule (mfRuntime.loadShare('vue'))
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
+import { initSync, parse } from 'es-module-lexer';
 import { mfWarn } from '../utils/logger';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
@@ -42,8 +43,6 @@ function escapeGeneratedStringLiteral(value: string): string {
     }
   });
 }
-
-const localRequire = createRequire(import.meta.url);
 
 function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
   try {
@@ -160,28 +159,115 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
   }
 }
 
-function getEsmNamedExports(pkg: string): string[] {
-  try {
-    const entryPath = getPackageEsmEntryPath(pkg);
-    if (!entryPath) return [];
+let lexerInitialized = false;
 
-    const { initSync, parse } = localRequire('es-module-lexer') as typeof import('es-module-lexer');
+const RESOLVE_EXTENSIONS = [
+  '',
+  '.ts',
+  '.js',
+  '.mjs',
+  '.mts',
+  '.cjs',
+  '.jsx',
+  '.tsx',
+  '/index.ts',
+  '/index.js',
+  '/index.mjs',
+  '/index.jsx',
+  '/index.tsx',
+];
+
+/**
+ * Extract named exports from an ESM/TS source file, recursively following
+ * `export * from './...'` re-exports within the same package.
+ * Uses a Set to deduplicate (also prevents issues with es-module-lexer
+ * reporting the TypeScript `type` keyword as an export name).
+ */
+function getNamedExportsViaRegex(source: string): string[] {
+  const names: string[] = [];
+
+  // Match: export function Foo, export async function Foo, export const Foo, export class Foo, etc.
+  // Excludes: export type Foo, export interface Foo, export enum Foo (type-only declarations)
+  const declRegex =
+    /export\s+(?!type\s|interface\s|enum\s)(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
+  let match: RegExpExecArray | null;
+  while ((match = declRegex.exec(source)) !== null) {
+    names.push(match[1]);
+  }
+
+  // Match: export { Foo, Bar as Baz } and export { Foo } from '...'
+  // Skip: export type { ... } (entire statement is type-only)
+  const listRegex = /export\s+(?!type\s*\{)\{([^}]+)\}/g;
+  while ((match = listRegex.exec(source)) !== null) {
+    const specifiers = match[1].split(',');
+    for (const spec of specifiers) {
+      const trimmed = spec.trim();
+      // Skip inline type specifiers: export { type Foo, Bar }
+      if (trimmed.startsWith('type ')) continue;
+      const asMatch = trimmed.match(/(?:\S+\s+as\s+)?([A-Za-z_$][A-Za-z0-9_$]*)$/);
+      if (asMatch) {
+        names.push(asMatch[1]);
+      }
+    }
+  }
+
+  return names.filter((name) => name !== 'default' && name !== '__esModule');
+}
+
+function getNamedExportsFromSource(entryPath: string, visited: Set<string> = new Set()): string[] {
+  if (!lexerInitialized) {
     initSync();
-    const source = readFileSync(entryPath, 'utf-8');
-    const [, exports] = parse(source, entryPath);
+    lexerInitialized = true;
+  }
 
-    return exports
-      .map((item) => item.n)
-      .filter(
-        (name): name is string =>
-          !!name &&
-          name !== 'default' &&
-          name !== '__esModule' &&
-          /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-      );
+  const resolved = path.resolve(entryPath);
+  if (visited.has(resolved)) return [];
+  visited.add(resolved);
+
+  let source: string;
+  try {
+    source = readFileSync(resolved, 'utf-8');
   } catch {
     return [];
   }
+
+  const names = new Set<string>();
+
+  try {
+    const [imports, exports] = parse(source);
+
+    for (const exp of exports) {
+      if (
+        exp.n &&
+        exp.n !== 'default' &&
+        exp.n !== '__esModule' &&
+        /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(exp.n)
+      ) {
+        names.add(exp.n);
+      }
+    }
+
+    // Recursively follow `export * from './relative'` re-exports.
+    // In es-module-lexer, imp.t === 1 indicates a re-export statement.
+    const RE_EXPORT_TYPE = 1;
+    const dir = path.dirname(resolved);
+    for (const imp of imports) {
+      if (imp.t === RE_EXPORT_TYPE && imp.n && imp.n.startsWith('.')) {
+        for (const ext of RESOLVE_EXTENSIONS) {
+          const candidate = path.resolve(dir, imp.n + ext);
+          if (!existsSync(candidate) || statSync(candidate).isDirectory()) continue;
+          const childNames = getNamedExportsFromSource(candidate, visited);
+          for (const n of childNames) names.add(n);
+          break;
+        }
+      }
+    }
+  } catch {
+    // es-module-lexer cannot parse JSX/TSX — fall back to regex-based detection
+    for (const n of getNamedExportsViaRegex(source)) names.add(n);
+  }
+
+  return Array.from(names);
 }
 
 function getPackageNamedExports(pkg: string): string[] {
@@ -197,11 +283,14 @@ function getPackageNamedExports(pkg: string): string[] {
       (k) => k !== 'default' && k !== '__esModule' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)
     );
   } catch {
-    return getEsmNamedExports(pkg);
+    // require() fails for ESM-only / workspace packages — parse the entry source
+    const entryPath = getPackageEsmEntryPath(pkg) || resolvePackageEntryFromProjectRoot(pkg);
+    if (!entryPath) return [];
+    return getNamedExportsFromSource(entryPath);
   }
 }
 
-function getLocalProviderImportPath(pkg: string): string | undefined {
+export function getLocalProviderImportPath(pkg: string): string | undefined {
   try {
     const projectRequire = createRequire(
       new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
@@ -359,8 +448,9 @@ export function writeLoadShareModule(
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
   const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg);
   const devImportSource = concreteSharedImportSource || pkg;
-  const providerImportId =
-    getLocalProviderImportPath(pkg) || concreteSharedImportSource || sharedImportSource;
+  const localProviderPath = getLocalProviderImportPath(pkg);
+  const isWorkspacePackage = localProviderPath !== undefined;
+  const providerImportId = localProviderPath || concreteSharedImportSource || sharedImportSource;
   const namedExports = getPackageNamedExports(pkg);
   let exportLine: string;
   if (namedExports.length > 0) {
@@ -375,10 +465,23 @@ export function writeLoadShareModule(
       : 'module.exports = exportModule';
   }
 
+  // For workspace/linked packages, skip the eager __prebuild__ import and the
+  // dev-mode dynamic import.  These side-effect imports would load a second
+  // copy of the module, creating duplicate module instances even though
+  // loadShare returns the host's singleton.
+  const prebuildImportLine = isWorkspacePackage
+    ? ''
+    : `import ${escapeGeneratedStringLiteral(sharedImportSource)};`;
+  const devDynamicImportLine = isWorkspacePackage
+    ? ''
+    : command !== 'build'
+      ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
+      : '';
+
   loadShareCacheMap[pkg].writeSync(
     `
-    import ${escapeGeneratedStringLiteral(sharedImportSource)};
-    ${command !== 'build' ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});` : ''}
+    ${prebuildImportLine}
+    ${devDynamicImportLine}
     ${importLine}
     ${
       useSsrProviderFallback

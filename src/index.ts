@@ -46,6 +46,7 @@ import { virtualRuntimeInitStatus } from './virtualModules/virtualRuntimeInitSta
 import {
   getLoadShareImportId,
   getLoadShareModulePath,
+  getLocalProviderImportPath,
   getPreBuildLibImportId,
   writeLoadShareModule,
   writePreBuildLibPath,
@@ -136,16 +137,37 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           }
           addUsedShares(key);
           if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
-            if (!isRolldown) {
-              // In non-Rolldown Vite (< 8), loadShare modules are CJS and
-              // don't use real TLA, so the dep optimizer handles them fine.
-              config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command));
+            // Workspace/linked packages must not be pre-bundled: their JS code
+            // would be inlined into the optimized chunk while Vue SFCs (served
+            // from source) import the same modules via a different filesystem
+            // path, creating two separate module instances at runtime.
+            const isWorkspacePackage = getLocalProviderImportPath(key) !== undefined;
+            if (isWorkspacePackage) {
+              config.optimizeDeps!.exclude = config.optimizeDeps!.exclude || [];
+              config.optimizeDeps!.exclude.push(key);
+            } else {
+              if (!isRolldown) {
+                // In non-Rolldown Vite (< 8), loadShare modules are CJS and
+                // don't use real TLA, so the dep optimizer handles them fine.
+                config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command));
+              }
+              // When isRolldown (Vite 8+), loadShare modules are ESM with
+              // top-level await. Including them in optimizeDeps causes the dep
+              // optimizer to convert ESM→CJS, stripping `await` and turning
+              // shared modules into unresolved Promises (breaks Pinia plugins, etc).
+              config.optimizeDeps.include!.push(getPreBuildLibImportId(key));
             }
-            // When isRolldown (Vite 8+), loadShare modules are ESM with
-            // top-level await. Including them in optimizeDeps causes the dep
-            // optimizer to convert ESM→CJS, stripping `await` and turning
-            // shared modules into unresolved Promises (breaks Pinia plugins, etc).
-            config.optimizeDeps.include!.push(getPreBuildLibImportId(key));
+          }
+        }
+
+        // Ensure bare-module imports from workspace packages (e.g. react/jsx-runtime
+        // injected by @vitejs/plugin-react) resolve from the project root, not from
+        // within the workspace package's own node_modules.
+        config.resolve = config.resolve || {};
+        config.resolve.dedupe = config.resolve.dedupe || [];
+        for (const key of Object.keys(shared)) {
+          if (!key.endsWith('/') && !config.resolve.dedupe.includes(key)) {
+            config.resolve.dedupe.push(key);
           }
         }
         writeLocalSharedImportMap();
