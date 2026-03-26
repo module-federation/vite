@@ -177,6 +177,8 @@ const RESOLVE_EXTENSIONS = [
   '/index.tsx',
 ];
 
+const SOURCE_FALLBACK_EXTENSIONS = ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.json'];
+
 /**
  * Extract named exports from an ESM/TS source file, recursively following
  * `export * from './...'` re-exports within the same package.
@@ -234,7 +236,7 @@ function getNamedExportsFromSource(entryPath: string, visited: Set<string> = new
   const names = new Set<string>();
 
   try {
-    const [imports, exports] = parse(source);
+    const [imports, exports] = parse(source, resolved);
 
     for (const exp of exports) {
       if (
@@ -263,8 +265,52 @@ function getNamedExportsFromSource(entryPath: string, visited: Set<string> = new
       }
     }
   } catch {
-    // es-module-lexer cannot parse JSX/TSX — fall back to regex-based detection
-    for (const n of getNamedExportsViaRegex(source)) names.add(n);
+    // Ignore; keep going and merge regex-based detection below.
+  }
+
+  // es-module-lexer cannot parse JSX/TSX or type-only export syntax in some
+  // TS packages. Always merge regex-based detection so we still extract exports.
+  for (const n of getNamedExportsViaRegex(source)) names.add(n);
+
+  // Regex fallback for `export * from './...'`, since parse() may fail on
+  // TS/JSX files and we still need to recurse into those re-export targets.
+  const exportStarRegex = /export\s+\*\s+from\s+["'`]([^"'`]+)["'`]/g;
+  let match: RegExpExecArray | null;
+  while ((match = exportStarRegex.exec(source)) !== null) {
+    const importPath = match[1];
+    if (!importPath || !importPath.startsWith('.')) continue;
+    const dir = path.dirname(resolved);
+    for (const ext of RESOLVE_EXTENSIONS) {
+      const candidate = path.resolve(dir, importPath + ext);
+      if (!existsSync(candidate) || statSync(candidate).isDirectory()) continue;
+      for (const n of getNamedExportsFromSource(candidate, visited)) names.add(n);
+      break;
+    }
+  }
+
+  // es-module-lexer currently misses some export surfaces for mixed TS/JS
+  // workspace packages, especially with type-only/indirection patterns.
+  if (names.size === 0) {
+    const parsedPath = path.parse(resolved);
+    const basePath = path.join(parsedPath.dir, parsedPath.name);
+    const currentExt = parsedPath.ext;
+
+    for (const fallbackExt of SOURCE_FALLBACK_EXTENSIONS) {
+      if (fallbackExt === currentExt) continue;
+
+      const fallbackPath = `${basePath}${fallbackExt}`;
+      if (!existsSync(fallbackPath)) continue;
+      if (fallbackPath === resolved || visited.has(fallbackPath)) continue;
+
+      const fallbackNames = getNamedExportsFromSource(fallbackPath, visited);
+      for (const name of fallbackNames) {
+        names.add(name);
+      }
+
+      if (names.size > 0) {
+        break;
+      }
+    }
   }
 
   return Array.from(names);
