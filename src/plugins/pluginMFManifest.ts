@@ -29,13 +29,34 @@ const Manifest = (): Plugin[] => {
   const mfOptions = getNormalizeModuleFederationOptions();
   const { name, filename, getPublicPath, manifest: manifestOptions, varFilename } = mfOptions;
 
-  let mfManifestName: string = '';
-  if (manifestOptions === true) {
-    mfManifestName = 'mf-manifest.json';
-  }
-  if (typeof manifestOptions !== 'boolean') {
-    mfManifestName = path.join(manifestOptions?.filePath || '', manifestOptions?.fileName || '');
-  }
+  let mfManifestName =
+    manifestOptions === true
+      ? 'mf-manifest.json'
+      : typeof manifestOptions === 'object'
+        ? path.join(
+            manifestOptions?.filePath || '',
+            manifestOptions?.fileName || 'mf-manifest.json'
+          )
+        : undefined;
+
+  let mfManifestStatsName = mfManifestName ? getStatsFileName(mfManifestName) : undefined;
+  const isConsumerProject = Object.keys(mfOptions.exposes).length === 0;
+  let disableAssetsAnalyze = false;
+
+  const getDefaultDisableAssetsAnalyze = (command: string | undefined) =>
+    command === 'serve' &&
+    isConsumerProject &&
+    (typeof manifestOptions !== 'object' ||
+      !Object.prototype.hasOwnProperty.call(manifestOptions, 'disableAssetsAnalyze'));
+
+  const getConfiguredDisableAssetsAnalyze = (command: string | undefined) => {
+    if (typeof manifestOptions === 'object' && manifestOptions !== null) {
+      if (Object.prototype.hasOwnProperty.call(manifestOptions, 'disableAssetsAnalyze')) {
+        return manifestOptions.disableAssetsAnalyze === true;
+      }
+    }
+    return getDefaultDisableAssetsAnalyze(command);
+  };
 
   let root: string;
   let remoteEntryFile: string;
@@ -88,7 +109,7 @@ const Manifest = (): Plugin[] => {
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.end(
               JSON.stringify({
-                ...generateMFManifest({}),
+                ...generateMFManifest({}, disableAssetsAnalyze),
                 id: name,
                 name: name,
                 metaData: {
@@ -134,11 +155,12 @@ const Manifest = (): Plugin[] => {
        * @param command - Current Vite command (serve/build)
        */
       config(config, { command }) {
+        _command = command;
         if (!config.build) config.build = {};
         if (!config.build.manifest) {
-          config.build.manifest = config.build.manifest || !!manifestOptions;
+          config.build.manifest = config.build.manifest || !!mfManifestName;
         }
-        _command = command;
+        disableAssetsAnalyze = getConfiguredDisableAssetsAnalyze(command);
         _originalConfigBase = config.base;
       },
       configResolved(config) {
@@ -167,56 +189,69 @@ const Manifest = (): Plugin[] => {
         }
 
         // Second pass: Collect all CSS assets
-        const allCssAssets = mfOptions.bundleAllCSS ? collectCssAssets(bundle) : new Set<string>();
+        const allCssAssets =
+          mfOptions.bundleAllCSS && !disableAssetsAnalyze
+            ? collectCssAssets(bundle)
+            : new Set<string>();
 
-        const exposesModules = Object.keys(mfOptions.exposes).map(
-          (item) => mfOptions.exposes[item].import
-        );
+        if (!disableAssetsAnalyze) {
+          const exposesModules = Object.keys(mfOptions.exposes).map(
+            (item) => mfOptions.exposes[item].import
+          );
 
-        // Process exposed modules
-        processModuleAssets(bundle, filesMap, (modulePath) => {
-          const absoluteModulePath = path.resolve(root, modulePath);
-          return exposesModules.find((exposeModule) => {
-            const exposePath = path.resolve(root, exposeModule);
+          // Process exposed modules
+          processModuleAssets(bundle, filesMap, (modulePath) => {
+            const absoluteModulePath = path.resolve(root, modulePath);
+            return exposesModules.find((exposeModule) => {
+              const exposePath = path.resolve(root, exposeModule);
 
-            // First try exact path match
-            if (absoluteModulePath === exposePath) {
-              return true;
-            }
+              // First try exact path match
+              if (absoluteModulePath === exposePath) {
+                return true;
+              }
 
-            // Then try path match without known extensions
-            const getPathWithoutKnownExt = (filePath: string) => {
-              const ext = path.extname(filePath);
-              return JS_EXTENSIONS.includes(ext as any)
-                ? path.join(path.dirname(filePath), path.basename(filePath, ext))
-                : filePath;
-            };
-            const modulePathNoExt = getPathWithoutKnownExt(absoluteModulePath);
-            const exposePathNoExt = getPathWithoutKnownExt(exposePath);
-            return modulePathNoExt === exposePathNoExt;
+              // Then try path match without known extensions
+              const getPathWithoutKnownExt = (filePath: string) => {
+                const ext = path.extname(filePath);
+                return JS_EXTENSIONS.includes(ext as any)
+                  ? path.join(path.dirname(filePath), path.basename(filePath, ext))
+                  : filePath;
+              };
+              const modulePathNoExt = getPathWithoutKnownExt(absoluteModulePath);
+              const exposePathNoExt = getPathWithoutKnownExt(exposePath);
+              return modulePathNoExt === exposePathNoExt;
+            });
           });
-        });
 
-        // Process shared modules
-        const fileToShareKey = await buildFileToShareKeyMap(
-          getUsedShares(),
-          this.resolve.bind(this)
-        );
-        processModuleAssets(bundle, filesMap, (modulePath) => fileToShareKey.get(modulePath));
+          // Process shared modules
+          const fileToShareKey = await buildFileToShareKeyMap(
+            getUsedShares(),
+            this.resolve.bind(this)
+          );
+          processModuleAssets(bundle, filesMap, (modulePath) => fileToShareKey.get(modulePath));
 
-        // Add all CSS assets to every export if bundleAllCSS is enabled
-        if (mfOptions.bundleAllCSS) {
-          addCssAssetsToAllExports(filesMap, allCssAssets);
+          // Add all CSS assets to every export if bundleAllCSS is enabled
+          if (mfOptions.bundleAllCSS) {
+            addCssAssetsToAllExports(filesMap, allCssAssets);
+          }
+
+          // Final deduplication of all assets
+          filesMap = deduplicateAssets(filesMap);
         }
-
-        // Final deduplication of all assets
-        filesMap = deduplicateAssets(filesMap);
 
         this.emitFile({
           type: 'asset',
           fileName: mfManifestName,
-          source: JSON.stringify(generateMFManifest(filesMap)),
+          source: JSON.stringify(generateMFManifest(filesMap, disableAssetsAnalyze)),
         });
+
+        if (mfManifestStatsName) {
+          this.emitFile({
+            type: 'asset',
+            fileName: mfManifestStatsName,
+            source: JSON.stringify(generateMFStats(filesMap, bundle, disableAssetsAnalyze)),
+          });
+        }
       },
     },
   ];
@@ -226,7 +261,7 @@ const Manifest = (): Plugin[] => {
    * @param preloadMap - Map of module assets to include
    * @returns Complete manifest object
    */
-  function generateMFManifest(preloadMap: PreloadMap) {
+  function generateMFManifest(preloadMap: PreloadMap, disableAssetsAnalyze = false) {
     const options = getNormalizeModuleFederationOptions();
     const { name, varFilename } = options;
     const remoteEntry = {
@@ -264,6 +299,7 @@ const Manifest = (): Plugin[] => {
           id: `${name}:${shareKey}`,
           name: shareKey,
           version: shareItem.version,
+          singleton: shareItem.shareConfig.singleton,
           requiredVersion: shareItem.shareConfig.requiredVersion,
           assets: {
             js: {
@@ -325,11 +361,44 @@ const Manifest = (): Plugin[] => {
         pluginVersion: '0.2.5',
         ...(!!getPublicPath ? { getPublicPath } : { publicPath }),
       },
-      shared,
+      ...(disableAssetsAnalyze ? {} : { shared }),
       remotes,
-      exposes,
+      ...(disableAssetsAnalyze ? {} : { exposes }),
+    };
+  }
+
+  function generateMFStats(
+    preloadMap: PreloadMap,
+    bundle: Record<string, { [key: string]: any }>,
+    disableAssetsAnalyze = false
+  ) {
+    const baseManifest = generateMFManifest(preloadMap, disableAssetsAnalyze);
+    const bundleSummary = Object.entries(bundle).map(([fileName, chunkOrAsset]) => ({
+      fileName,
+      type: chunkOrAsset.type,
+      isEntry: chunkOrAsset.isEntry || false,
+      size:
+        typeof chunkOrAsset.code === 'string'
+          ? chunkOrAsset.code.length
+          : chunkOrAsset.source?.length || chunkOrAsset.source?.byteLength || undefined,
+    }));
+
+    return {
+      ...baseManifest,
+      buildOutput: bundleSummary,
+      ...(disableAssetsAnalyze ? {} : { assetAnalysis: preloadMap }),
     };
   }
 };
+
+function getStatsFileName(manifestFileName: string) {
+  const parsed = path.parse(manifestFileName);
+  const fileExt = parsed.ext || '.json';
+  const baseName = parsed.ext ? parsed.name : parsed.base;
+  const baseWithoutManifestSuffix = baseName === 'mf-manifest' ? 'mf' : baseName;
+  const fileName = `${baseWithoutManifestSuffix}-stats${fileExt}`;
+
+  return parsed.dir ? path.join(parsed.dir, fileName) : fileName;
+}
 
 export default Manifest;

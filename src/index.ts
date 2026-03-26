@@ -24,6 +24,7 @@ import { createModuleFederationError, mfWarn } from './utils/logger';
 import {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
+  PluginManifestOptions,
   normalizeModuleFederationOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
@@ -51,6 +52,8 @@ import {
   writeLoadShareModule,
   writePreBuildLibPath,
 } from './virtualModules/virtualShared_preBuild';
+
+const patchedManualChunks = new WeakSet<Function>();
 
 const UNSAFE_JS_SOURCE_CHAR_MAP: Record<string, string> = {
   '<': '\\u003C',
@@ -323,7 +326,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         let warnedAboutManualChunks = false;
         const applyManualChunks = (output: any) => {
           ensureCodeSplitting(output);
-          if (output.manualChunks && !warnedAboutManualChunks) {
+          const isPatchedByPlugin = !!(
+            output.manualChunks && patchedManualChunks.has(output.manualChunks as Function)
+          );
+          if (output.manualChunks && !isPatchedByPlugin && !warnedAboutManualChunks) {
             warnedAboutManualChunks = true;
             mfWarn(
               'Ignoring `build.rollupOptions.output.manualChunks` because it conflicts with module federation. ' +
@@ -332,7 +338,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 'the application to silently hang.'
             );
           }
-          output.manualChunks = function (id: string) {
+          const mfManualChunks = function (id: string) {
             // Keep runtimeInitStatus in its own chunk to break TLA deadlock
             if (id.includes(runtimeInitId)) {
               return 'runtimeInit';
@@ -343,6 +349,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
               return match ? match[1] : 'loadShare';
             }
           };
+          patchedManualChunks.add(mfManualChunks);
+          output.manualChunks = mfManualChunks;
         };
 
         config.build.rollupOptions = config.build.rollupOptions || {};
@@ -775,56 +783,83 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     // asset URLs against the page origin (e.g. host), but remote chunks need
     // to resolve against their own origin. Replace the hardcoded base URL
     // function with import.meta.url-based resolution.
-    ...(Object.keys(options.exposes).length > 0
-      ? [
-          {
-            name: 'module-federation-fix-preload',
-            enforce: 'post' as const,
-            apply: 'build' as const,
-            generateBundle(_: unknown, bundle: Record<string, any>) {
-              for (const chunk of Object.values(bundle)) {
-                if (chunk.type !== 'chunk') continue;
-                if (!chunk.code.includes('modulepreload')) continue;
-                const chunkDir = path.dirname(chunk.fileName);
-                const prefixToRoot = chunkDir === '.' ? '' : `${path.relative(chunkDir, '.')}/`;
-                const replacementExpr = prefixToRoot
-                  ? `${escapeUnsafeJsSourceChars(JSON.stringify(prefixToRoot))}+$1`
-                  : '$1';
-                // Match Vite's preload helper asset URL function across minifiers:
-                //   Vite 8+:  t=function(e){return`/`+e}
-                //   esbuild (Vite 5-7): const o=e=>"/"+e  or  o=function(e){return"/"+e}
-                //   terser:             o=function(e,t){return'/'+e}
-                // Replace with import.meta.url-based resolution so assets
-                // resolve against the module's own origin, not the page origin.
-                const replacement = `=function($1){return new URL(${replacementExpr},import.meta.url).href}`;
-                // Arrow function: e=>"/"+e or (e)=>"/"+e or (e,t)=>"/"+e
-                const replaced = chunk.code.replace(
-                  /=\(?(\w+)(?:,\w+)?\)?\s*=>\s*["'`][^"'`]*["'`]\s*\+\s*\1/,
-                  replacement
-                );
-                if (replaced !== chunk.code) {
-                  chunk.code = replaced;
-                  continue;
+    ...(function () {
+      let disablePreload = false;
+
+      return Object.keys(options.exposes).length > 0
+        ? [
+            {
+              name: 'module-federation-fix-preload',
+              enforce: 'post' as const,
+              apply: 'build' as const,
+              config(_config, { command }) {
+                const manifest = options.manifest;
+                const isConsumerProject = Object.keys(options.exposes).length === 0;
+                const getDefaultDisableAssetsAnalyze = (cfgCommand: string | undefined) =>
+                  cfgCommand === 'serve' &&
+                  isConsumerProject &&
+                  (typeof manifest !== 'object' ||
+                    !Object.prototype.hasOwnProperty.call(manifest, 'disableAssetsAnalyze'));
+
+                const getConfiguredDisableAssetsAnalyze = (cfgCommand: string | undefined) => {
+                  if (typeof manifest === 'object' && manifest !== null) {
+                    if (Object.prototype.hasOwnProperty.call(manifest, 'disableAssetsAnalyze')) {
+                      return manifest.disableAssetsAnalyze === true;
+                    }
+                  }
+
+                  return getDefaultDisableAssetsAnalyze(cfgCommand);
+                };
+
+                disablePreload = getConfiguredDisableAssetsAnalyze(command);
+              },
+              generateBundle(_: unknown, bundle: Record<string, any>) {
+                if (disablePreload) return;
+
+                for (const chunk of Object.values(bundle)) {
+                  if (chunk.type !== 'chunk') continue;
+                  if (!chunk.code.includes('modulepreload')) continue;
+                  const chunkDir = path.dirname(chunk.fileName);
+                  const prefixToRoot = chunkDir === '.' ? '' : `${path.relative(chunkDir, '.')}/`;
+                  const replacementExpr = prefixToRoot
+                    ? `${escapeUnsafeJsSourceChars(JSON.stringify(prefixToRoot))}+$1`
+                    : '$1';
+                  // Match Vite's preload helper asset URL function across minifiers:
+                  //   Vite 8+:  t=function(e){return`/`+e}
+                  //   esbuild (Vite 5-7): const o=e=>"/"+e  or  o=function(e){return"/"+e}
+                  //   terser:             o=function(e,t){return'/'+e}
+                  // Replace with import.meta.url-based resolution so assets
+                  // resolve against the module's own origin, not the page origin.
+                  const replacement = `=function($1){return new URL(${replacementExpr},import.meta.url).href}`;
+                  // Arrow function: e=>"/"+e or (e)=>"/"+e or (e,t)=>"/"+e
+                  const replaced = chunk.code.replace(
+                    /=\(?(\w+)(?:,\w+)?\)?\s*=>\s*["'`][^"'`]*["'`]\s*\+\s*\1/,
+                    replacement
+                  );
+                  if (replaced !== chunk.code) {
+                    chunk.code = replaced;
+                    continue;
+                  }
+                  // Function expression: function(e){return"/"+e} (1 or 2 params)
+                  chunk.code = chunk.code.replace(
+                    /=function\((\w+)(?:,\w+)?\)\{return\s*["'`][^"'`]*["'`]\s*\+\s*\1\s*\}/,
+                    replacement
+                  );
+                  chunk.code = chunk.code.replace(
+                    /=function\((\w+)(?:,\w+)?\)\{return new URL\("\.\.\/"\+\1,import\.meta\.url\)\.href\}/,
+                    replacement
+                  );
+                  chunk.code = chunk.code.replace(
+                    /new URL\("\.\.\/"\+(\w+),import\.meta\.url\)\.href/g,
+                    `new URL(${replacementExpr},import.meta.url).href`
+                  );
                 }
-                // Function expression: function(e){return"/"+e} (1 or 2 params)
-                chunk.code = chunk.code.replace(
-                  /=function\((\w+)(?:,\w+)?\)\{return\s*["'`][^"'`]*["'`]\s*\+\s*\1\s*\}/,
-                  replacement
-                );
-                chunk.code = chunk.code.replace(
-                  /=function\((\w+)(?:,\w+)?\)\{return new URL\("\.\.\/"\+\1,import\.meta\.url\)\.href\}/,
-                  replacement
-                );
-                chunk.code = chunk.code.replace(
-                  /new URL\("\.\.\/"\+(\w+),import\.meta\.url\)\.href/g,
-                  `new URL(${replacementExpr},import.meta.url).href`
-                );
-              }
-            },
-          } satisfies Plugin,
-        ]
-      : []),
+              },
+            } satisfies Plugin,
+          ]
+        : [];
+    })(),
   ];
 }
 
-export { federation, type ModuleFederationOptions };
+export { federation, type ModuleFederationOptions, type PluginManifestOptions };

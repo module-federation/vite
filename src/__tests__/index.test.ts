@@ -51,6 +51,20 @@ function getFixPreloadPlugin(): Plugin {
   return plugin;
 }
 
+function getFixPreloadPluginWithManifest(manifest: unknown): Plugin {
+  const plugin = federation({
+    name: 'remote',
+    filename: 'remoteEntry.js',
+    exposes: {
+      '.': './src/App.tsx',
+    },
+    manifest,
+  }).find((entry) => entry.name === 'module-federation-fix-preload');
+
+  if (!plugin) throw new Error('module-federation-fix-preload plugin not found');
+  return plugin;
+}
+
 function getEarlyInitPlugin(): Plugin {
   const plugin = federation({
     name: 'host',
@@ -126,6 +140,22 @@ describe('module-federation-esm-shims', () => {
 
     // Warning was emitted (once for both outputs)
     expect(mfWarn).toHaveBeenCalled();
+  });
+
+  it('does not warn when config() is executed twice for patched output', () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = {
+      build: {
+        rollupOptions: { output: {} },
+        rolldownOptions: { output: {} },
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    const warnCountAfterFirstRun = mfWarn.mock.calls.length;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    expect(mfWarn).toHaveBeenCalledTimes(warnCountAfterFirstRun);
   });
 });
 
@@ -231,6 +261,58 @@ describe('module-federation-fix-preload', () => {
         type: 'chunk',
         fileName: 'preload-helper-abc.js',
         code: 'const u=function(e){return new URL("../"+e,import.meta.url).href};modulepreload',
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
+  });
+
+  it('does not patch preload helper when manifest disables asset analysis', () => {
+    const plugin = getFixPreloadPluginWithManifest({
+      disableAssetsAnalyze: true,
+    });
+
+    plugin.config?.call(
+      {} as any,
+      {} as any,
+      { command: 'build', mode: 'test' } as { command: 'build'; mode: 'test' }
+    );
+
+    const originalCode =
+      'const u=function(e){return new URL(\"../\"+e,import.meta.url).href};modulepreload';
+    const bundle = {
+      'preload-helper-abc.js': {
+        type: 'chunk',
+        fileName: 'preload-helper-abc.js',
+        code: originalCode,
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['preload-helper-abc.js'].code).toBe(originalCode);
+  });
+
+  it('still patches preload helper when manifest keeps asset analysis enabled', () => {
+    const plugin = getFixPreloadPluginWithManifest({
+      disableAssetsAnalyze: false,
+    });
+
+    plugin.config?.call(
+      {} as any,
+      {} as any,
+      { command: 'build', mode: 'test' } as { command: 'build'; mode: 'test' }
+    );
+
+    const originalCode =
+      'const u=function(e){return new URL("../"+e,import.meta.url).href};modulepreload';
+    const bundle = {
+      'preload-helper-abc.js': {
+        type: 'chunk',
+        fileName: 'preload-helper-abc.js',
+        code: originalCode,
       },
     };
 

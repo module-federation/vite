@@ -34,7 +34,7 @@ describe('normalizeModuleFederationOption', () => {
       runtime: undefined,
       runtimePlugins: [],
       implementation: require.resolve('@module-federation/runtime'),
-      manifest: false,
+      manifest: undefined,
       dev: undefined,
       dts: undefined,
       shareStrategy: 'loaded-first',
@@ -45,6 +45,9 @@ describe('normalizeModuleFederationOption', () => {
       getPublicPath: undefined,
       publicPath: undefined,
       moduleParseTimeout: 10,
+      moduleParseIdleTimeout: undefined,
+      target: undefined,
+      varFilename: undefined,
     });
   });
 
@@ -230,6 +233,10 @@ describe('normalizeModuleFederationOption', () => {
   });
 
   describe('manifest', () => {
+    it('returns undefined if manifest is not set', () => {
+      expect(normalizeModuleFederationOptions(minimalOptions).manifest).toBeUndefined();
+    });
+
     it('returns true if manifest is set to true', () => {
       expect(
         normalizeModuleFederationOptions({
@@ -273,8 +280,6 @@ describe('normalizeModuleFederationOption', () => {
         }).manifest
       ).toEqual({
         fileName: 'mf-manifest.json',
-        disableAssetsAnalyze: false,
-        filePath: '',
       });
     });
   });
