@@ -48,5 +48,56 @@ describe("build", () => {
       const parsed = JSON.parse(manifest!.source as string);
       expect(parsed).toHaveProperty("exposes");
     });
+
+    it("generates mf-stats.json when manifest is enabled", async () => {
+      const manifestOutput = await buildFixture({
+        mfOptions: { ...BASIC_REMOTE_MF_OPTIONS, manifest: true },
+      });
+
+      const stats = findAsset(manifestOutput, "mf-stats.json");
+      expect(stats).toBeDefined();
+
+      const parsed = JSON.parse(stats!.source as string);
+      expect(parsed).toHaveProperty("buildOutput");
+      expect(parsed).toHaveProperty("metaData");
+    });
+
+    it("respects manifest fileName for companion stats filename", async () => {
+      const manifestOutput = await buildFixture({
+        mfOptions: {
+          ...BASIC_REMOTE_MF_OPTIONS,
+          manifest: {
+            fileName: "custom-manifest.json",
+          },
+        },
+      });
+
+      const manifest = findAsset(manifestOutput, "custom-manifest.json");
+      const stats = findAsset(manifestOutput, "custom-manifest-stats.json");
+      expect(manifest).toBeDefined();
+      expect(stats).toBeDefined();
+    });
+
+    it("does not include shared/exposes in manifest when disableAssetsAnalyze is true", async () => {
+      const manifestOutput = await buildFixture({
+        mfOptions: {
+          ...BASIC_REMOTE_MF_OPTIONS,
+          manifest: {
+            fileName: "disabled-manifest.json",
+            disableAssetsAnalyze: true,
+          },
+          shared: {
+            react: { import: false },
+          },
+        },
+      });
+
+      const manifest = findAsset(manifestOutput, "disabled-manifest.json");
+      expect(manifest).toBeDefined();
+
+      const parsed = JSON.parse(manifest!.source as string);
+      expect(parsed).not.toHaveProperty("exposes");
+      expect(parsed).not.toHaveProperty("shared");
+    });
   });
 });

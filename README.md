@@ -132,6 +132,24 @@ export default defineConfig({
       // moduleParseTimeout for large codebases where total build time may
       // exceed the fixed timeout value.
       moduleParseIdleTimeout: 10,
+      // Controls whether module federation manifest artifacts are generated.
+      // Type: boolean | object
+      // - false/undefined: no manifest generated
+      // - true: generates mf-manifest.json + mf-stats.json (default names)
+      // - object: overrides fileName/filePath and asset analysis behavior
+      manifest: {
+        // Optional output file name for runtime manifest.
+        // Default: "mf-manifest.json"
+        fileName: "mf-manifest.json",
+        // Optional output directory/path for both artifacts.
+        // Example: "dist/" -> dist/mf-manifest.json + dist/mf-stats.json
+        filePath: "dist/",
+        // If true, skips asset analysis.
+        // Effect: shared/exposes are omitted from manifest and assetAnalysis is omitted from stats.
+        // It also disables the preload-helper patch used for remotes.
+        // In serve for consumer-only apps, this defaults to true unless explicitly set.
+        disableAssetsAnalyze: false,
+      },
     }),
   ],
   server: {
