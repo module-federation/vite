@@ -98,4 +98,22 @@ describe('shared dependencies', () => {
     expect(defuEntry).toBeDefined();
     expect(defuEntry!.version).toBeTruthy();
   });
+
+  it('includes singleton in manifest shared entries', async () => {
+    const output = await buildFixture({
+      fixture: 'shared-remote',
+      mfOptions: {
+        ...SHARED_BASE_MF_OPTIONS,
+        manifest: true,
+        shared: { defu: { singleton: true } },
+      },
+    });
+    const manifest = parseManifest(output) as Record<string, unknown>;
+    expect(manifest).toBeDefined();
+
+    const shared = manifest.shared as Array<{ name: string; singleton?: boolean }>;
+    const defuEntry = shared.find((s) => s.name === 'defu');
+    expect(defuEntry).toBeDefined();
+    expect(defuEntry?.singleton).toBe(true);
+  });
 });

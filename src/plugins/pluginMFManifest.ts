@@ -264,6 +264,7 @@ const Manifest = (): Plugin[] => {
           id: `${name}:${shareKey}`,
           name: shareKey,
           version: shareItem.version,
+          singleton: shareItem.shareConfig.singleton,
           requiredVersion: shareItem.shareConfig.requiredVersion,
           assets: {
             js: {
