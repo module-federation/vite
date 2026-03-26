@@ -52,6 +52,8 @@ import {
   writePreBuildLibPath,
 } from './virtualModules/virtualShared_preBuild';
 
+const patchedManualChunks = new WeakSet<Function>();
+
 const UNSAFE_JS_SOURCE_CHAR_MAP: Record<string, string> = {
   '<': '\\u003C',
   '>': '\\u003E',
@@ -302,7 +304,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         let warnedAboutManualChunks = false;
         const applyManualChunks = (output: any) => {
           ensureCodeSplitting(output);
-          if (output.manualChunks && !warnedAboutManualChunks) {
+          const isPatchedByPlugin = !!(
+            output.manualChunks && patchedManualChunks.has(output.manualChunks as Function)
+          );
+          if (output.manualChunks && !isPatchedByPlugin && !warnedAboutManualChunks) {
             warnedAboutManualChunks = true;
             mfWarn(
               'Ignoring `build.rollupOptions.output.manualChunks` because it conflicts with module federation. ' +
@@ -311,7 +316,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                 'the application to silently hang.'
             );
           }
-          output.manualChunks = function (id: string) {
+          const mfManualChunks = function (id: string) {
             // Keep runtimeInitStatus in its own chunk to break TLA deadlock
             if (id.includes(runtimeInitId)) {
               return 'runtimeInit';
@@ -322,6 +327,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
               return match ? match[1] : 'loadShare';
             }
           };
+          patchedManualChunks.add(mfManualChunks);
+          output.manualChunks = mfManualChunks;
         };
 
         config.build.rollupOptions = config.build.rollupOptions || {};

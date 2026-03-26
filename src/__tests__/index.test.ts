@@ -141,6 +141,22 @@ describe('module-federation-esm-shims', () => {
     // Warning was emitted (once for both outputs)
     expect(mfWarn).toHaveBeenCalled();
   });
+
+  it('does not warn when config() is executed twice for patched output', () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = {
+      build: {
+        rollupOptions: { output: {} },
+        rolldownOptions: { output: {} },
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    const warnCountAfterFirstRun = mfWarn.mock.calls.length;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    expect(mfWarn).toHaveBeenCalledTimes(warnCountAfterFirstRun);
+  });
 });
 
 describe('vite:module-federation-early-init', () => {
