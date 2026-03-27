@@ -11,8 +11,8 @@ import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
-import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
+import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import { resolveProxyAlias } from './utils/bundleHelpers';
@@ -24,8 +24,8 @@ import { createModuleFederationError, mfWarn } from './utils/logger';
 import {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
-  PluginManifestOptions,
   normalizeModuleFederationOptions,
+  PluginManifestOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
@@ -122,6 +122,14 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           // Include the runtimeInit virtual module so Vite pre-bundles it
           // upfront instead of discovering it at runtime via loadShare imports.
           config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
+          if (isRolldown) {
+            // In Vite 8 dev, prebundling bare remote specifiers rewrites
+            // `import("remote/x")` to `/node_modules/.vite/deps/remote_x.js`.
+            // That bypasses the remote namespace fixup path and breaks named
+            // exports on dynamic import, which Angular relies on.
+            config.optimizeDeps.exclude = config.optimizeDeps.exclude || [];
+            config.optimizeDeps.exclude.push(...Object.keys(remotes || {}));
+          }
         }
         for (const key of Object.keys(shared)) {
           if (key.endsWith('/')) continue;

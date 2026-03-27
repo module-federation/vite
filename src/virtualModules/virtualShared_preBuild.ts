@@ -43,6 +43,10 @@ function escapeGeneratedStringLiteral(value: string): string {
   });
 }
 
+function isValidJsIdentifier(name: string): boolean {
+  return /^[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*$/u.test(name);
+}
+
 const localRequire = createRequire(import.meta.url);
 
 function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
@@ -174,10 +178,7 @@ function getEsmNamedExports(pkg: string): string[] {
       .map((item) => item.n)
       .filter(
         (name): name is string =>
-          !!name &&
-          name !== 'default' &&
-          name !== '__esModule' &&
-          /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+          !!name && name !== 'default' && name !== '__esModule' && isValidJsIdentifier(name)
       );
   } catch {
     return [];
@@ -194,7 +195,7 @@ function getPackageNamedExports(pkg: string): string[] {
     );
     const mod = projectRequire(pkg);
     return Object.keys(mod).filter(
-      (k) => k !== 'default' && k !== '__esModule' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)
+      (k) => k !== 'default' && k !== '__esModule' && isValidJsIdentifier(k)
     );
   } catch {
     return getEsmNamedExports(pkg);

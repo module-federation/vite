@@ -82,6 +82,14 @@ vi.mock('module', async (importOriginal) => {
             __esModule: true,
           };
         }
+        if (pkg === 'mock-package-unicode') {
+          return {
+            ångstrom: 1,
+            café: 2,
+            default: 3,
+            __esModule: true,
+          };
+        }
         if (pkg === 'transitive-pkg') {
           throw new Error('MODULE_NOT_FOUND');
         }
@@ -242,6 +250,28 @@ describe('writeLoadShareModule', () => {
     );
     expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
     expect(generatedCode).not.toContain('export * from');
+  });
+
+  it('keeps valid Unicode named exports when generating shared wrappers', () => {
+    const pkg = 'mock-package-unicode';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const { ångstrom: __mf_0, café: __mf_1 } = exportModule;');
+    expect(generatedCode).toContain('export { __mf_0 as ångstrom, __mf_1 as café };');
   });
 
   it('does not reference prebuild modules when import: false', () => {

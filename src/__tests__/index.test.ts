@@ -69,6 +69,14 @@ function getEarlyInitPlugin(): Plugin {
   const plugin = federation({
     name: 'host',
     filename: 'remoteEntry.js',
+    remotes: {
+      remoteApp: {
+        type: 'module',
+        name: 'remoteApp',
+        entry: 'http://localhost:4174/remoteEntry.js',
+        shareScope: 'default',
+      },
+    },
     shared: {
       vue: {
         singleton: false,
@@ -197,6 +205,25 @@ describe('vite:module-federation-early-init', () => {
 
     expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
     expect(config.optimizeDeps.include).toContain(getLoadShareImportId('vue', false, 'serve'));
+  });
+
+  it('excludes bare remote ids from optimizeDeps in Rolldown serve', () => {
+    const plugin = getEarlyInitPlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({ meta: { rolldownVersion: '1.0.0' } } as any, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.exclude).toContain('remoteApp');
   });
 });
 
