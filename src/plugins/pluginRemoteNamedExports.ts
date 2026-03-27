@@ -541,12 +541,15 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
   const remoteNames = Object.keys(options.remotes);
 
   function isRemoteImport(source: string): boolean {
-    return remoteNames.some((name) => source === name || source.startsWith(name + '/'));
+    return (
+      remoteNames.some((name) => source === name || source.startsWith(name + '/')) ||
+      source.includes(LOAD_REMOTE_TAG)
+    );
   }
 
   return {
     name: 'module-federation-remote-named-exports',
-    enforce: 'pre',
+    enforce: 'post',
     async transform(code: string, id: string) {
       if (remoteNames.length === 0) return;
       // Skip federation internal modules

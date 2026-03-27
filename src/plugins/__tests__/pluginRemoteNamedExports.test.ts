@@ -155,6 +155,14 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain('__moduleExports');
     });
 
+    it('wraps tagged remote imports after Vite rewrites the source id', async () => {
+      const result = await transform(
+        'const m = import("/virtual/remoteApp__loadRemote__utils.js");'
+      );
+      expect(result).toContain('.then(function(__mf_m__)');
+      expect(result).toContain('__moduleExports');
+    });
+
     it('does not wrap non-remote dynamic import', async () => {
       // "remoteApp" is mentioned in a comment, but the import is for lodash
       const code = '// uses remoteApp\nconst m = import("lodash");';
