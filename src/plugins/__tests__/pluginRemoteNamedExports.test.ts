@@ -294,6 +294,22 @@ describe('pluginRemoteNamedExports', () => {
       );
       expect(result).toContain('as myFoo');
     });
+
+    it('rewrites namespace import in raw JSX via regex fallback', async () => {
+      const result = await transform(
+        [
+          'import * as routesRemote from "remoteApp/routes";',
+          '',
+          'export function App() {',
+          '  return <div>{routesRemote.foo}</div>;',
+          '}',
+        ].join('\n'),
+        '/src/app.jsx',
+        true
+      );
+      expect(result).toContain('import { __moduleExports as routesRemote }');
+      expect(result).not.toContain('import * as routesRemote');
+    });
   });
 
   // ── file extension matching ──────────────────────────────────

@@ -22,11 +22,11 @@ import { init as initEsLexer, parse as parseEsImports } from 'es-module-lexer';
 import MagicString from 'magic-string';
 import type { Plugin } from 'vite';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { getIsRolldown } from '../utils/packageUtils';
 import { loadWalk } from '../utils/loadWalk';
 import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
 
 const JS_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?|vue|svelte)(?:\?|$)/;
+const REGEX_FALLBACK_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?)(?:\?|$)/;
 
 // ── Normalized import descriptors ─────────────────────────────────
 
@@ -423,11 +423,122 @@ async function collectFromEsLexer(
   return result;
 }
 
+function collectFromRegex(
+  code: string,
+  isRemoteImport: (source: string) => boolean
+): ImportInfo[] | undefined {
+  const result: ImportInfo[] = [];
+
+  const staticRe = /^\s*import\s+([\s\S]*?)\s+from\s+(['"])([^'"]+)\2\s*;?/gm;
+  for (const match of code.matchAll(staticRe)) {
+    const [full, specifiersPartRaw, , source] = match;
+    if (!isRemoteImport(source)) continue;
+
+    const specifiersPart = specifiersPartRaw.trim();
+    if (/^type\s/.test(specifiersPart)) continue;
+
+    const nsMatch = specifiersPart.match(/^\*\s+as\s+(\w+)$/);
+    if (nsMatch) {
+      result.push({
+        kind: 'static',
+        source,
+        start: match.index!,
+        end: match.index! + full.length,
+        named: [],
+        namespaceLocal: nsMatch[1],
+      });
+      continue;
+    }
+
+    const braceMatch = specifiersPart.match(/\{([^}]*)\}/);
+    if (!braceMatch) continue;
+
+    const namedSpecifiers = braceMatch[1]
+      .split(',')
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0 && !s.startsWith('type '));
+
+    if (namedSpecifiers.length === 0) continue;
+
+    const defaultMatch = specifiersPart.match(/^(\w+)\s*,/);
+    const named = namedSpecifiers.map((s: string) => {
+      const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/);
+      return {
+        imported: asMatch ? asMatch[1] : s,
+        local: asMatch ? asMatch[2] : s,
+      };
+    });
+
+    result.push({
+      kind: 'static',
+      source,
+      start: match.index!,
+      end: match.index! + full.length,
+      named,
+      defaultLocal: defaultMatch?.[1],
+    });
+  }
+
+  const reexportRe = /^\s*export\s+\{([\s\S]*?)\}\s+from\s+(['"])([^'"]+)\2\s*;?/gm;
+  for (const match of code.matchAll(reexportRe)) {
+    const [full, specifiersRaw, , source] = match;
+    if (!isRemoteImport(source)) continue;
+
+    const specs = specifiersRaw
+      .split(',')
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0);
+
+    if (specs.length === 0) continue;
+
+    result.push({
+      kind: 'reexport',
+      source,
+      start: match.index!,
+      end: match.index! + full.length,
+      specifiers: specs.map((s: string) => {
+        const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/);
+        return {
+          local: asMatch ? asMatch[1] : s,
+          exported: asMatch ? asMatch[2] : s,
+        };
+      }),
+    });
+  }
+
+  const exportAllRe = /^\s*export\s+\*\s+from\s+(['"])([^'"]+)\1\s*;?/gm;
+  for (const match of code.matchAll(exportAllRe)) {
+    const [full, , source] = match;
+    if (!isRemoteImport(source)) continue;
+
+    result.push({
+      kind: 'export-all',
+      source,
+      start: match.index!,
+      end: match.index! + full.length,
+    });
+  }
+
+  const dynamicRe = /import\(\s*(['"])([^'"]+)\1\s*\)/g;
+  for (const match of code.matchAll(dynamicRe)) {
+    const [full, , source] = match;
+    if (!isRemoteImport(source)) continue;
+
+    result.push({
+      kind: 'dynamic',
+      start: match.index!,
+      end: match.index! + full.length,
+      originalText: full,
+    });
+  }
+
+  return result.length > 0 ? result : undefined;
+}
+
 // ── Plugin factory ────────────────────────────────────────────────
 
 export function pluginRemoteNamedExports(options: NormalizedModuleFederationOptions): Plugin {
   const remoteNames = Object.keys(options.remotes);
-  let rolldown: boolean | undefined;
 
   function isRemoteImport(source: string): boolean {
     return remoteNames.some((name) => source === name || source.startsWith(name + '/'));
@@ -437,10 +548,6 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
     name: 'module-federation-remote-named-exports',
     enforce: 'pre',
     async transform(code: string, id: string) {
-      // Lazily detect Rolldown on first transform call where this.meta is
-      // guaranteed to be available.
-      rolldown ??= getIsRolldown(this);
-      if (!rolldown) return;
       if (remoteNames.length === 0) return;
       // Skip federation internal modules
       if (id.includes(LOAD_REMOTE_TAG) || id.includes(LOAD_SHARE_TAG)) return;
@@ -461,6 +568,9 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
         imports = await collectFromEsLexer(code, isRemoteImport);
       }
 
+      if ((!imports || imports.length === 0) && REGEX_FALLBACK_EXTENSIONS_RE.test(id)) {
+        imports = collectFromRegex(code, isRemoteImport);
+      }
       if (!imports) return;
       return applyRewrites(code, imports, id);
     },
