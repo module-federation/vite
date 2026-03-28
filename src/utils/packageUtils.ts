@@ -89,11 +89,13 @@ export function getExtFromNpmPackage(packageString: string) {
 }
 
 /**
- * Detect whether the current runtime is Vite 8+ (with rolldown internally) by checking
- * for `meta.rolldownVersion` on the plugin hook context.
+ * Detect whether the current runtime is Vite 8+ by checking for a Vite version flag
+ * on the plugin hook context, with Rolldown metadata kept as a compatibility fallback.
  */
 export function getIsRolldown(ctx: unknown): boolean {
-  return !!(ctx as any)?.meta?.rolldownVersion;
+  const viteVersion = (ctx as any)?.meta?.viteVersion;
+  const viteMajor = Number(String(viteVersion ?? '').split('.')[0]);
+  return (Number.isFinite(viteMajor) && viteMajor >= 8) || !!(ctx as any)?.meta?.rolldownVersion;
 }
 
 export function hasPackageDependency(
