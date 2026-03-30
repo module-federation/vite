@@ -30,8 +30,7 @@ export function proxySharedModule(options: {
   const { shared = {} } = options;
   let _config: ResolvedConfig | undefined;
   let _command = 'serve';
-  let isVinext = false;
-  let isAstro = false;
+  let useDirectReactImport = false;
   const savePrebuild = new PromiseStore<string>();
 
   return [
@@ -57,11 +56,11 @@ export function proxySharedModule(options: {
       config(config: UserConfig, { command }) {
         const root = config.root || process.cwd();
         setPackageDetectionCwd(root);
-        isVinext = hasPackageDependency('vinext');
-        isAstro = hasPackageDependency('astro');
+        const isVinext = hasPackageDependency('vinext');
+        const isAstro = hasPackageDependency('astro');
         const isRolldown = getIsRolldown(this);
         _command = command;
-        const useDirectReactImport = isVinext || isAstro;
+        useDirectReactImport = isVinext || isAstro;
 
         (config.resolve as any).alias.push(
           ...Object.keys(shared)
@@ -166,7 +165,7 @@ export function proxySharedModule(options: {
         const isRolldown = getIsRolldown(this);
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/')) return;
-          if ((isVinext || isAstro) && key === 'react') {
+          if (useDirectReactImport && key === 'react') {
             addUsedShares(key);
             return;
           }
