@@ -2,7 +2,7 @@ import defu from 'defu';
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
-import { Plugin, UserConfig } from 'vite';
+import { normalizePath, Plugin, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
@@ -175,7 +175,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const virtualExposesId = getVirtualExposesId(options);
 
   let command: string;
-  let depsDir = path.sep + path.join('node_modules', '.vite', 'deps') + path.sep;
+  let depsDir = '/node_modules/.vite/deps/';
 
   return [
     // This plugin runs FIRST to create virtual module files before optimization
@@ -220,9 +220,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           const resolved = path.isAbsolute(cacheDir)
             ? cacheDir
             : path.resolve(config.root, cacheDir);
-          depsDir = path.join(resolved, 'deps') + path.sep;
+          depsDir = normalizePath(path.join(resolved, 'deps')) + '/';
         } else {
-          depsDir = path.join(config.root, 'node_modules', '.vite', 'deps') + path.sep;
+          depsDir = normalizePath(path.join(config.root, 'node_modules', '.vite', 'deps')) + '/';
         }
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
