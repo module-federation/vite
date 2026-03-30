@@ -11,19 +11,20 @@ This plugin makes Module Federation work together with [Vite](https://vitejs.dev
 
 ## Working implementations
 
-### [Vue](https://github.com/gioboa/vue-microfrontend-demo)
+Examples live in [`gioboa/module-federation-vite-examples`](https://github.com/gioboa/module-federation-vite-examples):
 
-### [React](https://github.com/gioboa/react-microfrontend-demo)<br>
-
-### [Svelte](https://github.com/gioboa/svelte-microfrontend-demo)<br>
-
-### [SvelteKit](https://github.com/gioboa/sveltekit-microfrontend-demo)<br>
-
-### [SolidJS](https://github.com/gioboa/solid-microfrontend-demo)<br>
-
-### [More examples here](https://github.com/module-federation/vite/tree/main/examples)<br>
-
-Includes a pure runtime host example in [`examples/vite-runtime-register`](./examples/vite-runtime-register).
+| Example                                                                                  | Host            | Remote            | Framework                   |
+| ---------------------------------------------------------------------------------------- | --------------- | ----------------- | --------------------------- |
+| [Alpine](https://github.com/gioboa/module-federation-vite-examples/tree/main/alpine)     | `alpine-host`   | `alpine-remote`   | Alpine.js                   |
+| [Angular](https://github.com/gioboa/module-federation-vite-examples/tree/main/angular)   | `angular-host`  | `angular-remote`  | Angular                     |
+| [Lit](https://github.com/gioboa/module-federation-vite-examples/tree/main/lit)           | `lit-host`      | `lit-remote`      | Lit                         |
+| [Nuxt](https://github.com/gioboa/module-federation-vite-examples/tree/main/nuxt)         | `nuxt-host`     | `nuxt-remote`     | Nuxt 4                      |
+| [React](https://github.com/gioboa/module-federation-vite-examples/tree/main/react)       | `react-host`    | `react-remote`    | React 19                    |
+| [Solid](https://github.com/gioboa/module-federation-vite-examples/tree/main/solid)       | `solid-host`    | `solid-remote`    | Solid                       |
+| [Svelte](https://github.com/gioboa/module-federation-vite-examples/tree/main/svelte)     | `svelte-host`   | `svelte-remote`   | Svelte 5                    |
+| [TanStack](https://github.com/gioboa/module-federation-vite-examples/tree/main/tanstack) | `tanstack-host` | `tanstack-remote` | TanStack Router + React 19  |
+| [Vinext](https://github.com/gioboa/module-federation-vite-examples/tree/main/vinext)     | `vinext-host`   | `vinext-remote`   | Vinext + Next 16 + React 19 |
+| [Vue](https://github.com/gioboa/module-federation-vite-examples/tree/main/vue)           | `vue-host`      | `vue-remote`      | Vue 3                       |
 
 ## Try this crazy example with all these bundlers together
 
