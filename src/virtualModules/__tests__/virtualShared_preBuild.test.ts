@@ -6,6 +6,7 @@ const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
   mfWarnSpy: vi.fn(),
 }));
+const parseSpy = vi.hoisted(() => vi.fn((source: string) => [[], []]));
 
 const { hasPackageDependencyMock } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn(() => false),
@@ -35,7 +36,15 @@ vi.mock('fs', () => ({
   existsSync: vi.fn(
     (filePath: string) =>
       filePath.endsWith('node_modules/mock-package-esm-only/package.json') ||
-      filePath.endsWith('/mock-package-esm-only/package.json')
+      filePath.endsWith('/mock-package-esm-only/package.json') ||
+      filePath.endsWith('node_modules/mock-package-typeonly/package.json') ||
+      filePath.endsWith('/mock-package-typeonly/package.json') ||
+      filePath.endsWith('node_modules/mock-package-runtime-type/package.json') ||
+      filePath.endsWith('/mock-package-runtime-type/package.json') ||
+      filePath.endsWith('node_modules/mock-package-reexport-type/package.json') ||
+      filePath.endsWith('/mock-package-reexport-type/package.json') ||
+      filePath.endsWith('node_modules/mock-package-generator-export/package.json') ||
+      filePath.endsWith('/mock-package-generator-export/package.json')
   ),
   readFileSync: vi.fn((filePath: string) => {
     if (
@@ -54,6 +63,76 @@ vi.mock('fs', () => ({
     if (filePath.endsWith('node_modules/mock-package-esm-only/dist/stores.js')) {
       return 'export const useCounter = () => 1; export function useLogger() {}';
     }
+    if (
+      filePath.endsWith('node_modules/mock-package-typeonly/package.json') ||
+      filePath.endsWith('/mock-package-typeonly/package.json')
+    ) {
+      return JSON.stringify({
+        name: 'mock-package-typeonly',
+        type: 'module',
+        module: './src/index.jsx',
+        exports: {
+          '.': './src/index.jsx',
+        },
+      });
+    }
+    if (filePath.endsWith('node_modules/mock-package-typeonly/src/index.jsx')) {
+      return `// __TYPE_ONLY_EXPORT__
+export { type TestType, SharedCounter2 } from './foo';`;
+    }
+    if (
+      filePath.endsWith('node_modules/mock-package-runtime-type/package.json') ||
+      filePath.endsWith('/mock-package-runtime-type/package.json')
+    ) {
+      return JSON.stringify({
+        name: 'mock-package-runtime-type',
+        type: 'module',
+        module: './src/index.js',
+        exports: {
+          '.': './src/index.js',
+        },
+      });
+    }
+    if (filePath.endsWith('node_modules/mock-package-runtime-type/src/index.js')) {
+      return `// __RUNTIME_TYPE_EXPORT__
+export const type = 1;
+export const other = 2;`;
+    }
+    if (
+      filePath.endsWith('node_modules/mock-package-reexport-type/package.json') ||
+      filePath.endsWith('/mock-package-reexport-type/package.json')
+    ) {
+      return JSON.stringify({
+        name: 'mock-package-reexport-type',
+        type: 'module',
+        module: './src/index.js',
+        exports: {
+          '.': './src/index.js',
+        },
+      });
+    }
+    if (filePath.endsWith('node_modules/mock-package-reexport-type/src/index.js')) {
+      return `// __RUNTIME_REEXPORT_TYPE__
+export { type, other } from './foo';`;
+    }
+    if (
+      filePath.endsWith('node_modules/mock-package-generator-export/package.json') ||
+      filePath.endsWith('/mock-package-generator-export/package.json')
+    ) {
+      return JSON.stringify({
+        name: 'mock-package-generator-export',
+        type: 'module',
+        module: './src/index.js',
+        exports: {
+          '.': './src/index.js',
+        },
+      });
+    }
+    if (filePath.endsWith('node_modules/mock-package-generator-export/src/index.js')) {
+      return `export function*loader() {
+  yield 1;
+}`;
+    }
     throw new Error(`Unexpected readFileSync path: ${filePath}`);
   }),
 }));
@@ -69,12 +148,21 @@ vi.mock('module', async (importOriginal) => {
         if (pkg === 'es-module-lexer') {
           return {
             initSync: vi.fn(),
-            parse: vi.fn((source: string) => [
-              [],
-              source.includes('useCounter')
-                ? [{ n: 'useCounter' }, { n: 'useLogger' }, { n: 'default' }]
-                : [],
-            ]),
+            parse: parseSpy.mockImplementation((source: string) => {
+              if (source.includes('useCounter')) {
+                return [[], [{ n: 'useCounter' }, { n: 'useLogger' }, { n: 'default' }]];
+              }
+              if (source.includes('__TYPE_ONLY_EXPORT__')) {
+                return [[], [{ n: 'type' }]];
+              }
+              if (source.includes('__RUNTIME_TYPE_EXPORT__')) {
+                return [[], [{ n: 'type' }, { n: 'other' }]];
+              }
+              if (source.includes('__RUNTIME_REEXPORT_TYPE__')) {
+                return [[], [{ n: 'type' }]];
+              }
+              return [[], []];
+            }),
           };
         }
         if (pkg === 'mock-package-with-reserved') {
@@ -102,6 +190,29 @@ vi.mock('module', async (importOriginal) => {
           (error as Error & { code?: string }).code = 'ERR_PACKAGE_PATH_NOT_EXPORTED';
           throw error;
         }
+        if (pkg === 'mock-package-typeonly' || pkg.startsWith('mock-package-typeonly/')) {
+          const error = new Error('ERR_REQUIRE_ESM');
+          (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
+          throw error;
+        }
+        if (pkg === 'mock-package-runtime-type' || pkg.startsWith('mock-package-runtime-type/')) {
+          const error = new Error('ERR_REQUIRE_ESM');
+          (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
+          throw error;
+        }
+        if (pkg === 'mock-package-reexport-type' || pkg.startsWith('mock-package-reexport-type/')) {
+          const error = new Error('ERR_REQUIRE_ESM');
+          (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
+          throw error;
+        }
+        if (
+          pkg === 'mock-package-generator-export' ||
+          pkg.startsWith('mock-package-generator-export/')
+        ) {
+          const error = new Error('ERR_REQUIRE_ESM');
+          (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
+          throw error;
+        }
         return {};
       }) as NodeJS.Require;
 
@@ -114,6 +225,24 @@ vi.mock('module', async (importOriginal) => {
         }
         if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
           return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
+        }
+        if (pkg === 'mock-package-typeonly' || pkg.startsWith('mock-package-typeonly/')) {
+          return '/repo/apps/remote/node_modules/mock-package-typeonly/src/index.jsx';
+        }
+        if (pkg === 'mock-package-runtime-type' || pkg.startsWith('mock-package-runtime-type/')) {
+          return '/repo/apps/remote/node_modules/mock-package-runtime-type/src/index.js';
+        }
+        if (pkg === 'workspace-shared-lib') {
+          return '/repo/packages/workspace-shared-lib/src/index.tsx';
+        }
+        if (pkg === 'mock-package-reexport-type' || pkg.startsWith('mock-package-reexport-type/')) {
+          return '/repo/apps/remote/node_modules/mock-package-reexport-type/src/index.js';
+        }
+        if (
+          pkg === 'mock-package-generator-export' ||
+          pkg.startsWith('mock-package-generator-export/')
+        ) {
+          return '/repo/apps/remote/node_modules/mock-package-generator-export/src/index.js';
         }
         return `/resolved/${pkg}`;
       };
@@ -129,6 +258,7 @@ describe('writeLoadShareModule', () => {
     mfWarnSpy.mockClear();
     hasPackageDependencyMock.mockReset();
     hasPackageDependencyMock.mockReturnValue(false);
+    parseSpy.mockClear();
   });
 
   it('should alias named exports instead of using bare identifiers to avoid syntax errors', () => {
@@ -449,5 +579,147 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('import "/repo/packages/pkg-b/dist/index.js";');
     expect(generatedCode).toContain('export * from "/repo/packages/pkg-b/dist/index.js"');
     expect(generatedCode).not.toContain('import "mock-import-id";');
+  });
+
+  it('detects runtime exports from export { type X, Y } syntax', () => {
+    const pkg = 'mock-package-typeonly';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(parseSpy).toHaveBeenCalledWith(
+      expect.stringContaining('__TYPE_ONLY_EXPORT__'),
+      expect.anything()
+    );
+    expect(generatedCode).toContain('const { SharedCounter2: __mf_0 } = exportModule;');
+    expect(generatedCode).toContain('export { __mf_0 as SharedCounter2 };');
+    expect(generatedCode).not.toContain('as type');
+    expect(mfWarnSpy).not.toHaveBeenCalled();
+  });
+
+  it('preserves legitimate runtime exports named type', () => {
+    const pkg = 'mock-package-runtime-type';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const { type: __mf_0, other: __mf_1 } = exportModule;');
+    expect(generatedCode).toContain('export { __mf_0 as type, __mf_1 as other };');
+  });
+
+  it('preserves legitimate bare re-exports named type', () => {
+    const pkg = 'mock-package-reexport-type';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const { type: __mf_0, other: __mf_1 } = exportModule;');
+    expect(generatedCode).toContain('export { __mf_0 as type, __mf_1 as other };');
+  });
+
+  it('detects generator function exports via regex fallback, including function* spacing variations', () => {
+    const pkg = 'mock-package-generator-export';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const { loader: __mf_0 } = exportModule;');
+    expect(generatedCode).toContain('export { __mf_0 as loader };');
+  });
+
+  it('does not emit duplicate side-effect imports for workspace singletons in serve mode', () => {
+    const pkg = 'workspace-shared-lib';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('import "mock-import-id";');
+    expect(generatedCode).not.toContain('import("workspace-shared-lib")');
+  });
+
+  it('does not emit duplicate side-effect imports for parent-root workspace packages in serve mode', () => {
+    const pkg = 'transitive-pkg';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('import "/repo/packages/pkg-b/dist/index.js";');
+    expect(generatedCode).not.toContain('import("transitive-pkg")');
   });
 });
