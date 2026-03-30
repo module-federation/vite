@@ -2,7 +2,7 @@ import defu from 'defu';
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
-import { Plugin, UserConfig } from 'vite';
+import { normalizePath, Plugin, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
@@ -175,6 +175,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const virtualExposesId = getVirtualExposesId(options);
 
   let command: string;
+  let cacheDir = '';
 
   return [
     // This plugin runs FIRST to create virtual module files before optimization
@@ -214,6 +215,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
         initVirtualModules(command, remoteEntryId);
+        cacheDir = `${normalizePath(config.cacheDir).replace(/\/$/, '')}/deps/`;
       },
     },
     aliasToArrayPlugin,
@@ -635,7 +637,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       apply: 'serve',
       enforce: 'post',
       transform(code, id) {
-        if (!id.includes('.vite/deps/')) return;
+        const normalizedId = normalizePath(id).replace(/[?#].*$/, '');
+        if (!cacheDir || !normalizedId.startsWith(cacheDir)) return;
         // Find all init__loadShare__ calls that are used synchronously
         // inside CJS wrappers (comma expressions) and add top-level await
         const initPattern = /\b(init_\w+__loadShare__\w+)\b/g;

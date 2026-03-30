@@ -400,3 +400,70 @@ describe('module-federation-fix-preload', () => {
     expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
   });
 });
+
+describe('module-federation-dev-await-shared-init', () => {
+  it('matches pre-bundled files using configured cacheDir', () => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    });
+
+    const configPlugin = plugins.find((entry) => entry.name === 'vite:module-federation-config');
+    const awaitPlugin = plugins.find(
+      (entry) => entry.name === 'module-federation-dev-await-shared-init'
+    );
+
+    if (!configPlugin) throw new Error('vite:module-federation-config plugin not found');
+    if (!awaitPlugin) throw new Error('module-federation-dev-await-shared-init plugin not found');
+
+    configPlugin.configResolved?.call(
+      {} as any,
+      {
+        cacheDir: '/Users/project/node_modules/.vite/_myapp_static_/',
+      } as any
+    );
+
+    const inputCode = 'import "react";\ninit_abc__loadShare__react();\n';
+    const output = awaitPlugin.transform?.(
+      inputCode,
+      '/Users/project/node_modules/.vite/_myapp_static_/deps/react.js?import'
+    );
+    const outputCode = typeof output === 'string' ? output : output?.code;
+    expect(outputCode).toContain('await init_abc__loadShare__react();');
+  });
+
+  it.each([
+    {
+      label: 'when cacheDir is only a substring',
+      path: '/tmp/some/other/path/Users/project/node_modules/.vite/_myapp_static_/deps/react.js',
+    },
+    {
+      label: 'outside configured cacheDir',
+      path: '/Users/project/src/components/app.ts',
+    },
+  ])('skips transform for files outside configured cacheDir ($label)', ({ path }) => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    });
+
+    const configPlugin = plugins.find((entry) => entry.name === 'vite:module-federation-config');
+    const awaitPlugin = plugins.find(
+      (entry) => entry.name === 'module-federation-dev-await-shared-init'
+    );
+
+    if (!configPlugin) throw new Error('vite:module-federation-config plugin not found');
+    if (!awaitPlugin) throw new Error('module-federation-dev-await-shared-init plugin not found');
+
+    configPlugin.configResolved?.call(
+      {} as any,
+      {
+        cacheDir: '/Users/project/node_modules/.vite/_myapp_static_',
+      } as any
+    );
+
+    const inputCode = 'import "react";\ninit_abc__loadShare__react();\n';
+    const output = awaitPlugin.transform?.(inputCode, path);
+    expect(output).toBeUndefined();
+  });
+});
