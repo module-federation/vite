@@ -19,6 +19,7 @@ Examples live in [`gioboa/module-federation-vite-examples`](https://github.com/g
 | [Angular](https://github.com/gioboa/module-federation-vite-examples/tree/main/angular)   | `angular-host`  | `angular-remote`  | Angular                     |
 | [Lit](https://github.com/gioboa/module-federation-vite-examples/tree/main/lit)           | `lit-host`      | `lit-remote`      | Lit                         |
 | [Nuxt](https://github.com/gioboa/module-federation-vite-examples/tree/main/nuxt)         | `nuxt-host`     | `nuxt-remote`     | Nuxt 4                      |
+| [Preact](https://github.com/gioboa/module-federation-vite-examples/tree/main/preact)     | `preact-host`   | `preact-remote`   | Preact 10                   |
 | [React](https://github.com/gioboa/module-federation-vite-examples/tree/main/react)       | `react-host`    | `react-remote`    | React 19                    |
 | [Solid](https://github.com/gioboa/module-federation-vite-examples/tree/main/solid)       | `solid-host`    | `solid-remote`    | Solid                       |
 | [Svelte](https://github.com/gioboa/module-federation-vite-examples/tree/main/svelte)     | `svelte-host`   | `svelte-remote`   | Svelte 5                    |
