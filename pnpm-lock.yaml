@@ -9,14 +9,14 @@ importers:
   .:
     dependencies:
       '@module-federation/dts-plugin':
-        specifier: 2.2.3
-        version: 2.2.3(typescript@5.9.3)
+        specifier: 2.3.0
+        version: 2.3.0(typescript@5.9.3)
       '@module-federation/runtime':
-        specifier: 2.2.3
-        version: 2.2.3
+        specifier: 2.3.0
+        version: 2.3.0
       '@module-federation/sdk':
-        specifier: 2.2.3
-        version: 2.2.3
+        specifier: 2.3.0
+        version: 2.3.0
       '@rollup/pluginutils':
         specifier: ^5.3.0
         version: 5.3.0(rollup@4.47.1)
@@ -2363,8 +2363,8 @@ packages:
       vue-tsc:
         optional: true
 
-  '@module-federation/dts-plugin@2.2.3':
-    resolution: {integrity: sha512-a7Rv2nPJGLufeeOFiLmgRNxw97peAB+SjyBZdpPa3g5ojOEdhZYxdpB15RYiyOtPUc7PhZsSvfYKgj4cEU8f1w==}
+  '@module-federation/dts-plugin@2.3.0':
+    resolution: {integrity: sha512-2Y11IjQNuMuIXhsOeW7Vd/Ui/RzRPhR+6XFzQaJKuxy6xNk6j/s9iIZVg66gxvSQlUtPzvlpeXEAc6NLPlg3Ew==}
     peerDependencies:
       typescript: ^4.9.0 || ^5.0.0
       vue-tsc: '>=1.0.24'
@@ -2392,14 +2392,17 @@ packages:
   '@module-federation/error-codes@2.2.3':
     resolution: {integrity: sha512-3+qOylnuljh1XulzXd3iNhALXuVXPVGFUupz9qnUL1paWX48F89Wex3egu6psZhxi3F7y7TA7ykjfWpP0vlrjQ==}
 
+  '@module-federation/error-codes@2.3.0':
+    resolution: {integrity: sha512-O8jXi0Wv/dFc7BkJkFC0SlW8dT0OjOWvBHakVaOAKVlAKNuQBXfZzLe48bIYAvMhPe0lFppyWoN/SyuIfVBvkg==}
+
   '@module-federation/managers@0.2.5':
     resolution: {integrity: sha512-bGCJlWZUp4U0YTdFqJA4ePbjzJADgr9t+ZEoqeDuKVzYtJwnMfOJBMHEYhaH3SYE5czEzm2fXcvssLYWe0FWOg==}
 
   '@module-federation/managers@0.21.6':
     resolution: {integrity: sha512-BeV6m2/7kF5MDVz9JJI5T8h8lMosnXkH2bOxxFewcra7ZjvDOgQu7WIio0mgk5l1zjNPvnEVKhnhrenEdcCiWg==}
 
-  '@module-federation/managers@2.2.3':
-    resolution: {integrity: sha512-xBv2hg88K4QIPVYKNAYm+LnH5hRuTPGeFya2obSxalagnMb6lEw7Gko5QqXAZDgCK44dkuqslu8/YtMEXc3v7w==}
+  '@module-federation/managers@2.3.0':
+    resolution: {integrity: sha512-LDPzSJV4RvGDABkhwwNYUVWakbfHDySHDoEJIlc6KhvdwUlivtn90Ay7uNIdz9FhhGeb338io87IctfxquSqWQ==}
 
   '@module-federation/manifest@0.2.5':
     resolution: {integrity: sha512-WCJs7tUqfj1NIa6XXD3wB8FdwQXTLyYWDKGgQtc6Z9wsFcpwADnrd2QHR4yZvjQyRAMQnaugLpK01lefP+0l+g==}
@@ -2412,6 +2415,9 @@ packages:
 
   '@module-federation/runtime-core@2.2.3':
     resolution: {integrity: sha512-muGMkv1AQIkCQy8mIa6lmgHu3qTasl/se+bZHERulD3gddK6ninM/Hc7mHyUVNO9rVhb+5Fv7QiCYahH4pRrIg==}
+
+  '@module-federation/runtime-core@2.3.0':
+    resolution: {integrity: sha512-OvBNIAGM7Xj0dUOBG5jx7zuZaRLDHb5Wcb7pstwqJo5WYqj7gzA9X+QmI+jsQ9jY74Nlfx9vrvW6LlHukIRH/A==}
 
   '@module-federation/runtime-tools@0.1.6':
     resolution: {integrity: sha512-7ILVnzMIa0Dlc0Blck5tVZG1tnk1MmLnuZpLOMpbdW+zl+N6wdMjjHMjEZFCUAJh2E5XJ3BREwfX8Ets0nIkLg==}
@@ -2437,6 +2443,9 @@ packages:
   '@module-federation/runtime@2.2.3':
     resolution: {integrity: sha512-5xAIPhzNPLXL7J61ZJxNiM+kpKfKw2IKf4oAT1KFVxntZnnWZiZFAkzTeRiNlfIjwbgasKqBoARTLbu1GEaydA==}
 
+  '@module-federation/runtime@2.3.0':
+    resolution: {integrity: sha512-9vv0Ah8Tg3E5mBlj29n1boN0bPKbqhw7QBWZCDm2Mou0uXb8x/ycgFR1EPq937LCScBUl0LiFp53KSjeyT75aQ==}
+
   '@module-federation/sdk@0.1.6':
     resolution: {integrity: sha512-qifXpyYLM7abUeEOIfv0oTkguZgRZuwh89YOAYIZJlkP6QbRG7DJMQvtM8X2yHXm9PTk0IYNnOJH0vNQCo6auQ==}
 
@@ -2457,14 +2466,22 @@ packages:
       node-fetch:
         optional: true
 
+  '@module-federation/sdk@2.3.0':
+    resolution: {integrity: sha512-xj90q4eILkFA1J30wVQYEIWAEh39tfLbCIw1dz3QXUL2TtD/h19H1rZlRkrtAyUxV6xKjp17EMkyGSHzstf1OA==}
+    peerDependencies:
+      node-fetch: ^3.3.2
+    peerDependenciesMeta:
+      node-fetch:
+        optional: true
+
   '@module-federation/third-party-dts-extractor@0.2.5':
     resolution: {integrity: sha512-DsbdGttJaidkmBCSfnRSDXy1EbUnnLKl9JnLJiPfCMoaUrsfLKMrBuzkxXlYNLuOzZDvRP/kzDSKmduKfqA4Ew==}
 
   '@module-federation/third-party-dts-extractor@0.21.6':
     resolution: {integrity: sha512-Il6x4hLsvCgZNk1DFwuMBNeoxD1BsZ5AW2BI/nUgu0k5FiAvfcz1OFawRFEHtaM/kVrCsymMOW7pCao90DaX3A==}
 
-  '@module-federation/third-party-dts-extractor@2.2.3':
-    resolution: {integrity: sha512-PweNCC79K+fV/BxBjnkJnK1xrrSq9rWmqZat2CfmxStwPhO9yy5Q7XikZnwwUF7mb4p7WoniQRsz//h1aYUdqw==}
+  '@module-federation/third-party-dts-extractor@2.3.0':
+    resolution: {integrity: sha512-UMGujleD7+rsKqMz/If/8N2Pws219PuJmwz8E/frFUpUW7zo/4Txekhh6Jfz1HnbHdxr0vWqQMx1rqnpPlzeuQ==}
 
   '@module-federation/vite@1.11.0':
     resolution: {integrity: sha512-dawLMF1JUt/4IUwQh7dUF5TBcetGg3qPKBX+hCFL2aHFd8m3EI+HmGc4qIGVlGZMub6mpTIGo9EHfhV5cDIOmQ==}
@@ -9417,12 +9434,12 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@module-federation/dts-plugin@2.2.3(typescript@5.9.3)':
+  '@module-federation/dts-plugin@2.3.0(typescript@5.9.3)':
     dependencies:
-      '@module-federation/error-codes': 2.2.3
-      '@module-federation/managers': 2.2.3
-      '@module-federation/sdk': 2.2.3
-      '@module-federation/third-party-dts-extractor': 2.2.3
+      '@module-federation/error-codes': 2.3.0
+      '@module-federation/managers': 2.3.0
+      '@module-federation/sdk': 2.3.0
+      '@module-federation/third-party-dts-extractor': 2.3.0
       adm-zip: 0.5.16
       ansi-colors: 4.1.3
       axios: 1.13.6
@@ -9430,7 +9447,6 @@ snapshots:
       fs-extra: 9.1.0
       isomorphic-ws: 5.0.0(ws@8.18.0)
       lodash.clonedeepwith: 4.5.0
-      log4js: 6.9.1
       node-schedule: 2.1.1
       rambda: 9.4.1
       typescript: 5.9.3
@@ -9439,7 +9455,6 @@ snapshots:
       - bufferutil
       - debug
       - node-fetch
-      - supports-color
       - utf-8-validate
 
   '@module-federation/enhanced@0.2.5(typescript@5.5.3)(webpack@5.97.1(esbuild@0.27.3))':
@@ -9466,6 +9481,8 @@ snapshots:
 
   '@module-federation/error-codes@2.2.3': {}
 
+  '@module-federation/error-codes@2.3.0': {}
+
   '@module-federation/managers@0.2.5':
     dependencies:
       '@module-federation/sdk': 0.2.5
@@ -9478,9 +9495,9 @@ snapshots:
       find-pkg: 2.0.0
       fs-extra: 9.1.0
 
-  '@module-federation/managers@2.2.3':
+  '@module-federation/managers@2.3.0':
     dependencies:
-      '@module-federation/sdk': 2.2.3
+      '@module-federation/sdk': 2.3.0
       find-pkg: 2.0.0
       fs-extra: 9.1.0
     transitivePeerDependencies:
@@ -9529,6 +9546,13 @@ snapshots:
     transitivePeerDependencies:
       - node-fetch
 
+  '@module-federation/runtime-core@2.3.0':
+    dependencies:
+      '@module-federation/error-codes': 2.3.0
+      '@module-federation/sdk': 2.3.0
+    transitivePeerDependencies:
+      - node-fetch
+
   '@module-federation/runtime-tools@0.1.6':
     dependencies:
       '@module-federation/runtime': 0.1.6
@@ -9570,6 +9594,14 @@ snapshots:
     transitivePeerDependencies:
       - node-fetch
 
+  '@module-federation/runtime@2.3.0':
+    dependencies:
+      '@module-federation/error-codes': 2.3.0
+      '@module-federation/runtime-core': 2.3.0
+      '@module-federation/sdk': 2.3.0
+    transitivePeerDependencies:
+      - node-fetch
+
   '@module-federation/sdk@0.1.6': {}
 
   '@module-federation/sdk@0.2.5': {}
@@ -9579,6 +9611,8 @@ snapshots:
   '@module-federation/sdk@0.5.1': {}
 
   '@module-federation/sdk@2.2.3': {}
+
+  '@module-federation/sdk@2.3.0': {}
 
   '@module-federation/third-party-dts-extractor@0.2.5':
     dependencies:
@@ -9592,7 +9626,7 @@ snapshots:
       fs-extra: 9.1.0
       resolve: 1.22.8
 
-  '@module-federation/third-party-dts-extractor@2.2.3':
+  '@module-federation/third-party-dts-extractor@2.3.0':
     dependencies:
       find-pkg: 2.0.0
       fs-extra: 9.1.0
