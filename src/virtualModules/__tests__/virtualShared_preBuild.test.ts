@@ -7,12 +7,16 @@ const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   mfWarnSpy: vi.fn(),
 }));
 
+const { hasPackageDependencyMock } = vi.hoisted(() => ({
+  hasPackageDependencyMock: vi.fn(() => false),
+}));
+
 vi.mock('../../utils/logger', () => ({
   mfWarn: mfWarnSpy,
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
-  hasPackageDependency: vi.fn(() => false),
+  hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
 }));
 
@@ -123,6 +127,8 @@ describe('writeLoadShareModule', () => {
   beforeEach(() => {
     writeSyncSpy.mockClear();
     mfWarnSpy.mockClear();
+    hasPackageDependencyMock.mockReset();
+    hasPackageDependencyMock.mockReturnValue(false);
   });
 
   it('should alias named exports instead of using bare identifiers to avoid syntax errors', () => {
@@ -225,6 +231,32 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('import "/abs/pkg-b/dist/index.js";');
     expect(generatedCode).toContain('export * from "/abs/pkg-b/dist/index.js"');
     expect(generatedCode).not.toContain('import "mock-import-id";');
+  });
+
+  it('uses SSR provider fallback for react in Astro build output', () => {
+    hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'astro');
+
+    const pkg = 'react';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '19.2.4',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^19.2.4',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const providerModulePromise = typeof window === "undefined"');
+    expect(generatedCode).toContain(
+      '? ((await providerModulePromise)?.default ?? await providerModulePromise)'
+    );
   });
 
   it('falls back to parsing ESM exports when require() cannot load the shared package', () => {

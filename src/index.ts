@@ -743,13 +743,16 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           config.optimizeDeps.needsInterop.push(getLocalSharedImportMapPath());
         }
 
+        const isAstro = hasPackageDependency('astro');
         // Resolve target: explicit option > SSR detection > 'web'
         const resolvedTarget = options.target ?? (config.build?.ssr ? 'node' : 'web');
+        const envTargetDefineValue =
+          !options.target && isAstro ? 'undefined' : JSON.stringify(resolvedTarget);
 
         // Set ENV_TARGET define for tree-shaking Node.js code from the federation runtime
         if (!config.define) config.define = {};
         if (!('ENV_TARGET' in config.define)) {
-          config.define['ENV_TARGET'] = JSON.stringify(resolvedTarget);
+          config.define['ENV_TARGET'] = envTargetDefineValue;
         }
 
         if (

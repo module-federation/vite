@@ -356,7 +356,8 @@ export function writeLoadShareModule(
 
   // Normal path: package is installed locally, create full loadShare with prebuild fallback.
   const isVinext = hasPackageDependency('vinext');
-  const useSsrProviderFallback = isVinext && command === 'build' && pkg === 'react';
+  const isAstro = hasPackageDependency('astro');
+  const useSsrProviderFallback = (isVinext || isAstro) && command === 'build' && pkg === 'react';
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
   const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg);
   const devImportSource = concreteSharedImportSource || pkg;

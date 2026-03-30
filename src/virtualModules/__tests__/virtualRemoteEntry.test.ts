@@ -100,6 +100,16 @@ describe('virtualRemoteEntry', () => {
       name: 'keeps react as a direct import in localSharedImportMap when vinext is enabled',
       pkg: 'react',
       hasVinext: true,
+      hasAstro: false,
+      expectedImport: 'let pkg = await import("react");',
+      expectedExportShape: '? (res?.default ?? res)',
+      unexpectedImport: 'virtual:shared-provider:react',
+    },
+    {
+      name: 'keeps react as a direct import in localSharedImportMap when astro is enabled',
+      pkg: 'react',
+      hasVinext: false,
+      hasAstro: true,
       expectedImport: 'let pkg = await import("react");',
       expectedExportShape: '? (res?.default ?? res)',
       unexpectedImport: 'virtual:shared-provider:react',
@@ -108,6 +118,7 @@ describe('virtualRemoteEntry', () => {
       name: 'uses shared provider for react in localSharedImportMap when vinext is disabled',
       pkg: 'react',
       hasVinext: false,
+      hasAstro: false,
       expectedImport: 'let pkg = await import("virtual:prebuild:react");',
       expectedExportShape: ': {...res}',
       unexpectedImport: 'let pkg = await import("react");',
@@ -116,6 +127,7 @@ describe('virtualRemoteEntry', () => {
       name: 'uses prebuild import for non-react modules in localSharedImportMap',
       pkg: 'vue',
       hasVinext: true,
+      hasAstro: false,
       expectedImport: 'let pkg = await import("virtual:prebuild:vue");',
       expectedExportShape: ': {...res}',
       unexpectedImport: 'let pkg = await import("vue");',
@@ -123,7 +135,9 @@ describe('virtualRemoteEntry', () => {
   ]) {
     it(testCase.name, async () => {
       hasPackageDependencyMock.mockImplementation((pkg: string) => {
-        return pkg === 'vinext' ? testCase.hasVinext : false;
+        if (pkg === 'vinext') return testCase.hasVinext;
+        if (pkg === 'astro') return testCase.hasAstro;
+        return false;
       });
 
       const mod = await import('../virtualRemoteEntry');

@@ -42,6 +42,8 @@ export function writeLocalSharedImportMap() {
 }
 export function generateLocalSharedImportMap() {
   const isVinext = hasPackageDependency('vinext');
+  const isAstro = hasPackageDependency('astro');
+  const useDirectReactImport = isVinext || isAstro;
   const options = getNormalizeModuleFederationOptions();
   return `
     import {loadShare} from "@module-federation/runtime";
@@ -55,7 +57,7 @@ export function generateLocalSharedImportMap() {
           ${
             shareItem?.shareConfig.import === false
               ? `throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
-              : isVinext && pkg === 'react'
+              : useDirectReactImport && pkg === 'react'
                 ? `let pkg = await import("react");
             return pkg;`
                 : `let pkg = await import(${JSON.stringify(getSharedImportSource(pkg, shareItem))});
@@ -86,7 +88,7 @@ export function generateLocalSharedImportMap() {
               usedShared[${JSON.stringify(key)}].loaded = true
               const {${JSON.stringify(key)}: pkgDynamicImport} = importMap
               const res = await pkgDynamicImport()
-              const exportModule = ${JSON.stringify(isVinext)} && ${JSON.stringify(key)} === "react"
+              const exportModule = ${JSON.stringify(useDirectReactImport)} && ${JSON.stringify(key)} === "react"
                 ? (res?.default ?? res)
                 : {...res}
               // All npm packages pre-built by vite will be converted to esm
