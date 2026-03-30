@@ -47,6 +47,14 @@ function isValidJsIdentifier(name: string): boolean {
   return /^[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*$/u.test(name);
 }
 
+function isValidEsmExportName(name: string | undefined): name is string {
+  return !!name && name !== 'default' && name !== '__esModule' && isValidJsIdentifier(name);
+}
+
+const JS_IDENTIFIER_START = '[$_\\p{ID_Start}]';
+const JS_IDENTIFIER_CONTINUE = '[$_\\u200C\\u200D\\p{ID_Continue}]';
+const JS_IDENTIFIER_PATTERN = `${JS_IDENTIFIER_START}${JS_IDENTIFIER_CONTINUE}*`;
+
 const localRequire = createRequire(import.meta.url);
 
 function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
@@ -165,24 +173,66 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
 }
 
 function getEsmNamedExports(pkg: string): string[] {
+  let source = '';
   try {
     const entryPath = getPackageEsmEntryPath(pkg);
     if (!entryPath) return [];
 
     const { initSync, parse } = localRequire('es-module-lexer') as typeof import('es-module-lexer');
     initSync();
-    const source = readFileSync(entryPath, 'utf-8');
+    source = readFileSync(entryPath, 'utf-8');
     const [, exports] = parse(source, entryPath);
 
-    return exports
+    const names = exports
       .map((item) => item.n)
-      .filter(
-        (name): name is string =>
-          !!name && name !== 'default' && name !== '__esModule' && isValidJsIdentifier(name)
-      );
+      .filter((name): name is string => isValidEsmExportName(name));
+    const regexNames = getNamedExportsViaRegex(source);
+    const filteredNames = names.filter((name) => name !== 'type' || regexNames.includes(name));
+
+    if (filteredNames.length > 0) return [...new Set([...filteredNames, ...regexNames])];
+
+    return regexNames;
   } catch {
-    return [];
+    return source ? getNamedExportsViaRegex(source) : [];
   }
+}
+
+function getNamedExportsViaRegex(source: string): string[] {
+  const names = new Set<string>();
+
+  const declRegex = new RegExp(
+    `export\\s+(?:async\\s+)?(?:` +
+      `function(?:\\*\\s*|\\s+\\*?\\s*)` +
+      `|const\\s+|let\\s+|var\\s+|class\\s+)(${JS_IDENTIFIER_PATTERN})`,
+    'gu'
+  );
+  let match: RegExpExecArray | null;
+  while ((match = declRegex.exec(source)) !== null) {
+    const name = match[1];
+    if (isValidEsmExportName(name)) names.add(name);
+  }
+
+  const listRegex = /export\s*\{([^}]+)\}/g;
+  const typeOnlySpecifierRegex = new RegExp(
+    `^type\\s+${JS_IDENTIFIER_PATTERN}(?:\\s+as\\s+${JS_IDENTIFIER_PATTERN})?$`,
+    'u'
+  );
+  const exportSpecifierRegex = new RegExp(`(?:\\S+\\s+as\\s+)?(${JS_IDENTIFIER_PATTERN})$`, 'u');
+  while ((match = listRegex.exec(source)) !== null) {
+    const specifiers = match[1].split(',');
+    for (const specifier of specifiers) {
+      const trimmed = specifier.trim();
+      if (typeOnlySpecifierRegex.test(trimmed)) {
+        continue;
+      }
+      const asMatch = trimmed.match(exportSpecifierRegex);
+      if (!asMatch) continue;
+      const name = asMatch[1];
+      if (isValidEsmExportName(name)) names.add(name);
+    }
+  }
+
+  return [...names];
 }
 
 function getPackageNamedExports(pkg: string): string[] {
@@ -194,9 +244,7 @@ function getPackageNamedExports(pkg: string): string[] {
       new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
     );
     const mod = projectRequire(pkg);
-    return Object.keys(mod).filter(
-      (k) => k !== 'default' && k !== '__esModule' && isValidJsIdentifier(k)
-    );
+    return Object.keys(mod).filter((k) => isValidEsmExportName(k));
   } catch {
     return getEsmNamedExports(pkg);
   }
@@ -208,12 +256,16 @@ function getLocalProviderImportPath(pkg: string): string | undefined {
       new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
     );
     const resolved = projectRequire.resolve(pkg);
-    return resolved.includes('/node_modules/') || resolved.includes('\\node_modules\\')
-      ? undefined
-      : resolved;
+    return isWorkspaceFilePath(resolved) ? resolved : undefined;
   } catch {
     return undefined;
   }
+}
+
+function isWorkspaceFilePath(resolved: string | undefined): resolved is string {
+  return (
+    !!resolved && !resolved.includes('/node_modules/') && !resolved.includes('\\node_modules\\')
+  );
 }
 
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
@@ -361,8 +413,10 @@ export function writeLoadShareModule(
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
   const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg);
   const devImportSource = concreteSharedImportSource || pkg;
-  const providerImportId =
-    getLocalProviderImportPath(pkg) || concreteSharedImportSource || sharedImportSource;
+  const localProviderPath = getLocalProviderImportPath(pkg);
+  const isWorkspacePackage =
+    isWorkspaceFilePath(localProviderPath) || isWorkspaceFilePath(concreteSharedImportSource);
+  const providerImportId = localProviderPath || concreteSharedImportSource || sharedImportSource;
   const namedExports = getPackageNamedExports(pkg);
   let exportLine: string;
   if (namedExports.length > 0) {
@@ -377,10 +431,20 @@ export function writeLoadShareModule(
       : 'module.exports = exportModule';
   }
 
+  const prebuildImportLine =
+    isWorkspacePackage && command !== 'build'
+      ? ''
+      : `import ${escapeGeneratedStringLiteral(sharedImportSource)};`;
+  const devDynamicImportLine = isWorkspacePackage
+    ? ''
+    : command !== 'build'
+      ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
+      : '';
+
   loadShareCacheMap[pkg].writeSync(
     `
-    import ${escapeGeneratedStringLiteral(sharedImportSource)};
-    ${command !== 'build' ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});` : ''}
+    ${prebuildImportLine}
+    ${devDynamicImportLine}
     ${importLine}
     ${
       useSsrProviderFallback
