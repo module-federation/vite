@@ -12,8 +12,9 @@ export function resolvePublicPath(
   viteBase: string,
   originalBase?: string
 ): string {
-  // Use explicitly set publicPath if provided
-  if (options.publicPath) {
+  // Use explicitly set publicPath if provided, but treat "auto" as unset
+  // (webpack convention: "auto" means infer at runtime, not a literal path segment)
+  if (options.publicPath && options.publicPath !== 'auto') {
     return options.publicPath;
   }
 
