@@ -175,6 +175,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const virtualExposesId = getVirtualExposesId(options);
 
   let command: string;
+  let depsDir = path.sep + path.join('node_modules', '.vite', 'deps') + path.sep;
 
   return [
     // This plugin runs FIRST to create virtual module files before optimization
@@ -211,6 +212,18 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       configResolved(config) {
         // Set root path
         VirtualModule.setRoot(config.root);
+        // Resolve the deps directory for the dev-await-shared-init transform.
+        // Vite places pre-bundled deps under <cacheDir>/deps/ — when cacheDir is
+        // custom the hardcoded '.vite/deps/' check would miss these files (#566).
+        const cacheDir = config.cacheDir;
+        if (cacheDir) {
+          const resolved = path.isAbsolute(cacheDir)
+            ? cacheDir
+            : path.resolve(config.root, cacheDir);
+          depsDir = path.join(resolved, 'deps') + path.sep;
+        } else {
+          depsDir = path.join(config.root, 'node_modules', '.vite', 'deps') + path.sep;
+        }
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
         initVirtualModules(command, remoteEntryId);
@@ -635,7 +648,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       apply: 'serve',
       enforce: 'post',
       transform(code, id) {
-        if (!id.includes('.vite/deps/')) return;
+        if (!id.includes(depsDir)) return;
         // Find all init__loadShare__ calls that are used synchronously
         // inside CJS wrappers (comma expressions) and add top-level await
         const initPattern = /\b(init_\w+__loadShare__\w+)\b/g;
