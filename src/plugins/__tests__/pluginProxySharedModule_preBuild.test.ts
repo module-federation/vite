@@ -114,6 +114,15 @@ describe('pluginProxySharedModule_preBuild', () => {
       name: 'does not proxy react through loadShare in serve mode when vinext is enabled',
       source: 'react',
       hasVinext: true,
+      hasAstro: false,
+      aliasExpected: false,
+      shouldProxy: false,
+    },
+    {
+      name: 'does not proxy react through loadShare in serve mode when astro is enabled',
+      source: 'react',
+      hasVinext: false,
+      hasAstro: true,
       aliasExpected: false,
       shouldProxy: false,
     },
@@ -121,6 +130,7 @@ describe('pluginProxySharedModule_preBuild', () => {
       name: 'proxies react through loadShare in serve mode when vinext is disabled',
       source: 'react',
       hasVinext: false,
+      hasAstro: false,
       aliasExpected: true,
       shouldProxy: true,
     },
@@ -128,6 +138,7 @@ describe('pluginProxySharedModule_preBuild', () => {
       name: 'proxies non-react shared modules through loadShare in serve mode when vinext is enabled',
       source: 'vue',
       hasVinext: true,
+      hasAstro: false,
       aliasExpected: true,
       shouldProxy: true,
     },
@@ -135,13 +146,16 @@ describe('pluginProxySharedModule_preBuild', () => {
       name: 'proxies non-react shared modules through loadShare in serve mode when vinext is disabled',
       source: 'vue',
       hasVinext: false,
+      hasAstro: false,
       aliasExpected: true,
       shouldProxy: true,
     },
   ]) {
     it(testCase.name, async () => {
       hasPackageDependencyMock.mockImplementation((pkg: string) => {
-        return pkg === 'vinext' ? testCase.hasVinext : false;
+        if (pkg === 'vinext') return testCase.hasVinext;
+        if (pkg === 'astro') return testCase.hasAstro;
+        return false;
       });
 
       const plugins = proxySharedModule({ shared: makeShared() });

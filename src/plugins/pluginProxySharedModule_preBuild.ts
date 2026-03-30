@@ -30,7 +30,7 @@ export function proxySharedModule(options: {
   const { shared = {} } = options;
   let _config: ResolvedConfig | undefined;
   let _command = 'serve';
-  let isVinext = false;
+  let useDirectReactImport = false;
   const savePrebuild = new PromiseStore<string>();
 
   return [
@@ -56,13 +56,15 @@ export function proxySharedModule(options: {
       config(config: UserConfig, { command }) {
         const root = config.root || process.cwd();
         setPackageDetectionCwd(root);
-        isVinext = hasPackageDependency('vinext');
+        const isVinext = hasPackageDependency('vinext');
+        const isAstro = hasPackageDependency('astro');
         const isRolldown = getIsRolldown(this);
         _command = command;
+        useDirectReactImport = isVinext || isAstro;
 
         (config.resolve as any).alias.push(
           ...Object.keys(shared)
-            .filter((key) => !(isVinext && key === 'react'))
+            .filter((key) => !(useDirectReactImport && key === 'react'))
             .map((key) => {
               const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
               const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -83,7 +85,7 @@ export function proxySharedModule(options: {
                   // through loadShare breaks react-server-dom-webpack.
                   // We still register React in the federation share scope via
                   // localSharedImportMap, so shared metadata remains available.
-                  if (isVinext && source === 'react') {
+                  if (useDirectReactImport && source === 'react') {
                     return;
                   }
                   // Skip for localSharedImportMap to break circular TLA deadlock:
@@ -116,7 +118,7 @@ export function proxySharedModule(options: {
 
         (config.resolve as any).alias.push(
           ...Object.keys(shared)
-            .filter((key) => !(isVinext && key === 'react'))
+            .filter((key) => !(useDirectReactImport && key === 'react'))
             .map((key) => {
               return command === 'build'
                 ? {
@@ -163,7 +165,7 @@ export function proxySharedModule(options: {
         const isRolldown = getIsRolldown(this);
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/')) return;
-          if (isVinext && key === 'react') {
+          if (useDirectReactImport && key === 'react') {
             addUsedShares(key);
             return;
           }

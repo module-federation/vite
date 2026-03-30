@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Plugin } from 'vite';
 import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
 
-const { mfWarn } = vi.hoisted(() => ({
+const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
+  hasPackageDependencyMock: vi.fn(() => false),
   mfWarn: vi.fn(),
 }));
 
@@ -11,7 +12,7 @@ vi.mock('../utils/packageUtils', async () => {
     await vi.importActual<typeof import('../utils/packageUtils')>('../utils/packageUtils');
   return {
     ...actual,
-    hasPackageDependency: () => false,
+    hasPackageDependency: hasPackageDependencyMock,
     setPackageDetectionCwd: vi.fn(),
   };
 });
@@ -88,9 +89,20 @@ function getEarlyInitPlugin(): Plugin {
   return plugin;
 }
 
+function getModuleFederationVitePlugin(): Plugin {
+  const plugin = federation({
+    name: 'host',
+    filename: 'remoteEntry.js',
+  }).find((entry) => entry.name === 'module-federation-vite');
+
+  if (!plugin) throw new Error('module-federation-vite plugin not found');
+  return plugin;
+}
+
 describe('module-federation-esm-shims', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    hasPackageDependencyMock.mockReturnValue(false);
   });
 
   it('removes codeSplitting false and warns once', () => {
@@ -224,6 +236,46 @@ describe('vite:module-federation-early-init', () => {
     });
 
     expect(config.optimizeDeps.exclude).toContain('remoteApp');
+  });
+
+  it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
+    hasPackageDependencyMock.mockImplementation((dependency) => dependency === 'astro');
+    const plugin = getModuleFederationVitePlugin();
+    const config: any = {
+      root: process.cwd(),
+      define: {},
+      resolve: {
+        alias: [],
+      },
+      build: {
+        ssr: true,
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({ meta: {} } as any, config, { command: 'build', mode: 'test' });
+
+    expect(config.define.ENV_TARGET).toBe('undefined');
+  });
+
+  it('still sets ENV_TARGET node for non-Astro ssr builds', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const plugin = getModuleFederationVitePlugin();
+    const config: any = {
+      root: process.cwd(),
+      define: {},
+      resolve: {
+        alias: [],
+      },
+      build: {
+        ssr: true,
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({ meta: {} } as any, config, { command: 'build', mode: 'test' });
+
+    expect(config.define.ENV_TARGET).toBe('"node"');
   });
 });
 
