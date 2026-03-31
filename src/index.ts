@@ -2,7 +2,7 @@ import defu from 'defu';
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
-import { Plugin, UserConfig } from 'vite';
+import { normalizePath, Plugin, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
@@ -175,6 +175,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
   const virtualExposesId = getVirtualExposesId(options);
 
   let command: string;
+  let depsDir = '/node_modules/.vite/deps/';
 
   return [
     // This plugin runs FIRST to create virtual module files before optimization
@@ -211,6 +212,15 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       configResolved(config) {
         // Set root path
         VirtualModule.setRoot(config.root);
+        const cacheDir = config.cacheDir;
+        if (cacheDir) {
+          const resolved = path.isAbsolute(cacheDir)
+            ? cacheDir
+            : path.resolve(config.root, cacheDir);
+          depsDir = normalizePath(path.join(resolved, 'deps')) + '/';
+        } else {
+          depsDir = normalizePath(path.join(config.root, 'node_modules', '.vite', 'deps')) + '/';
+        }
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
         initVirtualModules(command, remoteEntryId);
@@ -635,7 +645,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       apply: 'serve',
       enforce: 'post',
       transform(code, id) {
-        if (!id.includes('.vite/deps/')) return;
+        const normalizedId = normalizePath(id).split('?')[0];
+        if (!normalizedId.startsWith(depsDir)) return;
         // Find all init__loadShare__ calls that are used synchronously
         // inside CJS wrappers (comma expressions) and add top-level await
         const initPattern = /\b(init_\w+__loadShare__\w+)\b/g;
