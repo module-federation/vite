@@ -1,4 +1,4 @@
-import { SharedCounter, formatLabel } from "@vite-vite/shared-lib";
+import { SharedCounter, formatLabel, createFilter, capitalize } from "@vite-vite/shared-lib";
 import R from "react";
 import RD from "react-dom/client";
 
@@ -12,6 +12,17 @@ import StyledDemo from "@namespace/viteViteRemote/StyledDemo";
 
 console.log("Share React", R, RD);
 
+// Test deeply nested re-export: index.tsx -> helpers/ -> search/ -> filter.ts
+const fruits = [
+  { name: "Apple" },
+  { name: "Banana" },
+  { name: "Cherry" },
+];
+const filterByName = createFilter(fruits, (item, q) =>
+  item.name.toLowerCase().includes(q.toLowerCase())
+);
+console.log("createFilter test:", filterByName("an"));
+
 export default function HostApp() {
   return (
     <div style={{ background: "lightgray" }}>
@@ -19,8 +30,12 @@ export default function HostApp() {
         Vite React (v {R.version}) app running from Host in{" "}
         <i> {import.meta.env.DEV ? " Dev " : " prod "} mode </i>
       </p>
-      <h2>Shared Library</h2>
+      <h2>{capitalize("shared library")}</h2>
       <SharedCounter label={formatLabel("Host")} />
+      <p>
+        <code>createFilter</code> result for "an":{" "}
+        {JSON.stringify(filterByName("an"))}
+      </p>
 
       <hr />
 
