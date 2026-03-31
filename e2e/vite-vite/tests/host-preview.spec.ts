@@ -58,4 +58,20 @@ test.describe('vite-vite host preview', () => {
     await button.click();
     await expect(button).toHaveText('count: 1');
   });
+
+  test('shared-lib is initialized exactly once (singleton)', async ({ page }) => {
+    const consoleLogs: string[] = [];
+    page.on('console', (msg) => {
+      if (msg.text().includes('[Shared Lib] Initialized')) {
+        consoleLogs.push(msg.text());
+      }
+    });
+
+    await page.goto('/');
+    // Wait for all remote modules to load and render
+    await expect(page.getByTestId('shared-counter-[shared-lib] Host')).toBeVisible();
+    await expect(page.getByTestId('shared-counter-[shared-lib] Remote')).toBeVisible();
+
+    expect(consoleLogs).toHaveLength(1);
+  });
 });
