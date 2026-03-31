@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseAst } from 'rollup/parseAst';
 
+const mockGetIsRolldown = vi.fn(() => true);
 vi.mock('../../utils/packageUtils', () => ({
-  getIsRolldown: () => true,
+  getIsRolldown: (...args: any[]) => mockGetIsRolldown(...args),
 }));
 
 import { pluginRemoteNamedExports } from '../pluginRemoteNamedExports';
@@ -24,8 +25,18 @@ function createContext(parseError = false) {
   };
 }
 
-async function transform(code: string, id = '/src/app.js', parseError = false, options = OPTIONS) {
+async function transform(
+  code: string,
+  id = '/src/app.js',
+  parseError = false,
+  options = OPTIONS,
+  command: 'serve' | 'build' = 'serve'
+) {
   const plugin = pluginRemoteNamedExports(options);
+  // Invoke the config hook to set the command (applyShared depends on it)
+  if ((plugin as any).config) {
+    (plugin as any).config({}, { command });
+  }
   const ctx = createContext(parseError);
   const result = await (plugin as any).transform.call(ctx, code, id);
   return result?.code as string | undefined;
@@ -343,6 +354,154 @@ describe('pluginRemoteNamedExports', () => {
     it('skips .json files', async () => {
       const result = await transform('{"remoteApp": true}', '/src/config.json');
       expect(result).toBeUndefined();
+    });
+  });
+
+  // ── shared module imports (Rolldown lacks syntheticNamedExports) ──
+
+  describe('shared module imports', () => {
+    // Shared rewriting only applies in build mode
+    async function transformBuild(
+      code: string,
+      id = '/src/app.js',
+      parseError = false,
+      options = SHARED_OPTIONS as any
+    ) {
+      return transform(code, id, parseError, options, 'build');
+    }
+
+    const SHARED_OPTIONS = {
+      remotes: {
+        remoteApp: { external: ['remoteApp'], shareScope: 'default' },
+      },
+      shared: {
+        react: { singleton: true },
+        '@acme/ui': { singleton: true },
+        '@mui/material': { singleton: true },
+        '@mui/x-date-pickers-pro/AdapterLuxon': { singleton: true },
+      },
+    } as any;
+
+    it('rewrites named import from shared package', async () => {
+      const result = await transformBuild('import { useState } from "react";');
+      expect(result).toContain('import { __moduleExports as');
+      expect(result).toContain('const { useState }');
+      expect(result).not.toContain('import { useState }');
+    });
+
+    it('rewrites named import from scoped shared package', async () => {
+      const result = await transformBuild('import { Button } from "@acme/ui";');
+      expect(result).toContain('__moduleExports');
+      expect(result).toContain('const { Button }');
+    });
+
+    it('does not rewrite deep imports of shared packages', async () => {
+      const result = await transformBuild('import IconButton from "@mui/material/IconButton";');
+      // Default-only import → skip. But more importantly, deep imports
+      // should not be matched as shared (only exact package names).
+      expect(result).toBeUndefined();
+    });
+
+    it('rewrites shared package with subpath when explicitly listed', async () => {
+      const result = await transformBuild(
+        'import { AdapterLuxon } from "@mui/x-date-pickers-pro/AdapterLuxon";'
+      );
+      expect(result).toContain('__moduleExports');
+      expect(result).toContain('const { AdapterLuxon }');
+    });
+
+    it('rewrites multiple named imports from shared package', async () => {
+      const result = await transformBuild('import { useState, useEffect, useRef } from "react";');
+      expect(result).toContain('__moduleExports');
+      expect(result).toContain('const { useState, useEffect, useRef }');
+    });
+
+    it('skips default-only import from shared package', async () => {
+      const result = await transformBuild('import React from "react";');
+      expect(result).toBeUndefined();
+    });
+
+    it('rewrites default + named import from shared package', async () => {
+      const result = await transformBuild('import React, { useState } from "react";');
+      expect(result).toContain('default as React');
+      expect(result).toContain('__moduleExports');
+      expect(result).toContain('const { useState }');
+    });
+
+    it('rewrites namespace import from shared package', async () => {
+      const result = await transformBuild('import * as React from "react";');
+      expect(result).toContain('import { __moduleExports as React }');
+      expect(result).not.toContain('import *');
+    });
+
+    it('wraps dynamic import of shared package', async () => {
+      const result = await transformBuild('const React = import("react");');
+      expect(result).toContain('.then(function(__mf_m__)');
+      expect(result).toContain('__moduleExports');
+    });
+
+    it('rewrites re-export from shared package', async () => {
+      const result = await transformBuild('export { useState } from "react";');
+      expect(result).toContain('import { __moduleExports as');
+      expect(result).toContain('__mf_re_');
+      expect(result).toContain('as useState');
+    });
+
+    it('handles mixed remote and shared imports in one file', async () => {
+      const code = [
+        'import { foo } from "remoteApp/utils";',
+        'import { useState } from "react";',
+      ].join('\n');
+      const result = await transformBuild(code);
+      expect(result).toContain('const { foo }');
+      expect(result).toContain('const { useState }');
+    });
+
+    it('still works when only shared packages are configured (no remotes)', async () => {
+      const sharedOnlyOptions = {
+        remotes: {},
+        shared: {
+          react: { singleton: true },
+        },
+      } as any;
+      const result = await transformBuild(
+        'import { useState } from "react";',
+        '/src/app.js',
+        false,
+        sharedOnlyOptions
+      );
+      expect(result).toContain('__moduleExports');
+      expect(result).toContain('const { useState }');
+    });
+
+    it('rewrites shared import via es-module-lexer fallback', async () => {
+      const result = await transformBuild(
+        'import { useState } from "react";',
+        '/src/app.tsx',
+        true
+      );
+      expect(result).toContain('__moduleExports');
+      expect(result).toContain('const { useState }');
+    });
+
+    it('skips __loadShare__ modules for shared packages', async () => {
+      const result = await transformBuild(
+        'import { useState } from "react";',
+        '/virtual/__loadShare__react.js'
+      );
+      expect(result).toBeUndefined();
+    });
+
+    it('does not rewrite __loadShare__ imports in dev mode (non-Rolldown)', async () => {
+      mockGetIsRolldown.mockReturnValueOnce(false);
+      const code = [
+        'import { useState } from "__mf__virtual/host__loadShare__react__loadShare__.js";',
+        'import { foo } from "remoteApp/utils";',
+      ].join('\n');
+      const result = await transform(code, '/src/app.js', false, SHARED_OPTIONS);
+      // Only the remote import should be rewritten, not the shared __loadShare__ import
+      expect(result).toContain('const { foo }');
+      expect(result).not.toContain('const { useState }');
     });
   });
 

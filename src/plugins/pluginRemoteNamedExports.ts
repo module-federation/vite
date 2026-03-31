@@ -1,15 +1,16 @@
 /**
- * Transforms consumer-side imports of remote modules so that named exports
- * are accessible even when the bundler does not support syntheticNamedExports
- * (Rolldown / Vite 8+).
+ * Transforms consumer-side imports of federated modules (both remote and
+ * shared) so that named exports are accessible even when the bundler does
+ * not support syntheticNamedExports (Rolldown / Vite 8+).
  *
- * The remote proxy module exports:
+ * The remote/shared proxy module exports:
  *   export const __moduleExports = exportModule;   // full namespace
  *   export default exportModule.default ?? exportModule;  // unwrapped default
  *
  * This plugin rewrites consumer code:
- *   import { foo } from "remote/xxx"
- *     → import { __moduleExports as __mf_ns_0 } from "remote/xxx"; const { foo } = __mf_ns_0;
+ *   import { foo } from "remote/xxx"       // remote module
+ *   import { useState } from "react"       // shared module
+ *     → import { __moduleExports as __mf_ns_0 } from "..."; const { foo } = __mf_ns_0;
  *
  *   import("remote/xxx")
  *     → import("remote/xxx").then(…)  // spreads __moduleExports into namespace
@@ -23,6 +24,7 @@ import MagicString from 'magic-string';
 import type { Plugin } from 'vite';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { loadWalk } from '../utils/loadWalk';
+import { getIsRolldown } from '../utils/packageUtils';
 import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
 
 const JS_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?|vue|svelte)(?:\?|$)/;
@@ -539,40 +541,55 @@ function collectFromRegex(
 
 export function pluginRemoteNamedExports(options: NormalizedModuleFederationOptions): Plugin {
   const remoteNames = Object.keys(options.remotes);
-
-  function isRemoteImport(source: string): boolean {
-    return (
-      remoteNames.some((name) => source === name || source.startsWith(name + '/')) ||
-      source.includes(LOAD_REMOTE_TAG)
-    );
-  }
+  const sharedNames = Object.keys(options.shared ?? {});
+  let command = 'serve';
 
   return {
     name: 'module-federation-remote-named-exports',
     enforce: 'post',
+    config(_config, env) {
+      command = env.command;
+    },
     async transform(code: string, id: string) {
-      if (remoteNames.length === 0) return;
+      // Shared-module rewriting only applies in build mode, where the
+      // module-federation-esm-shims plugin adds __moduleExports to shared
+      // modules.  In dev mode (both Rolldown and non-Rolldown), the virtual
+      // shared modules already provide explicit named exports, and Vite's dep
+      // optimizer would rename __moduleExports making it unreachable by name.
+      const applyShared = command === 'build';
+      const federatedNames = applyShared ? [...remoteNames, ...sharedNames] : remoteNames;
+
+      if (federatedNames.length === 0) return;
       // Skip federation internal modules
       if (id.includes(LOAD_REMOTE_TAG) || id.includes(LOAD_SHARE_TAG)) return;
       // Only process JS-like files to avoid parsing CSS/JSON/etc.
       if (!JS_EXTENSIONS_RE.test(id)) return;
-      // Quick bail-out: does the source mention any remote name?
-      if (!remoteNames.some((name) => code.includes(name))) return;
+      // Quick bail-out: does the source mention any federated module name?
+      if (!federatedNames.some((name) => code.includes(name))) return;
+
+      function isFederatedImport(source: string): boolean {
+        return (
+          remoteNames.some((name) => source === name || source.startsWith(name + '/')) ||
+          (applyShared && sharedNames.includes(source)) ||
+          source.includes(LOAD_REMOTE_TAG) ||
+          (applyShared && source.includes(LOAD_SHARE_TAG))
+        );
+      }
 
       let imports: ImportInfo[] | undefined;
 
       try {
         const ast = this.parse(code);
-        imports = await collectFromAST(ast, code, isRemoteImport);
+        imports = await collectFromAST(ast, code, isFederatedImport);
       } catch {
         // this.parse() delegates to acorn which does not support TypeScript
         // syntax (import type, interfaces, generics, etc.).  Fall back to
         // es-module-lexer so TS/TSX consumer files are still transformed.
-        imports = await collectFromEsLexer(code, isRemoteImport);
+        imports = await collectFromEsLexer(code, isFederatedImport);
       }
 
       if ((!imports || imports.length === 0) && REGEX_FALLBACK_EXTENSIONS_RE.test(id)) {
-        imports = collectFromRegex(code, isRemoteImport);
+        imports = collectFromRegex(code, isFederatedImport);
       }
       if (!imports) return;
       return applyRewrites(code, imports, id);
