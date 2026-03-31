@@ -134,7 +134,9 @@ describe('pluginAddEntry', () => {
       build: { rollupOptions: {} },
     } as any);
 
-    const result = servePlugin.transformIndexHtml?.(
+    const hook = servePlugin.transformIndexHtml;
+    const handler = typeof hook === 'object' ? hook.handler : hook;
+    const result = handler?.(
       '<html><head><script type="module" src="/@vite/client"></script></head><body><script type="module" src="/src/main.tsx"></script></body></html>'
     );
 

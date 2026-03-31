@@ -84,17 +84,24 @@ const addEntry = ({
           next();
         });
       },
-      transformIndexHtml(c) {
-        if (!injectHtml()) return;
-        clientInjected = true;
-        const html = rewriteEntryScripts(c, (originalSrc) => {
-          const query = new URLSearchParams({
-            init: sanitizeDevEntryPath(devEntryPath),
-            entry: originalSrc,
-          }).toString();
-          return `${viteConfig.base}@id/${DEV_HTML_PROXY_PREFIX}${query}`;
-        });
-        return html === c ? injectEntryScript(c, devEntryPath) : html;
+      transformIndexHtml: {
+        // Run before Vite's devHtmlHook so we see the original HTML.
+        // devHtmlHook converts inline <script type="module"> tags into
+        // external proxy modules; if we ran after it, rewriteEntryScripts
+        // would mistakenly rewrite those proxied inline scripts too (#571).
+        order: 'pre',
+        handler(c) {
+          if (!injectHtml()) return;
+          clientInjected = true;
+          const html = rewriteEntryScripts(c, (originalSrc) => {
+            const query = new URLSearchParams({
+              init: sanitizeDevEntryPath(devEntryPath),
+              entry: originalSrc,
+            }).toString();
+            return `${viteConfig.base}@id/${DEV_HTML_PROXY_PREFIX}${query}`;
+          });
+          return html === c ? injectEntryScript(c, devEntryPath) : html;
+        },
       },
       resolveId(id) {
         if (id.startsWith(DEV_HTML_PROXY_PREFIX)) {
