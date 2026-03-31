@@ -645,7 +645,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       apply: 'serve',
       enforce: 'post',
       transform(code, id) {
-        if (!id.includes(depsDir)) return;
+        const normalizedId = normalizePath(id).split('?')[0];
+        if (!normalizedId.startsWith(depsDir)) return;
         // Find all init__loadShare__ calls that are used synchronously
         // inside CJS wrappers (comma expressions) and add top-level await
         const initPattern = /\b(init_\w+__loadShare__\w+)\b/g;

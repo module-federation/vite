@@ -1,4 +1,3 @@
-import { isAbsolute, join, resolve } from 'node:path';
 import type { Plugin } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
@@ -7,16 +6,6 @@ const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn(() => false),
   mfWarn: vi.fn(),
 }));
-
-function resolveDepsDir(cacheDir: string | undefined, root: string): string {
-  const normalizePath = (p: string): string => p.replace(/\\/g, '/');
-
-  if (cacheDir) {
-    const resolved = isAbsolute(cacheDir) ? cacheDir : resolve(root, cacheDir);
-    return normalizePath(join(resolved, 'deps')) + '/';
-  }
-  return normalizePath(join(root, 'node_modules', '.vite', 'deps')) + '/';
-}
 
 vi.mock('../utils/packageUtils', async () => {
   const actual =
@@ -412,44 +401,69 @@ describe('module-federation-fix-preload', () => {
   });
 });
 
-describe('depsDir resolution', () => {
-  const root = '/project';
+describe('module-federation-dev-await-shared-init', () => {
+  it('matches pre-bundled files using configured cacheDir', () => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    });
 
-  it('uses default path when no cacheDir is set', () => {
-    const result = resolveDepsDir(undefined, root);
-    expect(result).toBe('/project/node_modules/.vite/deps/');
+    const configPlugin = plugins.find((entry) => entry.name === 'vite:module-federation-config');
+    const awaitPlugin = plugins.find(
+      (entry) => entry.name === 'module-federation-dev-await-shared-init'
+    );
+
+    if (!configPlugin) throw new Error('vite:module-federation-config plugin not found');
+    if (!awaitPlugin) throw new Error('module-federation-dev-await-shared-init plugin not found');
+
+    configPlugin.configResolved?.call(
+      {} as any,
+      {
+        cacheDir: '/Users/project/node_modules/.vite/_myapp_static_/',
+      } as any
+    );
+
+    const inputCode = 'import "react";\ninit_abc__loadShare__react();\n';
+    const output = awaitPlugin.transform?.(
+      inputCode,
+      '/Users/project/node_modules/.vite/_myapp_static_/deps/react.js?import'
+    );
+    const outputCode = typeof output === 'string' ? output : output?.code;
+    expect(outputCode).toContain('await init_abc__loadShare__react();');
   });
 
-  it('resolves relative custom cacheDir', () => {
-    const result = resolveDepsDir('.vite/_custom_', root);
-    expect(result).toBe('/project/.vite/_custom_/deps/');
-  });
+  it.each([
+    {
+      label: 'when cacheDir is only a substring',
+      path: '/tmp/some/other/path/Users/project/node_modules/.vite/_myapp_static_/deps/react.js',
+    },
+    {
+      label: 'outside configured cacheDir',
+      path: '/Users/project/src/components/app.ts',
+    },
+  ])('skips transform for files outside configured cacheDir ($label)', ({ path }) => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    });
 
-  it('resolves absolute custom cacheDir', () => {
-    const result = resolveDepsDir('/tmp/vite-cache', root);
-    expect(result).toBe('/tmp/vite-cache/deps/');
-  });
+    const configPlugin = plugins.find((entry) => entry.name === 'vite:module-federation-config');
+    const awaitPlugin = plugins.find(
+      (entry) => entry.name === 'module-federation-dev-await-shared-init'
+    );
 
-  it('resolves nested relative cacheDir', () => {
-    const result = resolveDepsDir('node_modules/.vite/_myapp_static_', root);
-    expect(result).toBe('/project/node_modules/.vite/_myapp_static_/deps/');
-  });
+    if (!configPlugin) throw new Error('vite:module-federation-config plugin not found');
+    if (!awaitPlugin) throw new Error('module-federation-dev-await-shared-init plugin not found');
 
-  it('default path matches typical Vite deps location', () => {
-    const result = resolveDepsDir(undefined, '/app');
-    const typicalFile = '/app/node_modules/.vite/deps/react.js';
-    expect(typicalFile.includes(result)).toBe(true);
-  });
+    configPlugin.configResolved?.call(
+      {} as any,
+      {
+        cacheDir: '/Users/project/node_modules/.vite/_myapp_static_',
+      } as any
+    );
 
-  it('custom path matches Vite deps with custom cacheDir', () => {
-    const result = resolveDepsDir('node_modules/.cache/vite', '/app');
-    const typicalFile = '/app/node_modules/.cache/vite/deps/react.js';
-    expect(typicalFile.includes(result)).toBe(true);
-  });
-
-  it('custom path does NOT match default deps location', () => {
-    const result = resolveDepsDir('.vite/_custom_', '/app');
-    const defaultFile = '/app/node_modules/.vite/deps/react.js';
-    expect(defaultFile.includes(result)).toBe(false);
+    const inputCode = 'import "react";\ninit_abc__loadShare__react();\n';
+    const output = awaitPlugin.transform?.(inputCode, path);
+    expect(output).toBeUndefined();
   });
 });
