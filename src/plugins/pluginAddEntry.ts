@@ -93,14 +93,18 @@ const addEntry = ({
         handler(c) {
           if (!injectHtml()) return;
           clientInjected = true;
+          // Strip base from paths — devHtmlHook runs after pre hooks and
+          // prepends the base to all script src attributes automatically.
+          const base = viteConfig.base.replace(/\/$/, '');
+          const stripBase = (p: string) => (base && p.startsWith(base) ? p.slice(base.length) : p);
           const html = rewriteEntryScripts(c, (originalSrc) => {
             const query = new URLSearchParams({
-              init: sanitizeDevEntryPath(devEntryPath),
+              init: sanitizeDevEntryPath(stripBase(devEntryPath)),
               entry: originalSrc,
             }).toString();
-            return `${viteConfig.base}@id/${DEV_HTML_PROXY_PREFIX}${query}`;
+            return `/@id/${DEV_HTML_PROXY_PREFIX}${query}`;
           });
-          return html === c ? injectEntryScript(c, devEntryPath) : html;
+          return html === c ? injectEntryScript(c, stripBase(devEntryPath)) : html;
         },
       },
       resolveId(id) {
