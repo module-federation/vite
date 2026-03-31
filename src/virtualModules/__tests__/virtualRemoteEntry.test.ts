@@ -75,6 +75,7 @@ vi.mock('../virtualRemotes', () => {
 vi.mock('../virtualShared_preBuild', () => {
   return {
     getPreBuildLibImportId: (pkg: string) => `virtual:prebuild:${pkg}`,
+    getLocalProviderImportPath: () => undefined,
     getSharedImportSource: (
       pkg: string,
       shareItem?: { shareConfig?: { import?: string | false } }

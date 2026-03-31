@@ -16,7 +16,7 @@ import {
   getRuntimeInitBootstrapCode,
   getRuntimeInitResolveBootstrapCode,
 } from './virtualRuntimeInitStatus';
-import { getSharedImportSource } from './virtualShared_preBuild';
+import { getLocalProviderImportPath, getSharedImportSource } from './virtualShared_preBuild';
 
 let usedShares: Set<string> = new Set();
 export function getUsedShares() {
@@ -60,7 +60,7 @@ export function generateLocalSharedImportMap() {
               : useDirectReactImport && pkg === 'react'
                 ? `let pkg = await import("react");
             return pkg;`
-                : `let pkg = await import(${JSON.stringify(getSharedImportSource(pkg, shareItem))});
+                : `let pkg = await import(${JSON.stringify(getLocalProviderImportPath(pkg) || getSharedImportSource(pkg, shareItem))});
             return pkg;`
           }
         }
