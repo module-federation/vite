@@ -75,7 +75,15 @@ vi.mock('../virtualRemotes', () => {
 vi.mock('../virtualShared_preBuild', () => {
   return {
     getPreBuildLibImportId: (pkg: string) => `virtual:prebuild:${pkg}`,
-    getLocalProviderImportPath: () => undefined,
+    getConcreteSharedImportSource: (
+      pkg: string,
+      shareItem?: { shareConfig?: { import?: string | false } }
+    ) =>
+      typeof shareItem?.shareConfig?.import === 'string' ? shareItem.shareConfig.import : undefined,
+    getLocalProviderImportPath: (pkg: string) =>
+      pkg === 'transitive-no-override'
+        ? '/workspace/packages/transitive-no-override/dist/index.js'
+        : undefined,
     getSharedImportSource: (
       pkg: string,
       shareItem?: { shareConfig?: { import?: string | false } }
