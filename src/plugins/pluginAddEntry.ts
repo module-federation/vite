@@ -30,6 +30,7 @@ const addEntry = ({
   inject = 'entry',
 }: AddEntryOptions): Plugin[] => {
   const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
+  const DEV_HTML_PROXY_PUBLIC_PREFIX = `/@id/${DEV_HTML_PROXY_PREFIX}`;
   const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
   let devEntryPath = '';
   let entryFiles: string[] = [];
@@ -84,13 +85,16 @@ const addEntry = ({
           next();
         });
       },
-      transformIndexHtml(c) {
+      transformIndexHtml(c, context) {
         if (!injectHtml()) return;
         clientInjected = true;
+        const htmlUrl = new URL(context?.path || '/', 'https://mf-local');
         const html = rewriteEntryScripts(c, (originalSrc) => {
+          const href = new URL(originalSrc, htmlUrl);
+          const resolvedEntry = sanitizeDevEntryPath(`${href.pathname}${href.search}`);
           const query = new URLSearchParams({
             init: sanitizeDevEntryPath(devEntryPath),
-            entry: originalSrc,
+            entry: resolvedEntry,
           }).toString();
           return `${viteConfig.base}@id/${DEV_HTML_PROXY_PREFIX}${query}`;
         });
@@ -102,15 +106,17 @@ const addEntry = ({
         }
       },
       load(id) {
-        if (!id.startsWith(DEV_HTML_PROXY_PREFIX)) return;
-        const params = new URLSearchParams(id.slice(DEV_HTML_PROXY_PREFIX.length));
+        const normalizedId = id.startsWith(DEV_HTML_PROXY_PUBLIC_PREFIX)
+          ? id.slice('/@id/'.length)
+          : id;
+        if (!normalizedId.startsWith(DEV_HTML_PROXY_PREFIX)) return;
+        const params = new URLSearchParams(normalizedId.slice(DEV_HTML_PROXY_PREFIX.length));
         const initSrc = params.get('init');
         const entrySrc = params.get('entry');
         if (!initSrc || !entrySrc) return;
         return `
-const baseUrl = document.baseURI || window.location.href;
-await import(new URL(${JSON.stringify(initSrc)}, baseUrl).href);
-await import(new URL(${JSON.stringify(entrySrc)}, baseUrl).href);
+import ${JSON.stringify(sanitizeDevEntryPath(initSrc))};
+import ${JSON.stringify(sanitizeDevEntryPath(entrySrc))};
 `;
       },
       transform(code, id) {
