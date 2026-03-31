@@ -1,11 +1,22 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { isAbsolute, join, resolve } from 'node:path';
 import type { Plugin } from 'vite';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn(() => false),
   mfWarn: vi.fn(),
 }));
+
+function resolveDepsDir(cacheDir: string | undefined, root: string): string {
+  const normalizePath = (p: string): string => p.replace(/\\/g, '/');
+
+  if (cacheDir) {
+    const resolved = isAbsolute(cacheDir) ? cacheDir : resolve(root, cacheDir);
+    return normalizePath(join(resolved, 'deps')) + '/';
+  }
+  return normalizePath(join(root, 'node_modules', '.vite', 'deps')) + '/';
+}
 
 vi.mock('../utils/packageUtils', async () => {
   const actual =
@@ -398,5 +409,47 @@ describe('module-federation-fix-preload', () => {
     plugin.generateBundle?.call({} as any, {} as any, bundle as any);
 
     expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
+  });
+});
+
+describe('depsDir resolution', () => {
+  const root = '/project';
+
+  it('uses default path when no cacheDir is set', () => {
+    const result = resolveDepsDir(undefined, root);
+    expect(result).toBe('/project/node_modules/.vite/deps/');
+  });
+
+  it('resolves relative custom cacheDir', () => {
+    const result = resolveDepsDir('.vite/_custom_', root);
+    expect(result).toBe('/project/.vite/_custom_/deps/');
+  });
+
+  it('resolves absolute custom cacheDir', () => {
+    const result = resolveDepsDir('/tmp/vite-cache', root);
+    expect(result).toBe('/tmp/vite-cache/deps/');
+  });
+
+  it('resolves nested relative cacheDir', () => {
+    const result = resolveDepsDir('node_modules/.vite/_myapp_static_', root);
+    expect(result).toBe('/project/node_modules/.vite/_myapp_static_/deps/');
+  });
+
+  it('default path matches typical Vite deps location', () => {
+    const result = resolveDepsDir(undefined, '/app');
+    const typicalFile = '/app/node_modules/.vite/deps/react.js';
+    expect(typicalFile.includes(result)).toBe(true);
+  });
+
+  it('custom path matches Vite deps with custom cacheDir', () => {
+    const result = resolveDepsDir('node_modules/.cache/vite', '/app');
+    const typicalFile = '/app/node_modules/.cache/vite/deps/react.js';
+    expect(typicalFile.includes(result)).toBe(true);
+  });
+
+  it('custom path does NOT match default deps location', () => {
+    const result = resolveDepsDir('.vite/_custom_', '/app');
+    const defaultFile = '/app/node_modules/.vite/deps/react.js';
+    expect(defaultFile.includes(result)).toBe(false);
   });
 });

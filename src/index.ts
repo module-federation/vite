@@ -212,9 +212,6 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       configResolved(config) {
         // Set root path
         VirtualModule.setRoot(config.root);
-        // Resolve the deps directory for the dev-await-shared-init transform.
-        // Vite places pre-bundled deps under <cacheDir>/deps/ — when cacheDir is
-        // custom the hardcoded '.vite/deps/' check would miss these files (#566).
         const cacheDir = config.cacheDir;
         if (cacheDir) {
           const resolved = path.isAbsolute(cacheDir)
