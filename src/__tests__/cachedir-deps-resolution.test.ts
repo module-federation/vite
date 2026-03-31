@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import path from 'pathe';
 
 /**
@@ -11,16 +11,19 @@ import path from 'pathe';
  * hardcoded '.vite/deps/' check would miss these files (#566).
  */
 
-// Simulate the configResolved logic
+// Match the real configResolved logic exactly (including normalizePath)
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 function resolveDepsDir(cacheDir: string | undefined, root: string): string {
   if (cacheDir) {
     const resolved = path.isAbsolute(cacheDir)
       ? cacheDir
       : path.resolve(root, cacheDir);
-    // normalizePath returns forward slashes on all platforms
-    return path.join(resolved, 'deps') + '/';
+    return normalizePath(path.join(resolved, 'deps')) + '/';
   }
-  return path.join(root, 'node_modules', '.vite', 'deps') + '/';
+  return normalizePath(path.join(root, 'node_modules', '.vite', 'deps')) + '/';
 }
 
 describe('depsDir resolution', () => {
