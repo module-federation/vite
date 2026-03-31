@@ -60,7 +60,7 @@ export function generateLocalSharedImportMap() {
               : useDirectReactImport && pkg === 'react'
                 ? `let pkg = await import("react");
             return pkg;`
-                : `let pkg = await import(${JSON.stringify(getLocalProviderImportPath(pkg) || getSharedImportSource(pkg, shareItem))});
+                : `let pkg = await import(${JSON.stringify(getSharedImportSource(pkg, shareItem) || getLocalProviderImportPath(pkg))});
             return pkg;`
           }
         }

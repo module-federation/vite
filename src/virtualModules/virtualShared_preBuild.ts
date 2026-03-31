@@ -200,6 +200,9 @@ function getEsmNamedExports(pkg: string): string[] {
 
 function resolveRelativeModule(filePath: string, specifier: string): string | undefined {
   const dir = path.dirname(filePath);
+  // Try the specifier as-is first (handles explicit extensions like './runtime.js')
+  const exact = path.resolve(dir, specifier);
+  if (existsSync(exact) && !statSync(exact).isDirectory()) return exact;
   const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.mts'];
   for (const ext of extensions) {
     const candidate = path.resolve(dir, specifier + ext);
