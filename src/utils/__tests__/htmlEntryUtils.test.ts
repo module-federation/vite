@@ -30,6 +30,17 @@ describe('rewriteEntryScripts', () => {
     expect(result).toContain(`src="/proxy?entry=%2Fsrc%2Fapp2.js"`);
   });
 
+  it('skips inline module scripts without src attribute', () => {
+    const html =
+      '<head><script type="module" src="/@vite/client"></script></head>' +
+      '<body><script type="module">console.log("inline")</script>' +
+      '<script type="module" src="/src/main.js"></script></body>';
+    const result = rewriteEntryScripts(html, (src) => `/proxy?entry=${encodeURIComponent(src)}`);
+    expect(result).toContain('<script type="module">console.log("inline")</script>');
+    expect(result).toContain(`src="/proxy?entry=%2Fsrc%2Fmain.js"`);
+    expect(result).toContain('src="/@vite/client"');
+  });
+
   it('returns html unchanged when no entry scripts exist', () => {
     const html = '<html><head></head><body></body></html>';
     expect(rewriteEntryScripts(html, (src) => src)).toBe(html);
