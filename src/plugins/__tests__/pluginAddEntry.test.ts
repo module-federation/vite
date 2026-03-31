@@ -145,4 +145,45 @@ describe('pluginAddEntry', () => {
     expect(result).not.toContain('await import(');
     expect(result).not.toContain('<script type="module">');
   });
+
+  it('strips base from injected dev html proxy paths', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-html-base-'));
+    fs.writeFileSync(path.join(tempDir, 'index.html'), '<html></html>');
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: 'virtual:mf-host-init',
+      inject: 'html',
+    });
+
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+    servePlugin.config?.({}, { command: 'serve', mode: 'development' });
+    buildPlugin.config?.(
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    servePlugin.configResolved?.({
+      base: '/foo/',
+      root: tempDir,
+      build: { rollupOptions: {} },
+    } as any);
+    buildPlugin.configResolved?.({
+      base: '/foo/',
+      root: tempDir,
+      build: { rollupOptions: {} },
+    } as any);
+
+    const hook = servePlugin.transformIndexHtml;
+    const handler = typeof hook === 'object' ? hook.handler : hook;
+    const result = handler?.(
+      '<html><head><script type="module" src="/foo/@vite/client"></script></head><body><script type="module" src="/foo/src/main.tsx"></script></body></html>'
+    );
+
+    expect(result).toContain('src="/foo/@vite/client"');
+    expect(result).toContain('src="/@id/virtual:mf-html-entry-proxy?');
+    expect(result).toContain('init=%2F%40id%2Fvirtual%3Amf-host-init');
+    expect(result).not.toContain('init=%2Ffoo%2F%40id%2Fvirtual%3Amf-host-init');
+    expect(result).not.toContain('src="/foo/@id/virtual:mf-html-entry-proxy?');
+  });
 });
