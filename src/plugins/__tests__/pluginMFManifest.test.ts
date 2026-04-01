@@ -190,4 +190,52 @@ describe('pluginMFManifest', () => {
     expect(manifest).not.toHaveProperty('exposes');
     expect(stats).not.toHaveProperty('assetAnalysis');
   });
+
+  it('preserves publicPath "auto" in manifest metaData', async () => {
+    getNormalizeModuleFederationOptions.mockReturnValue({
+      name: 'basicRemote',
+      filename: 'remoteEntry.js',
+      getPublicPath: undefined,
+      varFilename: undefined,
+      manifest: true,
+      exposes: {},
+      remotes: {},
+      shared: {},
+      publicPath: 'auto',
+      bundleAllCSS: false,
+      shareStrategy: 'version-first',
+      implementation: 'module-federation-runtime',
+      runtimePlugins: [],
+      virtualModuleDir: '__mf__virtual',
+      hostInitInjectLocation: 'html',
+      moduleParseTimeout: 10,
+      ignoreOrigin: false,
+    } as any);
+    getUsedRemotesMap.mockReturnValue(new Map());
+    getUsedShares.mockReturnValue(new Set());
+
+    const [, buildPlugin] = manifestPlugin();
+    const emitted: Record<string, string> = {};
+
+    buildPlugin.config?.({}, { command: 'build', mode: 'test' });
+    buildPlugin.configResolved?.({
+      root: '/',
+      base: '/',
+      build: {},
+      server: { origin: 'http://localhost' },
+    } as any);
+
+    const ctx = {
+      emitFile: vi.fn((asset: { fileName: string; source: string }) => {
+        emitted[asset.fileName] = asset.source;
+        return `id:${asset.fileName}`;
+      }),
+      resolve: vi.fn(async () => ({ id: '/node_modules/react/index.js' })),
+    };
+
+    await buildPlugin.generateBundle?.call(ctx as any, {}, makeBundle() as any);
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.metaData.publicPath).toBe('auto');
+  });
 });

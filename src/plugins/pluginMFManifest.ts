@@ -169,7 +169,14 @@ const Manifest = (): Plugin[] => {
         if (_command === 'serve') {
           base = (config.server.origin || '') + config.base;
         }
-        publicPath = resolvePublicPath(mfOptions, base, _originalConfigBase);
+        // resolvePublicPath treats "auto" as unset to avoid broken concatenation
+        // in dev code generation (e.g. "auto" + "remoteEntry.js" → "autoremoteEntry.js").
+        // For the manifest, "auto" is a valid sentinel the MF runtime understands,
+        // so we preserve it here before falling back to the resolver.
+        publicPath =
+          mfOptions.publicPath === 'auto'
+            ? 'auto'
+            : resolvePublicPath(mfOptions, base, _originalConfigBase);
       },
       /**
        * Generates the module federation manifest file
