@@ -374,7 +374,7 @@ export const LOAD_SHARE_TAG = '__loadShare__';
 const loadShareCacheMap: Record<string, VirtualModule> = {};
 export function getLoadShareImportId(pkg: string, isRolldown: boolean, command?: string): string {
   if (!loadShareCacheMap[pkg]) {
-    const useESM = isRolldown || command === 'build';
+    const useESM = isRolldown || command === 'build' || command === 'serve';
     const ext = useESM ? '.mjs' : '.js';
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
   }
@@ -392,12 +392,12 @@ export function writeLoadShareModule(
   isRolldown: boolean
 ) {
   if (!loadShareCacheMap[pkg]) {
-    const useESM = isRolldown || command === 'build';
+    const useESM = isRolldown || command === 'build' || command === 'serve';
     const ext = useESM ? '.mjs' : '.js';
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
   }
 
-  const useESM = command === 'build' || isRolldown;
+  const useESM = command === 'build' || isRolldown || command === 'serve';
   const importLine =
     command === 'build'
       ? getRuntimeInitPromiseBootstrapCode()
@@ -456,7 +456,8 @@ export function writeLoadShareModule(
   // Normal path: package is installed locally, create full loadShare with prebuild fallback.
   const isVinext = hasPackageDependency('vinext');
   const isAstro = hasPackageDependency('astro');
-  const useSsrProviderFallback = (isVinext || isAstro) && command === 'build' && pkg === 'react';
+  const useSsrProviderFallback =
+    ((isVinext || isAstro) && command === 'build' && pkg === 'react') || command === 'serve';
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
   const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg);
   const devImportSource = concreteSharedImportSource || pkg;

@@ -29,7 +29,7 @@ export function getUsedRemotesMap() {
   return usedRemotesMap;
 }
 export function generateRemotes(id: string, command: string, isRolldown: boolean) {
-  const useESM = command === 'build' || isRolldown;
+  const useESM = command === 'build' || isRolldown || command === 'serve';
   const importLine =
     command === 'build'
       ? getRuntimeInitPromiseBootstrapCode()
@@ -50,7 +50,7 @@ export function generateRemotes(id: string, command: string, isRolldown: boolean
   // exports (Rolldown does not support syntheticNamedExports).
   const exportLine =
     command === 'serve' && useESM
-      ? 'export const __moduleExports = exportModule;\nexport default exportModule.default ?? exportModule'
+      ? 'export const __moduleExports = exportModule;\nexport default exportModule?.default ?? exportModule'
       : useESM
         ? 'export default exportModule'
         : 'module.exports = exportModule';
