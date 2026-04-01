@@ -6,6 +6,7 @@ import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
   NormalizedModuleFederationOptions,
+  ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
@@ -16,7 +17,11 @@ import {
   getRuntimeInitBootstrapCode,
   getRuntimeInitResolveBootstrapCode,
 } from './virtualRuntimeInitStatus';
-import { getSharedImportSource } from './virtualShared_preBuild';
+import {
+  getConcreteSharedImportSource,
+  getLocalProviderImportPath,
+  getSharedImportSource,
+} from './virtualShared_preBuild';
 
 let usedShares: Set<string> = new Set();
 export function getUsedShares() {
@@ -45,6 +50,17 @@ export function generateLocalSharedImportMap() {
   const isAstro = hasPackageDependency('astro');
   const useDirectReactImport = isVinext || isAstro;
   const options = getNormalizeModuleFederationOptions();
+
+  const getPackagePath = (pkg: string, shareItem: ShareItem) => {
+    if (useDirectReactImport && pkg === 'react') return 'react';
+
+    return (
+      getConcreteSharedImportSource(pkg, shareItem) ||
+      getLocalProviderImportPath(pkg) ||
+      getSharedImportSource(pkg, shareItem)
+    );
+  };
+
   return `
     import {loadShare} from "@module-federation/runtime";
     const importMap = {
@@ -57,10 +73,7 @@ export function generateLocalSharedImportMap() {
           ${
             shareItem?.shareConfig.import === false
               ? `throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
-              : useDirectReactImport && pkg === 'react'
-                ? `let pkg = await import("react");
-            return pkg;`
-                : `let pkg = await import(${JSON.stringify(getSharedImportSource(pkg, shareItem))});
+              : `let pkg = await import(${JSON.stringify(getPackagePath(pkg, shareItem))});
             return pkg;`
           }
         }

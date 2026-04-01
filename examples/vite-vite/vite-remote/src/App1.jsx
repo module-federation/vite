@@ -1,4 +1,4 @@
-import { SharedCounter, formatLabel } from "@vite-vite/shared-lib";
+import { SharedCounter, formatLabel, createFilter } from "@vite-vite/shared-lib";
 import vueImg from "./assets/vue.svg";
 
 export default function App1() {
@@ -8,6 +8,9 @@ export default function App1() {
       Vite React App1 as default export via remote in
       <i>{import.meta.env.DEV ? " Dev " : " prod "}</i> mode
       <SharedCounter label={formatLabel("Remote")} />
+      <p>
+        <code>createFilter</code> available: {String(typeof createFilter === 'function')}
+      </p>
     </div>
   );
 }

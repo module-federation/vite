@@ -9,7 +9,8 @@
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "esModuleInterop": true,
-    "types": ["vite/client", "@types/react"]
+    "types": ["vite/client", "@types/react"],
+    "outDir": "dist",
   },
   "include": ["src"]
 }

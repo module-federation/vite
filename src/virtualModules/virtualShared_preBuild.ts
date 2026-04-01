@@ -9,7 +9,7 @@
  * 2. __loadShare__: load shareModule (mfRuntime.loadShare('vue'))
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
 import { mfWarn } from '../utils/logger';
@@ -174,8 +174,9 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
 
 function getEsmNamedExports(pkg: string): string[] {
   let source = '';
+  let entryPath: string | undefined;
   try {
-    const entryPath = getPackageEsmEntryPath(pkg);
+    entryPath = getPackageEsmEntryPath(pkg);
     if (!entryPath) return [];
 
     const { initSync, parse } = localRequire('es-module-lexer') as typeof import('es-module-lexer');
@@ -186,19 +187,44 @@ function getEsmNamedExports(pkg: string): string[] {
     const names = exports
       .map((item) => item.n)
       .filter((name): name is string => isValidEsmExportName(name));
-    const regexNames = getNamedExportsViaRegex(source);
+    const regexNames = getNamedExportsViaRegex(source, entryPath);
     const filteredNames = names.filter((name) => name !== 'type' || regexNames.includes(name));
 
     if (filteredNames.length > 0) return [...new Set([...filteredNames, ...regexNames])];
 
     return regexNames;
   } catch {
-    return source ? getNamedExportsViaRegex(source) : [];
+    return source ? getNamedExportsViaRegex(source, entryPath) : [];
   }
 }
 
-function getNamedExportsViaRegex(source: string): string[] {
+function resolveRelativeModule(filePath: string, specifier: string): string | undefined {
+  const dir = path.dirname(filePath);
+  // Try the specifier as-is first (handles explicit extensions like './runtime.js')
+  const exact = path.resolve(dir, specifier);
+  if (existsSync(exact) && !statSync(exact).isDirectory()) return exact;
+  const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.mts'];
+  for (const ext of extensions) {
+    const candidate = path.resolve(dir, specifier + ext);
+    if (existsSync(candidate) && !statSync(candidate).isDirectory()) return candidate;
+  }
+  // try index files (for directory imports like './search' -> './search/index.ts')
+  const resolved = path.resolve(dir, specifier);
+  for (const ext of extensions) {
+    const candidate = path.join(resolved, 'index' + ext);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function getNamedExportsViaRegex(
+  source: string,
+  filePath?: string,
+  visited?: Set<string>
+): string[] {
   const names = new Set<string>();
+  visited = visited || new Set();
+  if (filePath) visited.add(filePath);
 
   const declRegex = new RegExp(
     `export\\s+(?:async\\s+)?(?:` +
@@ -232,6 +258,27 @@ function getNamedExportsViaRegex(source: string): string[] {
     }
   }
 
+  // Handle `export * from './module'` re-exports
+  if (filePath) {
+    const starExportRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+    while ((match = starExportRegex.exec(source)) !== null) {
+      const specifier = match[1];
+      // Only resolve relative imports (starting with . or ..)
+      if (!specifier.startsWith('.')) continue;
+      const resolvedPath = resolveRelativeModule(filePath, specifier);
+      if (!resolvedPath || visited.has(resolvedPath)) continue;
+      try {
+        const reExportSource = readFileSync(resolvedPath, 'utf-8');
+        const reExportNames = getNamedExportsViaRegex(reExportSource, resolvedPath, visited);
+        for (const name of reExportNames) {
+          names.add(name);
+        }
+      } catch {
+        // skip unreadable files
+      }
+    }
+  }
+
   return [...names];
 }
 
@@ -250,7 +297,7 @@ function getPackageNamedExports(pkg: string): string[] {
   }
 }
 
-function getLocalProviderImportPath(pkg: string): string | undefined {
+export function getLocalProviderImportPath(pkg: string): string | undefined {
   try {
     const projectRequire = createRequire(
       new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
