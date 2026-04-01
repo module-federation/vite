@@ -377,6 +377,7 @@ interface PluginDevOptions {
   disableLiveReload?: boolean;
   disableHotTypesReload?: boolean;
   disableDynamicRemoteTypeHints?: boolean;
+  remoteHmr?: boolean;
 }
 
 interface RemoteTypeUrl {
