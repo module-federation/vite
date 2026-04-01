@@ -32,6 +32,7 @@ export default defineConfig({
     !isMixed2 && react({ jsxImportSource: '@emotion/react' }),
     federation({
       name: '@namespace/viteViteRemote',
+      hostInitInjectLocation: 'entry',
       exposes: {
         './App1': './src/App1',
         './App2': './src/App2.jsx',
