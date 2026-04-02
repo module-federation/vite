@@ -5,7 +5,7 @@ export default defineConfig({
     globals: true,
     exclude: ['**/e2e/**', '**/node_modules/**'],
     env: {
-      MFE_VITE_SKIP_TEST_ENV_CHECK: 'true',
+      MFE_VITE_NO_TEST_ENV_CHECK: 'true',
     },
   },
 });
