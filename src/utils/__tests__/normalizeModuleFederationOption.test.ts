@@ -105,6 +105,44 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
+    it('should normalize a scoped-package remote string', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          remotes: {
+            remote1: '@scope/app@http://localhost:3001/remoteEntry.js',
+          },
+        }).remotes
+      ).toEqual({
+        remote1: {
+          type: 'var',
+          name: 'remote1',
+          entry: 'http://localhost:3001/remoteEntry.js',
+          entryGlobalName: '@scope/app',
+          shareScope: 'default',
+        },
+      });
+    });
+
+    it('should normalize a remote string when the entry URL contains "@"', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          remotes: {
+            remote1: 'Button@http://user:password@localhost:3001/remoteEntry.js',
+          },
+        }).remotes
+      ).toEqual({
+        remote1: {
+          type: 'var',
+          name: 'remote1',
+          entry: 'http://user:password@localhost:3001/remoteEntry.js',
+          entryGlobalName: 'Button',
+          shareScope: 'default',
+        },
+      });
+    });
+
     it('should normalize a remote with an object value', () => {
       expect(
         normalizeModuleFederationOptions({

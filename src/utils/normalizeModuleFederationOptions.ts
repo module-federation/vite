@@ -81,8 +81,18 @@ export function normalizeRemotes(
 
 function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): RemoteObjectConfig {
   if (typeof remote === 'string') {
-    const [entryGlobalName] = remote.split('@');
-    const entry = remote.replace(entryGlobalName + '@', '');
+    // Scoped packages start with '@', so the name/entry separator is the
+    // first '@' after the optional scope prefix, not the last '@' overall.
+    const separatorIndex = remote.startsWith('@') ? remote.indexOf('@', 1) : remote.indexOf('@');
+    let entryGlobalName: string;
+    let entry: string;
+    if (separatorIndex > 0) {
+      entryGlobalName = remote.slice(0, separatorIndex);
+      entry = remote.slice(separatorIndex + 1);
+    } else {
+      entryGlobalName = remote;
+      entry = remote;
+    }
     return {
       type: 'var',
       name: key,
