@@ -348,6 +348,22 @@ describe('module-federation-fix-preload', () => {
     expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
   });
 
+  it('does not corrupt Stencil getScopeId function', () => {
+    const plugin = getFixPreloadPlugin();
+    const stencilCode = 'va=(e,t)=>"sc-"+e.$tagName$,Wn=(e,t)=>{};modulepreload';
+    const bundle = {
+      'assets/index.js': {
+        type: 'chunk',
+        fileName: 'assets/index.js',
+        code: stencilCode,
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['assets/index.js'].code).toBe(stencilCode);
+  });
+
   it('does not patch preload helper when manifest disables asset analysis', () => {
     const plugin = getFixPreloadPluginWithManifest({
       disableAssetsAnalyze: true,
