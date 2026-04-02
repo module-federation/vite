@@ -128,10 +128,9 @@ function searchPackageVersion(sharedName: string): string | undefined {
     ) {
       const potentialPackageJsonPath = path.join(potentialPackageJsonDir, 'package.json');
       if (fs.existsSync(potentialPackageJsonPath)) {
+        const potentialPackageJsonContent = fs.readFileSync(potentialPackageJsonPath, 'utf-8');
         try {
-          const potentialPackageJson = JSON.parse(
-            fs.readFileSync(potentialPackageJsonPath, 'utf-8')
-          );
+          const potentialPackageJson = JSON.parse(potentialPackageJsonContent);
           if (
             typeof potentialPackageJson == 'object' &&
             potentialPackageJson !== null &&
@@ -140,8 +139,9 @@ function searchPackageVersion(sharedName: string): string | undefined {
           ) {
             return potentialPackageJson.version;
           }
-        } catch {
+        } catch (error) {
           // Skip malformed package.json and continue searching up the tree
+          if (!(error instanceof SyntaxError)) throw error;
         }
       }
       potentialPackageJsonDir = path.dirname(potentialPackageJsonDir);
