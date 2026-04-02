@@ -16,6 +16,7 @@ import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
+import { isTestEnv } from './utils/isTestEnv';
 import { resolveProxyAlias } from './utils/bundleHelpers';
 import {
   isFederationControlChunk,
@@ -167,6 +168,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
 }
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
+  if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const isVinext = hasPackageDependency('vinext');
   const { name, remotes, shared, filename, hostInitInjectLocation } = options;

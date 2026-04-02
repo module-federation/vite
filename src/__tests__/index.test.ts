@@ -1,5 +1,5 @@
 import type { Plugin } from 'vite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
@@ -98,6 +98,37 @@ function getModuleFederationVitePlugin(): Plugin {
   if (!plugin) throw new Error('module-federation-vite plugin not found');
   return plugin;
 }
+
+describe('federation in test environment', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = {};
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('returns empty plugin array when in test environment', () => {
+    process.env.NODE_ENV = 'test';
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    });
+    expect(plugins).toEqual([]);
+  });
+
+  it('returns plugins when MFE_VITE_SKIP_TEST_ENV_CHECK is true', () => {
+    process.env.NODE_ENV = 'test';
+    process.env.MFE_VITE_SKIP_TEST_ENV_CHECK = 'true';
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    });
+    expect(plugins.length).toBeGreaterThan(0);
+  });
+});
 
 describe('module-federation-esm-shims', () => {
   beforeEach(() => {
