@@ -1,5 +1,5 @@
 import type { Plugin } from 'vite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
@@ -98,6 +98,37 @@ function getModuleFederationVitePlugin(): Plugin {
   if (!plugin) throw new Error('module-federation-vite plugin not found');
   return plugin;
 }
+
+describe('federation in test environment', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = {};
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('returns empty plugin array when in test environment', () => {
+    process.env.NODE_ENV = 'test';
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    });
+    expect(plugins).toEqual([]);
+  });
+
+  it('returns plugins when MFE_VITE_NO_TEST_ENV_CHECK is true', () => {
+    process.env.NODE_ENV = 'test';
+    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    });
+    expect(plugins.length).toBeGreaterThan(0);
+  });
+});
 
 describe('module-federation-esm-shims', () => {
   beforeEach(() => {
@@ -213,7 +244,10 @@ describe('vite:module-federation-early-init', () => {
     };
 
     const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: {} } as any, config, { command: 'serve', mode: 'test' });
+    configHook?.call({ meta: {} } as any, config, {
+      command: 'serve',
+      mode: 'test',
+    });
 
     expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
     expect(config.optimizeDeps.include).toContain(getLoadShareImportId('vue', false, 'serve'));
@@ -253,7 +287,10 @@ describe('vite:module-federation-early-init', () => {
     };
 
     const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: {} } as any, config, { command: 'build', mode: 'test' });
+    configHook?.call({ meta: {} } as any, config, {
+      command: 'build',
+      mode: 'test',
+    });
 
     expect(config.define.ENV_TARGET).toBe('undefined');
   });
@@ -273,7 +310,10 @@ describe('vite:module-federation-early-init', () => {
     };
 
     const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: {} } as any, config, { command: 'build', mode: 'test' });
+    configHook?.call({ meta: {} } as any, config, {
+      command: 'build',
+      mode: 'test',
+    });
 
     expect(config.define.ENV_TARGET).toBe('"node"');
   });
@@ -304,7 +344,10 @@ describe('vite:module-federation-early-init with import: false', () => {
     };
 
     const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: {} } as any, config, { command: 'serve', mode: 'test' });
+    configHook?.call({ meta: {} } as any, config, {
+      command: 'serve',
+      mode: 'test',
+    });
 
     // Should not include prebuild or loadShare for import: false deps
     const includeStr = config.optimizeDeps.include.join(',');
