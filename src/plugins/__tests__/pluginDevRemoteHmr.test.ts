@@ -223,4 +223,42 @@ describe('pluginDevRemoteHmr', () => {
     close();
     expect(socket.close).toHaveBeenCalledTimes(1);
   });
+
+  it('triggers full reload for host local file changes', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        event: 'mf:remote-update',
+        wsUrl: 'ws://remote.example:4174/app?token=abc',
+      }),
+    }));
+
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('WebSocket', MockWebSocket as any);
+
+    const { server, emit } = createServer();
+
+    const plugin = pluginDevRemoteHmr({
+      name: 'host-app',
+      dev: { remoteHmr: true },
+      exposes: {},
+      remotes: {
+        remoteApp: {
+          entry: 'http://remote.example/assets/remoteEntry.js',
+        },
+      },
+      virtualModuleDir: '__mf__virtual',
+    } as any);
+
+    plugin.configureServer?.(server as any);
+
+    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+
+    emit('change', '/src/components/Counter.vue');
+    emit('change', '/node_modules/vue/index.js');
+    emit('change', '/src/__mf__virtual/chunk.js');
+
+    expect(server.ws.send).toHaveBeenCalledWith({ type: 'full-reload' });
+    expect(server.ws.send).toHaveBeenCalledTimes(1);
+  });
 });
