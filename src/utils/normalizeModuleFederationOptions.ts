@@ -81,17 +81,17 @@ export function normalizeRemotes(
 
 function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): RemoteObjectConfig {
   if (typeof remote === 'string') {
-    // Scoped packages start with '@' (e.g. '@scope/app@https://...'),
-    // so the meaningful '@' separator is the *last* '@', not the first.
-    const lastAtIndex = remote.lastIndexOf('@');
+    // Scoped packages start with '@', so the name/entry separator is the
+    // first '@' after the optional scope prefix, not the last '@' overall.
+    const separatorIndex = remote.startsWith('@') ? remote.indexOf('@', 1) : remote.indexOf('@');
     let entryGlobalName: string;
     let entry: string;
-    if (lastAtIndex > 0) {
-      entryGlobalName = remote.slice(0, lastAtIndex);
-      entry = remote.slice(lastAtIndex + 1);
+    if (separatorIndex > 0) {
+      entryGlobalName = remote.slice(0, separatorIndex);
+      entry = remote.slice(separatorIndex + 1);
     } else {
       entryGlobalName = remote;
-      entry = '';
+      entry = remote;
     }
     return {
       type: 'var',
