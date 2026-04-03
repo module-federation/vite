@@ -97,10 +97,12 @@ const addEntry = ({
           // prepends the base to all script src attributes automatically.
           const base = viteConfig.base.replace(/\/$/, '');
           const stripBase = (p: string) => (base && p.startsWith(base) ? p.slice(base.length) : p);
+          const applyBase = (p: string) =>
+            p.startsWith('/') && base && !p.startsWith(base + '/') ? `${base}${p}` : p;
           const html = rewriteEntryScripts(c, (originalSrc) => {
             const query = new URLSearchParams({
-              init: sanitizeDevEntryPath(stripBase(devEntryPath)),
-              entry: originalSrc,
+              init: sanitizeDevEntryPath(devEntryPath),
+              entry: sanitizeDevEntryPath(applyBase(originalSrc)),
             }).toString();
             return `/@id/${DEV_HTML_PROXY_PREFIX}${query}`;
           });
