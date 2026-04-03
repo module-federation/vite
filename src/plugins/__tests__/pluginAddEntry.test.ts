@@ -146,7 +146,7 @@ describe('pluginAddEntry', () => {
     expect(result).not.toContain('<script type="module">');
   });
 
-  it('keeps base on host init when rewriting external dev html entry scripts', () => {
+  it('strips base from injected dev html proxy paths', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-html-base-'));
     fs.writeFileSync(path.join(tempDir, 'index.html'), '<html></html>');
 
@@ -182,8 +182,8 @@ describe('pluginAddEntry', () => {
 
     expect(result).toContain('src="/foo/@vite/client"');
     expect(result).toContain('src="/@id/virtual:mf-html-entry-proxy?');
-    expect(result).toContain('init=%2Ffoo%2F%40id%2Fvirtual%3Amf-host-init');
-    expect(result).toContain('entry=%2Ffoo%2Fsrc%2Fmain.tsx');
+    expect(result).toContain('init=%2F%40id%2Fvirtual%3Amf-host-init');
+    expect(result).not.toContain('init=%2Ffoo%2F%40id%2Fvirtual%3Amf-host-init');
     expect(result).not.toContain('src="/foo/@id/virtual:mf-html-entry-proxy?');
   });
 });
