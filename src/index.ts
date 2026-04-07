@@ -16,6 +16,7 @@ import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
+import { isTestEnv } from './utils/isTestEnv';
 import { resolveProxyAlias } from './utils/bundleHelpers';
 import {
   isFederationControlChunk,
@@ -167,6 +168,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
 }
 
 function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
+  if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const isVinext = hasPackageDependency('vinext');
   const { name, remotes, shared, filename, hostInitInjectLocation } = options;
@@ -834,8 +836,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                   // resolve against the module's own origin, not the page origin.
                   const replacement = `=function($1){return new URL(${replacementExpr},import.meta.url).href}`;
                   // Arrow function: e=>"/"+e or (e)=>"/"+e or (e,t)=>"/"+e
+                  // The string literal must start with "/" to avoid matching unrelated
+                  // functions like Stencil's getScopeId: (e,t)=>"sc-"+e.$tagName$
                   const replaced = chunk.code.replace(
-                    /=\(?(\w+)(?:,\w+)?\)?\s*=>\s*["'`][^"'`]*["'`]\s*\+\s*\1/,
+                    /=\(?(\w+)(?:,\w+)?\)?\s*=>\s*["'][./][^"']*["']\s*\+\s*\1/,
                     replacement
                   );
                   if (replaced !== chunk.code) {
@@ -844,7 +848,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                   }
                   // Function expression: function(e){return"/"+e} (1 or 2 params)
                   chunk.code = chunk.code.replace(
-                    /=function\((\w+)(?:,\w+)?\)\{return\s*["'`][^"'`]*["'`]\s*\+\s*\1\s*\}/,
+                    /=function\((\w+)(?:,\w+)?\)\{return\s*["'][./][^"']*["']\s*\+\s*\1\s*\}/,
                     replacement
                   );
                   chunk.code = chunk.code.replace(

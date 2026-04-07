@@ -93,14 +93,19 @@ const addEntry = ({
         handler(c) {
           if (!injectHtml()) return;
           clientInjected = true;
-          // Strip base from paths — devHtmlHook runs after pre hooks and
-          // prepends the base to all script src attributes automatically.
+          // Normalize all paths to root-relative (without base) before storing
+          // in query params. devHtmlHook runs after pre hooks and prepends base
+          // to script src attributes automatically, and Vite's server-side import
+          // resolver also handles base — so query params must be base-free.
+          // Note: originalSrc may or may not include the base depending on the
+          // user's HTML (#590), so we normalize both directions uniformly.
           const base = viteConfig.base.replace(/\/$/, '');
-          const stripBase = (p: string) => (base && p.startsWith(base) ? p.slice(base.length) : p);
+          const stripBase = (p: string) =>
+            base && p.startsWith(base + '/') ? p.slice(base.length) : p;
           const html = rewriteEntryScripts(c, (originalSrc) => {
             const query = new URLSearchParams({
               init: sanitizeDevEntryPath(stripBase(devEntryPath)),
-              entry: originalSrc,
+              entry: sanitizeDevEntryPath(stripBase(originalSrc)),
             }).toString();
             return `/@id/${DEV_HTML_PROXY_PREFIX}${query}`;
           });
@@ -118,11 +123,14 @@ const addEntry = ({
         const initSrc = params.get('init');
         const entrySrc = params.get('entry');
         if (!initSrc || !entrySrc) return;
-        return `
-const baseUrl = document.baseURI || window.location.href;
-await import(new URL(${JSON.stringify(initSrc)}, baseUrl).href);
-await import(new URL(${JSON.stringify(entrySrc)}, baseUrl).href);
-`;
+        // Use static imports (not dynamic `await import()`) so that init and
+        // entry become part of the browser's static module dependency graph.
+        // This guarantees:
+        //   1. init executes fully (including TLA) before entry starts (#396)
+        //   2. the browser waits for the entire import tree before firing the
+        //      `load` event, preserving standard script execution order (#571)
+        //   3. no inline script content in the HTML, keeping CSP intact (#528)
+        return `import ${JSON.stringify(initSrc)};\nimport ${JSON.stringify(entrySrc)};\n`;
       },
       transform(code, id) {
         if (id.includes('node_modules') || inject !== 'html' || htmlFilePath) {

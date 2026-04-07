@@ -81,8 +81,18 @@ export function normalizeRemotes(
 
 function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): RemoteObjectConfig {
   if (typeof remote === 'string') {
-    const [entryGlobalName] = remote.split('@');
-    const entry = remote.replace(entryGlobalName + '@', '');
+    // Scoped packages start with '@', so the name/entry separator is the
+    // first '@' after the optional scope prefix, not the last '@' overall.
+    const separatorIndex = remote.startsWith('@') ? remote.indexOf('@', 1) : remote.indexOf('@');
+    let entryGlobalName: string;
+    let entry: string;
+    if (separatorIndex > 0) {
+      entryGlobalName = remote.slice(0, separatorIndex);
+      entry = remote.slice(separatorIndex + 1);
+    } else {
+      entryGlobalName = remote;
+      entry = remote;
+    }
     return {
       type: 'var',
       name: key,
@@ -128,14 +138,20 @@ function searchPackageVersion(sharedName: string): string | undefined {
     ) {
       const potentialPackageJsonPath = path.join(potentialPackageJsonDir, 'package.json');
       if (fs.existsSync(potentialPackageJsonPath)) {
-        const potentialPackageJson = JSON.parse(fs.readFileSync(potentialPackageJsonPath, 'utf-8'));
-        if (
-          typeof potentialPackageJson == 'object' &&
-          potentialPackageJson !== null &&
-          typeof potentialPackageJson.version === 'string' &&
-          potentialPackageJson.name === sharedName
-        ) {
-          return potentialPackageJson.version;
+        const potentialPackageJsonContent = fs.readFileSync(potentialPackageJsonPath, 'utf-8');
+        try {
+          const potentialPackageJson = JSON.parse(potentialPackageJsonContent);
+          if (
+            typeof potentialPackageJson == 'object' &&
+            potentialPackageJson !== null &&
+            typeof potentialPackageJson.version === 'string' &&
+            potentialPackageJson.name === sharedName
+          ) {
+            return potentialPackageJson.version;
+          }
+        } catch (error) {
+          // Skip malformed package.json and continue searching up the tree
+          if (!(error instanceof SyntaxError)) throw error;
         }
       }
       potentialPackageJsonDir = path.dirname(potentialPackageJsonDir);

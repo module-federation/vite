@@ -1,6 +1,6 @@
 import type { Plugin, ViteDevServer } from 'vite';
-import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { mfWarn } from '../utils/logger';
+import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 const REMOTE_HMR_ENDPOINT = '__mf_hmr';
 const REMOTE_HMR_EVENT = 'mf:remote-update';
@@ -278,6 +278,15 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
         for (const [remoteName, remote] of Object.entries(options.remotes)) {
           void connectRemote(remoteName, remote);
         }
+
+        const triggerHostReload = (file: string) => {
+          if (shouldIgnoreFile(file, options)) return;
+          server.ws.send({ type: 'full-reload' });
+        };
+
+        server.watcher.on('change', triggerHostReload);
+        server.watcher.on('add', triggerHostReload);
+        server.watcher.on('unlink', triggerHostReload);
 
         server.httpServer?.once('close', teardown);
       }

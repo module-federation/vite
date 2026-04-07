@@ -146,7 +146,7 @@ describe('pluginAddEntry', () => {
     expect(result).not.toContain('<script type="module">');
   });
 
-  it('strips base from injected dev html proxy paths', () => {
+  it('rewrites entry scripts and resolves proxy imports with non-root base (#590)', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-html-base-'));
     fs.writeFileSync(path.join(tempDir, 'index.html'), '<html></html>');
 
@@ -174,16 +174,28 @@ describe('pluginAddEntry', () => {
       build: { rollupOptions: {} },
     } as any);
 
+    // User's HTML with a non-root base — entry src may or may not include base
     const hook = servePlugin.transformIndexHtml;
     const handler = typeof hook === 'object' ? hook.handler : hook;
     const result = handler?.(
       '<html><head><script type="module" src="/foo/@vite/client"></script></head><body><script type="module" src="/foo/src/main.tsx"></script></body></html>'
-    );
+    ) as string;
 
+    // Vite client must not be rewritten
     expect(result).toContain('src="/foo/@vite/client"');
+    // Entry script must be rewritten to use the proxy module
     expect(result).toContain('src="/@id/virtual:mf-html-entry-proxy?');
-    expect(result).toContain('init=%2F%40id%2Fvirtual%3Amf-host-init');
-    expect(result).not.toContain('init=%2Ffoo%2F%40id%2Fvirtual%3Amf-host-init');
-    expect(result).not.toContain('src="/foo/@id/virtual:mf-html-entry-proxy?');
+
+    // Extract the proxy module ID from the rewritten HTML and load it
+    const proxyIdMatch = result.match(/src="\/@id\/(virtual:mf-html-entry-proxy\?[^"]+)"/);
+    expect(proxyIdMatch).not.toBeNull();
+    const proxyId = decodeURIComponent(proxyIdMatch![1]).replace(/&amp;/g, '&');
+    const code = servePlugin.load?.(proxyId) as string;
+
+    // The proxy module must import both init and entry as resolvable paths
+    // (no base prefix — Vite's server-side resolver handles base itself)
+    expect(code).toContain('import "/@id/virtual:mf-host-init"');
+    expect(code).toContain('import "/src/main.tsx"');
+    expect(code).not.toContain('/foo/');
   });
 });

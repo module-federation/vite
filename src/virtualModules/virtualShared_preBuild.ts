@@ -88,18 +88,28 @@ function getInstalledPackageJsonPath(pkg: string): string | undefined {
     while (currentDir !== rootDir) {
       const packageJsonPath = path.join(currentDir, 'package.json');
       if (existsSync(packageJsonPath)) {
-        const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as { name?: string };
-        if (packageJson.name === packageName) return packageJsonPath;
+        const packageJsonContent = readFileSync(packageJsonPath, 'utf-8');
+        try {
+          const packageJson = JSON.parse(packageJsonContent) as { name?: string };
+          if (packageJson.name === packageName) return packageJsonPath;
+        } catch (error) {
+          // Skip malformed package.json and continue searching up the tree
+          if (!(error instanceof SyntaxError)) throw error;
+        }
       }
       currentDir = path.dirname(currentDir);
     }
 
     const rootPackageJsonPath = path.join(rootDir, 'package.json');
     if (existsSync(rootPackageJsonPath)) {
-      const packageJson = JSON.parse(readFileSync(rootPackageJsonPath, 'utf-8')) as {
-        name?: string;
-      };
-      if (packageJson.name === packageName) return rootPackageJsonPath;
+      const rootPackageJsonContent = readFileSync(rootPackageJsonPath, 'utf-8');
+      try {
+        const packageJson = JSON.parse(rootPackageJsonContent) as { name?: string };
+        if (packageJson.name === packageName) return rootPackageJsonPath;
+      } catch (error) {
+        // Skip malformed root package.json
+        if (!(error instanceof SyntaxError)) throw error;
+      }
     }
   } catch {
     const packageName = removePathFromNpmPackage(pkg);
