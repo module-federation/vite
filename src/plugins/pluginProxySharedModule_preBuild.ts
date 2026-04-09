@@ -1,7 +1,12 @@
 import { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
-import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from '../utils/packageUtils';
+import {
+  getIsRolldown,
+  hasPackageDependency,
+  removePathFromNpmPackage,
+  setPackageDetectionCwd,
+} from '../utils/packageUtils';
 import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
@@ -67,11 +72,15 @@ export function proxySharedModule(options: {
             .filter((key) => !(useDirectReactImport && key === 'react'))
             .map((key) => {
               const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
+              const matchesPackageSubpaths =
+                key.endsWith('/') || removePathFromNpmPackage(keyBase) === keyBase;
               const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
               const escapedKeyBase = escapeRegex(keyBase);
-              // Trailing-slash keys act as package-prefix shares:
-              // "react/" should match both "react" and "react/*".
-              const pattern = key.endsWith('/')
+              // Bare package shares (e.g. "lit") and trailing-slash shares
+              // (e.g. "lit/") should also catch package subpaths like
+              // "lit/directives/class-map.js" so they can register a runtime
+              // share entry instead of being bundled locally.
+              const pattern = matchesPackageSubpaths
                 ? `^(${escapedKeyBase}(?:\\/.*)?)$`
                 : `^(${escapedKeyBase})$`;
               return {
@@ -80,27 +89,18 @@ export function proxySharedModule(options: {
                 replacement: '$1',
                 customResolver(source: string, importer: string) {
                   if (/\.css$/.test(source)) return;
-                  // Hard-stop proxying bare React in dev. Vite's RSC pipeline
-                  // expects the native server React entry, and wrapping `react`
-                  // through loadShare breaks react-server-dom-webpack.
+                  // Hard-stop proxying React package entries in dev. Vite's RSC
+                  // pipeline expects the native server React entry family, and
+                  // wrapping them through loadShare breaks react-server-dom-webpack.
                   // We still register React in the federation share scope via
                   // localSharedImportMap, so shared metadata remains available.
-                  if (useDirectReactImport && source === 'react') {
+                  if (useDirectReactImport && (source === 'react' || source.startsWith('react/'))) {
                     return;
                   }
                   // Skip for localSharedImportMap to break circular TLA deadlock:
                   // loadShare TLA → runtime.loadShare() → get() → import(prebuild)
                   // → alias to pkg name → shared alias → loadShare (DEADLOCK)
                   if (importer && importer.includes('localSharedImportMap')) {
-                    return;
-                  }
-                  // Trailing-slash keys (e.g. "react/") match subpath imports like
-                  // "react/jsx-dev-runtime". However, the MF runtime's loadShare does
-                  // exact key lookup — subpath shares aren't registered and loadShare
-                  // returns false, causing "factory is not a function". Let subpath
-                  // imports resolve normally; the base package singleton sharing
-                  // already ensures a single instance.
-                  if (key.endsWith('/') && source !== key.slice(0, -1)) {
                     return;
                   }
                   const loadSharePath = getLoadShareModulePath(source, isRolldown, command);

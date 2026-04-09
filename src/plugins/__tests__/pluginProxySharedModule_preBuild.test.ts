@@ -9,6 +9,8 @@ vi.mock('../../utils/packageUtils', () => ({
   setPackageDetectionCwd: vi.fn(),
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   getIsRolldown: () => false,
+  removePathFromNpmPackage: (value: string) =>
+    value.startsWith('@') ? value.split('/').slice(0, 2).join('/') : value.split('/')[0],
 }));
 
 vi.mock('../../utils/VirtualModule', () => ({
@@ -34,6 +36,7 @@ import { proxySharedModule } from '../pluginProxySharedModule_preBuild';
 import { NormalizedShared } from '../../utils/normalizeModuleFederationOptions';
 
 const preBuildShareItemMap = new Map<string, NormalizedShared[string]>();
+const addUsedSharesCalls: string[] = [];
 
 vi.mock('../../virtualModules', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../virtualModules')>();
@@ -41,6 +44,9 @@ vi.mock('../../virtualModules', async (importOriginal) => {
     ...actual,
     writePreBuildLibPath: (pkg: string, shareItem?: NormalizedShared[string]) => {
       preBuildShareItemMap.set(pkg, shareItem);
+    },
+    addUsedShares: (pkg: string) => {
+      addUsedSharesCalls.push(pkg);
     },
     writeLocalSharedImportMap: vi.fn(),
     getPreBuildShareItem: (pkg: string) => preBuildShareItemMap.get(pkg),
@@ -107,6 +113,7 @@ describe('pluginProxySharedModule_preBuild', () => {
   beforeEach(() => {
     hasPackageDependencyMock.mockReset();
     preBuildShareItemMap.clear();
+    addUsedSharesCalls.length = 0;
   });
 
   for (const testCase of [
@@ -245,6 +252,49 @@ describe('pluginProxySharedModule_preBuild', () => {
     // Normal deps should still have prebuild entries
     expect(preBuildShareItemMap.has('react')).toBe(true);
     expect(preBuildShareItemMap.has('vue')).toBe(true);
+  });
+
+  it('proxies package subpath imports through the base shared config', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared = makeShared();
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      config as any,
+      {
+        command: 'serve',
+        mode: 'development',
+      }
+    );
+
+    const alias = config.resolve.alias.find((entry) => entry.find.test('transitive/runtime.js'));
+    expect(alias?.customResolver).toBeTypeOf('function');
+
+    const resolution = await alias?.customResolver?.call(
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      'transitive/runtime.js',
+      '/src/main.ts'
+    );
+
+    expect(resolution).toEqual({ id: '/resolved//mock/path.js' });
+    expect(preBuildShareItemMap.get('transitive/runtime.js')).toBe(shared.transitive);
+    expect(addUsedSharesCalls).toContain('transitive/runtime.js');
   });
 
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {

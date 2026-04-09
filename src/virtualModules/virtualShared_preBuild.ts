@@ -384,7 +384,7 @@ export const LOAD_SHARE_TAG = '__loadShare__';
 const loadShareCacheMap: Record<string, VirtualModule> = {};
 export function getLoadShareImportId(pkg: string, isRolldown: boolean, command?: string): string {
   if (!loadShareCacheMap[pkg]) {
-    const useESM = isRolldown || command === 'build';
+    const useESM = command === 'serve' || command === 'build' || isRolldown;
     const ext = useESM ? '.mjs' : '.js';
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
   }
@@ -402,12 +402,12 @@ export function writeLoadShareModule(
   isRolldown: boolean
 ) {
   if (!loadShareCacheMap[pkg]) {
-    const useESM = isRolldown || command === 'build';
+    const useESM = command === 'serve' || command === 'build' || isRolldown;
     const ext = useESM ? '.mjs' : '.js';
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
   }
 
-  const useESM = command === 'build' || isRolldown;
+  const useESM = command === 'serve' || command === 'build' || isRolldown;
   const importLine =
     command === 'build'
       ? getRuntimeInitPromiseBootstrapCode()
@@ -474,6 +474,15 @@ export function writeLoadShareModule(
   const isWorkspacePackage =
     isWorkspaceFilePath(localProviderPath) || isWorkspaceFilePath(concreteSharedImportSource);
   const providerImportId = localProviderPath || concreteSharedImportSource || sharedImportSource;
+  const resolveShareExpression =
+    command === 'serve'
+      ? `${awaitOrPlaceholder}(async () => {
+      const factory = await res;
+      if (typeof factory === "function") return factory();
+      if (factory) return factory;
+      return import(${escapeGeneratedStringLiteral(providerImportId)});
+    })()`
+      : `${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))`;
   const namedExports = getPackageNamedExports(pkg);
   let exportLine: string;
   if (namedExports.length > 0) {
@@ -521,8 +530,8 @@ export function writeLoadShareModule(
       useSsrProviderFallback
         ? `(typeof window === "undefined"
       ? ((await providerModulePromise)?.default ?? await providerModulePromise)
-      : ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory)))`
-        : `${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))`
+      : ${resolveShareExpression})`
+        : `${resolveShareExpression}`
     }
     ${exportLine}
   `,

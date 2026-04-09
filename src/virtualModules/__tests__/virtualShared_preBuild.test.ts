@@ -363,6 +363,55 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import "mock-import-id";');
   });
 
+  it('loads a subpath wrapper from its own shared runtime key in serve mode', () => {
+    const pkg = 'lit/directives/class-map.js';
+    const mockShareItem: ShareItem = {
+      name: 'lit',
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^3.3.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('runtime.loadShare("lit/directives/class-map.js"');
+    expect(generatedCode).toContain('const exportModule = await (async () => {');
+    expect(generatedCode).toContain('return import("/resolved/lit/directives/class-map.js")');
+  });
+
+  it('emits ESM exports for shared packages in serve mode so named exports survive dev transforms', () => {
+    const pkg = 'lit';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^3.3.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const { initPromise } = globalThis[globalKey];');
+    expect(generatedCode).toContain('const exportModule = await (async () => {');
+    expect(generatedCode).toContain('export default exportModule.default ?? exportModule');
+    expect(generatedCode).toContain('export * from "mock-import-id"');
+    expect(generatedCode).toContain('return import("/resolved/lit")');
+    expect(generatedCode).not.toContain('module.exports = exportModule');
+  });
+
   it('uses SSR provider fallback for react in Astro build output', () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'astro');
 
@@ -462,8 +511,8 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('export *');
     // Should still call loadShare via the runtime
     expect(generatedCode).toContain('runtime.loadShare');
-    // CJS serve mode uses module.exports
-    expect(generatedCode).toContain('module.exports = exportModule');
+    expect(generatedCode).toContain('export default exportModule.default ?? exportModule');
+    expect(generatedCode).not.toContain('module.exports = exportModule');
   });
 
   it('does not reference prebuild modules when import: false in build mode', () => {

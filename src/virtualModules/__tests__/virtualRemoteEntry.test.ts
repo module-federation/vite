@@ -192,6 +192,24 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('virtual:prebuild:transitive-no-override');
   });
 
+  it('registers package subpaths as their own shared entries in localSharedImportMap', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('lit/directives/class-map.js');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('"lit/directives/class-map.js": async () => {');
+    expect(code).toContain(
+      'let pkg = await import("virtual:prebuild:lit/directives/class-map.js");'
+    );
+    expect(code).toContain('"lit/directives/class-map.js": {');
+    expect(code).toContain('name: "lit/directives/class-map.js"');
+  });
+
   it('writes host auto init waiting on __tla before init', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => {
       return pkg === 'vinext';

@@ -90,6 +90,8 @@ export default defineConfig({
 
 In this remote app configuration, we define a remoteEntry.js file that will expose the App component.
 The shared property ensures that both host and remote applications use the same vue library.
+Package shares also apply to their package subpaths, so sharing `lit` covers imports like
+`lit/directives/class-map.js`.
 
 ## The Host Application configuration
 
