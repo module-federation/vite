@@ -32,8 +32,8 @@ vi.mock('../../utils/VirtualModule', () => ({
   }),
 }));
 
-import { proxySharedModule } from '../pluginProxySharedModule_preBuild';
 import { NormalizedShared } from '../../utils/normalizeModuleFederationOptions';
+import { proxySharedModule } from '../pluginProxySharedModule_preBuild';
 
 const preBuildShareItemMap = new Map<string, NormalizedShared[string]>();
 const addUsedSharesCalls: string[] = [];
@@ -295,6 +295,72 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(resolution).toEqual({ id: '/resolved//mock/path.js' });
     expect(preBuildShareItemMap.get('transitive/runtime.js')).toBe(shared.transitive);
     expect(addUsedSharesCalls).toContain('transitive/runtime.js');
+  });
+
+  it('does not proxy imports made from inside a local shared provider package', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      lit: {
+        name: 'lit',
+        from: '',
+        version: '3.3.2',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '*',
+          strictVersion: false,
+        },
+      },
+      'lit-html': {
+        name: 'lit-html',
+        from: '',
+        version: '3.3.2',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^3.3.2',
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      config as any,
+      {
+        command: 'build',
+        mode: 'production',
+      }
+    );
+
+    const alias = config.resolve.alias.find((entry) => entry.find.test('lit-html'));
+    expect(alias?.customResolver).toBeTypeOf('function');
+
+    const resolution = await alias?.customResolver?.call(
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      'lit-html',
+      '/repo/apps/remote/node_modules/lit/index.js'
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(addUsedSharesCalls).not.toContain('lit-html');
   });
 
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {

@@ -1,3 +1,4 @@
+import path from 'pathe';
 import { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
@@ -11,11 +12,11 @@ import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
   addUsedShares,
-  getConcreteSharedImportSource,
   generateLocalSharedImportMap,
-  getPreBuildShareItem,
+  getConcreteSharedImportSource,
   getLoadShareModulePath,
   getLocalSharedImportMapPath,
+  getPreBuildShareItem,
   PREBUILD_TAG,
   writeLoadShareModule,
   writeLocalSharedImportMap,
@@ -37,6 +38,43 @@ export function proxySharedModule(options: {
   let _command = 'serve';
   let useDirectReactImport = false;
   const savePrebuild = new PromiseStore<string>();
+  const sharedProviderPackageNames = new Set<string>();
+  const sharedProviderDirectories = new Set<string>();
+
+  Object.keys(shared).forEach((key) => {
+    if (shared[key].shareConfig.import === false) return;
+    const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
+    const packageName = removePathFromNpmPackage(keyBase);
+    if (packageName === keyBase) {
+      sharedProviderPackageNames.add(packageName);
+    }
+    const concreteImportSource = getConcreteSharedImportSource(key, shared[key]);
+    if (concreteImportSource && !concreteImportSource.startsWith('virtual:')) {
+      sharedProviderDirectories.add(path.dirname(concreteImportSource));
+    }
+  });
+
+  function isInsideLocalSharedProvider(importer?: string) {
+    if (!importer) return false;
+    if (importer.includes('localSharedImportMap')) return true;
+
+    for (const pkgName of sharedProviderPackageNames) {
+      if (
+        importer.includes(`/node_modules/${pkgName}/`) ||
+        importer.endsWith(`/node_modules/${pkgName}`)
+      ) {
+        return true;
+      }
+    }
+
+    for (const providerDir of sharedProviderDirectories) {
+      if (importer === providerDir || importer.startsWith(`${providerDir}/`)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
 
   return [
     {
@@ -90,8 +128,7 @@ export function proxySharedModule(options: {
                 customResolver(source: string, importer: string) {
                   if (/\.css$/.test(source)) return;
                   // Hard-stop proxying React package entries in dev. Vite's RSC
-                  // pipeline expects the native server React entry family, and
-                  // wrapping them through loadShare breaks react-server-dom-webpack.
+                  // pipeline expects native server React entrypoints.
                   // We still register React in the federation share scope via
                   // localSharedImportMap, so shared metadata remains available.
                   if (useDirectReactImport && (source === 'react' || source.startsWith('react/'))) {
@@ -100,7 +137,7 @@ export function proxySharedModule(options: {
                   // Skip for localSharedImportMap to break circular TLA deadlock:
                   // loadShare TLA → runtime.loadShare() → get() → import(prebuild)
                   // → alias to pkg name → shared alias → loadShare (DEADLOCK)
-                  if (importer && importer.includes('localSharedImportMap')) {
+                  if (isInsideLocalSharedProvider(importer)) {
                     return;
                   }
                   const loadSharePath = getLoadShareModulePath(source, isRolldown, command);
