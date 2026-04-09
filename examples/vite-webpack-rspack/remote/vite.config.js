@@ -22,6 +22,11 @@ export default defineConfig({
   server: {
     port: 4001,
   },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: "esnext",
+    },
+  },
   build: {
     modulePreload: false,
     target: "esnext",
