@@ -45,8 +45,7 @@ describe('ESM virtual modules', () => {
       viteConfig: { resolve: { preserveSymlinks: true } },
     });
     const allCode = getAllChunkCode(output);
-    // The CJS dep is replaced by a loadShare shim — verify the build succeeded
-    // and the shared module was properly resolved via the runtime
-    expect(allCode).toContain('loadShare("cjs-dep"');
+    // Shared package subpaths should also proxy through the runtime shim.
+    expect(allCode).toContain('loadShare("cjs-dep/client"');
   });
 });
