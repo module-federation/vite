@@ -526,3 +526,62 @@ describe('module-federation-dev-await-shared-init', () => {
     expect(output).toBeUndefined();
   });
 });
+
+describe('module-federation-esm-shims preview await insertion', () => {
+  it('inserts awaits after the last top-level import, not comment examples', () => {
+    const plugin = getEsmShimsPlugin();
+
+    const originalCode = [
+      'import{a as init_host__loadShare__react__loadShare__}from"./__loadShare__react.js";',
+      'var SemconvStability;',
+      '/**',
+      '* Usage:',
+      '*',
+      "*  import {SemconvStability, semconvStabilityFromStr} from '@opentelemetry/instrumentation';",
+      '*/',
+      '(init_host__loadShare__react__loadShare__(),factory(module));',
+    ].join('\n');
+
+    const bundle = {
+      'assets/index.js': {
+        type: 'chunk',
+        fileName: 'assets/index.js',
+        code: originalCode,
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['assets/index.js'].code).toContain(
+      'import{a as init_host__loadShare__react__loadShare__}from"./__loadShare__react.js";await init_host__loadShare__react__loadShare__();\nvar SemconvStability;'
+    );
+    expect(bundle['assets/index.js'].code).toContain(
+      "*  import {SemconvStability, semconvStabilityFromStr} from '@opentelemetry/instrumentation';\n*/\n(init_host__loadShare__react__loadShare__(),factory(module));"
+    );
+  });
+
+  it('inserts awaits after the last import in one-line minified chunks', () => {
+    const plugin = getEsmShimsPlugin();
+
+    const originalCode = [
+      'import{a as init_react__loadShare__}from"./react__loadShare__.js";',
+      'import{b as init_dom__loadShare__}from"./react-dom__loadShare__.js";',
+      '(init_react__loadShare__(),factory(module));',
+      '(init_dom__loadShare__(),factory(module));',
+    ].join('');
+
+    const bundle = {
+      'assets/index.js': {
+        type: 'chunk',
+        fileName: 'assets/index.js',
+        code: originalCode,
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['assets/index.js'].code).toContain(
+      'import{a as init_react__loadShare__}from"./react__loadShare__.js";import{b as init_dom__loadShare__}from"./react-dom__loadShare__.js";await init_react__loadShare__();await init_dom__loadShare__();(init_react__loadShare__(),factory(module));(init_dom__loadShare__(),factory(module));'
+    );
+  });
+});
