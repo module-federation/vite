@@ -77,6 +77,56 @@ function escapeUnsafeJsSourceChars(str: string): string {
   });
 }
 
+function insertAfterLastTopLevelImport(code: string, snippet: string): string | undefined {
+  let cursor = 0;
+  let lastImportEnd = -1;
+
+  const skipTrivia = () => {
+    while (cursor < code.length) {
+      if (/\s/.test(code[cursor])) {
+        cursor++;
+        continue;
+      }
+      if (code.startsWith('//', cursor)) {
+        const lineEnd = code.indexOf('\n', cursor);
+        cursor = lineEnd === -1 ? code.length : lineEnd + 1;
+        continue;
+      }
+      if (code.startsWith('/*', cursor)) {
+        const commentEnd = code.indexOf('*/', cursor + 2);
+        cursor = commentEnd === -1 ? code.length : commentEnd + 2;
+        continue;
+      }
+      break;
+    }
+  };
+
+  while (cursor < code.length) {
+    // Only scan the initial import block. Once real code starts, later
+    // "import" tokens may be inside strings/comments/minified expressions.
+    skipTrivia();
+    if (!code.startsWith('import', cursor) || !/[\s"'*{]/.test(code[cursor + 6] ?? '')) {
+      break;
+    }
+
+    // Minified preview chunks often place multiple imports on one line, so
+    // line-based insertion can land in the middle of the import block.
+    const statementEnd = code.indexOf(';', cursor);
+    if (statementEnd !== -1) {
+      lastImportEnd = statementEnd + 1;
+      cursor = statementEnd + 1;
+      continue;
+    }
+
+    const lineEnd = code.indexOf('\n', cursor);
+    lastImportEnd = lineEnd === -1 ? code.length : lineEnd + 1;
+    cursor = lastImportEnd;
+  }
+  if (lastImportEnd === -1) return;
+
+  return code.slice(0, lastImportEnd) + snippet + code.slice(lastImportEnd);
+}
+
 /**
  * Plugin that runs FIRST to create virtual module files in the config hook.
  * This prevents 504 "Outdated Optimize Dep" errors by ensuring files exist
@@ -450,13 +500,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           if (allInits.length === 0) continue;
 
           const awaits = allInits.map((v) => `await ${v}();`).join('');
-          const lastFromRegex = /\bfrom\s*["'][^"']*["']\s*;?/g;
-          let lastFromEnd = -1;
-          while ((m = lastFromRegex.exec(code)) !== null) {
-            lastFromEnd = m.index + m[0].length;
-          }
-          if (lastFromEnd !== -1) {
-            chunk.code = code.slice(0, lastFromEnd) + awaits + code.slice(lastFromEnd);
+          const codeWithAwaits = insertAfterLastTopLevelImport(code, awaits);
+          if (codeWithAwaits) {
+            chunk.code = codeWithAwaits;
             continue;
           }
           const exportIdx = code.search(/\bexport\s*[{d]/);
@@ -674,20 +720,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         if (code.includes('__esmMin')) return;
 
         // Add top-level awaits after imports
-        const awaits = [...initFns].map((fn) => `await ${fn}();`).join('\n');
-        // Insert after the last top-level import statement.
-        // Use a regex anchored to the start of a line to avoid matching
-        // "import" inside strings (e.g. error messages like
-        // "You should instead import it from \"react-dom/client\"").
-        const topLevelImportRe = /^import\s/gm;
-        let lastImportIdx = -1;
-        let importMatch;
-        while ((importMatch = topLevelImportRe.exec(code)) !== null) {
-          lastImportIdx = importMatch.index;
-        }
-        if (lastImportIdx === -1) return;
-        const lineEnd = code.indexOf('\n', lastImportIdx);
-        return code.slice(0, lineEnd + 1) + awaits + '\n' + code.slice(lineEnd + 1);
+        const awaits = [...initFns].map((fn) => `await ${fn}();`).join('\n') + '\n';
+        return insertAfterLastTopLevelImport(code, awaits);
       },
     },
     PluginDevProxyModuleTopLevelAwait(),
