@@ -17,6 +17,16 @@ export function generateExposes(options: NormalizedModuleFederationOptions) {
   return `
     const cssAssetMap = ${JSON.stringify(options.bundleAllCSS ? EXPOSES_CSS_MAP_PLACEHOLDER : {})};
     const injectedCssHrefs = new Set();
+    let exposeLoadQueue = Promise.resolve();
+
+    async function importExposedModule(loader) {
+      const currentLoad = exposeLoadQueue.then(loader, loader);
+      exposeLoadQueue = currentLoad.then(
+        () => undefined,
+        () => undefined
+      );
+      return currentLoad;
+    }
 
     async function injectCssAssets(exposeKey) {
       if (typeof document === "undefined") {
@@ -62,7 +72,9 @@ export function generateExposes(options: NormalizedModuleFederationOptions) {
         return `
         ${JSON.stringify(key)}: async () => {
           await injectCssAssets(${JSON.stringify(key)})
-          const importModule = await import(${JSON.stringify(options.exposes[key].import)})
+          const importModule = await importExposedModule(
+            () => import(${JSON.stringify(options.exposes[key].import)})
+          )
           const exportModule = {}
           Object.assign(exportModule, importModule)
           Object.defineProperty(exportModule, "__esModule", {
