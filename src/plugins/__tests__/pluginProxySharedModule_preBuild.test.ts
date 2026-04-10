@@ -1,14 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { hasPackageDependencyMock } = vi.hoisted(() => ({
+const { hasPackageDependencyMock, existsSyncMock, readFileSyncMock } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn(),
+  existsSyncMock: vi.fn(() => false),
+  readFileSyncMock: vi.fn(() => '{}'),
 }));
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: existsSyncMock,
+    readFileSync: readFileSyncMock,
+  };
+});
 
 vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   setPackageDetectionCwd: vi.fn(),
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   getIsRolldown: () => false,
+  removePathFromNpmPackage: (pkg: string) => {
+    const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
+    return match ? match[0] : pkg;
+  },
 }));
 
 vi.mock('../../utils/VirtualModule', () => ({
@@ -350,6 +365,141 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(
       (alias?.replacement as (value: string) => string)('transitive-no-override__prebuild__')
     ).toBe('/workspace/packages/transitive-no-override/dist/index.js');
+  });
+
+  it('excludes shared sub-dependencies in dev mode and warns', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    // Simulate "lit" having lit-html, lit-element, @lit/reactive-element as dependencies
+    existsSyncMock.mockImplementation(
+      (p: string) => p === '/repo/apps/remote/node_modules/lit/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p === '/repo/apps/remote/node_modules/lit/package.json') {
+        return JSON.stringify({
+          name: 'lit',
+          dependencies: {
+            'lit-html': '^3.0.0',
+            'lit-element': '^4.0.0',
+            '@lit/reactive-element': '^2.0.0',
+          },
+        });
+      }
+      return '{}';
+    });
+
+    const shared: NormalizedShared = {
+      lit: {
+        name: 'lit',
+        from: '',
+        version: '3.3.2',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^3.3.2', strictVersion: false },
+      },
+      'lit-html': {
+        name: 'lit-html',
+        from: '',
+        version: '3.3.2',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^3.3.2', strictVersion: false },
+      },
+      'lit-element': {
+        name: 'lit-element',
+        from: '',
+        version: '4.2.2',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^4.2.2', strictVersion: false },
+      },
+      '@lit/reactive-element': {
+        name: '@lit/reactive-element',
+        from: '',
+        version: '2.1.0',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^2.1.0', strictVersion: false },
+      },
+    };
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = { resolve: { alias: [] as any[] } };
+
+    proxyPlugin.config?.call({ meta: {} }, config as any, {
+      command: 'serve',
+      mode: 'development',
+    });
+
+    // Sub-dependencies should be removed from shared
+    expect(shared).toHaveProperty('lit');
+    expect(shared).not.toHaveProperty('lit-html');
+    expect(shared).not.toHaveProperty('lit-element');
+    expect(shared).not.toHaveProperty('@lit/reactive-element');
+
+    // Warnings should have been emitted
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"lit-html" is a dependency of shared package "lit"')
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"lit-element" is a dependency of shared package "lit"')
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"@lit/reactive-element" is a dependency of shared package "lit"')
+    );
+
+    warnSpy.mockRestore();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+  });
+
+  it('does not exclude shared sub-dependencies in build mode', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    existsSyncMock.mockImplementation(
+      (p: string) => p === '/repo/apps/remote/node_modules/lit/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p === '/repo/apps/remote/node_modules/lit/package.json') {
+        return JSON.stringify({
+          name: 'lit',
+          dependencies: { 'lit-html': '^3.0.0' },
+        });
+      }
+      return '{}';
+    });
+
+    const shared: NormalizedShared = {
+      lit: {
+        name: 'lit',
+        from: '',
+        version: '3.3.2',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^3.3.2', strictVersion: false },
+      },
+      'lit-html': {
+        name: 'lit-html',
+        from: '',
+        version: '3.3.2',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^3.3.2', strictVersion: false },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = { resolve: { alias: [] as any[] } };
+
+    proxyPlugin.config?.call({ meta: {} }, config as any, {
+      command: 'build',
+      mode: 'production',
+    });
+
+    // In build mode, sub-dependencies should NOT be excluded
+    expect(shared).toHaveProperty('lit');
+    expect(shared).toHaveProperty('lit-html');
+
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
   });
 
   it('uses auto-detected workspace sources in serve prebuild resolution without null deref', async () => {
