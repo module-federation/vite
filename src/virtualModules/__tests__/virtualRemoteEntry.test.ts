@@ -192,6 +192,22 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('virtual:prebuild:transitive-no-override');
   });
 
+  it('registers exact react jsx-runtime subpath shares in localSharedImportMap', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react/jsx-runtime');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('"react/jsx-runtime": async () => {');
+    expect(code).toContain('"react/jsx-runtime": {');
+    expect(code).toContain('name: "react/jsx-runtime"');
+    expect(code).toContain('let pkg = await import("virtual:prebuild:react/jsx-runtime");');
+  });
+
   it('writes host auto init waiting on __tla before init', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => {
       return pkg === 'vinext';

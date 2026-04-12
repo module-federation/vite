@@ -31,6 +31,14 @@ function getPrebuildResolutionSource(pkgName: string, shareItem?: ShareItem): st
   return getConcreteSharedImportSource(pkgName, shareItem) || pkgName;
 }
 
+function getResolvedShareItem(shared: NormalizedShared, key: string): ShareItem | undefined {
+  return (
+    shared[key] ||
+    shared[removePathFromNpmPackage(key)] ||
+    shared[removePathFromNpmPackage(key) + '/']
+  );
+}
+
 /**
  * Reads the dependencies of an installed package from its package.json.
  */
@@ -132,11 +140,9 @@ export function proxySharedModule(options: {
               const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
               const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
               const escapedKeyBase = escapeRegex(keyBase);
-              // Trailing-slash keys act as package-prefix shares:
-              // "react/" should match both "react" and "react/*".
-              const pattern = key.endsWith('/')
-                ? `^(${escapedKeyBase}(?:\\/.*)?)$`
-                : `^(${escapedKeyBase})$`;
+              // Base package shares also proxy subpath imports so directives like
+              // "lit/directives/class-map.js" resolve through the same share scope.
+              const pattern = `^(${escapedKeyBase}(?:\\/.*)?)$`;
               return {
                 // Intercept all shared requests and proxy them to loadShare
                 find: new RegExp(pattern),
@@ -157,19 +163,11 @@ export function proxySharedModule(options: {
                   if (importer && importer.includes('localSharedImportMap')) {
                     return;
                   }
-                  // Trailing-slash keys (e.g. "react/") match subpath imports like
-                  // "react/jsx-dev-runtime". However, the MF runtime's loadShare does
-                  // exact key lookup — subpath shares aren't registered and loadShare
-                  // returns false, causing "factory is not a function". Let subpath
-                  // imports resolve normally; the base package singleton sharing
-                  // already ensures a single instance.
-                  if (key.endsWith('/') && source !== key.slice(0, -1)) {
-                    return;
-                  }
+                  const shareItem = getResolvedShareItem(shared, source) || shared[key];
                   const loadSharePath = getLoadShareModulePath(source, isRolldown, command);
-                  writeLoadShareModule(source, shared[key], command, isRolldown);
-                  if (shared[key].shareConfig.import !== false) {
-                    writePreBuildLibPath(source, shared[key]);
+                  writeLoadShareModule(source, shareItem, command, isRolldown);
+                  if (shareItem.shareConfig.import !== false) {
+                    writePreBuildLibPath(source, shareItem);
                   }
                   addUsedShares(source);
                   writeLocalSharedImportMap();

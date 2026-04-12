@@ -338,6 +338,178 @@ describe('pluginProxySharedModule_preBuild', () => {
     ).toBe('/abs/transitive/slash-entry.js');
   });
 
+  it('proxies subpath imports for base-package shares', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      lit: {
+        name: 'lit',
+        from: '',
+        version: '3.3.2',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^3.3.2',
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      config as any,
+      {
+        command: 'build',
+        mode: 'production',
+      }
+    );
+
+    const alias = config.resolve.alias.find((entry) =>
+      entry.find.test('lit/directives/class-map.js')
+    );
+    expect(alias).toBeDefined();
+    expect(alias?.customResolver).toBeTypeOf('function');
+
+    const resolution = await alias?.customResolver?.call(
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      'lit/directives/class-map.js',
+      '/src/main.ts'
+    );
+
+    expect(resolution).toEqual({ id: '/resolved//mock/path.js' });
+    expect(preBuildShareItemMap.get('lit/directives/class-map.js')).toEqual(shared.lit);
+  });
+
+  it('proxies subpath imports for trailing-slash shares', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      'lit/': {
+        name: 'lit/',
+        from: '',
+        version: '3.3.2',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^3.3.2',
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      config as any,
+      {
+        command: 'build',
+        mode: 'production',
+      }
+    );
+
+    const alias = config.resolve.alias.find((entry) =>
+      entry.find.test('lit/directives/class-map.js')
+    );
+    expect(alias).toBeDefined();
+    expect(alias?.customResolver).toBeTypeOf('function');
+
+    const resolution = await alias?.customResolver?.call(
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      'lit/directives/class-map.js',
+      '/src/main.ts'
+    );
+
+    expect(resolution).toEqual({ id: '/resolved//mock/path.js' });
+    expect(preBuildShareItemMap.get('lit/directives/class-map.js')).toEqual(shared['lit/']);
+  });
+
+  it('proxies react jsx-runtime subpath imports for trailing-slash shares', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      'react/': {
+        name: 'react/',
+        from: '',
+        version: '19.2.4',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      config as any,
+      {
+        command: 'build',
+        mode: 'production',
+      }
+    );
+
+    const alias = config.resolve.alias.find((entry) => entry.find.test('react/jsx-runtime'));
+    expect(alias).toBeDefined();
+    expect(alias?.customResolver).toBeTypeOf('function');
+
+    const resolution = await alias?.customResolver?.call(
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      'react/jsx-runtime',
+      '/src/main.tsx'
+    );
+
+    expect(resolution).toEqual({ id: '/resolved//mock/path.js' });
+    expect(preBuildShareItemMap.get('react/jsx-runtime')).toEqual(shared['react/']);
+  });
+
   it('resolves prebuild aliases to auto-detected workspace sources without explicit share.import', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
