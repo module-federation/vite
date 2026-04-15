@@ -153,6 +153,32 @@ describe('module-federation-esm-shims', () => {
     expect(mfWarn).toHaveBeenCalledTimes(1);
   });
 
+  it('removes codeSplitting groups and warns once', () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = {
+      build: {
+        rolldownOptions: {
+          output: {
+            codeSplitting: {
+              groups: [
+                {
+                  test: /node_modules\/(react|react-dom)(\/|$)/,
+                  name: 'react',
+                },
+              ],
+            },
+          },
+        },
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+
+    expect(config.build.rolldownOptions.output.codeSplitting).toBeUndefined();
+    expect(mfWarn).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores user manualChunks and warns, keeps federation chunks isolated', () => {
     const plugin = getEsmShimsPlugin();
     const runtimeInitId = virtualRuntimeInitStatus.getImportId();
@@ -193,6 +219,49 @@ describe('module-federation-esm-shims', () => {
     expect(mfWarn).toHaveBeenCalled();
   });
 
+  it('patches manualChunks and removes codeSplitting groups for rolldown output arrays', () => {
+    const plugin = getEsmShimsPlugin();
+    const runtimeInitId = virtualRuntimeInitStatus.getImportId();
+    const config: any = {
+      build: {
+        rolldownOptions: {
+          output: [
+            {
+              codeSplitting: {
+                groups: [
+                  {
+                    test: /node_modules\/(react|react-dom)(\/|$)/,
+                    name: 'react',
+                  },
+                ],
+              },
+            },
+            {
+              manualChunks: {
+                vendor: ['react'],
+              },
+            },
+          ],
+        },
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+
+    expect(config.build.rolldownOptions.output[0].codeSplitting).toBeUndefined();
+    expect(config.build.rolldownOptions.output[1].manualChunks(`/virtual/${runtimeInitId}`)).toBe(
+      'runtimeInit'
+    );
+    expect(
+      config.build.rolldownOptions.output[1].manualChunks(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)
+    ).toBe(`react${LOAD_SHARE_TAG}chunk.js`);
+    expect(
+      config.build.rolldownOptions.output[1].manualChunks('/src/other/index.ts')
+    ).toBeUndefined();
+    expect(mfWarn).toHaveBeenCalledTimes(2);
+  });
+
   it('does not warn when config() is executed twice for patched output', () => {
     const plugin = getEsmShimsPlugin();
     const config: any = {
@@ -207,6 +276,114 @@ describe('module-federation-esm-shims', () => {
     const warnCountAfterFirstRun = mfWarn.mock.calls.length;
     configHook?.call({} as any, config, { command: 'build', mode: 'test' });
     expect(mfWarn).toHaveBeenCalledTimes(warnCountAfterFirstRun);
+  });
+
+  it('reapplies patched rolldown output in buildApp after Vite overwrites it', async () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = {
+      build: {
+        rolldownOptions: {
+          output: {
+            entryFileNames: 'static/js/[name]-[hash].js',
+            chunkFileNames: 'static/js/[name]-[hash].js',
+            assetFileNames: 'static/[ext]/[name]-[hash].[ext]',
+          },
+        },
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+
+    const overwrittenOutput = {
+      entryFileNames: 'assets/[name].js',
+      chunkFileNames: 'assets/[name]-[hash].js',
+      assetFileNames: 'assets/[name]-[hash][extname]',
+      minify: false,
+      sourcemap: true,
+    };
+
+    const environment = {
+      getRolldownOptions: vi.fn(async () => ({
+        output: overwrittenOutput,
+      })),
+    };
+
+    const buildAppHook =
+      typeof plugin.buildApp === 'function' ? plugin.buildApp : plugin.buildApp?.handler;
+    await buildAppHook?.call(
+      {} as any,
+      {
+        environments: {
+          client: environment,
+        },
+      } as any
+    );
+
+    const restoredOptions = await environment.getRolldownOptions();
+
+    expect(restoredOptions.output.entryFileNames).toBe('static/js/[name]-[hash].js');
+    expect(restoredOptions.output.chunkFileNames).toBe('static/js/[name]-[hash].js');
+    expect(restoredOptions.output.assetFileNames).toBe('static/[ext]/[name]-[hash].[ext]');
+    expect(restoredOptions.output.minify).toBe(false);
+    expect(restoredOptions.output.sourcemap).toBe(true);
+  });
+
+  it('reapplies patched rolldown output for output arrays in buildApp', async () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = {
+      build: {
+        rolldownOptions: {
+          output: [
+            {
+              entryFileNames: 'static/js/[name]-[hash].js',
+            },
+            {
+              chunkFileNames: 'static/chunks/[name]-[hash].js',
+              assetFileNames: 'static/assets/[name]-[hash].[ext]',
+            },
+          ],
+        },
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+
+    const environment = {
+      getRolldownOptions: vi.fn(async () => ({
+        output: [
+          {
+            entryFileNames: 'assets/[name].js',
+            minify: false,
+          },
+          {
+            chunkFileNames: 'assets/[name]-[hash].js',
+            assetFileNames: 'assets/[name]-[hash][extname]',
+            sourcemap: true,
+          },
+        ],
+      })),
+    };
+
+    const buildAppHook =
+      typeof plugin.buildApp === 'function' ? plugin.buildApp : plugin.buildApp?.handler;
+    await buildAppHook?.call(
+      {} as any,
+      {
+        environments: {
+          client: environment,
+        },
+      } as any
+    );
+
+    const restoredOptions = await environment.getRolldownOptions();
+
+    expect(restoredOptions.output[0].entryFileNames).toBe('static/js/[name]-[hash].js');
+    expect(restoredOptions.output[0].minify).toBe(false);
+    expect(restoredOptions.output[1].chunkFileNames).toBe('static/chunks/[name]-[hash].js');
+    expect(restoredOptions.output[1].assetFileNames).toBe('static/assets/[name]-[hash].[ext]');
+    expect(restoredOptions.output[1].sourcemap).toBe(true);
   });
 });
 
