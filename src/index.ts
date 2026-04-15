@@ -229,6 +229,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
 
   let command: string;
   let depsDir = '/node_modules/.vite/deps/';
+  let desiredRolldownOutput:
+    | Array<Pick<Record<string, any>, 'entryFileNames' | 'chunkFileNames' | 'assetFileNames'>>
+    | undefined;
 
   return [
     // This plugin runs FIRST to create virtual module files before optimization
@@ -363,13 +366,31 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         }
 
         let warnedAboutCodeSplitting = false;
+        let warnedAboutCodeSplittingGroups = false;
         const ensureCodeSplitting = (output: any) => {
-          if (output?.codeSplitting !== false) return;
-          delete output.codeSplitting;
-          if (warnedAboutCodeSplitting) return;
-          warnedAboutCodeSplitting = true;
+          if (output?.codeSplitting === false) {
+            delete output.codeSplitting;
+            if (warnedAboutCodeSplitting) return;
+            warnedAboutCodeSplitting = true;
+            mfWarn(
+              'Ignoring `output.codeSplitting = false` because module federation requires chunk splitting.'
+            );
+            return;
+          }
+
+          if (!output?.codeSplitting || typeof output.codeSplitting !== 'object') return;
+          if (!('groups' in output.codeSplitting)) return;
+
+          delete output.codeSplitting.groups;
+          if (Object.keys(output.codeSplitting).length === 0) {
+            delete output.codeSplitting;
+          }
+          if (warnedAboutCodeSplittingGroups) return;
+          warnedAboutCodeSplittingGroups = true;
           mfWarn(
-            'Ignoring `build.rolldownOptions.output.codeSplitting = false` because module federation requires chunk splitting.'
+            'Ignoring `output.codeSplitting.groups` because it conflicts with module federation. ' +
+              'Grouping shared dependency init wrappers with their dependent modules can break runtime init order ' +
+              'and cause standalone remotes to fail before mount.'
           );
         };
 
@@ -382,7 +403,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           if (output.manualChunks && !isPatchedByPlugin && !warnedAboutManualChunks) {
             warnedAboutManualChunks = true;
             mfWarn(
-              'Ignoring `build.rollupOptions.output.manualChunks` because it conflicts with module federation. ' +
+              'Ignoring `output.manualChunks` because it conflicts with module federation. ' +
                 'Module federation transforms shared dependency imports with top-level await, and grouping ' +
                 'these transformed modules into a single chunk creates circular async dependencies that cause ' +
                 'the application to silently hang.'
@@ -404,7 +425,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         };
 
         config.build.rollupOptions = config.build.rollupOptions || {};
-        if (!Array.isArray(config.build.rollupOptions.output)) {
+        const rollupOutput = config.build.rollupOptions.output;
+        if (Array.isArray(rollupOutput)) {
+          rollupOutput.forEach((output) => applyManualChunks(output as any));
+        } else {
           applyManualChunks((config.build.rollupOptions.output ||= {}) as any);
         }
 
@@ -415,8 +439,65 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           rolldownOptions?: { output?: any };
         };
         buildWithRolldown.rolldownOptions = buildWithRolldown.rolldownOptions || {};
-        if (!Array.isArray(buildWithRolldown.rolldownOptions.output)) {
+        const rolldownOutput = buildWithRolldown.rolldownOptions.output;
+        const snapshotRolldownOutput = (output: Record<string, any>) => ({
+          entryFileNames: output.entryFileNames,
+          chunkFileNames: output.chunkFileNames,
+          assetFileNames: output.assetFileNames,
+        });
+        if (Array.isArray(rolldownOutput)) {
+          rolldownOutput.forEach((output) => applyManualChunks(output as any));
+          desiredRolldownOutput = rolldownOutput.map((output) =>
+            snapshotRolldownOutput(output as Record<string, any>)
+          );
+        } else {
           applyManualChunks((buildWithRolldown.rolldownOptions.output ||= {}) as any);
+          // Vite 8's Rolldown build path overwrites output options like
+          // entryFileNames/chunkFileNames/assetFileNames. Keep only those
+          // values so we can restore them in buildApp without clobbering other
+          // later output mutations from Vite or plugins.
+          desiredRolldownOutput = [
+            snapshotRolldownOutput(buildWithRolldown.rolldownOptions.output as Record<string, any>),
+          ];
+        }
+      },
+      async buildApp(builder) {
+        if (!desiredRolldownOutput) return;
+
+        const applyRolldownOutput = (
+          output: Record<string, any> | undefined,
+          restoredOutput:
+            | Pick<Record<string, any>, 'entryFileNames' | 'chunkFileNames' | 'assetFileNames'>
+            | undefined
+        ) => {
+          if (!output || !restoredOutput) return;
+          if (restoredOutput.entryFileNames !== undefined) {
+            output.entryFileNames = restoredOutput.entryFileNames;
+          }
+          if (restoredOutput.chunkFileNames !== undefined) {
+            output.chunkFileNames = restoredOutput.chunkFileNames;
+          }
+          if (restoredOutput.assetFileNames !== undefined) {
+            output.assetFileNames = restoredOutput.assetFileNames;
+          }
+        };
+
+        for (const environment of Object.values(builder.environments)) {
+          const getRolldownOptions = (environment as any)?.getRolldownOptions;
+          if (typeof getRolldownOptions !== 'function') continue;
+
+          (environment as any).getRolldownOptions = async () => {
+            const rolldownOptions = await getRolldownOptions.call(environment);
+            if (Array.isArray(rolldownOptions.output)) {
+              rolldownOptions.output.forEach((output: Record<string, any>, index: number) =>
+                applyRolldownOutput(output, desiredRolldownOutput?.[index])
+              );
+            } else {
+              rolldownOptions.output ||= {};
+              applyRolldownOutput(rolldownOptions.output, desiredRolldownOutput[0]);
+            }
+            return rolldownOptions;
+          };
         }
       },
       load(id) {
