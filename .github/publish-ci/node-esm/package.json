@@ -8,7 +8,7 @@
     "test": "node test-cjs.cjs && node test-esm.js"
   },
   "dependencies": {
-    "@module-federation/vite": "*"
+    "@module-federation/vite": "workspace:*"
   },
   "devDependencies": {
     "resolve-esm": "2.0.3"
