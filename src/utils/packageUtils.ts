@@ -1,4 +1,5 @@
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
+import { createRequire } from 'module';
 import path from 'pathe';
 import { createModuleFederationError } from './logger';
 
@@ -23,6 +24,12 @@ export function setPackageDetectionCwd(cwd: string) {
 export function getPackageDetectionCwd() {
   return packageDetectionCwd || process.cwd();
 }
+
+export type InstalledPackageJson = {
+  path: string;
+  dir: string;
+  packageJson: Record<string, unknown>;
+};
 /**
  * Escaping rules:
  * Convert using the format __${mapping}__, where _ and $ are not allowed in npm package names but can be used in variable names.
@@ -73,6 +80,74 @@ export function removePathFromNpmPackage(packageString: string): string {
   const regex = /^(?:@[^/]+\/)?[^/]+/;
   const match = packageString.match(regex);
   return match ? match[0] : packageString;
+}
+
+export function getInstalledPackageJson(
+  pkg: string,
+  opts?: { cwd?: string; packageName?: string }
+): InstalledPackageJson | undefined {
+  const cwd = opts?.cwd || getPackageDetectionCwd();
+  const packageName = opts?.packageName || removePathFromNpmPackage(pkg);
+
+  try {
+    const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
+    let resolvedPath: string | undefined;
+
+    try {
+      resolvedPath = projectRequire.resolve(pkg);
+    } catch {
+      resolvedPath = projectRequire.resolve(packageName);
+    }
+
+    let currentDir = path.dirname(resolvedPath);
+    const rootDir = path.parse(currentDir).root;
+
+    while (true) {
+      const packageJsonPath = path.join(currentDir, 'package.json');
+      if (existsSync(packageJsonPath)) {
+        const packageJsonContent = readFileSync(packageJsonPath, 'utf-8');
+        try {
+          const packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>;
+          if (packageJson.name === packageName) {
+            return {
+              path: packageJsonPath,
+              dir: currentDir,
+              packageJson,
+            };
+          }
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+        }
+      }
+      if (currentDir === rootDir) break;
+      currentDir = path.dirname(currentDir);
+    }
+  } catch {
+    let currentDir = cwd;
+    const rootDir = path.parse(currentDir).root;
+
+    while (true) {
+      const packageJsonPath = path.join(currentDir, 'node_modules', packageName, 'package.json');
+      if (existsSync(packageJsonPath)) {
+        try {
+          return {
+            path: packageJsonPath,
+            dir: path.dirname(packageJsonPath),
+            packageJson: JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<
+              string,
+              unknown
+            >,
+          };
+        } catch {
+          return undefined;
+        }
+      }
+      if (currentDir === rootDir) break;
+      currentDir = path.dirname(currentDir);
+    }
+  }
+
+  return undefined;
 }
 
 /**

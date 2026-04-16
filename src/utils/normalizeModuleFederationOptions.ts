@@ -26,7 +26,7 @@ import * as fs from 'fs';
 import { createRequire } from 'node:module';
 import * as path from 'pathe';
 import { createModuleFederationError, mfError } from './logger';
-import { removePathFromNpmPackage } from './packageUtils';
+import { getInstalledPackageJson, removePathFromNpmPackage } from './packageUtils';
 
 interface ExposesItem {
   import: string;
@@ -166,6 +166,18 @@ function inferVersionFromRequiredVersion(requiredVersion?: string): string | und
   return match?.[0];
 }
 
+function getLitExportSubpathShares(sharedName: string): string[] {
+  if (sharedName !== 'lit') return [];
+
+  const installedPackageJson = getInstalledPackageJson(sharedName, { packageName: sharedName });
+  const exportsField = installedPackageJson?.packageJson.exports;
+  if (!exportsField || typeof exportsField === 'string') return [];
+
+  return Object.keys(exportsField as Record<string, unknown>)
+    .filter((key) => key.startsWith('./') && key !== '.' && !key.includes('*'))
+    .map((key) => `${sharedName}/${key.slice(2)}`);
+}
+
 function normalizeShareItem(
   key: string,
   shareItem:
@@ -256,17 +268,26 @@ function normalizeShared(
 ): NormalizedShared {
   if (!shared) return {};
   const result: NormalizedShared = {};
+  const sourceEntries: Array<[string, string | Record<string, any>]> = [];
   if (Array.isArray(shared)) {
     shared.forEach((key) => {
       result[key] = normalizeShareItem(key, key);
+      sourceEntries.push([key, key]);
     });
-    return result;
-  }
-  if (typeof shared === 'object') {
+  } else if (typeof shared === 'object') {
     Object.keys(shared).forEach((key) => {
-      result[key] = normalizeShareItem(key, shared[key] as any);
+      const value = shared[key] as any;
+      result[key] = normalizeShareItem(key, value);
+      sourceEntries.push([key, value]);
     });
   }
+
+  sourceEntries.forEach(([key, value]) => {
+    for (const subpathShare of getLitExportSubpathShares(key)) {
+      if (result[subpathShare]) continue;
+      result[subpathShare] = normalizeShareItem(subpathShare, value as any);
+    }
+  });
 
   return result;
 }

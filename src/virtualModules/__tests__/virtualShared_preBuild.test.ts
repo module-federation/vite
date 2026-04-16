@@ -35,6 +35,12 @@ vi.mock('../../utils/VirtualModule', () => {
 vi.mock('fs', () => ({
   existsSync: vi.fn(
     (filePath: string) =>
+      filePath.endsWith('node_modules/lit/package.json') ||
+      filePath.endsWith('/lit/package.json') ||
+      filePath.endsWith('node_modules/lit/index.js') ||
+      filePath.endsWith('/lit/index.js') ||
+      filePath.endsWith('node_modules/lit/directives/class-map.js') ||
+      filePath.endsWith('/lit/directives/class-map.js') ||
       filePath.endsWith('node_modules/mock-package-esm-only/package.json') ||
       filePath.endsWith('/mock-package-esm-only/package.json') ||
       filePath.endsWith('node_modules/mock-package-typeonly/package.json') ||
@@ -47,6 +53,27 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-generator-export/package.json')
   ),
   readFileSync: vi.fn((filePath: string) => {
+    if (
+      filePath.endsWith('node_modules/lit/package.json') ||
+      filePath.endsWith('/lit/package.json')
+    ) {
+      return JSON.stringify({
+        name: 'lit',
+        exports: {
+          '.': './index.js',
+          './directives/class-map.js': './directives/class-map.js',
+        },
+      });
+    }
+    if (filePath.endsWith('node_modules/lit/index.js') || filePath.endsWith('/lit/index.js')) {
+      return 'export const useCounter = () => 1; export function useLogger() {}';
+    }
+    if (
+      filePath.endsWith('node_modules/lit/directives/class-map.js') ||
+      filePath.endsWith('/lit/directives/class-map.js')
+    ) {
+      return 'export const useCounter = () => 1; export function useLogger() {}';
+    }
     if (
       filePath.endsWith('node_modules/mock-package-esm-only/package.json') ||
       filePath.endsWith('/mock-package-esm-only/package.json')
@@ -190,6 +217,11 @@ vi.mock('module', async (importOriginal) => {
           (error as Error & { code?: string }).code = 'ERR_PACKAGE_PATH_NOT_EXPORTED';
           throw error;
         }
+        if (pkg === 'lit' || pkg.startsWith('lit/')) {
+          const error = new Error('ERR_REQUIRE_ESM');
+          (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
+          throw error;
+        }
         if (pkg === 'mock-package-typeonly' || pkg.startsWith('mock-package-typeonly/')) {
           const error = new Error('ERR_REQUIRE_ESM');
           (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
@@ -225,6 +257,12 @@ vi.mock('module', async (importOriginal) => {
         }
         if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
           return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
+        }
+        if (pkg === 'lit') {
+          return '/repo/apps/remote/node_modules/lit/index.js';
+        }
+        if (pkg === 'lit/directives/class-map.js') {
+          return '/repo/apps/remote/node_modules/lit/directives/class-map.js';
         }
         if (pkg === 'mock-package-typeonly' || pkg.startsWith('mock-package-typeonly/')) {
           return '/repo/apps/remote/node_modules/mock-package-typeonly/src/index.jsx';
@@ -721,5 +759,57 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).not.toContain('import "/repo/packages/pkg-b/dist/index.js";');
     expect(generatedCode).not.toContain('import("transitive-pkg")');
+  });
+
+  it('generates ESM loadShare wrappers for lit subpath shares in serve mode', () => {
+    const pkg = 'lit/directives/class-map.js';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^3.3.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const { initPromise } = globalThis[globalKey];');
+    expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
+    expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
+    expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('import("lit/directives/class-map.js")');
+    expect(generatedCode).not.toContain('const {initPromise} = require(');
+  });
+
+  it('generates ESM loadShare wrappers for lit root share in serve mode', () => {
+    const pkg = 'lit';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^3.3.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const { initPromise } = globalThis[globalKey];');
+    expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
+    expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
+    expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('import("lit")');
+    expect(generatedCode).not.toContain('const {initPromise} = require(');
   });
 });
