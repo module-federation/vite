@@ -25,8 +25,8 @@ export type RemoteEntryType =
 import * as fs from 'fs';
 import { createRequire } from 'node:module';
 import * as path from 'pathe';
-import { createModuleFederationError, mfError } from './logger';
-import { removePathFromNpmPackage } from './packageUtils';
+import { createModuleFederationError, mfError, mfWarn } from './logger';
+import { getInstalledPackageJson, removePathFromNpmPackage } from './packageUtils';
 
 interface ExposesItem {
   import: string;
@@ -37,9 +37,24 @@ export interface NormalizedShared {
 export interface RemoteObjectConfig {
   type?: string;
   name: string;
+  internalName?: string;
   entry: string;
   entryGlobalName?: string;
   shareScope?: string;
+}
+
+const INTERNAL_NAME_PREFIX = '__mfe_internal__';
+
+export function toInternalModuleFederationName(name: string) {
+  return name.startsWith(INTERNAL_NAME_PREFIX) ? name : `${INTERNAL_NAME_PREFIX}${name}`;
+}
+
+function warnOnReservedInternalNamePrefix(name: string, kind: 'containerName' | 'remoteAlias') {
+  if (!name.startsWith(INTERNAL_NAME_PREFIX)) return;
+  mfWarn(
+    `Reserved internal ${kind} prefix "${INTERNAL_NAME_PREFIX}" detected in public ${kind} "${name}". ` +
+      'This prefix is reserved for internal module federation names and may cause conflicts.'
+  );
 }
 
 function normalizeExposesItem(key: string, item: string | { import: string }): ExposesItem {
@@ -80,6 +95,7 @@ export function normalizeRemotes(
 }
 
 function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): RemoteObjectConfig {
+  warnOnReservedInternalNamePrefix(key, 'remoteAlias');
   if (typeof remote === 'string') {
     // Scoped packages start with '@', so the name/entry separator is the
     // first '@' after the optional scope prefix, not the last '@' overall.
@@ -96,6 +112,7 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
     return {
       type: 'var',
       name: key,
+      internalName: toInternalModuleFederationName(key),
       entry,
       entryGlobalName,
       shareScope: 'default',
@@ -105,10 +122,14 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
     {
       type: 'var',
       name: key,
+      internalName: toInternalModuleFederationName(key),
       shareScope: 'default',
       entryGlobalName: key,
     },
-    remote
+    {
+      ...remote,
+      internalName: toInternalModuleFederationName(remote.name || key),
+    }
   );
 }
 
@@ -164,6 +185,18 @@ function inferVersionFromRequiredVersion(requiredVersion?: string): string | und
   if (!requiredVersion) return undefined;
   const match = requiredVersion.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/);
   return match?.[0];
+}
+
+function getLitExportSubpathShares(sharedName: string): string[] {
+  if (sharedName !== 'lit') return [];
+
+  const installedPackageJson = getInstalledPackageJson(sharedName, { packageName: sharedName });
+  const exportsField = installedPackageJson?.packageJson.exports;
+  if (!exportsField || typeof exportsField === 'string') return [];
+
+  return Object.keys(exportsField as Record<string, unknown>)
+    .filter((key) => key.startsWith('./') && key !== '.' && !key.includes('*'))
+    .map((key) => `${sharedName}/${key.slice(2)}`);
 }
 
 function normalizeShareItem(
@@ -256,17 +289,26 @@ function normalizeShared(
 ): NormalizedShared {
   if (!shared) return {};
   const result: NormalizedShared = {};
+  const sourceEntries: Array<[string, string | Record<string, any>]> = [];
   if (Array.isArray(shared)) {
     shared.forEach((key) => {
       result[key] = normalizeShareItem(key, key);
+      sourceEntries.push([key, key]);
     });
-    return result;
-  }
-  if (typeof shared === 'object') {
+  } else if (typeof shared === 'object') {
     Object.keys(shared).forEach((key) => {
-      result[key] = normalizeShareItem(key, shared[key] as any);
+      const value = shared[key] as any;
+      result[key] = normalizeShareItem(key, value);
+      sourceEntries.push([key, value]);
     });
   }
+
+  sourceEntries.forEach(([key, value]) => {
+    for (const subpathShare of getLitExportSubpathShares(key)) {
+      if (result[subpathShare]) continue;
+      result[subpathShare] = normalizeShareItem(subpathShare, value as any);
+    }
+  });
 
   return result;
 }
@@ -371,6 +413,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
 > {
   exposes: Record<string, ExposesItem>;
   filename: string;
+  internalName: string;
   library: any;
   remotes: Record<string, RemoteObjectConfig>;
   runtime: any;
@@ -467,6 +510,7 @@ export function getNormalizeShareItem(key: string) {
 export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
+  warnOnReservedInternalNamePrefix(options.name, 'containerName');
   if (options.virtualModuleDir && options.virtualModuleDir.includes('/')) {
     throw createModuleFederationError(
       `Invalid virtualModuleDir: "${options.virtualModuleDir}". ` +
@@ -478,6 +522,7 @@ export function normalizeModuleFederationOptions(
   return (config = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
+    internalName: toInternalModuleFederationName(options.name),
     library: normalizeLibrary(options.library),
     name: options.name,
     // remoteType: options.remoteType,

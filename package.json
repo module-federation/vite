@@ -1,6 +1,6 @@
 {
   "name": "@module-federation/vite",
-  "version": "1.14.2",
+  "version": "1.14.4",
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "main": "./lib/index.cjs",
@@ -63,16 +63,13 @@
   },
   "homepage": "https://github.com/module-federation/vite#readme",
   "packageManager": "pnpm@10.28.2",
-  "overrides": {
-    "koa": "3.1.2"
-  },
   "peerDependencies": {
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "dependencies": {
-    "@module-federation/dts-plugin": "2.3.1",
-    "@module-federation/runtime": "2.3.1",
-    "@module-federation/sdk": "2.3.1",
+    "@module-federation/dts-plugin": "2.3.3",
+    "@module-federation/runtime": "2.3.3",
+    "@module-federation/sdk": "2.3.3",
     "@rollup/pluginutils": "^5.3.0",
     "defu": "^6.1.4",
     "es-module-lexer": "^2.0.0",
@@ -86,7 +83,6 @@
     "@types/node": "^25.3.3",
     "cjs-dep": "workspace:*",
     "husky": "^9.1.7",
-    "mime-types": "^3.0.2",
     "oxfmt": "^0.36.0",
     "rollup": "^4.47.1",
     "tsdown": "^0.21.0",

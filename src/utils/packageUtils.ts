@@ -1,4 +1,5 @@
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
+import { createRequire } from 'module';
 import path from 'pathe';
 import { createModuleFederationError } from './logger';
 
@@ -22,6 +23,27 @@ export function setPackageDetectionCwd(cwd: string) {
 
 export function getPackageDetectionCwd() {
   return packageDetectionCwd || process.cwd();
+}
+
+export type InstalledPackageJson = {
+  path: string;
+  dir: string;
+  packageJson: Record<string, unknown>;
+};
+
+function resolveExportsEntry(exportsField: unknown): string | undefined {
+  if (typeof exportsField === 'string') return exportsField;
+  if (!exportsField || typeof exportsField !== 'object') return undefined;
+  const rootExport = (exportsField as Record<string, unknown>)['.'];
+  if (typeof rootExport === 'string') return rootExport;
+  if (!rootExport || typeof rootExport !== 'object') return undefined;
+  const rootExportObject = rootExport as Record<string, unknown>;
+  return (
+    (typeof rootExportObject.import === 'string' && rootExportObject.import) ||
+    (typeof rootExportObject.default === 'string' && rootExportObject.default) ||
+    (typeof rootExportObject.require === 'string' && rootExportObject.require) ||
+    undefined
+  );
 }
 /**
  * Escaping rules:
@@ -73,6 +95,113 @@ export function removePathFromNpmPackage(packageString: string): string {
   const regex = /^(?:@[^/]+\/)?[^/]+/;
   const match = packageString.match(regex);
   return match ? match[0] : packageString;
+}
+
+export function getInstalledPackageJson(
+  pkg: string,
+  opts?: { cwd?: string; packageName?: string }
+): InstalledPackageJson | undefined {
+  const cwd = opts?.cwd || getPackageDetectionCwd();
+  const packageName = opts?.packageName || removePathFromNpmPackage(pkg);
+  const tryReadPackageJson = (packageJsonPath: string): InstalledPackageJson | undefined => {
+    if (!existsSync(packageJsonPath)) return undefined;
+    try {
+      return {
+        path: packageJsonPath,
+        dir: path.dirname(packageJsonPath),
+        packageJson: JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<string, unknown>,
+      };
+    } catch {
+      return undefined;
+    }
+  };
+  const findPackageInPnpmStore = (startDir: string): InstalledPackageJson | undefined => {
+    let currentDir = startDir;
+    const rootDir = path.parse(currentDir).root;
+
+    while (true) {
+      const pnpmStoreDir = path.join(currentDir, 'node_modules', '.pnpm');
+      if (existsSync(pnpmStoreDir)) {
+        try {
+          for (const entry of readdirSync(pnpmStoreDir, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const candidate = tryReadPackageJson(
+              path.join(pnpmStoreDir, entry.name, 'node_modules', packageName, 'package.json')
+            );
+            if (candidate?.packageJson.name === packageName) return candidate;
+          }
+        } catch {}
+      }
+      if (currentDir === rootDir) break;
+      currentDir = path.dirname(currentDir);
+    }
+  };
+
+  try {
+    const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
+    let resolvedPath: string | undefined;
+
+    try {
+      resolvedPath = projectRequire.resolve(pkg);
+    } catch {
+      resolvedPath = projectRequire.resolve(packageName);
+    }
+
+    let currentDir = path.dirname(resolvedPath);
+    const rootDir = path.parse(currentDir).root;
+
+    while (true) {
+      const packageJsonPath = path.join(currentDir, 'package.json');
+      if (existsSync(packageJsonPath)) {
+        const packageJsonContent = readFileSync(packageJsonPath, 'utf-8');
+        try {
+          const packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>;
+          if (packageJson.name === packageName) {
+            return {
+              path: packageJsonPath,
+              dir: currentDir,
+              packageJson,
+            };
+          }
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+        }
+      }
+      if (currentDir === rootDir) break;
+      currentDir = path.dirname(currentDir);
+    }
+  } catch {
+    let currentDir = cwd;
+    const rootDir = path.parse(currentDir).root;
+
+    while (true) {
+      const packageJsonPath = path.join(currentDir, 'node_modules', packageName, 'package.json');
+      const directCandidate = tryReadPackageJson(packageJsonPath);
+      if (directCandidate?.packageJson.name === packageName) return directCandidate;
+      if (currentDir === rootDir) break;
+      currentDir = path.dirname(currentDir);
+    }
+
+    return findPackageInPnpmStore(cwd);
+  }
+
+  return undefined;
+}
+
+export function getInstalledPackageEntry(
+  pkg: string,
+  opts?: { cwd?: string; packageName?: string }
+): string | undefined {
+  const installed = getInstalledPackageJson(pkg, opts);
+  if (!installed) return undefined;
+  const packageJson = installed.packageJson;
+  const exportsEntry = resolveExportsEntry(packageJson.exports);
+  const explicitEntry =
+    exportsEntry ||
+    (typeof packageJson.module === 'string' ? packageJson.module : undefined) ||
+    (typeof packageJson.main === 'string' ? packageJson.main : undefined) ||
+    'index.js';
+  return path.join(installed.dir, explicitEntry);
 }
 
 /**

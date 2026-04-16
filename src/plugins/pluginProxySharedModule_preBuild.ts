@@ -1,7 +1,16 @@
+import { existsSync, readFileSync } from 'fs';
+import path from 'pathe';
 import { Plugin, ResolvedConfig, UserConfig } from 'vite';
+import { mfWarn } from '../utils/logger';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
-import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from '../utils/packageUtils';
+import {
+  getIsRolldown,
+  getPackageDetectionCwd,
+  hasPackageDependency,
+  removePathFromNpmPackage,
+  setPackageDetectionCwd,
+} from '../utils/packageUtils';
 import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
@@ -20,6 +29,56 @@ import { parsePromise } from './pluginModuleParseEnd';
 
 function getPrebuildResolutionSource(pkgName: string, shareItem?: ShareItem): string {
   return getConcreteSharedImportSource(pkgName, shareItem) || pkgName;
+}
+
+/**
+ * Reads the dependencies of an installed package from its package.json.
+ */
+function getPackageDependencies(pkg: string): string[] {
+  const packageName = removePathFromNpmPackage(pkg);
+  const cwd = getPackageDetectionCwd();
+  const candidates = [path.join(cwd, 'node_modules', packageName, 'package.json')];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      try {
+        const json = JSON.parse(readFileSync(candidate, 'utf-8')) as {
+          dependencies?: Record<string, string>;
+        };
+        return Object.keys(json.dependencies || {});
+      } catch {
+        // skip
+      }
+    }
+  }
+  return [];
+}
+
+/**
+ * In dev mode, detects shared packages that are sub-dependencies of other
+ * shared packages and removes them to avoid initialization order issues.
+ * For example, `lit` depends on `lit-html`, `lit-element`, and
+ * `@lit/reactive-element` — sharing them separately causes the child modules
+ * to load before their parent, resulting in `undefined` class extends errors.
+ */
+function excludeSharedSubDependencies(shared: NormalizedShared): void {
+  const sharedKeys = new Set(Object.keys(shared));
+
+  for (const parentKey of sharedKeys) {
+    const deps = getPackageDependencies(parentKey);
+    for (const dep of deps) {
+      if (sharedKeys.has(dep) && dep !== parentKey) {
+        mfWarn(
+          `"${dep}" is a dependency of shared package "${parentKey}" and is also shared separately. ` +
+            `This may cause initialization order issues in dev mode. ` +
+            `Consider sharing only "${parentKey}".\n` +
+            `  Auto-excluding "${dep}" from shared modules for dev mode.`
+        );
+        delete shared[dep];
+        sharedKeys.delete(dep);
+      }
+    }
+  }
 }
 
 export function proxySharedModule(options: {
@@ -61,6 +120,10 @@ export function proxySharedModule(options: {
         const isRolldown = getIsRolldown(this);
         _command = command;
         useDirectReactImport = isVinext || isAstro;
+
+        if (command === 'serve') {
+          excludeSharedSubDependencies(shared);
+        }
 
         (config.resolve as any).alias.push(
           ...Object.keys(shared)

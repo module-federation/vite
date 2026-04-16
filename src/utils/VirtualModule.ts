@@ -145,7 +145,7 @@ export default class VirtualModule {
   }
 
   getImportId() {
-    const { name: mfName, virtualModuleDir } = getNormalizeModuleFederationOptions();
+    const { internalName: mfName, virtualModuleDir } = getNormalizeModuleFederationOptions();
     return `${virtualModuleDir}/${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`;
   }
 

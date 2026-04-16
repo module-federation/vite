@@ -21,8 +21,9 @@
 import { init as initEsLexer, parse as parseEsImports } from 'es-module-lexer';
 import MagicString from 'magic-string';
 import type { Plugin } from 'vite';
-import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { loadWalk } from '../utils/loadWalk';
+import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { getIsRolldown } from '../utils/packageUtils';
 import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
 
 const JS_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?|vue|svelte)(?:\?|$)/;
@@ -539,11 +540,16 @@ function collectFromRegex(
 
 export function pluginRemoteNamedExports(options: NormalizedModuleFederationOptions): Plugin {
   const remoteNames = Object.keys(options.remotes);
+  const isNodeModulesId = (id: string) =>
+    id.includes('/node_modules/') || id.includes('\\node_modules\\');
 
-  function isRemoteImport(source: string): boolean {
+  function isRemoteImport(source: string, importerId: string): boolean {
     return (
-      remoteNames.some((name) => source === name || source.startsWith(name + '/')) ||
-      source.includes(LOAD_REMOTE_TAG)
+      remoteNames.some((name) => {
+        if (source.startsWith(name + '/')) return true;
+        if (source !== name) return false;
+        return !isNodeModulesId(importerId);
+      }) || source.includes(LOAD_REMOTE_TAG)
     );
   }
 
@@ -551,6 +557,7 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
     name: 'module-federation-remote-named-exports',
     enforce: 'post',
     async transform(code: string, id: string) {
+      if (!getIsRolldown(this)) return;
       if (remoteNames.length === 0) return;
       // Skip federation internal modules
       if (id.includes(LOAD_REMOTE_TAG) || id.includes(LOAD_SHARE_TAG)) return;
@@ -558,21 +565,22 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
       if (!JS_EXTENSIONS_RE.test(id)) return;
       // Quick bail-out: does the source mention any remote name?
       if (!remoteNames.some((name) => code.includes(name))) return;
+      const matchesRemoteImport = (source: string) => isRemoteImport(source, id);
 
       let imports: ImportInfo[] | undefined;
 
       try {
         const ast = this.parse(code);
-        imports = await collectFromAST(ast, code, isRemoteImport);
+        imports = await collectFromAST(ast, code, matchesRemoteImport);
       } catch {
         // this.parse() delegates to acorn which does not support TypeScript
         // syntax (import type, interfaces, generics, etc.).  Fall back to
         // es-module-lexer so TS/TSX consumer files are still transformed.
-        imports = await collectFromEsLexer(code, isRemoteImport);
+        imports = await collectFromEsLexer(code, matchesRemoteImport);
       }
 
       if ((!imports || imports.length === 0) && REGEX_FALLBACK_EXTENSIONS_RE.test(id)) {
-        imports = collectFromRegex(code, isRemoteImport);
+        imports = collectFromRegex(code, matchesRemoteImport);
       }
       if (!imports) return;
       return applyRewrites(code, imports, id);

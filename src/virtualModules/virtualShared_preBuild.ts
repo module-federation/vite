@@ -16,6 +16,7 @@ import { mfWarn } from '../utils/logger';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getPackageDetectionCwd,
+  getInstalledPackageJson,
   hasPackageDependency,
   removePathFromNpmPackage,
 } from '../utils/packageUtils';
@@ -68,65 +69,6 @@ function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
   }
 }
 
-function getInstalledPackageJsonPath(pkg: string): string | undefined {
-  try {
-    const packageName = removePathFromNpmPackage(pkg);
-    const projectRequire = createRequire(
-      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
-    );
-    let resolvedPath: string | undefined;
-
-    try {
-      resolvedPath = projectRequire.resolve(pkg);
-    } catch {
-      resolvedPath = projectRequire.resolve(packageName);
-    }
-
-    let currentDir = path.dirname(resolvedPath);
-    const rootDir = path.parse(currentDir).root;
-
-    while (currentDir !== rootDir) {
-      const packageJsonPath = path.join(currentDir, 'package.json');
-      if (existsSync(packageJsonPath)) {
-        const packageJsonContent = readFileSync(packageJsonPath, 'utf-8');
-        try {
-          const packageJson = JSON.parse(packageJsonContent) as { name?: string };
-          if (packageJson.name === packageName) return packageJsonPath;
-        } catch (error) {
-          // Skip malformed package.json and continue searching up the tree
-          if (!(error instanceof SyntaxError)) throw error;
-        }
-      }
-      currentDir = path.dirname(currentDir);
-    }
-
-    const rootPackageJsonPath = path.join(rootDir, 'package.json');
-    if (existsSync(rootPackageJsonPath)) {
-      const rootPackageJsonContent = readFileSync(rootPackageJsonPath, 'utf-8');
-      try {
-        const packageJson = JSON.parse(rootPackageJsonContent) as { name?: string };
-        if (packageJson.name === packageName) return rootPackageJsonPath;
-      } catch (error) {
-        // Skip malformed root package.json
-        if (!(error instanceof SyntaxError)) throw error;
-      }
-    }
-  } catch {
-    const packageName = removePathFromNpmPackage(pkg);
-    let currentDir = getPackageDetectionCwd();
-    const rootDir = path.parse(currentDir).root;
-
-    while (currentDir !== rootDir) {
-      const packageJsonPath = path.join(currentDir, 'node_modules', packageName, 'package.json');
-      if (existsSync(packageJsonPath)) return packageJsonPath;
-      currentDir = path.dirname(currentDir);
-    }
-
-    const rootPackageJsonPath = path.join(rootDir, 'node_modules', packageName, 'package.json');
-    return existsSync(rootPackageJsonPath) ? rootPackageJsonPath : undefined;
-  }
-}
-
 function resolveImportTarget(exportsField: unknown): string | undefined {
   if (typeof exportsField === 'string') return exportsField;
   if (!exportsField || typeof exportsField !== 'object') return undefined;
@@ -149,11 +91,11 @@ function resolveImportTarget(exportsField: unknown): string | undefined {
 function getPackageEsmEntryPath(pkg: string): string | undefined {
   try {
     const resolvedEntryPath = resolvePackageEntryFromProjectRoot(pkg);
-    const packageJsonPath = getInstalledPackageJsonPath(pkg);
-    if (!packageJsonPath) return resolvedEntryPath;
+    const installedPackageJson = getInstalledPackageJson(pkg);
+    if (!installedPackageJson) return resolvedEntryPath;
 
     const packageName = removePathFromNpmPackage(pkg);
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as {
+    const packageJson = installedPackageJson.packageJson as {
       exports?: Record<string, unknown> | string;
       module?: string;
     };
@@ -176,7 +118,7 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
     const target = resolveImportTarget(exportsField) || packageJson.module;
     if (!target) return resolvedEntryPath;
 
-    return path.resolve(path.dirname(packageJsonPath), target);
+    return path.resolve(installedPackageJson.dir, target);
   } catch {
     return resolvePackageEntryFromProjectRoot(pkg);
   }
@@ -382,9 +324,12 @@ export function getSharedImportSource(pkg: string, shareItem?: ShareItem): strin
 export const LOAD_SHARE_TAG = '__loadShare__';
 
 const loadShareCacheMap: Record<string, VirtualModule> = {};
+function shouldUseEsmLoadShare(pkg: string, command?: string, isRolldown?: boolean): boolean {
+  return command === 'build' || !!isRolldown || pkg === 'lit' || pkg.startsWith('lit/');
+}
 export function getLoadShareImportId(pkg: string, isRolldown: boolean, command?: string): string {
   if (!loadShareCacheMap[pkg]) {
-    const useESM = isRolldown || command === 'build' || command === 'serve';
+    const useESM = shouldUseEsmLoadShare(pkg, command, isRolldown);
     const ext = useESM ? '.mjs' : '.js';
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
   }
@@ -402,12 +347,12 @@ export function writeLoadShareModule(
   isRolldown: boolean
 ) {
   if (!loadShareCacheMap[pkg]) {
-    const useESM = isRolldown || command === 'build' || command === 'serve';
+    const useESM = shouldUseEsmLoadShare(pkg, command, isRolldown);
     const ext = useESM ? '.mjs' : '.js';
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
   }
 
-  const useESM = command === 'build' || isRolldown || command === 'serve';
+  const useESM = shouldUseEsmLoadShare(pkg, command, isRolldown);
   const importLine =
     command === 'build'
       ? getRuntimeInitPromiseBootstrapCode()
@@ -474,6 +419,7 @@ export function writeLoadShareModule(
   const localProviderPath = getLocalProviderImportPath(pkg);
   const isWorkspacePackage =
     isWorkspaceFilePath(localProviderPath) || isWorkspaceFilePath(concreteSharedImportSource);
+  const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
   const providerImportId = localProviderPath || concreteSharedImportSource || sharedImportSource;
   const namedExports = getPackageNamedExports(pkg);
   let exportLine: string;
@@ -490,12 +436,12 @@ export function writeLoadShareModule(
   }
 
   const prebuildImportLine =
-    isWorkspacePackage && command !== 'build'
+    (isWorkspacePackage && command !== 'build') || skipServePrebuildWarmup
       ? ''
       : `import ${escapeGeneratedStringLiteral(sharedImportSource)};`;
   const devDynamicImportLine = isWorkspacePackage
     ? ''
-    : command !== 'build'
+    : command !== 'build' && !skipServePrebuildWarmup
       ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
       : '';
 

@@ -30,7 +30,13 @@ import {
   PluginManifestOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import {
+  getInstalledPackageEntry,
+  getInstalledPackageJson,
+  getIsRolldown,
+  hasPackageDependency,
+  setPackageDetectionCwd,
+} from './utils/packageUtils';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -77,6 +83,56 @@ function escapeUnsafeJsSourceChars(str: string): string {
   });
 }
 
+function insertAfterLastTopLevelImport(code: string, snippet: string): string | undefined {
+  let cursor = 0;
+  let lastImportEnd = -1;
+
+  const skipTrivia = () => {
+    while (cursor < code.length) {
+      if (/\s/.test(code[cursor])) {
+        cursor++;
+        continue;
+      }
+      if (code.startsWith('//', cursor)) {
+        const lineEnd = code.indexOf('\n', cursor);
+        cursor = lineEnd === -1 ? code.length : lineEnd + 1;
+        continue;
+      }
+      if (code.startsWith('/*', cursor)) {
+        const commentEnd = code.indexOf('*/', cursor + 2);
+        cursor = commentEnd === -1 ? code.length : commentEnd + 2;
+        continue;
+      }
+      break;
+    }
+  };
+
+  while (cursor < code.length) {
+    // Only scan the initial import block. Once real code starts, later
+    // "import" tokens may be inside strings/comments/minified expressions.
+    skipTrivia();
+    if (!code.startsWith('import', cursor) || !/[\s"'*{]/.test(code[cursor + 6] ?? '')) {
+      break;
+    }
+
+    // Minified preview chunks often place multiple imports on one line, so
+    // line-based insertion can land in the middle of the import block.
+    const statementEnd = code.indexOf(';', cursor);
+    if (statementEnd !== -1) {
+      lastImportEnd = statementEnd + 1;
+      cursor = statementEnd + 1;
+      continue;
+    }
+
+    const lineEnd = code.indexOf('\n', cursor);
+    lastImportEnd = lineEnd === -1 ? code.length : lineEnd + 1;
+    cursor = lastImportEnd;
+  }
+  if (lastImportEnd === -1) return;
+
+  return code.slice(0, lastImportEnd) + snippet + code.slice(lastImportEnd);
+}
+
 /**
  * Plugin that runs FIRST to create virtual module files in the config hook.
  * This prevents 504 "Outdated Optimize Dep" errors by ensuring files exist
@@ -84,6 +140,7 @@ function escapeUnsafeJsSourceChars(str: string): string {
  */
 function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOptions): Plugin {
   const { shared, remotes, virtualModuleDir } = options;
+  const isLitShare = (pkg: string) => pkg === 'lit' || pkg.startsWith('lit/');
 
   return {
     name: 'vite:module-federation-early-init',
@@ -113,6 +170,27 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         for (const key of Object.keys(remotes)) {
           addUsedRemote(key, key);
         }
+        if (_command === 'serve' && isRolldown) {
+          config.optimizeDeps = config.optimizeDeps || {};
+          config.optimizeDeps.exclude = config.optimizeDeps.exclude || [];
+          config.optimizeDeps.include = config.optimizeDeps.include || [];
+          // In Vite 8 dev, prebundling bare remote specifiers rewrites
+          // `import("remote/x")` to `/node_modules/.vite/deps/remote_x.js`.
+          // That bypasses the remote namespace fixup path and breaks named
+          // exports on dynamic import, which Angular relies on.
+          const collidingInstalledRemotes = Object.keys(remotes || {}).filter((remoteName) =>
+            getInstalledPackageJson(remoteName, { cwd: root })
+          );
+          const collidingInstalledRemoteEntries = collidingInstalledRemotes.map(
+            (remoteName) => getInstalledPackageEntry(remoteName, { cwd: root }) || remoteName
+          );
+          config.optimizeDeps.exclude.push(
+            ...Object.keys(remotes || {}).filter(
+              (remoteName) => !collidingInstalledRemotes.includes(remoteName)
+            )
+          );
+          config.optimizeDeps.include.push(...collidingInstalledRemoteEntries);
+        }
       }
 
       // Create shared module virtual files EARLY and register shares eagerly
@@ -124,14 +202,6 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           // Include the runtimeInit virtual module so Vite pre-bundles it
           // upfront instead of discovering it at runtime via loadShare imports.
           config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
-          if (isRolldown) {
-            // In Vite 8 dev, prebundling bare remote specifiers rewrites
-            // `import("remote/x")` to `/node_modules/.vite/deps/remote_x.js`.
-            // That bypasses the remote namespace fixup path and breaks named
-            // exports on dynamic import, which Angular relies on.
-            config.optimizeDeps.exclude = config.optimizeDeps.exclude || [];
-            config.optimizeDeps.exclude.push(...Object.keys(remotes || {}));
-          }
         }
         for (const key of Object.keys(shared)) {
           if (key.endsWith('/')) continue;
@@ -149,16 +219,23 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           }
           addUsedShares(key);
           if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
-            if (!isRolldown) {
+            const optimizeDeps = (config.optimizeDeps ??= {});
+            optimizeDeps.include ??= [];
+            optimizeDeps.exclude ??= [];
+            const shouldBypassOptimizeDep = isLitShare(key);
+            if (shouldBypassOptimizeDep) {
+              optimizeDeps.exclude.push(key);
+            }
+            if (!isRolldown && !shouldBypassOptimizeDep) {
               // In non-Rolldown Vite (< 8), loadShare modules are CJS and
               // don't use real TLA, so the dep optimizer handles them fine.
-              config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command));
+              optimizeDeps.include.push(getLoadShareImportId(key, isRolldown, _command));
             }
             // When isRolldown (Vite 8+), loadShare modules are ESM with
             // top-level await. Including them in optimizeDeps causes the dep
             // optimizer to convert ESM→CJS, stripping `await` and turning
             // shared modules into unresolved Promises (breaks Pinia plugins, etc).
-            config.optimizeDeps.include!.push(getPreBuildLibImportId(key));
+            optimizeDeps.include.push(getPreBuildLibImportId(key));
           }
         }
         writeLocalSharedImportMap();
@@ -179,6 +256,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
 
   let command: string;
   let depsDir = '/node_modules/.vite/deps/';
+  let desiredRolldownOutput:
+    | Array<Pick<Record<string, any>, 'entryFileNames' | 'chunkFileNames' | 'assetFileNames'>>
+    | undefined;
 
   return [
     // This plugin runs FIRST to create virtual module files before optimization
@@ -313,13 +393,31 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         }
 
         let warnedAboutCodeSplitting = false;
+        let warnedAboutCodeSplittingGroups = false;
         const ensureCodeSplitting = (output: any) => {
-          if (output?.codeSplitting !== false) return;
-          delete output.codeSplitting;
-          if (warnedAboutCodeSplitting) return;
-          warnedAboutCodeSplitting = true;
+          if (output?.codeSplitting === false) {
+            delete output.codeSplitting;
+            if (warnedAboutCodeSplitting) return;
+            warnedAboutCodeSplitting = true;
+            mfWarn(
+              'Ignoring `output.codeSplitting = false` because module federation requires chunk splitting.'
+            );
+            return;
+          }
+
+          if (!output?.codeSplitting || typeof output.codeSplitting !== 'object') return;
+          if (!('groups' in output.codeSplitting)) return;
+
+          delete output.codeSplitting.groups;
+          if (Object.keys(output.codeSplitting).length === 0) {
+            delete output.codeSplitting;
+          }
+          if (warnedAboutCodeSplittingGroups) return;
+          warnedAboutCodeSplittingGroups = true;
           mfWarn(
-            'Ignoring `build.rolldownOptions.output.codeSplitting = false` because module federation requires chunk splitting.'
+            'Ignoring `output.codeSplitting.groups` because it conflicts with module federation. ' +
+              'Grouping shared dependency init wrappers with their dependent modules can break runtime init order ' +
+              'and cause standalone remotes to fail before mount.'
           );
         };
 
@@ -332,7 +430,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           if (output.manualChunks && !isPatchedByPlugin && !warnedAboutManualChunks) {
             warnedAboutManualChunks = true;
             mfWarn(
-              'Ignoring `build.rollupOptions.output.manualChunks` because it conflicts with module federation. ' +
+              'Ignoring `output.manualChunks` because it conflicts with module federation. ' +
                 'Module federation transforms shared dependency imports with top-level await, and grouping ' +
                 'these transformed modules into a single chunk creates circular async dependencies that cause ' +
                 'the application to silently hang.'
@@ -354,7 +452,10 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         };
 
         config.build.rollupOptions = config.build.rollupOptions || {};
-        if (!Array.isArray(config.build.rollupOptions.output)) {
+        const rollupOutput = config.build.rollupOptions.output;
+        if (Array.isArray(rollupOutput)) {
+          rollupOutput.forEach((output) => applyManualChunks(output as any));
+        } else {
           applyManualChunks((config.build.rollupOptions.output ||= {}) as any);
         }
 
@@ -365,8 +466,65 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           rolldownOptions?: { output?: any };
         };
         buildWithRolldown.rolldownOptions = buildWithRolldown.rolldownOptions || {};
-        if (!Array.isArray(buildWithRolldown.rolldownOptions.output)) {
+        const rolldownOutput = buildWithRolldown.rolldownOptions.output;
+        const snapshotRolldownOutput = (output: Record<string, any>) => ({
+          entryFileNames: output.entryFileNames,
+          chunkFileNames: output.chunkFileNames,
+          assetFileNames: output.assetFileNames,
+        });
+        if (Array.isArray(rolldownOutput)) {
+          rolldownOutput.forEach((output) => applyManualChunks(output as any));
+          desiredRolldownOutput = rolldownOutput.map((output) =>
+            snapshotRolldownOutput(output as Record<string, any>)
+          );
+        } else {
           applyManualChunks((buildWithRolldown.rolldownOptions.output ||= {}) as any);
+          // Vite 8's Rolldown build path overwrites output options like
+          // entryFileNames/chunkFileNames/assetFileNames. Keep only those
+          // values so we can restore them in buildApp without clobbering other
+          // later output mutations from Vite or plugins.
+          desiredRolldownOutput = [
+            snapshotRolldownOutput(buildWithRolldown.rolldownOptions.output as Record<string, any>),
+          ];
+        }
+      },
+      async buildApp(builder) {
+        if (!desiredRolldownOutput) return;
+
+        const applyRolldownOutput = (
+          output: Record<string, any> | undefined,
+          restoredOutput:
+            | Pick<Record<string, any>, 'entryFileNames' | 'chunkFileNames' | 'assetFileNames'>
+            | undefined
+        ) => {
+          if (!output || !restoredOutput) return;
+          if (restoredOutput.entryFileNames !== undefined) {
+            output.entryFileNames = restoredOutput.entryFileNames;
+          }
+          if (restoredOutput.chunkFileNames !== undefined) {
+            output.chunkFileNames = restoredOutput.chunkFileNames;
+          }
+          if (restoredOutput.assetFileNames !== undefined) {
+            output.assetFileNames = restoredOutput.assetFileNames;
+          }
+        };
+
+        for (const environment of Object.values(builder.environments)) {
+          const getRolldownOptions = (environment as any)?.getRolldownOptions;
+          if (typeof getRolldownOptions !== 'function') continue;
+
+          (environment as any).getRolldownOptions = async () => {
+            const rolldownOptions = await getRolldownOptions.call(environment);
+            if (Array.isArray(rolldownOptions.output)) {
+              rolldownOptions.output.forEach((output: Record<string, any>, index: number) =>
+                applyRolldownOutput(output, desiredRolldownOutput?.[index])
+              );
+            } else {
+              rolldownOptions.output ||= {};
+              applyRolldownOutput(rolldownOptions.output, desiredRolldownOutput[0]);
+            }
+            return rolldownOptions;
+          };
         }
       },
       load(id) {
@@ -450,13 +608,9 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           if (allInits.length === 0) continue;
 
           const awaits = allInits.map((v) => `await ${v}();`).join('');
-          const lastFromRegex = /\bfrom\s*["'][^"']*["']\s*;?/g;
-          let lastFromEnd = -1;
-          while ((m = lastFromRegex.exec(code)) !== null) {
-            lastFromEnd = m.index + m[0].length;
-          }
-          if (lastFromEnd !== -1) {
-            chunk.code = code.slice(0, lastFromEnd) + awaits + code.slice(lastFromEnd);
+          const codeWithAwaits = insertAfterLastTopLevelImport(code, awaits);
+          if (codeWithAwaits) {
+            chunk.code = codeWithAwaits;
             continue;
           }
           const exportIdx = code.search(/\bexport\s*[{d]/);
@@ -674,20 +828,8 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         if (code.includes('__esmMin')) return;
 
         // Add top-level awaits after imports
-        const awaits = [...initFns].map((fn) => `await ${fn}();`).join('\n');
-        // Insert after the last top-level import statement.
-        // Use a regex anchored to the start of a line to avoid matching
-        // "import" inside strings (e.g. error messages like
-        // "You should instead import it from \"react-dom/client\"").
-        const topLevelImportRe = /^import\s/gm;
-        let lastImportIdx = -1;
-        let importMatch;
-        while ((importMatch = topLevelImportRe.exec(code)) !== null) {
-          lastImportIdx = importMatch.index;
-        }
-        if (lastImportIdx === -1) return;
-        const lineEnd = code.indexOf('\n', lastImportIdx);
-        return code.slice(0, lineEnd + 1) + awaits + '\n' + code.slice(lineEnd + 1);
+        const awaits = [...initFns].map((fn) => `await ${fn}();`).join('\n') + '\n';
+        return insertAfterLastTopLevelImport(code, awaits);
       },
     },
     PluginDevProxyModuleTopLevelAwait(),

@@ -74,7 +74,7 @@ export default defineConfig({
   ].filter(Boolean),
   build: {
     target: 'chrome89',
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         chunkFileNames: 'static/js/[name]-[hash].js',
         entryFileNames: 'static/js/[name]-[hash].js',
