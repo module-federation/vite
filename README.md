@@ -190,15 +190,20 @@ const RemoteMFE = defineAsyncComponent( 👈
 </template>
 ```
 
-## ⚠️ `codeSplitting: false` is not supported
+## ⚠️ `codeSplitting` settings are controlled by the plugin
 
-Do not set `build.rolldownOptions.output.codeSplitting` to `false` with this plugin — it will be **automatically ignored**.
-Module federation requires chunk splitting to isolate shared dependencies and remote entries into separate chunks.
+Do not set either `build.rollupOptions.output.codeSplitting` or
+`build.rolldownOptions.output.codeSplitting` to `false` with this plugin — it will be **automatically ignored**.
+
+`codeSplitting.groups` is also ignored because grouping shared-runtime chunks can break MF init order.
+Module Federation needs `loadShare` and `runtimeInitStatus` isolated into separate chunks for correct bootstrap behavior.
 
 ## ⚠️ `manualChunks` is not supported
 
-Do not use `build.rollupOptions.output.manualChunks` with this plugin — it will be **automatically ignored**.
+Do not use `build.rollupOptions.output.manualChunks` or
+`build.rolldownOptions.output.manualChunks` with this plugin — it will be **automatically ignored**.
 Module federation transforms shared dependency imports with top-level `await`, and grouping these transformed modules into a single chunk creates circular async dependencies that cause the application to silently hang.
+The plugin injects its own split so `runtimeInitStatus` and `loadShare` are kept isolated.
 
 ### So far so good 🎉
 
