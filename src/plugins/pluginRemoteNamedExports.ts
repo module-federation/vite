@@ -21,8 +21,9 @@
 import { init as initEsLexer, parse as parseEsImports } from 'es-module-lexer';
 import MagicString from 'magic-string';
 import type { Plugin } from 'vite';
-import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { loadWalk } from '../utils/loadWalk';
+import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { getIsRolldown } from '../utils/packageUtils';
 import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
 
 const JS_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?|vue|svelte)(?:\?|$)/;
@@ -551,6 +552,7 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
     name: 'module-federation-remote-named-exports',
     enforce: 'post',
     async transform(code: string, id: string) {
+      if (!getIsRolldown(this)) return;
       if (remoteNames.length === 0) return;
       // Skip federation internal modules
       if (id.includes(LOAD_REMOTE_TAG) || id.includes(LOAD_SHARE_TAG)) return;

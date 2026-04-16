@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseAst } from 'rollup/parseAst';
 
+const { getIsRolldownMock } = vi.hoisted(() => ({
+  getIsRolldownMock: vi.fn(() => true),
+}));
+
 vi.mock('../../utils/packageUtils', () => ({
-  getIsRolldown: () => true,
+  getIsRolldown: getIsRolldownMock,
 }));
 
 import { pluginRemoteNamedExports } from '../pluginRemoteNamedExports';
@@ -34,11 +38,23 @@ async function transform(code: string, id = '/src/app.js', parseError = false, o
 describe('pluginRemoteNamedExports', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getIsRolldownMock.mockReturnValue(true);
   });
 
   // ── bail-out conditions ──────────────────────────────────────
 
   describe('bail-out', () => {
+    it('skips in non-rolldown dev', async () => {
+      getIsRolldownMock.mockReturnValue(false);
+      const plugin = pluginRemoteNamedExports(OPTIONS);
+      const result = await (plugin as any).transform.call(
+        createContext(),
+        'import { foo } from "remoteApp/utils";',
+        '/src/app.js'
+      );
+      expect(result).toBeUndefined();
+    });
+
     it('skips when no remotes configured', async () => {
       const result = await transform(
         'import { foo } from "remoteApp/utils"',
