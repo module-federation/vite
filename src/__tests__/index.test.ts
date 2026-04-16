@@ -89,6 +89,24 @@ function getEarlyInitPlugin(): Plugin {
   return plugin;
 }
 
+function getEarlyInitPluginWithLitShare(): Plugin {
+  const plugin = federation({
+    name: 'host',
+    filename: 'remoteEntry.js',
+    shared: {
+      lit: {
+        singleton: true,
+      },
+      'lit/directives/class-map.js': {
+        singleton: true,
+      },
+    },
+  }).find((entry) => entry.name === 'vite:module-federation-early-init');
+
+  if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+  return plugin;
+}
+
 function getModuleFederationVitePlugin(): Plugin {
   const plugin = federation({
     name: 'host',
@@ -428,6 +446,34 @@ describe('vite:module-federation-early-init', () => {
 
     expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
     expect(config.optimizeDeps.include).toContain(getLoadShareImportId('vue', false, 'serve'));
+  });
+
+  it('excludes lit shared ids from optimizeDeps in serve', () => {
+    const plugin = getEarlyInitPluginWithLitShare();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({ meta: {} } as any, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.exclude).toContain('lit');
+    expect(config.optimizeDeps.exclude).toContain('lit/directives/class-map.js');
+    expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('lit'));
+    expect(config.optimizeDeps.include).toContain(
+      getPreBuildLibImportId('lit/directives/class-map.js')
+    );
+    expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('lit', false, 'serve'));
+    expect(config.optimizeDeps.include).not.toContain(
+      getLoadShareImportId('lit/directives/class-map.js', false, 'serve')
+    );
   });
 
   it('excludes bare remote ids from optimizeDeps in Rolldown serve', () => {

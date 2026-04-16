@@ -134,6 +134,7 @@ function insertAfterLastTopLevelImport(code: string, snippet: string): string | 
  */
 function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOptions): Plugin {
   const { shared, remotes, virtualModuleDir } = options;
+  const isLitShare = (pkg: string) => pkg === 'lit' || pkg.startsWith('lit/');
 
   return {
     name: 'vite:module-federation-early-init',
@@ -199,16 +200,23 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           }
           addUsedShares(key);
           if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
-            if (!isRolldown) {
+            const optimizeDeps = (config.optimizeDeps ??= {});
+            optimizeDeps.include ??= [];
+            optimizeDeps.exclude ??= [];
+            const shouldBypassOptimizeDep = isLitShare(key);
+            if (shouldBypassOptimizeDep) {
+              optimizeDeps.exclude.push(key);
+            }
+            if (!isRolldown && !shouldBypassOptimizeDep) {
               // In non-Rolldown Vite (< 8), loadShare modules are CJS and
               // don't use real TLA, so the dep optimizer handles them fine.
-              config.optimizeDeps.include!.push(getLoadShareImportId(key, isRolldown, _command));
+              optimizeDeps.include.push(getLoadShareImportId(key, isRolldown, _command));
             }
             // When isRolldown (Vite 8+), loadShare modules are ESM with
             // top-level await. Including them in optimizeDeps causes the dep
             // optimizer to convert ESM→CJS, stripping `await` and turning
             // shared modules into unresolved Promises (breaks Pinia plugins, etc).
-            config.optimizeDeps.include!.push(getPreBuildLibImportId(key));
+            optimizeDeps.include.push(getPreBuildLibImportId(key));
           }
         }
         writeLocalSharedImportMap();
