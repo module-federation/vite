@@ -2,7 +2,14 @@ import type { Plugin } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
 
-const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
+const {
+  getInstalledPackageEntryMock,
+  getInstalledPackageJsonMock,
+  hasPackageDependencyMock,
+  mfWarn,
+} = vi.hoisted(() => ({
+  getInstalledPackageEntryMock: vi.fn(() => undefined),
+  getInstalledPackageJsonMock: vi.fn(() => undefined),
   hasPackageDependencyMock: vi.fn(() => false),
   mfWarn: vi.fn(),
 }));
@@ -12,6 +19,8 @@ vi.mock('../utils/packageUtils', async () => {
     await vi.importActual<typeof import('../utils/packageUtils')>('../utils/packageUtils');
   return {
     ...actual,
+    getInstalledPackageEntry: getInstalledPackageEntryMock,
+    getInstalledPackageJson: getInstalledPackageJsonMock,
     hasPackageDependency: hasPackageDependencyMock,
     setPackageDetectionCwd: vi.fn(),
   };
@@ -122,6 +131,10 @@ describe('federation in test environment', () => {
 
   beforeEach(() => {
     process.env = {};
+    getInstalledPackageEntryMock.mockReset();
+    getInstalledPackageEntryMock.mockReturnValue(undefined);
+    getInstalledPackageJsonMock.mockReset();
+    getInstalledPackageJsonMock.mockReturnValue(undefined);
   });
 
   afterAll(() => {
@@ -493,6 +506,47 @@ describe('vite:module-federation-early-init', () => {
     });
 
     expect(config.optimizeDeps.exclude).toContain('remoteApp');
+  });
+
+  it('does not exclude bare remote ids that resolve to installed packages', () => {
+    getInstalledPackageJsonMock.mockReturnValue({
+      path: '/repo/node_modules/scheduler/package.json',
+      dir: '/repo/node_modules/scheduler',
+      packageJson: { name: 'scheduler' },
+    });
+    getInstalledPackageEntryMock.mockReturnValue('/repo/node_modules/scheduler/index.js');
+
+    const plugin = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      remotes: {
+        scheduler: {
+          type: 'module',
+          name: 'scheduler',
+          entry: 'http://localhost:4175/remoteEntry.js',
+          shareScope: 'default',
+        },
+      },
+    }).find((entry) => entry.name === 'vite:module-federation-early-init');
+
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({ meta: { rolldownVersion: '1.0.0' } } as any, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.exclude).not.toContain('scheduler');
+    expect(config.optimizeDeps.include).toContain('/repo/node_modules/scheduler/index.js');
   });
 
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {

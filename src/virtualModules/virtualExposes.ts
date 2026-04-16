@@ -7,9 +7,9 @@ export function getExposesCssMapPlaceholder() {
 }
 
 export function getVirtualExposesId(
-  options: Pick<NormalizedModuleFederationOptions, 'name' | 'filename'>
+  options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
 ) {
-  const scopedKey = `${options.name}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const scopedKey = `${options.internalName}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
   return `virtual:mf-exposes:${scopedKey}`;
 }
 

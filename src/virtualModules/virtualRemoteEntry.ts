@@ -93,7 +93,7 @@ export function generateLocalSharedImportMap() {
             version: ${JSON.stringify(shareItem.version)},
             scope: [${JSON.stringify(shareItem.scope)}],
             loaded: false,
-            from: ${JSON.stringify(options.name)},
+            from: ${JSON.stringify(options.internalName)},
             async get () {
               if (${shareItem.shareConfig.import === false}) {
                 throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(key)}}' must be provided by host\`);
@@ -151,9 +151,9 @@ export function generateLocalSharedImportMap() {
 const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
 
 export function getRemoteEntryId(
-  options: Pick<NormalizedModuleFederationOptions, 'name' | 'filename'>
+  options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
 ) {
-  const scopedKey = `${options.name}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const scopedKey = `${options.internalName}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
   return `${REMOTE_ENTRY_ID}:${scopedKey}`;
 }
 export function generateRemoteEntry(
@@ -191,7 +191,7 @@ export function generateRemoteEntry(
   }
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
-  const mfName = ${JSON.stringify(options.name)}
+  const mfName = ${JSON.stringify(options.internalName)}
   let localSharedImportMapPromise
   let exposesMapPromise
 

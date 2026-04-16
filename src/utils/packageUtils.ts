@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
 import { createModuleFederationError } from './logger';
@@ -30,6 +30,21 @@ export type InstalledPackageJson = {
   dir: string;
   packageJson: Record<string, unknown>;
 };
+
+function resolveExportsEntry(exportsField: unknown): string | undefined {
+  if (typeof exportsField === 'string') return exportsField;
+  if (!exportsField || typeof exportsField !== 'object') return undefined;
+  const rootExport = (exportsField as Record<string, unknown>)['.'];
+  if (typeof rootExport === 'string') return rootExport;
+  if (!rootExport || typeof rootExport !== 'object') return undefined;
+  const rootExportObject = rootExport as Record<string, unknown>;
+  return (
+    (typeof rootExportObject.import === 'string' && rootExportObject.import) ||
+    (typeof rootExportObject.default === 'string' && rootExportObject.default) ||
+    (typeof rootExportObject.require === 'string' && rootExportObject.require) ||
+    undefined
+  );
+}
 /**
  * Escaping rules:
  * Convert using the format __${mapping}__, where _ and $ are not allowed in npm package names but can be used in variable names.
@@ -88,6 +103,39 @@ export function getInstalledPackageJson(
 ): InstalledPackageJson | undefined {
   const cwd = opts?.cwd || getPackageDetectionCwd();
   const packageName = opts?.packageName || removePathFromNpmPackage(pkg);
+  const tryReadPackageJson = (packageJsonPath: string): InstalledPackageJson | undefined => {
+    if (!existsSync(packageJsonPath)) return undefined;
+    try {
+      return {
+        path: packageJsonPath,
+        dir: path.dirname(packageJsonPath),
+        packageJson: JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<string, unknown>,
+      };
+    } catch {
+      return undefined;
+    }
+  };
+  const findPackageInPnpmStore = (startDir: string): InstalledPackageJson | undefined => {
+    let currentDir = startDir;
+    const rootDir = path.parse(currentDir).root;
+
+    while (true) {
+      const pnpmStoreDir = path.join(currentDir, 'node_modules', '.pnpm');
+      if (existsSync(pnpmStoreDir)) {
+        try {
+          for (const entry of readdirSync(pnpmStoreDir, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const candidate = tryReadPackageJson(
+              path.join(pnpmStoreDir, entry.name, 'node_modules', packageName, 'package.json')
+            );
+            if (candidate?.packageJson.name === packageName) return candidate;
+          }
+        } catch {}
+      }
+      if (currentDir === rootDir) break;
+      currentDir = path.dirname(currentDir);
+    }
+  };
 
   try {
     const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
@@ -128,26 +176,32 @@ export function getInstalledPackageJson(
 
     while (true) {
       const packageJsonPath = path.join(currentDir, 'node_modules', packageName, 'package.json');
-      if (existsSync(packageJsonPath)) {
-        try {
-          return {
-            path: packageJsonPath,
-            dir: path.dirname(packageJsonPath),
-            packageJson: JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<
-              string,
-              unknown
-            >,
-          };
-        } catch {
-          return undefined;
-        }
-      }
+      const directCandidate = tryReadPackageJson(packageJsonPath);
+      if (directCandidate?.packageJson.name === packageName) return directCandidate;
       if (currentDir === rootDir) break;
       currentDir = path.dirname(currentDir);
     }
+
+    return findPackageInPnpmStore(cwd);
   }
 
   return undefined;
+}
+
+export function getInstalledPackageEntry(
+  pkg: string,
+  opts?: { cwd?: string; packageName?: string }
+): string | undefined {
+  const installed = getInstalledPackageJson(pkg, opts);
+  if (!installed) return undefined;
+  const packageJson = installed.packageJson;
+  const exportsEntry = resolveExportsEntry(packageJson.exports);
+  const explicitEntry =
+    exportsEntry ||
+    (typeof packageJson.module === 'string' ? packageJson.module : undefined) ||
+    (typeof packageJson.main === 'string' ? packageJson.main : undefined) ||
+    'index.js';
+  return path.join(installed.dir, explicitEntry);
 }
 
 /**

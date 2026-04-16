@@ -37,10 +37,10 @@ describe('virtualExposes', () => {
   it('scopes virtual id by name and filename and sanitizes invalid chars', () => {
     expect(
       getVirtualExposesId({
-        name: '@scope/remote.app',
+        internalName: '__mfe_internal__@scope/remote.app',
         filename: 'nested/remoteEntry.js?x=1',
       } as any)
-    ).toBe('virtual:mf-exposes:_scope_remote_app__nested_remoteEntry_js_x_1');
+    ).toBe('virtual:mf-exposes:__mfe_internal___scope_remote_app__nested_remoteEntry_js_x_1');
   });
 
   it('emits css placeholder only when bundleAllCSS is enabled', () => {

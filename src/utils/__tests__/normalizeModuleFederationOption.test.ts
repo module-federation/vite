@@ -4,8 +4,9 @@ import {
   normalizeModuleFederationOptions,
 } from '../normalizeModuleFederationOptions';
 
-const { mfErrorSpy } = vi.hoisted(() => ({
+const { mfErrorSpy, mfWarnSpy } = vi.hoisted(() => ({
   mfErrorSpy: vi.fn(),
+  mfWarnSpy: vi.fn(),
 }));
 
 vi.mock('../logger', async (importOriginal) => {
@@ -13,6 +14,7 @@ vi.mock('../logger', async (importOriginal) => {
   return {
     ...actual,
     mfError: (...args: unknown[]) => mfErrorSpy(...args),
+    mfWarn: (...args: unknown[]) => mfWarnSpy(...args),
   };
 });
 
@@ -26,6 +28,7 @@ describe('normalizeModuleFederationOption', () => {
     expect(normalizeModuleFederationOptions(minimalOptions)).toEqual({
       exposes: {},
       filename: 'remoteEntry-[hash]',
+      internalName: '__mfe_internal__test-module',
       library: undefined,
       name: 'test-module',
       remotes: {},
@@ -49,6 +52,32 @@ describe('normalizeModuleFederationOption', () => {
       target: undefined,
       varFilename: undefined,
     });
+  });
+
+  it('maps reserved remote name internally', () => {
+    mfWarnSpy.mockClear();
+
+    const normalized = normalizeModuleFederationOptions({
+      ...minimalOptions,
+      name: 'scheduler',
+    });
+
+    expect(normalized.name).toBe('scheduler');
+    expect(normalized.internalName).toBe('__mfe_internal__scheduler');
+    expect(mfWarnSpy).not.toHaveBeenCalled();
+  });
+
+  it('warns when public name uses reserved internal prefix', () => {
+    mfWarnSpy.mockClear();
+
+    normalizeModuleFederationOptions({
+      ...minimalOptions,
+      name: '__mfe_internal__scheduler',
+    });
+
+    expect(mfWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Reserved internal containerName prefix "__mfe_internal__" detected')
+    );
   });
 
   describe('exposes', () => {
@@ -98,6 +127,7 @@ describe('normalizeModuleFederationOption', () => {
         remote1: {
           type: 'var',
           name: 'remote1',
+          internalName: '__mfe_internal__remote1',
           entry: 'http://localhost:3001/remoteEntry.js',
           entryGlobalName: 'Button',
           shareScope: 'default',
@@ -117,6 +147,7 @@ describe('normalizeModuleFederationOption', () => {
         remote1: {
           type: 'var',
           name: 'remote1',
+          internalName: '__mfe_internal__remote1',
           entry: 'http://localhost:3001/remoteEntry.js',
           entryGlobalName: '@scope/app',
           shareScope: 'default',
@@ -136,6 +167,7 @@ describe('normalizeModuleFederationOption', () => {
         remote1: {
           type: 'var',
           name: 'remote1',
+          internalName: '__mfe_internal__remote1',
           entry: 'http://user:password@localhost:3001/remoteEntry.js',
           entryGlobalName: 'Button',
           shareScope: 'default',
@@ -159,11 +191,27 @@ describe('normalizeModuleFederationOption', () => {
         remote1: {
           type: 'var',
           name: 'remote1',
+          internalName: '__mfe_internal__remote1',
           entry: 'http://localhost:3001/remoteEntry.js',
           entryGlobalName: 'Button',
           shareScope: 'default',
         },
       });
+    });
+
+    it('warns when remote alias uses reserved internal prefix', () => {
+      mfWarnSpy.mockClear();
+
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        remotes: {
+          __mfe_internal__remote1: 'Button@http://localhost:3001/remoteEntry.js',
+        },
+      });
+
+      expect(mfWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Reserved internal remoteAlias prefix "__mfe_internal__" detected')
+      );
     });
   });
 
