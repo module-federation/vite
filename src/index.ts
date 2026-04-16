@@ -30,7 +30,13 @@ import {
   PluginManifestOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import {
+  getInstalledPackageEntry,
+  getInstalledPackageJson,
+  getIsRolldown,
+  hasPackageDependency,
+  setPackageDetectionCwd,
+} from './utils/packageUtils';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -164,6 +170,27 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         for (const key of Object.keys(remotes)) {
           addUsedRemote(key, key);
         }
+        if (_command === 'serve' && isRolldown) {
+          config.optimizeDeps = config.optimizeDeps || {};
+          config.optimizeDeps.exclude = config.optimizeDeps.exclude || [];
+          config.optimizeDeps.include = config.optimizeDeps.include || [];
+          // In Vite 8 dev, prebundling bare remote specifiers rewrites
+          // `import("remote/x")` to `/node_modules/.vite/deps/remote_x.js`.
+          // That bypasses the remote namespace fixup path and breaks named
+          // exports on dynamic import, which Angular relies on.
+          const collidingInstalledRemotes = Object.keys(remotes || {}).filter((remoteName) =>
+            getInstalledPackageJson(remoteName, { cwd: root })
+          );
+          const collidingInstalledRemoteEntries = collidingInstalledRemotes.map(
+            (remoteName) => getInstalledPackageEntry(remoteName, { cwd: root }) || remoteName
+          );
+          config.optimizeDeps.exclude.push(
+            ...Object.keys(remotes || {}).filter(
+              (remoteName) => !collidingInstalledRemotes.includes(remoteName)
+            )
+          );
+          config.optimizeDeps.include.push(...collidingInstalledRemoteEntries);
+        }
       }
 
       // Create shared module virtual files EARLY and register shares eagerly
@@ -175,14 +202,6 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           // Include the runtimeInit virtual module so Vite pre-bundles it
           // upfront instead of discovering it at runtime via loadShare imports.
           config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
-          if (isRolldown) {
-            // In Vite 8 dev, prebundling bare remote specifiers rewrites
-            // `import("remote/x")` to `/node_modules/.vite/deps/remote_x.js`.
-            // That bypasses the remote namespace fixup path and breaks named
-            // exports on dynamic import, which Angular relies on.
-            config.optimizeDeps.exclude = config.optimizeDeps.exclude || [];
-            config.optimizeDeps.exclude.push(...Object.keys(remotes || {}));
-          }
         }
         for (const key of Object.keys(shared)) {
           if (key.endsWith('/')) continue;

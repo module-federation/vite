@@ -44,6 +44,7 @@ vi.mock('../../utils/packageUtils', () => {
 vi.mock('../../utils/normalizeModuleFederationOptions', () => {
   return {
     getNormalizeModuleFederationOptions: () => ({
+      internalName: '__mfe_internal__host',
       name: 'host',
       filename: 'remoteEntry.js',
       remotes: {},
@@ -218,6 +219,7 @@ describe('virtualRemoteEntry', () => {
 
     const code = mod.generateRemoteEntry(
       {
+        internalName: '__mfe_internal__host',
         name: 'host',
         filename: 'remoteEntry.js',
         remotes: {},
@@ -239,6 +241,7 @@ describe('virtualRemoteEntry', () => {
 
     const code = mod.generateRemoteEntry(
       {
+        internalName: '__mfe_internal__remote',
         name: 'remote',
         filename: 'remoteEntry.js',
         remotes: {},
@@ -267,6 +270,7 @@ describe('virtualRemoteEntry', () => {
 
     const code = mod.generateRemoteEntry(
       {
+        internalName: '__mfe_internal__host',
         name: 'host',
         filename: 'remoteEntry.js',
         remotes: {},
@@ -286,6 +290,7 @@ describe('virtualRemoteEntry', () => {
     );
     expect(code).toContain('const {usedShared, usedRemotes} = await getLocalSharedImportMap()');
     expect(code).toContain('const exposesMap = await getExposesMap()');
+    expect(code).toContain('const mfName = "__mfe_internal__host"');
     expect(code).not.toContain('import exposesMap from');
     expect(code).not.toContain('import {usedShared, usedRemotes} from');
   });

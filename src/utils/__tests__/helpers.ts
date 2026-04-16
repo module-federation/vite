@@ -6,6 +6,7 @@ export function getDefaultMockOptions(
   return {
     exposes: {},
     filename: 'remoteEntry.js',
+    internalName: '__mfe_internal__test',
     library: {},
     name: 'test',
     remotes: {},

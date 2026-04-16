@@ -141,6 +141,23 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain('const { foo }');
     });
 
+    it('skips bare remote-name rewrites inside node_modules files', async () => {
+      const result = await transform(
+        'import { foo } from "remoteApp";',
+        '/repo/node_modules/some-package/index.js'
+      );
+      expect(result).toBeUndefined();
+    });
+
+    it('still rewrites remote subpaths inside node_modules files', async () => {
+      const result = await transform(
+        'import { foo } from "remoteApp/utils";',
+        '/repo/node_modules/some-package/index.js'
+      );
+      expect(result).toContain('__moduleExports');
+      expect(result).toContain('const { foo }');
+    });
+
     it('handles multiple remotes in one file', async () => {
       const code = [
         'import { foo } from "remoteApp/utils";',
