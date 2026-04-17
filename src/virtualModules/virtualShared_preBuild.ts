@@ -325,7 +325,13 @@ export const LOAD_SHARE_TAG = '__loadShare__';
 
 const loadShareCacheMap: Record<string, VirtualModule> = {};
 function shouldUseEsmLoadShare(pkg: string, command?: string, isRolldown?: boolean): boolean {
-  return command === 'build' || !!isRolldown || pkg === 'lit' || pkg.startsWith('lit/');
+  return (
+    command === 'build' ||
+    command === 'serve' ||
+    !!isRolldown ||
+    pkg === 'lit' ||
+    pkg.startsWith('lit/')
+  );
 }
 export function getLoadShareImportId(pkg: string, isRolldown: boolean, command?: string): string {
   if (!loadShareCacheMap[pkg]) {
@@ -337,8 +343,7 @@ export function getLoadShareImportId(pkg: string, isRolldown: boolean, command?:
 }
 export function getLoadShareModulePath(pkg: string, isRolldown: boolean, command?: string): string {
   if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown, command);
-  const filepath = loadShareCacheMap[pkg].getPath();
-  return filepath;
+  return loadShareCacheMap[pkg].getPath();
 }
 export function writeLoadShareModule(
   pkg: string,
@@ -375,9 +380,13 @@ export function writeLoadShareModule(
     const namedExports = useESM ? getPackageNamedExports(pkg) : [];
     let exportLine: string;
     if (useESM && namedExports.length > 0) {
-      const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
-      const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
-      exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
+      const destructure = `const { ${namedExports
+        .map((name, i) => `${name}: __mf_${i}`)
+        .join(', ')} } = exportModule ?? {};`;
+      const namedExportLine = `export { ${namedExports
+        .map((name, i) => `__mf_${i} as ${name}`)
+        .join(', ')} };`;
+      exportLine = `export default exportModule?.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
     } else {
       if (useESM) {
         mfWarn(
@@ -387,13 +396,15 @@ export function writeLoadShareModule(
         );
       }
       exportLine = useESM
-        ? 'export default exportModule.default ?? exportModule'
+        ? 'export default exportModule?.default ?? exportModule'
         : 'module.exports = exportModule';
     }
     loadShareCacheMap[pkg].writeSync(
       `
     ${importLine}
-    const res = initPromise.then(runtime => runtime.loadShare(${escapeGeneratedStringLiteral(pkg)}, {
+    const res = initPromise.then(runtime => runtime.loadShare(${escapeGeneratedStringLiteral(
+      pkg
+    )}, {
       customShareInfo: {shareConfig:{
         singleton: ${shareItem.shareConfig.singleton},
         strictVersion: ${shareItem.shareConfig.strictVersion},
@@ -409,10 +420,8 @@ export function writeLoadShareModule(
   }
 
   // Normal path: package is installed locally, create full loadShare with prebuild fallback.
-  const isVinext = hasPackageDependency('vinext');
-  const isAstro = hasPackageDependency('astro');
-  const useSsrProviderFallback =
-    ((isVinext || isAstro) && command === 'build' && pkg === 'react') || command === 'serve';
+  // Always use the static prebuild fallback — on the server typeof window === "undefined"
+  // resolves to the pre-bundled local module instead of the no-op MF runtime stub.
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
   const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg);
   const devImportSource = concreteSharedImportSource || pkg;
@@ -424,21 +433,32 @@ export function writeLoadShareModule(
   const namedExports = getPackageNamedExports(pkg);
   let exportLine: string;
   if (namedExports.length > 0) {
-    const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
-    const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
+    const destructure = `const { ${namedExports
+      .map((name, i) => `${name}: __mf_${i}`)
+      .join(', ')} } = exportModule ?? {};`;
+    const namedExportLine = `export { ${namedExports
+      .map((name, i) => `__mf_${i} as ${name}`)
+      .join(', ')} };`;
     exportLine = useESM
-      ? `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`
-      : `module.exports = exportModule;\n    ${destructure}\n    Object.assign(module.exports, { ${namedExports.map((name, i) => `"${name}": __mf_${i}`).join(', ')} });`;
+      ? `export default exportModule?.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`
+      : `module.exports = exportModule;\n    ${destructure}\n    Object.assign(module.exports, { ${namedExports
+          .map((name, i) => `"${name}": __mf_${i}`)
+          .join(', ')} });`;
   } else {
     exportLine = useESM
-      ? `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`
+      ? `export default exportModule?.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(
+          sharedImportSource
+        )}`
       : 'module.exports = exportModule';
   }
 
+  // Always use a named namespace import so __mf_prebuild__ is available when
+  // the SSR bundle evaluates typeof window === "undefined" at runtime, even
+  // when this virtual module was generated for the client build environment.
   const prebuildImportLine =
     (isWorkspacePackage && command !== 'build') || skipServePrebuildWarmup
       ? ''
-      : `import ${escapeGeneratedStringLiteral(sharedImportSource)};`;
+      : `import * as __mf_prebuild__ from ${escapeGeneratedStringLiteral(sharedImportSource)};`;
   const devDynamicImportLine = isWorkspacePackage
     ? ''
     : command !== 'build' && !skipServePrebuildWarmup
@@ -450,27 +470,18 @@ export function writeLoadShareModule(
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
-    ${
-      useSsrProviderFallback
-        ? `const providerModulePromise = typeof window === "undefined"
-      ? import(${escapeGeneratedStringLiteral(providerImportId)})
-      : undefined`
-        : ''
-    }
-    const res = initPromise.then(runtime => runtime.loadShare(${escapeGeneratedStringLiteral(pkg)}, {
+    const res = initPromise.then(runtime => runtime.loadShare(${escapeGeneratedStringLiteral(
+      pkg
+    )}, {
       customShareInfo: {shareConfig:{
         singleton: ${shareItem.shareConfig.singleton},
         strictVersion: ${shareItem.shareConfig.strictVersion},
         requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)}
       }}
     }))
-    const exportModule = ${
-      useSsrProviderFallback
-        ? `(typeof window === "undefined"
-      ? ((await providerModulePromise)?.default ?? await providerModulePromise)
-      : ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory)))`
-        : `${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory))`
-    }
+    const exportModule = (typeof window === "undefined"
+      ? (__mf_prebuild__?.default ?? __mf_prebuild__)
+      : ${awaitOrPlaceholder}res.then((factory) => (typeof factory === "function" ? factory() : factory)))
     ${exportLine}
   `,
     true
