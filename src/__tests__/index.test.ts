@@ -735,6 +735,36 @@ describe('module-federation-fix-preload', () => {
 
     expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
   });
+
+  it('handles backticks in function expression pattern', () => {
+    const plugin = getFixPreloadPlugin();
+    const bundle = {
+      'preload-helper-abc.js': {
+        type: 'chunk',
+        fileName: 'preload-helper-abc.js',
+        code: 'const u=function(e){return`../`+e};modulepreload',
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
+  });
+
+  it('handles backticks in arrow function pattern', () => {
+    const plugin = getFixPreloadPlugin();
+    const bundle = {
+      'preload-helper-abc.js': {
+        type: 'chunk',
+        fileName: 'preload-helper-abc.js',
+        code: 'const u=e=>`../`+e;modulepreload',
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
+  });
 });
 
 describe('module-federation-dev-await-shared-init', () => {
