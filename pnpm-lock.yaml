@@ -45,9 +45,6 @@ importers:
       '@types/node':
         specifier: ^25.3.3
         version: 25.3.3
-      cjs-dep:
-        specifier: workspace:*
-        version: link:integration/fixtures/shared-remote/vendor/cjs-dep
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -597,8 +594,6 @@ importers:
       webpack-dev-server:
         specifier: ^4.3.1
         version: 4.15.2(webpack-cli@4.10.0)(webpack@5.97.1)
-
-  integration/fixtures/shared-remote/vendor/cjs-dep: {}
 
 packages:
 

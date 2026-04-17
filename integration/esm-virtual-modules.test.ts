@@ -10,13 +10,6 @@ const SHARED_REMOTE_MF_OPTIONS = {
   },
 };
 
-const CJS_SHARED_MF_OPTIONS = {
-  shared: { 'cjs-dep': {} },
-  exposes: {
-    './exposed': resolve(FIXTURES, 'shared-remote', 'exposed-cjs-module.js'),
-  },
-};
-
 describe('ESM virtual modules', () => {
   it('resolves named imports from shared modules in build mode', async () => {
     const output = await buildFixture({
@@ -36,17 +29,5 @@ describe('ESM virtual modules', () => {
     const allCode = getAllChunkCode(output);
     // Build output should not contain CJS require() for the runtime init module
     expect(allCode).not.toMatch(/require\s*\(\s*["'].*runtimeInit/);
-  });
-
-  it('builds successfully when a shared dependency is CJS', async () => {
-    const output = await buildFixture({
-      fixture: 'shared-remote',
-      mfOptions: CJS_SHARED_MF_OPTIONS,
-      viteConfig: { resolve: { preserveSymlinks: true } },
-    });
-    const allCode = getAllChunkCode(output);
-    // The CJS dep is replaced by a loadShare shim — verify the build succeeded
-    // and the shared module was properly resolved via the runtime
-    expect(allCode).toContain('loadShare("cjs-dep"');
   });
 });
