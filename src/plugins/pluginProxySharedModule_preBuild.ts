@@ -143,6 +143,19 @@ export function proxySharedModule(options: {
                 replacement: '$1',
                 customResolver(source: string, importer: string) {
                   if (/\.css$/.test(source)) return;
+                  const normalizedImporter = importer?.replace(/\\/g, '/');
+                  const isReactCjsImporter =
+                    normalizedImporter &&
+                    /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?react(?:-dom)?\/cjs\//.test(
+                      normalizedImporter
+                    );
+                  if (
+                    isRolldown &&
+                    isReactCjsImporter &&
+                    (source === 'react' || source === 'react-dom')
+                  ) {
+                    return;
+                  }
                   // Hard-stop proxying bare React in dev. Vite's RSC pipeline
                   // expects the native server React entry, and wrapping `react`
                   // through loadShare breaks react-server-dom-webpack.

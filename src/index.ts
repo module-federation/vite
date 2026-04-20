@@ -862,7 +862,6 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
-        config.optimizeDeps.include.push(virtualDir);
 
         // Prevent Vite from externalizing virtual modules during SSR.
         // Files in node_modules/__mf__virtual/ contain `import("virtual:...")`
@@ -895,6 +894,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           config.build = defu(config.build || {}, { target: 'esnext' });
         } else {
           // Vite 5-7: virtual modules use CJS for dev, need interop
+          config.optimizeDeps.include.push(virtualDir);
           config.optimizeDeps.needsInterop ||= [];
           config.optimizeDeps.needsInterop.push(virtualDir);
           config.optimizeDeps.needsInterop.push(getLocalSharedImportMapPath());

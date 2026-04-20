@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { hasPackageDependencyMock, existsSyncMock, readFileSyncMock } = vi.hoisted(() => ({
-  hasPackageDependencyMock: vi.fn(),
-  existsSyncMock: vi.fn(() => false),
-  readFileSyncMock: vi.fn(() => '{}'),
-}));
+const { hasPackageDependencyMock, existsSyncMock, readFileSyncMock, getIsRolldownMock } =
+  vi.hoisted(() => ({
+    hasPackageDependencyMock: vi.fn(),
+    existsSyncMock: vi.fn(() => false),
+    readFileSyncMock: vi.fn(() => '{}'),
+    getIsRolldownMock: vi.fn(() => false),
+  }));
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
@@ -19,7 +21,7 @@ vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   setPackageDetectionCwd: vi.fn(),
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
-  getIsRolldown: () => false,
+  getIsRolldown: getIsRolldownMock,
   removePathFromNpmPackage: (pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     return match ? match[0] : pkg;
@@ -121,6 +123,7 @@ function makeShared(): NormalizedShared {
 describe('pluginProxySharedModule_preBuild', () => {
   beforeEach(() => {
     hasPackageDependencyMock.mockReset();
+    getIsRolldownMock.mockReset().mockReturnValue(false);
     preBuildShareItemMap.clear();
   });
 
@@ -219,6 +222,123 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(resolution).toBeUndefined();
     });
   }
+
+  it('does not proxy shared imports from node_modules during dev optimizeDeps', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    getIsRolldownMock.mockReturnValue(true);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      config as any,
+      {
+        command: 'serve',
+        mode: 'development',
+      }
+    );
+
+    const alias = config.resolve.alias.find((entry) => entry.find.test('react'));
+    const resolution = await alias?.customResolver?.call(
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      'react',
+      '/repo/node_modules/.pnpm/react-dom@19/node_modules/react-dom/cjs/react-dom.development.js'
+    );
+
+    expect(resolution).toBeUndefined();
+  });
+
+  it('proxies shared imports from node_modules before Rolldown', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    getIsRolldownMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      config as any,
+      {
+        command: 'serve',
+        mode: 'development',
+      }
+    );
+
+    const alias = config.resolve.alias.find((entry) => entry.find.test('react'));
+    const resolution = await alias?.customResolver?.call(
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      'react',
+      '/repo/node_modules/.pnpm/react-dom@18/node_modules/react-dom/cjs/react-dom.development.js'
+    );
+
+    expect(resolution).toEqual({ id: '/resolved//mock/path.js' });
+  });
+
+  it('proxies shared imports from non-React node_modules during Rolldown dev', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    getIsRolldownMock.mockReturnValue(true);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      config as any,
+      {
+        command: 'serve',
+        mode: 'development',
+      }
+    );
+
+    const alias = config.resolve.alias.find((entry) => entry.find.test('react'));
+    const resolution = await alias?.customResolver?.call(
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      'react',
+      '/repo/node_modules/.vite/deps/emotion-element.browser.development.esm.js'
+    );
+
+    expect(resolution).toEqual({ id: '/resolved//mock/path.js' });
+  });
 
   it('skips prebuild for import: false shared deps in configResolved', () => {
     hasPackageDependencyMock.mockReturnValue(false);
