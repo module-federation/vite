@@ -562,7 +562,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           code = code.replace(
             'export default exportModule',
             'export const __moduleExports = exportModule;\n' +
-              'export default exportModule.__esModule ? exportModule.default : exportModule'
+              'export default exportModule?.__esModule ? exportModule.default : exportModule'
           );
           // Rollup supports syntheticNamedExports to resolve named imports
           // from the __moduleExports namespace.  Rolldown (Vite 8+) does not

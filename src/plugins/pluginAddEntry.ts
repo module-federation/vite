@@ -35,7 +35,7 @@ const addEntry = ({
   let entryFiles: string[] = [];
   let htmlFilePath: string | undefined;
   let _command: string;
-  let emitFileId: string;
+  let emitFileId: string | undefined;
   let viteConfig: any;
   let clientInjected = false;
 
@@ -180,6 +180,11 @@ const addEntry = ({
       },
       buildStart() {
         if (_command === 'serve') return;
+        const environmentName = (this as any)?.environment?.name;
+        if (environmentName && environmentName !== 'client') {
+          emitFileId = undefined;
+          return;
+        }
         const hasHash = fileName?.includes?.('[hash');
         const emitFileOptions: any = {
           name: entryName,
@@ -203,6 +208,7 @@ const addEntry = ({
       },
       generateBundle(options, bundle) {
         if (!injectHtml()) return;
+        if (emitFileId == null) return;
         const file = this.getFileName(emitFileId);
         // Helper to resolve path with proper renderBuiltUrl handling
         const resolvePath = (htmlFileName: string): string => {
