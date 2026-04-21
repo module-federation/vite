@@ -20,6 +20,20 @@ import {
 } from '../utils/cssModuleHelpers';
 import { resolvePublicPath } from '../utils/publicPath';
 
+/**
+ * Resolves the build version for the module federation manifest.
+ *
+ * Priority:
+ * 1. `MF_BUILD_VERSION` environment variable (set by CI or manually)
+ * 2. Falls back to `'1.0.0'` to preserve backward compatibility
+ *
+ * This mirrors the behavior of the webpack/rspack plugins via
+ * `getBuildVersion()` from `@module-federation/managers`.
+ */
+function getBuildVersion(): string {
+  return process.env['MF_BUILD_VERSION'] ?? '1.0.0';
+}
+
 // Helper to build share key map with proper context typing
 interface BuildFileToShareKeyMapContext {
   resolve: PluginContext['resolve'];
@@ -115,7 +129,7 @@ const Manifest = (): Plugin[] => {
                 metaData: {
                   name: name,
                   type: 'app',
-                  buildInfo: { buildVersion: '1.0.0', buildName: name },
+                  buildInfo: { buildVersion: getBuildVersion(), buildName: name },
                   remoteEntry: {
                     name: filename,
                     path: '',
@@ -354,7 +368,7 @@ const Manifest = (): Plugin[] => {
         name,
         type: 'app',
         buildInfo: {
-          buildVersion: '1.0.0',
+          buildVersion: getBuildVersion(),
           buildName: name,
         },
         remoteEntry,
