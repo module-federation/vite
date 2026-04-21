@@ -36,15 +36,11 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     config(config, { command: _command }) {
       command = _command;
       root = config.root || process.cwd();
-      const isRolldown = getIsRolldown(this);
       Object.keys(remotes).forEach((key) => {
         const remote = remotes[key];
         (config.resolve as any).alias.push({
           find: new RegExp(`^(${remote.name}(\/.*|$))`),
           replacement: '$1',
-          customResolver(source: string, importer?: string) {
-            return resolveRemoteId(source, importer, remote.name, isRolldown);
-          },
         });
       });
     },
@@ -52,7 +48,7 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
       if (!filter(source)) return;
       const isRolldown = getIsRolldown(this);
       for (const remote of Object.values(remotes)) {
-        if (source !== remote.name) continue;
+        if (source !== remote.name && !source.startsWith(`${remote.name}/`)) continue;
         return resolveRemoteId(source, importer, remote.name, isRolldown);
       }
     },
