@@ -16,10 +16,12 @@ import { getUsedRemotesMap } from './virtualRemotes';
 import {
   getRuntimeInitBootstrapCode,
   getRuntimeInitResolveBootstrapCode,
+  getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
 import {
   getConcreteSharedImportSource,
   getLocalProviderImportPath,
+  getProjectResolvedImportPath,
   getSharedImportSource,
 } from './virtualShared_preBuild';
 
@@ -45,21 +47,36 @@ export function writeLocalSharedImportMap() {
     //   localSharedImportMapModule.writeSync(generateLocalSharedImportMap(), true)
   }
 }
-export function generateLocalSharedImportMap() {
+
+function shouldUseDirectReactImport() {
   const isVinext = hasPackageDependency('vinext');
   const isAstro = hasPackageDependency('astro');
-  const useDirectReactImport = isVinext || isAstro;
+  return isVinext || isAstro;
+}
+
+function getLocalSharedPackagePath(pkg: string, shareItem: ShareItem) {
+  const useDirectReactImport = shouldUseDirectReactImport();
+  if (useDirectReactImport && pkg === 'react') return 'react';
+
+  return (
+    getConcreteSharedImportSource(pkg, shareItem) ||
+    getLocalProviderImportPath(pkg) ||
+    getSharedImportSource(pkg, shareItem)
+  );
+}
+
+function getDirectSharedCacheSeedImportPath(pkg: string, shareItem: ShareItem) {
+  return (
+    getConcreteSharedImportSource(pkg, shareItem) ||
+    getProjectResolvedImportPath(pkg) ||
+    getLocalProviderImportPath(pkg) ||
+    pkg
+  );
+}
+
+export function generateLocalSharedImportMap() {
+  const useDirectReactImport = shouldUseDirectReactImport();
   const options = getNormalizeModuleFederationOptions();
-
-  const getPackagePath = (pkg: string, shareItem: ShareItem) => {
-    if (useDirectReactImport && pkg === 'react') return 'react';
-
-    return (
-      getConcreteSharedImportSource(pkg, shareItem) ||
-      getLocalProviderImportPath(pkg) ||
-      getSharedImportSource(pkg, shareItem)
-    );
-  };
 
   return `
     import {loadShare} from "@module-federation/runtime";
@@ -73,7 +90,7 @@ export function generateLocalSharedImportMap() {
           ${
             shareItem?.shareConfig.import === false
               ? `throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
-              : `let pkg = await import(${JSON.stringify(getPackagePath(pkg, shareItem))});
+              : `let pkg = await import(${JSON.stringify(getLocalSharedPackagePath(pkg, shareItem))});
             return pkg;`
           }
         }
@@ -148,6 +165,70 @@ export function generateLocalSharedImportMap() {
       `;
 }
 
+function generateUsedSharedPreloadConfig() {
+  return `{
+      ${getOrderedUsedShares()
+        .map((pkg) => {
+          const shareItem = getShareItemForPreload(pkg);
+          if (!shareItem) return null;
+          return `${JSON.stringify(pkg)}: {
+            shareConfig: {
+              singleton: ${shareItem.shareConfig.singleton},
+              requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
+              ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
+            }
+          }`;
+        })
+        .filter((item) => item !== null)
+        .join(',\n')}
+    }`;
+}
+
+function getOrderedUsedShares() {
+  const shares = new Set(getUsedShares());
+  try {
+    Object.keys(getNormalizeModuleFederationOptions().shared).forEach((pkg) => {
+      shares.add(pkg.endsWith('/') ? pkg.slice(0, -1) : pkg);
+    });
+  } catch {
+    // Some isolated unit tests call generators before normalized options exist.
+  }
+  return Array.from(shares).sort((a, b) => {
+    const priority = (pkg: string) =>
+      pkg === 'react' ? 0 : pkg === 'react-dom' ? 1 : pkg.startsWith('react/') ? 2 : 3;
+    return priority(a) - priority(b) || a.localeCompare(b);
+  });
+}
+
+function getShareItemForPreload(pkg: string) {
+  return getNormalizeShareItem(pkg) || getNormalizeShareItem(`${pkg}/`);
+}
+
+export function generateDirectSharedCacheSeedCode(command = 'build') {
+  return getOrderedUsedShares()
+    .map((pkg) => {
+      const shareItem = getShareItemForPreload(pkg);
+      if (!shareItem || shareItem.shareConfig.import === false) return null;
+      const importPath =
+        command === 'serve'
+          ? getLocalSharedPackagePath(pkg, shareItem)
+          : getDirectSharedCacheSeedImportPath(pkg, shareItem);
+      return `if (__mfModuleCache.share[${JSON.stringify(pkg)}] === undefined) {
+        const mod = await import(${JSON.stringify(importPath)});
+        const exportModule = ${JSON.stringify(shouldUseDirectReactImport())} && ${JSON.stringify(pkg)} === "react"
+          ? (mod?.default ?? mod)
+          : {...mod};
+        Object.defineProperty(exportModule, "__esModule", {
+          value: true,
+          enumerable: false
+        });
+        __mfModuleCache.share[${JSON.stringify(pkg)}] = exportModule;
+      }`;
+    })
+    .filter((item) => item !== null)
+    .join('\n');
+}
+
 const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
 
 export function getRemoteEntryId(
@@ -189,6 +270,7 @@ export function generateRemoteEntry(
       ? getRuntimeInitResolveBootstrapCode()
       : getRuntimeInitBootstrapCode() + '\n  const { initResolve } = globalThis[globalKey];'
   }
+  ${getRuntimeModuleCacheBootstrapCode()}
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
   const mfName = ${JSON.stringify(options.internalName)}
@@ -207,6 +289,7 @@ export function generateRemoteEntry(
 
   async function init(shared = {}, initScope = []) {
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
+    ${generateDirectSharedCacheSeedCode(command)}
     const initRes = runtimeInit({
       name: mfName,
       remotes: usedRemotes,
@@ -252,11 +335,57 @@ export function generateRemoteEntry(
  */
 export const HOST_AUTO_INIT_TAG = '__H_A_I__';
 const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG);
-export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID) {
-  hostAutoInitModule.writeSync(`
-    const remoteEntry = await import("${remoteEntryId}");
-    await remoteEntry.init();
-    `);
+let currentHostAutoInitRemoteEntryId = REMOTE_ENTRY_ID;
+let currentHostAutoInitCommand = 'build';
+export function generateHostAutoInitCode(remoteEntryImport: string, command = 'build') {
+  return `
+    ${getRuntimeModuleCacheBootstrapCode()}
+    let hostInitPromise;
+    async function initHost() {
+      if (!hostInitPromise) {
+        hostInitPromise = (async () => {
+          const remoteEntry = await import(${remoteEntryImport});
+          const runtime = await remoteEntry.init();
+          const usedShared = ${generateUsedSharedPreloadConfig()};
+          for (const [pkg, share] of Object.entries(usedShared)) {
+            if (__mfModuleCache.share[pkg] !== undefined) {
+              continue;
+            }
+            await runtime.loadShare(pkg, {
+              customShareInfo: { shareConfig: share.shareConfig }
+            }).then((factory) => {
+              const mod = typeof factory === "function" ? factory() : factory;
+              return Promise.resolve(mod).then((resolved) => {
+                __mfModuleCache.share[pkg] = resolved;
+              });
+            });
+          }
+          const __mfRemotePreloads = [];
+          await Promise.all(__mfRemotePreloads);
+          return runtime;
+        })();
+      }
+      return hostInitPromise;
+    }
+    hostInitPromise = initHost();
+    export { initHost, hostInitPromise };
+    `;
+}
+export function writeHostAutoInit(remoteEntryId = REMOTE_ENTRY_ID, command = 'build') {
+  currentHostAutoInitRemoteEntryId = remoteEntryId;
+  currentHostAutoInitCommand = command;
+  hostAutoInitModule.writeSync(
+    generateHostAutoInitCode(JSON.stringify(remoteEntryId), command),
+    true
+  );
+}
+export function refreshHostAutoInit() {
+  try {
+    writeHostAutoInit(currentHostAutoInitRemoteEntryId, currentHostAutoInitCommand);
+  } catch {
+    // Some isolated unit tests exercise share/remote plugins without
+    // initializing normalized federation options.
+  }
 }
 export function getHostAutoInitImportId() {
   return hostAutoInitModule.getImportId();

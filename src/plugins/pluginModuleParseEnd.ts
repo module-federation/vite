@@ -5,46 +5,61 @@
 import { Plugin } from 'vite';
 import { mfWarn } from '../utils/logger';
 
-let _resolve: any, _reject: any, _parseTimeout: any;
+let _resolve: ((value: any) => void) | null = null;
+let _reject: ((error: any) => void) | null = null;
+let _parseTimeout: ReturnType<typeof setTimeout> | null = null;
 
-const promise = new Promise((resolve, reject) => {
-  _resolve = (v: any) => {
+let parsePromise = Promise.resolve(1);
+let exposesParseEnd = false;
+let expectsExposesParseEnd = false;
+
+let parseStartSet = new Set<string>();
+let parseEndSet = new Set<string>();
+
+function clearParseTimeout() {
+  if (_parseTimeout) {
     clearTimeout(_parseTimeout);
     _parseTimeout = null;
-    resolve(v);
-  };
-  _reject = (e: any) => {
-    clearTimeout(_parseTimeout);
-    _parseTimeout = null;
-    reject(e);
-  };
-});
+  }
+}
+
+function resetParseState() {
+  clearParseTimeout();
+  exposesParseEnd = false;
+  expectsExposesParseEnd = false;
+  parseStartSet = new Set();
+  parseEndSet = new Set();
+  parsePromise = new Promise((resolve, reject) => {
+    _resolve = (v: any) => {
+      clearParseTimeout();
+      resolve(v);
+    };
+    _reject = (e: any) => {
+      clearParseTimeout();
+      reject(e);
+    };
+  });
+}
 
 function setParseTimeout(timeout: number) {
   if (!_parseTimeout) {
     _parseTimeout = setTimeout(() => {
       mfWarn(`Parse timeout (${timeout}s) - forcing resolve`);
-      _resolve(1);
+      _resolve?.(1);
     }, timeout * 1000);
   }
 }
 
 function resetIdleTimeout(timeout: number) {
-  clearTimeout(_parseTimeout);
+  clearParseTimeout();
   _parseTimeout = setTimeout(() => {
     mfWarn(
       `moduleParseIdleTimeout: no module activity for ${timeout}s, forcing resolve. ` +
         'Some shared/remote dependencies may be missing. Consider increasing moduleParseIdleTimeout.'
     );
-    _resolve(1);
+    _resolve?.(1);
   }, timeout * 1000);
 }
-
-let parsePromise = promise;
-let exposesParseEnd = false;
-
-const parseStartSet = new Set();
-const parseEndSet = new Set();
 
 interface ModuleParseOptions {
   moduleParseTimeout: number;
@@ -60,7 +75,7 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       apply: 'serve',
       config() {
         // No waiting in development mode
-        _resolve(1);
+        _resolve?.(1);
       },
     },
     {
@@ -68,6 +83,7 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       name: 'parseStart',
       apply: 'build',
       buildStart() {
+        resetParseState();
         if (idleTimeout) {
           resetIdleTimeout(idleTimeout);
         } else {
@@ -77,6 +93,9 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       load(id) {
         if (excludeFn(id)) {
           return;
+        }
+        if (id === options.virtualExposesId) {
+          expectsExposesParseEnd = true;
         }
         parseStartSet.add(id);
       },
@@ -99,7 +118,9 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
           return;
         }
         parseEndSet.add(id);
-        if (exposesParseEnd && parseStartSet.size === parseEndSet.size) {
+        const parseCompleted = parseStartSet.size === parseEndSet.size;
+        const exposesCompleted = !expectsExposesParseEnd || exposesParseEnd;
+        if (parseCompleted && exposesCompleted) {
           _resolve(1);
         }
       },

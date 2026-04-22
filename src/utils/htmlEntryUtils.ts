@@ -13,7 +13,8 @@ export function rewriteEntryScripts(
   html: string,
   createProxySrc: (entrySrc: string) => string
 ): string {
-  const scriptTagRegex = /<script\s+([^>]*\btype=["']module["'][^>]*\bsrc=["'][^"']+["'][^>]*)>/gi;
+  const scriptTagRegex =
+    /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=["'][^"']+["'])([^>]*)>/gi;
 
   return html.replace(scriptTagRegex, (match, attrs) => {
     const srcMatch = attrs.match(/\bsrc=["']([^"']+)["']/i);

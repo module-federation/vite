@@ -11,12 +11,15 @@ import {
 import { mfWarn } from '../utils/logger';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
+import { getRuntimeModuleCacheBootstrapCode } from '../virtualModules/virtualRuntimeInitStatus';
+import { getUsedRemotesMap } from '../virtualModules/virtualRemotes';
 
 interface AddEntryOptions {
   entryName: string;
   entryPath: string | (() => string);
   fileName?: string;
   inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
+  waitForInit?: boolean;
 }
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
@@ -28,8 +31,10 @@ const addEntry = ({
   entryPath,
   fileName,
   inject = 'entry',
+  waitForInit = false,
 }: AddEntryOptions): Plugin[] => {
   const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
+  const ENTRY_BOOTSTRAP_QUERY = '?mf-entry-bootstrap';
   const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
   let devEntryPath = '';
   let entryFiles: string[] = [];
@@ -38,12 +43,113 @@ const addEntry = ({
   let emitFileId: string;
   let viteConfig: any;
   let clientInjected = false;
+  let emittedFileName: string | undefined;
+
+  function skipSvelteKitSsrBuild() {
+    return (
+      (_command === 'build' || viteConfig?.command === 'build') &&
+      viteConfig?.build?.ssr &&
+      hasPackageDependency('@sveltejs/kit')
+    );
+  }
+
+  function isSvelteKitServerModule(id: string) {
+    return (
+      hasPackageDependency('@sveltejs/kit') &&
+      (id.includes('.svelte-kit/generated/') || id.includes('/@sveltejs/kit/src/runtime/server/'))
+    );
+  }
+
+  function rewriteSvelteKitInlineStart(html: string, initPath: string) {
+    return html.replace(/<script>([\s\S]*?)<\/script>/gi, (scriptTag, body) => {
+      if (!body.includes('kit.start(app, element);') || !body.includes('Promise.all([')) {
+        return scriptTag;
+      }
+
+      const blockStart = body.indexOf('{');
+      const blockEnd = body.lastIndexOf('}');
+      if (blockStart === -1 || blockEnd <= blockStart) return scriptTag;
+
+      const wrapped =
+        body.slice(0, blockStart + 1) +
+        `
+(async () => {
+  await import(${JSON.stringify(initPath)}).then(({ initHost }) => initHost());
+` +
+        body.slice(blockStart + 1, blockEnd) +
+        `
+})();
+` +
+        body.slice(blockEnd);
+
+      return `<script>${wrapped}</script>`;
+    });
+  }
+
+  function walkFiles(dir: string, predicate: (fileName: string) => boolean): string[] {
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) return walkFiles(entryPath, predicate);
+      return entry.isFile() && predicate(entry.name) ? [entryPath] : [];
+    });
+  }
+
+  function walkHtmlFiles(dir: string): string[] {
+    return walkFiles(dir, (fileName) => fileName.endsWith('.html'));
+  }
+
+  function toRelativeImport(fromFile: string, targetFile: string) {
+    const relative = path.relative(path.dirname(fromFile), targetFile).replace(/\\/g, '/');
+    return relative.startsWith('.') ? relative : `./${relative}`;
+  }
+
+  function patchSvelteKitStaticHtml() {
+    const buildDir = path.resolve(viteConfig.root, 'build');
+    let initFile = emittedFileName ? path.resolve(buildDir, emittedFileName) : undefined;
+    if (!initFile || !fs.existsSync(initFile)) {
+      initFile = walkFiles(buildDir, (fileName) => fileName.endsWith('.js')).find((file) => {
+        const code = fs.readFileSync(file, 'utf-8');
+        return code.includes('hostInitPromise') && code.includes('initHost');
+      });
+    }
+    if (!initFile) return false;
+    let patched = false;
+    for (const htmlFile of walkHtmlFiles(buildDir)) {
+      const html = fs.readFileSync(htmlFile, 'utf-8');
+      const rewritten = rewriteSvelteKitInlineStart(html, toRelativeImport(htmlFile, initFile));
+      if (rewritten !== html) {
+        fs.writeFileSync(htmlFile, rewritten);
+        patched = true;
+      }
+    }
+    return patched;
+  }
+
+  function getBootstrapSource(initSrc: string, entrySrc: string) {
+    const remotePreloads = Object.values(getUsedRemotesMap())
+      .flatMap((remotes) => Array.from(remotes))
+      .filter((remote) => remote.includes('/'))
+      .sort()
+      .map((remote) => `runtime.loadRemote(${JSON.stringify(remote)})`)
+      .join(',');
+
+    return `${getRuntimeModuleCacheBootstrapCode()}
+(async () => {
+  const { initHost } = await import(${JSON.stringify(initSrc)});
+  const runtime = await initHost();
+  const __mfRemotePreloads = [${remotePreloads}];
+  await Promise.all(__mfRemotePreloads);
+})().then(() => import(${JSON.stringify(entrySrc)}));
+`;
+  }
 
   function injectHtml() {
-    return inject === 'html' && htmlFilePath;
+    return inject === 'html' && (htmlFilePath || hasPackageDependency('@sveltejs/kit'));
   }
 
   function injectEntry() {
+    if (inject === 'html' && hasPackageDependency('@sveltejs/kit')) return false;
     return inject === 'entry' || !htmlFilePath;
   }
 
@@ -123,14 +229,7 @@ const addEntry = ({
         const initSrc = params.get('init');
         const entrySrc = params.get('entry');
         if (!initSrc || !entrySrc) return;
-        // Use static imports (not dynamic `await import()`) so that init and
-        // entry become part of the browser's static module dependency graph.
-        // This guarantees:
-        //   1. init executes fully (including TLA) before entry starts (#396)
-        //   2. the browser waits for the entire import tree before firing the
-        //      `load` event, preserving standard script execution order (#571)
-        //   3. no inline script content in the HTML, keeping CSP intact (#528)
-        return `import ${JSON.stringify(initSrc)};\nimport ${JSON.stringify(entrySrc)};\n`;
+        return getBootstrapSource(initSrc, entrySrc);
       },
       transform(code, id) {
         if (id.includes('node_modules') || inject !== 'html' || htmlFilePath) {
@@ -180,6 +279,7 @@ const addEntry = ({
       },
       buildStart() {
         if (_command === 'serve') return;
+        if (skipSvelteKitSsrBuild()) return;
         const hasHash = fileName?.includes?.('[hash');
         const emitFileOptions: any = {
           name: entryName,
@@ -202,8 +302,10 @@ const addEntry = ({
         }
       },
       generateBundle(options, bundle) {
+        if (skipSvelteKitSsrBuild()) return;
         if (!injectHtml()) return;
         const file = this.getFileName(emitFileId);
+        emittedFileName = file;
         // Helper to resolve path with proper renderBuiltUrl handling
         const resolvePath = (htmlFileName: string): string => {
           if (!viteConfig.experimental?.renderBuiltUrl) {
@@ -240,24 +342,61 @@ const addEntry = ({
           return viteConfig.base + file;
         };
 
+        let bootstrapIndex = 0;
         // Process each HTML file
         for (const fileName in bundle) {
           if (fileName.endsWith('.html')) {
             let htmlAsset = bundle[fileName];
             if (htmlAsset.type === 'chunk') return;
 
-            const path = resolvePath(fileName);
-            const scriptContent = `
-          <script type="module" src="${path}"></script>
-        `;
-
             let htmlContent = htmlAsset.source.toString() || '';
-            htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
+            const initPath = resolvePath(fileName);
+            const scriptRegex =
+              /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=["']([^"']+)["'])[^>]*>\s*<\/script>/gi;
+            let rewritten = false;
+            htmlContent = htmlContent.replace(scriptRegex, (scriptTag, entrySrc) => {
+              rewritten = true;
+              const bootstrapFileName = `mf-entry-bootstrap-${bootstrapIndex++}.js`;
+              const bootstrapRef = this.emitFile({
+                type: 'asset',
+                fileName: bootstrapFileName,
+                source: getBootstrapSource(initPath, entrySrc),
+              });
+              const bootstrapPath = viteConfig.base + this.getFileName(bootstrapRef);
+              return scriptTag.replace(entrySrc, bootstrapPath);
+            });
+
+            if (!rewritten) {
+              const svelteKitHtml = rewriteSvelteKitInlineStart(htmlContent, initPath);
+              if (svelteKitHtml !== htmlContent) {
+                htmlAsset.source = svelteKitHtml;
+                continue;
+              }
+              const scriptContent = `
+          <script type="module" src="${initPath}"></script>
+        `;
+              htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
+            }
             htmlAsset.source = htmlContent;
           }
         }
       },
+      closeBundle() {
+        if (_command === 'serve' || skipSvelteKitSsrBuild()) {
+          return;
+        }
+
+        let attempts = 0;
+        const retry = () => {
+          attempts += 1;
+          if (!patchSvelteKitStaticHtml() && attempts < 20) setTimeout(retry, 50);
+        };
+        setTimeout(retry, 0);
+      },
       transform(code, id) {
+        if (skipSvelteKitSsrBuild()) return;
+        if (isSvelteKitServerModule(id)) return;
+        if (id.includes(ENTRY_BOOTSTRAP_QUERY)) return;
         const isVinext = hasPackageDependency('vinext');
         if (
           isVinext &&
@@ -279,13 +418,22 @@ const addEntry = ({
           // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
           (_command === 'serve' &&
             inject === 'html' &&
+            !isVinext &&
             !clientInjected &&
+            !id.startsWith('\0') &&
             !id.includes('node_modules') &&
             /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id));
         if (shouldInject) {
           clientInjected = true;
-          const injection = `import ${JSON.stringify(getEntryPath())};\n`;
-          return mapCodeToCodeWithSourcemap(injection + code);
+          if (!waitForInit) {
+            const injection = `import ${JSON.stringify(getEntryPath())};\n`;
+            return mapCodeToCodeWithSourcemap(injection + code);
+          }
+          const entrySrc = id.includes('?')
+            ? `${id}&${ENTRY_BOOTSTRAP_QUERY.slice(1)}`
+            : `${id}${ENTRY_BOOTSTRAP_QUERY}`;
+          const bootstrap = getBootstrapSource(getEntryPath(), entrySrc);
+          return mapCodeToCodeWithSourcemap(bootstrap);
         }
       },
     },

@@ -3,6 +3,7 @@ import {
   ModuleFederationOptions,
   normalizeModuleFederationOptions,
 } from '../normalizeModuleFederationOptions';
+import { setPackageDetectionCwd } from '../packageUtils';
 
 const { mfErrorSpy, mfWarnSpy } = vi.hoisted(() => ({
   mfErrorSpy: vi.fn(),
@@ -315,6 +316,94 @@ describe('normalizeModuleFederationOption', () => {
           strictVersion: false,
         },
       });
+    });
+
+    it('skips Nuxt module packages from implicit shared deps', () => {
+      const fixtureRoot = require('node:path').join(
+        require('node:os').tmpdir(),
+        'mf-vite-nuxt-auto-share'
+      );
+      require('node:fs').rmSync(fixtureRoot, { force: true, recursive: true });
+      require('node:fs').mkdirSync(
+        require('node:path').join(fixtureRoot, 'node_modules/@pinia/nuxt/dist'),
+        {
+          recursive: true,
+        }
+      );
+      require('node:fs').mkdirSync(
+        require('node:path').join(fixtureRoot, 'node_modules/@module-federation/vite/lib'),
+        {
+          recursive: true,
+        }
+      );
+      require('node:fs').mkdirSync(
+        require('node:path').join(fixtureRoot, 'node_modules/nuxt/dist'),
+        {
+          recursive: true,
+        }
+      );
+      require('node:fs').mkdirSync(
+        require('node:path').join(fixtureRoot, 'node_modules/vue/dist'),
+        {
+          recursive: true,
+        }
+      );
+      require('node:fs').writeFileSync(
+        require('node:path').join(fixtureRoot, 'package.json'),
+        JSON.stringify({
+          name: 'nuxt-app',
+          dependencies: {
+            '@module-federation/vite': '^1.14.5',
+            '@pinia/nuxt': '^0.11.3',
+            nuxt: '^4.3.1',
+            vue: '^3.5.29',
+          },
+        })
+      );
+      require('node:fs').writeFileSync(
+        require('node:path').join(fixtureRoot, 'node_modules/@module-federation/vite/package.json'),
+        JSON.stringify({
+          name: '@module-federation/vite',
+          exports: {
+            '.': {
+              import: './lib/index.mjs',
+            },
+          },
+        })
+      );
+      require('node:fs').writeFileSync(
+        require('node:path').join(fixtureRoot, 'node_modules/@pinia/nuxt/package.json'),
+        JSON.stringify({
+          name: '@pinia/nuxt',
+          exports: './dist/module.mjs',
+          main: './dist/module.mjs',
+        })
+      );
+      require('node:fs').writeFileSync(
+        require('node:path').join(fixtureRoot, 'node_modules/nuxt/package.json'),
+        JSON.stringify({
+          name: 'nuxt',
+          module: './dist/index.mjs',
+          exports: './dist/index.mjs',
+        })
+      );
+      require('node:fs').writeFileSync(
+        require('node:path').join(fixtureRoot, 'node_modules/vue/package.json'),
+        JSON.stringify({
+          name: 'vue',
+          module: 'dist/vue.runtime.esm-bundler.js',
+        })
+      );
+      setPackageDetectionCwd(fixtureRoot);
+
+      const shared = normalizeModuleFederationOptions(minimalOptions).shared;
+
+      expect(shared['@module-federation/vite']).toBeUndefined();
+      expect(shared['@pinia/nuxt']).toBeUndefined();
+      expect(shared.nuxt).toBeUndefined();
+      expect(shared.vue).toBeDefined();
+
+      setPackageDetectionCwd(process.cwd());
     });
   });
 

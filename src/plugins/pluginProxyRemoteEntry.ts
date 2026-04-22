@@ -13,6 +13,7 @@ import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFeder
 import { resolvePublicPath } from '../utils/publicPath';
 import {
   generateExposes,
+  generateHostAutoInitCode,
   generateRemoteEntry,
   getExposesCssMapPlaceholder,
   getHostAutoInitPath,
@@ -117,18 +118,17 @@ export default function ({
             const publicPath = JSON.stringify(
               resolvePublicPath(options, viteConfig.base) + options.filename
             );
+            const fallbackOrigin = `http://${host}:${viteConfig.server?.port}`;
+            const ssrRemoteEntry =
+              'data:text/javascript,' +
+              encodeURIComponent(
+                'export async function init(){return {loadRemote:async()=>({}),loadShare:async()=>({})}}'
+              );
             return `
-          if (typeof window !== 'undefined') {
-            const origin = (${!options.ignoreOrigin}) ? window.origin : "//${host}:${viteConfig.server?.port}"
-            const remoteEntryPromise = await import(origin + ${publicPath})
-            // __tla only serves as a hack for vite-plugin-top-level-await.
-            Promise.resolve(remoteEntryPromise)
-            .then(remoteEntry => {
-              return Promise.resolve(remoteEntry.__tla)
-                .then(remoteEntry.init).catch(remoteEntry.init)
-            })
-          }
-          `;
+          const origin = typeof window !== 'undefined' && (${!options.ignoreOrigin}) ? window.origin : ${JSON.stringify(fallbackOrigin)};
+          const remoteEntryImport = typeof window !== 'undefined' ? origin + ${publicPath} : ${JSON.stringify(ssrRemoteEntry)};
+          ${generateHostAutoInitCode('remoteEntryImport', 'serve')}
+        `;
           }
           return code;
         }

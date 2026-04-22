@@ -23,7 +23,6 @@ import MagicString from 'magic-string';
 import type { Plugin } from 'vite';
 import { loadWalk } from '../utils/loadWalk';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { getIsRolldown } from '../utils/packageUtils';
 import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
 
 const JS_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?|vue|svelte)(?:\?|$)/;
@@ -70,13 +69,28 @@ type ImportInfo = StaticImportInfo | ReexportInfo | ExportAllInfo | DynamicImpor
 function wrapDynamicImport(original: string): string {
   return (
     `${original}.then(function(__mf_m__) {\n` +
-    `  if (!__mf_m__ || !__mf_m__.__moduleExports) return __mf_m__;\n` +
+    `  var __mf_ready__ = __mf_m__ && __mf_m__.__mf_remote_pending ? __mf_m__.__mf_remote_pending.then(function(__mf_resolved__) { return __mf_resolved__ || __mf_m__; }) : __mf_m__;\n` +
+    `  return Promise.resolve(__mf_ready__).then(function(__mf_m__) {\n` +
+    `  if (!__mf_m__ || !__mf_m__.__moduleExports) {\n` +
+    `    if (__mf_m__ && __mf_m__.default && typeof __mf_m__.default === "object" && __mf_m__.default.__esModule) {\n` +
+    `      var __mf_nested_e__ = __mf_m__.default;\n` +
+    `      var __mf_nested_ns__ = Object.create(null);\n` +
+    `      Object.defineProperty(__mf_nested_ns__, Symbol.toStringTag, { value: "Module" });\n` +
+    `      Object.keys(__mf_nested_e__).forEach(function(k) { if (k !== "__esModule") __mf_nested_ns__[k] = __mf_nested_e__[k] });\n` +
+    `      if ("default" in __mf_nested_e__) __mf_nested_ns__.default = __mf_nested_e__.default;\n` +
+    `      return __mf_nested_ns__;\n` +
+    `    }\n` +
+    `    return __mf_m__;\n` +
+    `  }\n` +
     `  var __mf_ns__ = Object.create(null);\n` +
     `  Object.defineProperty(__mf_ns__, Symbol.toStringTag, { value: "Module" });\n` +
     `  var __mf_e__ = __mf_m__.__moduleExports;\n` +
+    `  if (__mf_e__ && __mf_e__.default && typeof __mf_e__.default === "object" && __mf_e__.default.__esModule) __mf_e__ = __mf_e__.default;\n` +
     `  Object.keys(__mf_e__).forEach(function(k) { if (k !== "__esModule") __mf_ns__[k] = __mf_e__[k] });\n` +
-    `  if ("default" in __mf_m__) __mf_ns__.default = __mf_m__.default;\n` +
+    `  if ("default" in __mf_e__) __mf_ns__.default = __mf_e__.default;\n` +
+    `  else if ("default" in __mf_m__) __mf_ns__.default = __mf_m__.default;\n` +
     `  return __mf_ns__;\n` +
+    `  });\n` +
     `})`
   );
 }
@@ -557,7 +571,6 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
     name: 'module-federation-remote-named-exports',
     enforce: 'post',
     async transform(code: string, id: string) {
-      if (!getIsRolldown(this)) return;
       if (remoteNames.length === 0) return;
       // Skip federation internal modules
       if (id.includes(LOAD_REMOTE_TAG) || id.includes(LOAD_SHARE_TAG)) return;

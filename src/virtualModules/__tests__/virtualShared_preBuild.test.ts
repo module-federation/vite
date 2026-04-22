@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareItem } from '../../utils/normalizeModuleFederationOptions';
-import { writeLoadShareModule } from '../virtualShared_preBuild';
+import {
+  getProjectResolvedImportPath,
+  writeLoadShareModule,
+  writePreBuildLibPath,
+} from '../virtualShared_preBuild';
 
 const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
@@ -19,6 +23,32 @@ vi.mock('../../utils/logger', () => ({
 vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
+  getInstalledPackageJson: vi.fn((pkg: string) =>
+    pkg === 'mock-package-browser-conditional'
+      ? {
+          path: '/repo/apps/remote/node_modules/mock-package-browser-conditional/package.json',
+          dir: '/repo/apps/remote/node_modules/mock-package-browser-conditional',
+          packageJson: {
+            name: 'mock-package-browser-conditional',
+            exports: {
+              '.': {
+                worker: {
+                  import: './dist/server.js',
+                },
+                browser: {
+                  import: './dist/browser.js',
+                },
+                import: './dist/browser.js',
+              },
+            },
+          },
+        }
+      : undefined
+  ),
+  getPackageName: (packageString: string) => {
+    const match = packageString.match(/^(?:@[^/]+\/)?[^/]+/);
+    return match ? match[0] : packageString;
+  },
 }));
 
 // Mock VirtualModule to capture written code
@@ -50,7 +80,14 @@ vi.mock('fs', () => ({
       filePath.endsWith('node_modules/mock-package-reexport-type/package.json') ||
       filePath.endsWith('/mock-package-reexport-type/package.json') ||
       filePath.endsWith('node_modules/mock-package-generator-export/package.json') ||
-      filePath.endsWith('/mock-package-generator-export/package.json')
+      filePath.endsWith('/mock-package-generator-export/package.json') ||
+      filePath.endsWith('node_modules/mock-package-browser-conditional/package.json') ||
+      filePath.endsWith('/mock-package-browser-conditional/package.json') ||
+      filePath.endsWith('node_modules/mock-package-browser-conditional/dist/browser.js') ||
+      filePath.endsWith('/mock-package-browser-conditional/dist/browser.js') ||
+      filePath.endsWith('node_modules/mock-package-browser-conditional/dist/server.js') ||
+      filePath.endsWith('/mock-package-browser-conditional/dist/server.js') ||
+      filePath.endsWith('/repo/packages/workspace-shared-lib/package.json')
   ),
   readFileSync: vi.fn((filePath: string) => {
     if (
@@ -160,6 +197,34 @@ export { type, other } from './foo';`;
   yield 1;
 }`;
     }
+    if (
+      filePath.endsWith('node_modules/mock-package-browser-conditional/package.json') ||
+      filePath.endsWith('/mock-package-browser-conditional/package.json')
+    ) {
+      return JSON.stringify({
+        name: 'mock-package-browser-conditional',
+        exports: {
+          '.': {
+            worker: {
+              import: './dist/server.js',
+            },
+            browser: {
+              import: './dist/browser.js',
+            },
+            import: './dist/browser.js',
+          },
+        },
+      });
+    }
+    if (filePath.endsWith('node_modules/mock-package-browser-conditional/dist/browser.js')) {
+      return 'export const clientOnly = true;';
+    }
+    if (filePath.endsWith('node_modules/mock-package-browser-conditional/dist/server.js')) {
+      return 'export const serverOnly = true;';
+    }
+    if (filePath.endsWith('/repo/packages/workspace-shared-lib/package.json')) {
+      return JSON.stringify({ name: 'workspace-shared-lib' });
+    }
     throw new Error(`Unexpected readFileSync path: ${filePath}`);
   }),
 }));
@@ -245,6 +310,14 @@ vi.mock('module', async (importOriginal) => {
           (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
           throw error;
         }
+        if (
+          pkg === 'mock-package-browser-conditional' ||
+          pkg.startsWith('mock-package-browser-conditional/')
+        ) {
+          const error = new Error('ERR_REQUIRE_ESM');
+          (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
+          throw error;
+        }
         return {};
       }) as NodeJS.Require;
 
@@ -281,6 +354,12 @@ vi.mock('module', async (importOriginal) => {
           pkg.startsWith('mock-package-generator-export/')
         ) {
           return '/repo/apps/remote/node_modules/mock-package-generator-export/src/index.js';
+        }
+        if (
+          pkg === 'mock-package-browser-conditional' ||
+          pkg.startsWith('mock-package-browser-conditional/')
+        ) {
+          return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/server.js';
         }
         return `/resolved/${pkg}`;
       };
@@ -331,7 +410,7 @@ describe('writeLoadShareModule', () => {
     );
   });
 
-  it('inlines a build-only initPromise bootstrap without importing runtimeInit', () => {
+  it('inlines a build-only cache bootstrap without importing runtimeInit', () => {
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -350,8 +429,9 @@ describe('writeLoadShareModule', () => {
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const __mfPromiseGlobalKey =');
-    expect(generatedCode).toContain('const initPromise = __mfPromiseState.initPromise;');
+    expect(generatedCode).toContain('const __mfCacheGlobalKey =');
+    expect(generatedCode).toContain('__mfModuleCache.share["mock-package-with-reserved"]');
+    expect(generatedCode).not.toContain('await ');
     expect(generatedCode).not.toContain('import { initPromise } from');
     expect(generatedCode).not.toContain('require("mock-import-id")');
   });
@@ -396,12 +476,12 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('import "/abs/pkg-b/dist/index.js";');
+    expect(generatedCode).toContain('import * as __mfLocalShare from "/abs/pkg-b/dist/index.js";');
     expect(generatedCode).toContain('export * from "/abs/pkg-b/dist/index.js"');
     expect(generatedCode).not.toContain('import "mock-import-id";');
   });
 
-  it('uses SSR provider fallback for react in Astro build output', () => {
+  it('uses cache-backed react output for Astro build output', () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'astro');
 
     const pkg = 'react';
@@ -421,10 +501,9 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const providerModulePromise = typeof window === "undefined"');
-    expect(generatedCode).toContain(
-      '? ((await providerModulePromise)?.default ?? await providerModulePromise)'
-    );
+    expect(generatedCode).toContain('__mfModuleCache.share["react"]');
+    expect(generatedCode).not.toContain('providerModulePromise');
+    expect(generatedCode).not.toContain('await ');
   });
 
   it('falls back to parsing ESM exports when require() cannot load the shared package', () => {
@@ -494,14 +573,12 @@ describe('writeLoadShareModule', () => {
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    // Should not have any static import statement (no prebuild to import)
-    expect(generatedCode).not.toMatch(/import\s+["']/);
+    // Should not have any static package import statement (no prebuild to import)
+    expect(generatedCode).not.toMatch(/import\s+["']host-only-dep["']/);
     // Should not have export * (no local source to re-export from)
     expect(generatedCode).not.toContain('export *');
-    // Should still call loadShare via the runtime
-    expect(generatedCode).toContain('runtime.loadShare');
-    // CJS serve mode uses module.exports
-    expect(generatedCode).toContain('module.exports = exportModule');
+    expect(generatedCode).toContain('__mfModuleCache.share["host-only-dep"]');
+    expect(generatedCode).toContain('export default exportModule.default ?? exportModule');
   });
 
   it('does not reference prebuild modules when import: false in build mode', () => {
@@ -526,7 +603,8 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('export *');
-    expect(generatedCode).toContain('runtime.loadShare');
+    expect(generatedCode).toContain('__mfModuleCache.share["host-only-dep"]');
+    expect(generatedCode).not.toContain('await ');
     expect(generatedCode).toContain('export default exportModule');
   });
 
@@ -553,13 +631,42 @@ describe('writeLoadShareModule', () => {
 
     // Should NOT reference prebuild modules
     expect(generatedCode).not.toContain('__prebuild__');
-    // Should still use loadShare runtime
-    expect(generatedCode).toContain('runtime.loadShare');
+    expect(generatedCode).toContain('__mfModuleCache.share["mock-package-with-reserved"]');
     // Should have named exports destructured from the runtime-provided module
     expect(generatedCode).toContain('__mf_0 as delete');
     expect(generatedCode).toContain('__mf_1 as get');
     expect(generatedCode).toContain('__mf_2 as request');
     expect(generatedCode).toContain('export default exportModule');
+  });
+
+  it('prefers browser conditional exports when detecting shared ESM named exports', () => {
+    const pkg = 'mock-package-browser-conditional';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('__mf_0 as clientOnly');
+    expect(generatedCode).not.toContain('serverOnly');
+  });
+
+  it('prefers browser conditional exports for project-resolved import paths', () => {
+    expect(getProjectResolvedImportPath('mock-package-browser-conditional')).toBe(
+      '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/browser.js'
+    );
   });
 
   it('falls back to default-only export for import: false when package is not installed', () => {
@@ -614,7 +721,9 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('import "/repo/packages/pkg-b/dist/index.js";');
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "/repo/packages/pkg-b/dist/index.js";'
+    );
     expect(generatedCode).toContain('export * from "/repo/packages/pkg-b/dist/index.js"');
     expect(generatedCode).not.toContain('import "mock-import-id";');
   });
@@ -739,6 +848,33 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import("workspace-shared-lib")');
   });
 
+  it('does not emit eager side-effect imports for workspace singletons in build mode', () => {
+    const pkg = 'workspace-shared-lib';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain(
+      'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
+    );
+    expect(generatedCode).toContain(
+      'exportModule = await import("/repo/packages/workspace-shared-lib/src/index.tsx");'
+    );
+    expect(generatedCode).not.toContain('__mfLocalShare');
+  });
+
   it('does not emit duplicate side-effect imports for parent-root workspace packages in serve mode', () => {
     const pkg = 'transitive-pkg';
     const mockShareItem: ShareItem = {
@@ -779,12 +915,13 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const { initPromise } = globalThis[globalKey];');
+    expect(generatedCode).toContain('const __mfCacheGlobalKey =');
     expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
     expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('import("lit/directives/class-map.js")');
     expect(generatedCode).not.toContain('const {initPromise} = require(');
+    expect(generatedCode).not.toContain('await ');
   });
 
   it('generates ESM loadShare wrappers for lit root share in serve mode', () => {
@@ -805,11 +942,68 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const { initPromise } = globalThis[globalKey];');
+    expect(generatedCode).toContain('const __mfCacheGlobalKey =');
     expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
     expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('import("lit")');
     expect(generatedCode).not.toContain('const {initPromise} = require(');
+    expect(generatedCode).not.toContain('await ');
+  });
+
+  it('generates ESM loadShare wrappers for vue root share in serve mode', () => {
+    const pkg = 'vue';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.5.29',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^3.5.29',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const __mfCacheGlobalKey =');
+    expect(generatedCode).toContain('export default exportModule.default ?? exportModule');
+    expect(generatedCode).toContain('export * from');
+    expect(generatedCode).not.toContain('module.exports = exportModule');
+    expect(generatedCode).not.toContain('await ');
+  });
+});
+
+describe('writePreBuildLibPath', () => {
+  beforeEach(() => {
+    writeSyncSpy.mockClear();
+  });
+
+  it('writes a real package re-export so Vite optimizeDeps does not prebundle an empty module', () => {
+    const pkg = 'ag-grid-react';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '34.1.2',
+      shareConfig: {
+        singleton: false,
+        strictVersion: false,
+        requiredVersion: '^34.1.2',
+      },
+      scope: 'default',
+    };
+
+    writePreBuildLibPath(pkg, mockShareItem);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('import * as __mfPrebuildExports from "ag-grid-react";');
+    expect(generatedCode).toContain('export * from "ag-grid-react";');
+    expect(generatedCode).toContain(
+      'export default __mfPrebuildExports.default ?? __mfPrebuildExports;'
+    );
   });
 });

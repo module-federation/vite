@@ -2,14 +2,7 @@ import type { Plugin } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
 
-const {
-  getInstalledPackageEntryMock,
-  getInstalledPackageJsonMock,
-  hasPackageDependencyMock,
-  mfWarn,
-} = vi.hoisted(() => ({
-  getInstalledPackageEntryMock: vi.fn(() => undefined),
-  getInstalledPackageJsonMock: vi.fn(() => undefined),
+const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn(() => false),
   mfWarn: vi.fn(),
 }));
@@ -19,8 +12,6 @@ vi.mock('../utils/packageUtils', async () => {
     await vi.importActual<typeof import('../utils/packageUtils')>('../utils/packageUtils');
   return {
     ...actual,
-    getInstalledPackageEntry: getInstalledPackageEntryMock,
-    getInstalledPackageJson: getInstalledPackageJsonMock,
     hasPackageDependency: hasPackageDependencyMock,
     setPackageDetectionCwd: vi.fn(),
   };
@@ -72,6 +63,16 @@ function getFixPreloadPluginWithManifest(manifest: unknown): Plugin {
   }).find((entry) => entry.name === 'module-federation-fix-preload');
 
   if (!plugin) throw new Error('module-federation-fix-preload plugin not found');
+  return plugin;
+}
+
+function getVinextFixRscPreloadAsPlugin(): Plugin {
+  const plugin = federation({
+    name: 'host',
+    filename: 'remoteEntry.js',
+  }).find((entry) => entry.name === 'module-federation-vinext-fix-rsc-preload-as');
+
+  if (!plugin) throw new Error('module-federation-vinext-fix-rsc-preload-as plugin not found');
   return plugin;
 }
 
@@ -131,10 +132,6 @@ describe('federation in test environment', () => {
 
   beforeEach(() => {
     process.env = {};
-    getInstalledPackageEntryMock.mockReset();
-    getInstalledPackageEntryMock.mockReturnValue(undefined);
-    getInstalledPackageJsonMock.mockReset();
-    getInstalledPackageJsonMock.mockReturnValue(undefined);
   });
 
   afterAll(() => {
@@ -165,6 +162,59 @@ describe('module-federation-esm-shims', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     hasPackageDependencyMock.mockReturnValue(false);
+  });
+
+  it('filters federation control chunks from html modulepreload deps', () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = {
+      build: {},
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+
+    const deps = config.build.modulePreload.resolveDependencies(
+      'mf-entry-bootstrap-0.js',
+      [
+        'assets/index.js',
+        'assets/rolldown-runtime-abc.js',
+        'assets/preload-helper-abc.js',
+        'assets/dist-abc.js',
+        'assets/__mfe_internal__host__H_A_I__hostAutoInit__H_A_I__-abc.js',
+        'assets/virtual_mf-REMOTE_ENTRY_ID__remoteEntry_js-abc.js',
+      ],
+      { hostId: 'index.html', hostType: 'html' }
+    );
+
+    expect(deps).toEqual(['assets/index.js']);
+  });
+
+  it('keeps non-federation html modulepreload deps', () => {
+    const plugin = getEsmShimsPlugin();
+    const existingResolveDependencies = vi.fn((_filename, deps) => [...deps, 'assets/extra.js']);
+    const config: any = {
+      build: {
+        modulePreload: {
+          resolveDependencies: existingResolveDependencies,
+        },
+      },
+    };
+
+    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
+    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+
+    const deps = config.build.modulePreload.resolveDependencies(
+      'index.js',
+      ['assets/rolldown-runtime-abc.js', 'assets/preload-helper-abc.js'],
+      { hostId: 'index.html', hostType: 'html' }
+    );
+
+    expect(existingResolveDependencies).toHaveBeenCalled();
+    expect(deps).toEqual([
+      'assets/rolldown-runtime-abc.js',
+      'assets/preload-helper-abc.js',
+      'assets/extra.js',
+    ]);
   });
 
   it('removes codeSplitting false and warns once', () => {
@@ -439,7 +489,7 @@ describe('vite:module-federation-early-init', () => {
 
     expect(config.optimizeDeps.include).toContain(virtualRuntimeInitStatus.getImportId());
     expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
-    expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('vue', true, 'serve'));
+    expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('vue', true));
   });
 
   it('keeps loadShare optimizeDeps include in non-Rolldown serve', () => {
@@ -458,7 +508,7 @@ describe('vite:module-federation-early-init', () => {
     });
 
     expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
-    expect(config.optimizeDeps.include).toContain(getLoadShareImportId('vue', false, 'serve'));
+    expect(config.optimizeDeps.include).toContain(getLoadShareImportId('vue', false));
   });
 
   it('excludes lit shared ids from optimizeDeps in serve', () => {
@@ -483,9 +533,9 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).toContain(
       getPreBuildLibImportId('lit/directives/class-map.js')
     );
-    expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('lit', false, 'serve'));
+    expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('lit', false));
     expect(config.optimizeDeps.include).not.toContain(
-      getLoadShareImportId('lit/directives/class-map.js', false, 'serve')
+      getLoadShareImportId('lit/directives/class-map.js', false)
     );
   });
 
@@ -508,14 +558,7 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.exclude).toContain('remoteApp');
   });
 
-  it('does not exclude bare remote ids that resolve to installed packages', () => {
-    getInstalledPackageJsonMock.mockReturnValue({
-      path: '/repo/node_modules/scheduler/package.json',
-      dir: '/repo/node_modules/scheduler',
-      packageJson: { name: 'scheduler' },
-    });
-    getInstalledPackageEntryMock.mockReturnValue('/repo/node_modules/scheduler/index.js');
-
+  it('excludes bare remote ids even when they match installed packages', () => {
     const plugin = federation({
       name: 'host',
       filename: 'remoteEntry.js',
@@ -545,8 +588,8 @@ describe('vite:module-federation-early-init', () => {
       mode: 'test',
     });
 
-    expect(config.optimizeDeps.exclude).not.toContain('scheduler');
-    expect(config.optimizeDeps.include).toContain('/repo/node_modules/scheduler/index.js');
+    expect(config.optimizeDeps.exclude).toContain('scheduler');
+    expect(config.optimizeDeps.include).not.toContain('/repo/node_modules/scheduler/index.js');
   });
 
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
@@ -767,6 +810,28 @@ describe('module-federation-fix-preload', () => {
   });
 });
 
+describe('module-federation-vinext-fix-rsc-preload-as', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hasPackageDependencyMock.mockImplementation((dependency) => dependency === 'vinext');
+  });
+
+  it('normalizes stylesheet RSC preload hints to style', () => {
+    const plugin = getVinextFixRscPreloadAsPlugin();
+    const bundle = {
+      'assets/index.js': {
+        type: 'chunk',
+        fileName: 'assets/index.js',
+        code: 'function mn(t,n,r,e,i,o){switch(e){case 72:switch(r=i[0],i=i.slice(1),t=JSON.parse(i,t._fromJSON),i=kt.d,r){case"L":r=t[0],e=t[1],t.length===3?i.L(r,e,t[2]):i.L(r,e);break}}}',
+      },
+    };
+
+    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+
+    expect(bundle['assets/index.js'].code).toContain('e==="stylesheet"&&(e="style")');
+  });
+});
+
 describe('module-federation-dev-await-shared-init', () => {
   it('matches pre-bundled files using configured cacheDir', () => {
     const plugins = federation({
@@ -794,8 +859,7 @@ describe('module-federation-dev-await-shared-init', () => {
       inputCode,
       '/Users/project/node_modules/.vite/_myapp_static_/deps/react.js?import'
     );
-    const outputCode = typeof output === 'string' ? output : output?.code;
-    expect(outputCode).toContain('await init_abc__loadShare__react();');
+    expect(output).toBeUndefined();
   });
 
   it.each([
@@ -859,9 +923,7 @@ describe('module-federation-esm-shims preview await insertion', () => {
 
     plugin.generateBundle?.call({} as any, {} as any, bundle as any);
 
-    expect(bundle['assets/index.js'].code).toContain(
-      'import{a as init_host__loadShare__react__loadShare__}from"./__loadShare__react.js";await init_host__loadShare__react__loadShare__();\nvar SemconvStability;'
-    );
+    expect(bundle['assets/index.js'].code).not.toContain('await init_host__loadShare__');
     expect(bundle['assets/index.js'].code).toContain(
       "*  import {SemconvStability, semconvStabilityFromStr} from '@opentelemetry/instrumentation';\n*/\n(init_host__loadShare__react__loadShare__(),factory(module));"
     );
@@ -887,8 +949,7 @@ describe('module-federation-esm-shims preview await insertion', () => {
 
     plugin.generateBundle?.call({} as any, {} as any, bundle as any);
 
-    expect(bundle['assets/index.js'].code).toContain(
-      'import{a as init_react__loadShare__}from"./react__loadShare__.js";import{b as init_dom__loadShare__}from"./react-dom__loadShare__.js";await init_react__loadShare__();await init_dom__loadShare__();(init_react__loadShare__(),factory(module));(init_dom__loadShare__(),factory(module));'
-    );
+    expect(bundle['assets/index.js'].code).not.toContain('await init_react__loadShare__');
+    expect(bundle['assets/index.js'].code).not.toContain('await init_dom__loadShare__');
   });
 });

@@ -79,11 +79,6 @@ export default defineConfig({
   server: {
     origin: "http://localhost:{Your port}"
   },
-  // Do you need to support build targets lower than chrome89?
-  // You can use 'vite-plugin-top-level-await' plugin for that.
-  build: {
-    target: 'chrome89',
-  },
   [...]
 });
 ```
@@ -157,11 +152,6 @@ export default defineConfig({
   server: {
     origin: "http://localhost:{Your port}"
   },
-  // Do you need to support build targets lower than chrome89?
-  // You can use 'vite-plugin-top-level-await' plugin for that.
-  build: {
-    target: 'chrome89',
-  },
   [...]
 });
 ```
@@ -202,8 +192,8 @@ Module Federation needs `loadShare` and `runtimeInitStatus` isolated into separa
 
 Do not use `build.rollupOptions.output.manualChunks` or
 `build.rolldownOptions.output.manualChunks` with this plugin — it will be **automatically ignored**.
-Module federation transforms shared dependency imports with top-level `await`, and grouping these transformed modules into a single chunk creates circular async dependencies that cause the application to silently hang.
-The plugin injects its own split so `runtimeInitStatus` and `loadShare` are kept isolated.
+The plugin manages the runtime chunk graph itself, and forcing custom chunk grouping can break Module Federation bootstrap order.
+The plugin injects the splits it needs so `runtimeInitStatus` and `loadShare` stay isolated.
 
 ### So far so good 🎉
 

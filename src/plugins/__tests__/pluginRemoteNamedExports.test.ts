@@ -44,7 +44,7 @@ describe('pluginRemoteNamedExports', () => {
   // ── bail-out conditions ──────────────────────────────────────
 
   describe('bail-out', () => {
-    it('skips in non-rolldown dev', async () => {
+    it('runs in non-rolldown dev', async () => {
       getIsRolldownMock.mockReturnValue(false);
       const plugin = pluginRemoteNamedExports(OPTIONS);
       const result = await (plugin as any).transform.call(
@@ -52,7 +52,7 @@ describe('pluginRemoteNamedExports', () => {
         'import { foo } from "remoteApp/utils";',
         '/src/app.js'
       );
-      expect(result).toBeUndefined();
+      expect(result?.code).toContain('__moduleExports');
     });
 
     it('skips when no remotes configured', async () => {
@@ -205,7 +205,13 @@ describe('pluginRemoteNamedExports', () => {
 
     it('gracefully returns module if __moduleExports missing', async () => {
       const result = await transform('const m = import("remoteApp/utils");');
-      expect(result).toContain('if (!__mf_m__ || !__mf_m__.__moduleExports) return __mf_m__');
+      expect(result).toContain('return __mf_m__');
+    });
+
+    it('unwraps Vite 7 nested default namespaces for dynamic imports', async () => {
+      const result = await transform('const m = import("remoteApp/utils");');
+      expect(result).toContain('__mf_m__.default.__esModule');
+      expect(result).toContain('__mf_nested_ns__.default = __mf_nested_e__.default');
     });
   });
 

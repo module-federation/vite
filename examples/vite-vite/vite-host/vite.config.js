@@ -42,8 +42,6 @@ export default defineConfig({
           singleton: true,
           requiredVersion: '^19.2.4',
         },
-        'ag-grid-community': {},
-        'ag-grid-react': {},
         '@vite-vite/shared-lib': { singleton: true },
       },
       runtimePlugins: ['./src/mfPlugins'],

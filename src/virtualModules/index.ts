@@ -3,6 +3,8 @@ import { writeRuntimeInitStatus } from './virtualRuntimeInitStatus';
 
 export {
   addUsedShares,
+  generateHostAutoInitCode,
+  generateDirectSharedCacheSeedCode,
   generateLocalSharedImportMap,
   generateRemoteEntry,
   getHostAutoInitImportId,
@@ -10,6 +12,8 @@ export {
   getLocalSharedImportMapPath,
   getRemoteEntryId,
   getUsedShares,
+  refreshHostAutoInit,
+  writeHostAutoInit,
   writeLocalSharedImportMap,
 } from './virtualRemoteEntry';
 
@@ -25,6 +29,7 @@ export {
   getLoadShareModulePath,
   getPreBuildLibImportId,
   getPreBuildShareItem,
+  getProjectResolvedImportPath,
   getSharedImportSource,
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
@@ -36,6 +41,6 @@ export { generateExposes, getExposesCssMapPlaceholder } from './virtualExposes';
 
 export function initVirtualModules(command: string, remoteEntryId?: string) {
   writeLocalSharedImportMap();
-  writeHostAutoInit(remoteEntryId);
+  writeHostAutoInit(remoteEntryId, command);
   writeRuntimeInitStatus(command);
 }

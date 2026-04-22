@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import path from 'pathe';
 import { tmpdir } from 'os';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getInstalledPackageJson } from '../packageUtils';
+import { getInstalledPackageEntry, getInstalledPackageJson } from '../packageUtils';
 
 describe('getInstalledPackageJson', () => {
   const tempDirs: string[] = [];
@@ -43,5 +43,39 @@ describe('getInstalledPackageJson', () => {
     expect(installed?.path).toContain(
       `/node_modules/.pnpm/${packageName}@0.27.0/node_modules/${packageName}/package.json`
     );
+  });
+
+  it('prefers browser conditional exports for installed package entries', () => {
+    const packageName = 'mf-test-browser-conditional';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-browser-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(path.join(packageDir, 'dist'), { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: {
+          '.': {
+            worker: {
+              import: './dist/server.js',
+            },
+            browser: {
+              import: './dist/browser.js',
+            },
+            import: './dist/browser.js',
+          },
+        },
+      })
+    );
+    writeFileSync(path.join(packageDir, 'dist/server.js'), 'export const serverOnly = true;');
+    writeFileSync(path.join(packageDir, 'dist/browser.js'), 'export const clientOnly = true;');
+
+    const entry = getInstalledPackageEntry(packageName, { cwd: hostDir });
+
+    expect(entry).toBe(path.join(packageDir, 'dist/browser.js'));
   });
 });
