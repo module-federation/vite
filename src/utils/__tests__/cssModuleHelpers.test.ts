@@ -10,6 +10,56 @@ import {
 } from '../cssModuleHelpers';
 import type { OutputBundleItem, PreloadMap } from '../cssModuleHelpers';
 import { normalizeModuleFederationOptions } from '../normalizeModuleFederationOptions';
+import type { OutputAsset, OutputChunk } from 'rollup';
+
+type OutputChunkItem = Extract<OutputBundleItem, { type: 'chunk' }>;
+type RenderedModule = NonNullable<OutputChunk['modules']>[string];
+
+function createRenderedModule(): RenderedModule {
+  return {
+    code: '',
+    originalLength: 0,
+    removedExports: [],
+    renderedExports: [],
+    renderedLength: 0,
+  };
+}
+
+function createAsset(fileName: string): OutputAsset {
+  return {
+    type: 'asset',
+    fileName,
+    name: fileName,
+    names: [fileName],
+    originalFileName: null,
+    originalFileNames: [],
+    source: '',
+    needsCodeReference: false,
+  };
+}
+
+function createChunk(fileName: string, overrides: Partial<OutputChunkItem> = {}): OutputChunkItem {
+  return {
+    type: 'chunk',
+    fileName,
+    name: fileName,
+    code: '',
+    map: null,
+    preliminaryFileName: fileName,
+    sourcemapFileName: null,
+    facadeModuleId: null,
+    isDynamicEntry: false,
+    isEntry: false,
+    moduleIds: [],
+    exports: [],
+    modules: {},
+    dynamicImports: [],
+    importedBindings: {},
+    imports: [],
+    referencedFiles: [],
+    ...overrides,
+  };
+}
 
 describe('cssModuleHelpers', () => {
   describe('createEmptyAssetMap', () => {
@@ -72,10 +122,10 @@ describe('cssModuleHelpers', () => {
   describe('collectCssAssets', () => {
     it('collects css assets from bundle', () => {
       const bundle = {
-        'styles.css': { type: 'asset', fileName: 'styles.css' },
-        'script.js': { type: 'chunk', fileName: 'script.js' },
-        'other.css': { type: 'asset', fileName: 'other.css' },
-      } as Record<string, OutputBundleItem>;
+        'styles.css': createAsset('styles.css'),
+        'script.js': createChunk('script.js'),
+        'other.css': createAsset('other.css'),
+      } satisfies Record<string, OutputBundleItem>;
 
       const result = collectCssAssets(bundle);
       expect(result).toEqual(new Set(['styles.css', 'other.css']));
@@ -83,9 +133,9 @@ describe('cssModuleHelpers', () => {
 
     it('ignores non-css assets', () => {
       const bundle = {
-        'script.js': { type: 'chunk', fileName: 'script.js' },
-        'image.png': { type: 'asset', fileName: 'image.png' },
-      } as Record<string, OutputBundleItem>;
+        'script.js': createChunk('script.js'),
+        'image.png': createAsset('image.png'),
+      } satisfies Record<string, OutputBundleItem>;
 
       const result = collectCssAssets(bundle);
       expect(result.size).toBe(0);
@@ -96,19 +146,15 @@ describe('cssModuleHelpers', () => {
     it('processes module assets', () => {
       const bundle = {
         'chunk.js': {
-          type: 'chunk',
-          fileName: 'chunk.js',
+          ...createChunk('chunk.js'),
           modules: {
-            module1: {},
-            module2: {},
+            module1: createRenderedModule(),
+            module2: createRenderedModule(),
           },
           dynamicImports: ['async.js'],
         },
-        'async.js': {
-          type: 'chunk',
-          fileName: 'async.js',
-        },
-      } as Record<string, OutputBundleItem>;
+        'async.js': createChunk('async.js'),
+      } satisfies Record<string, OutputBundleItem>;
 
       const filesMap = {};
       const moduleMatcher = (path: string) => path;
@@ -130,12 +176,11 @@ describe('cssModuleHelpers', () => {
     it('tracks CSS assets from viteMetadata.importedCss', () => {
       const bundle = {
         'App-abc123.js': {
-          type: 'chunk',
-          fileName: 'App-abc123.js',
+          ...createChunk('App-abc123.js'),
           modules: {
-            '/src/App.tsx': {},
-            '/src/App.css.ts': {},
-            '/src/App.css.ts.vanilla.css': {},
+            '/src/App.tsx': createRenderedModule(),
+            '/src/App.css.ts': createRenderedModule(),
+            '/src/App.css.ts.vanilla.css': createRenderedModule(),
           },
           dynamicImports: [],
           viteMetadata: {
@@ -143,11 +188,8 @@ describe('cssModuleHelpers', () => {
             importedAssets: new Set<string>(),
           },
         },
-        'app.css': {
-          type: 'asset',
-          fileName: 'app.css',
-        },
-      } as Record<string, OutputBundleItem>;
+        'app.css': createAsset('app.css'),
+      } satisfies Record<string, OutputBundleItem>;
 
       const filesMap = {};
       const moduleMatcher = (path: string) => (path === '/src/App.tsx' ? path : undefined);
@@ -165,12 +207,11 @@ describe('cssModuleHelpers', () => {
     it('tracks CSS assets when chunk contains CSS modules but viteMetadata.importedCss is empty', () => {
       const bundle = {
         'App-abc123.js': {
-          type: 'chunk',
-          fileName: 'App-abc123.js',
+          ...createChunk('App-abc123.js'),
           modules: {
-            '/src/App.tsx': {},
-            '/src/App.css.ts': {},
-            '/src/App.css.ts.vanilla.css': {},
+            '/src/App.tsx': createRenderedModule(),
+            '/src/App.css.ts': createRenderedModule(),
+            '/src/App.css.ts.vanilla.css': createRenderedModule(),
           },
           dynamicImports: [],
           viteMetadata: {
@@ -178,11 +219,8 @@ describe('cssModuleHelpers', () => {
             importedAssets: new Set<string>(),
           },
         },
-        'app.css': {
-          type: 'asset',
-          fileName: 'app.css',
-        },
-      } as Record<string, OutputBundleItem>;
+        'app.css': createAsset('app.css'),
+      } satisfies Record<string, OutputBundleItem>;
 
       const filesMap = {};
       const moduleMatcher = (path: string) => (path === '/src/App.tsx' ? path : undefined);

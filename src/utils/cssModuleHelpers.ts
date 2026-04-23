@@ -1,7 +1,40 @@
-import type { OutputBundle } from 'rollup';
 import { getPreBuildLibImportId } from '../virtualModules';
 
-export type OutputBundleItem = OutputBundle[string];
+export type ViteChunkMetadata = {
+  importedCss?: Set<string>;
+  importedAssets?: Set<string>;
+};
+
+export type OutputChunkWithViteMetadata = {
+  type: 'chunk';
+  fileName: string;
+  modules: Record<string, unknown>;
+  dynamicImports: string[];
+  code?: string;
+  name?: string;
+  map?: unknown;
+  preliminaryFileName?: string;
+  sourcemapFileName?: string | null;
+  facadeModuleId?: string | null;
+  isDynamicEntry?: boolean;
+  isEntry?: boolean;
+  moduleIds?: string[];
+  exports?: string[];
+  implicitlyLoadedBefore?: string[];
+  importedBindings?: Record<string, string[]>;
+  imports?: string[];
+  referencedFiles?: string[];
+  viteMetadata?: ViteChunkMetadata;
+};
+
+export type OutputAssetLike = {
+  type: 'asset';
+  fileName: string;
+  name?: string;
+  source?: string | Uint8Array;
+};
+
+export type OutputBundleItem = OutputAssetLike | OutputChunkWithViteMetadata;
 
 export const ASSET_TYPES = ['js', 'css'] as const;
 export const LOAD_TIMINGS = ['sync', 'async'] as const;
@@ -120,7 +153,7 @@ export const processModuleAssets = (
       // Vite stores statically imported CSS on chunk.viteMetadata.importedCss
       let foundCssViaMetadata = false;
       if (fileData.viteMetadata?.importedCss?.size) {
-        for (const cssFile of fileData.viteMetadata.importedCss) {
+        for (const cssFile of Array.from(fileData.viteMetadata.importedCss)) {
           trackAsset(filesMap, matchKey, cssFile, false, 'css');
           foundCssViaMetadata = true;
         }
@@ -131,7 +164,7 @@ export const processModuleAssets = (
       // .vanilla.css virtual modules). In this case, detect CSS modules in the
       // chunk's module list and associate corresponding CSS assets from the bundle.
       if (!foundCssViaMetadata && chunkContainsCssModules(fileData.modules)) {
-        for (const cssAsset of bundleCssAssets) {
+        for (const cssAsset of Array.from(bundleCssAssets)) {
           trackAsset(filesMap, matchKey, cssAsset, false, 'css');
         }
       }

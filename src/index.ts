@@ -2,6 +2,8 @@ import defu from 'defu';
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
+import type { OutputOptions } from 'rollup';
+import type { ConfigEnv, ResolvedConfig } from 'vite';
 import { normalizePath, Plugin, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
@@ -28,6 +30,7 @@ import {
   NormalizedModuleFederationOptions,
   normalizeModuleFederationOptions,
   PluginManifestOptions,
+  ShareItem,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
@@ -55,6 +58,50 @@ import {
 } from './virtualModules/virtualShared_preBuild';
 
 const patchedManualChunks = new WeakSet<Function>();
+
+type OutputNameOptions = Pick<
+  OutputOptions,
+  'entryFileNames' | 'chunkFileNames' | 'assetFileNames'
+>;
+type CodeSplittingOptions = { groups?: unknown } & Record<string, unknown>;
+type MutableBundlerOutput = OutputOptions &
+  OutputNameOptions & {
+    codeSplitting?: false | CodeSplittingOptions;
+    manualChunks?: OutputOptions['manualChunks'];
+  };
+type RolldownOptionsLike = { output?: MutableBundlerOutput | MutableBundlerOutput[] };
+type EnvironmentWithRolldownOptions = {
+  getRolldownOptions?: () => RolldownOptionsLike | Promise<RolldownOptionsLike>;
+};
+type BuilderLike = { environments: Record<string, EnvironmentWithRolldownOptions> };
+type ModulePreloadResolveContext = { hostId: string; hostType: 'html' | 'js' };
+type ResolveAliasEntry = { find: string | RegExp; replacement: string };
+type BundleChunkLike = { type: 'chunk'; fileName: string; code: string };
+type BundleAssetLike = { type: 'asset'; fileName: string };
+type BundleLike = Record<string, BundleChunkLike | BundleAssetLike>;
+type NormalizedOutputOptionsLike = { dir?: string };
+type RenderedChunkLike = { fileName: string };
+
+function isOutputChunk(chunk: BundleLike[string]): chunk is BundleChunkLike {
+  return chunk.type === 'chunk';
+}
+
+function appendResolveAlias(config: UserConfig, alias: ResolveAliasEntry): void {
+  const resolve = (config.resolve ??= {});
+  const existingAlias = resolve.alias;
+  if (!existingAlias) {
+    resolve.alias = [alias];
+    return;
+  }
+  if (Array.isArray(existingAlias)) {
+    existingAlias.push(alias);
+    return;
+  }
+  resolve.alias = [
+    ...Object.entries(existingAlias).map(([find, replacement]) => ({ find, replacement })),
+    alias,
+  ];
+}
 
 const UNSAFE_JS_SOURCE_CHAR_MAP: Record<string, string> = {
   '<': '\\u003C',
@@ -207,7 +254,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         }
         for (const key of Object.keys(shared)) {
           if (key.endsWith('/')) continue;
-          const shareItem = shared[key] as any;
+          const shareItem: ShareItem = shared[key];
           if (isVinext && key === 'react') {
             addUsedShares(key);
             continue;
@@ -246,7 +293,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
   };
 }
 
-function federation(mfUserOptions: ModuleFederationOptions): any[] {
+function federation(mfUserOptions: ModuleFederationOptions) {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const isVinext = hasPackageDependency('vinext');
@@ -258,9 +305,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
   let command: string;
   let depsDir = '/node_modules/.vite/deps/';
-  let desiredRolldownOutput:
-    | Array<Pick<Record<string, any>, 'entryFileNames' | 'chunkFileNames' | 'assetFileNames'>>
-    | undefined;
+  let desiredRolldownOutput: OutputNameOptions[] | undefined;
 
   return [
     // This plugin runs FIRST to create virtual module files before optimization
@@ -271,13 +316,14 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             name: 'module-federation-vinext-react-server-build-alias',
             apply: 'build' as const,
             enforce: 'pre' as const,
-            resolveId(id) {
+            resolveId(id: string) {
               const reactServerEntryMap: Record<string, string> = {
                 'react/jsx-runtime': 'react/cjs/react-jsx-runtime.production.js',
                 'react/jsx-dev-runtime': 'react/cjs/react-jsx-dev-runtime.production.js',
               };
               if (!(id in reactServerEntryMap)) return;
-              const environmentName = (this as any)?.environment?.name;
+              const environmentName = (this as { environment?: { name?: string } }).environment
+                ?.name;
               if (!environmentName || environmentName === 'client') return;
 
               const target = reactServerEntryMap[id];
@@ -291,10 +337,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     {
       name: 'vite:module-federation-config',
       enforce: 'pre',
-      config(_config, env) {
+      config(_config: UserConfig, env: ConfigEnv) {
         command = env.command;
       },
-      configResolved(config) {
+      configResolved(config: ResolvedConfig) {
         // Set root path
         VirtualModule.setRoot(config.root);
         const cacheDir = config.cacheDir;
@@ -355,7 +401,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       name: 'module-federation-esm-shims',
       enforce: 'pre',
       apply: 'build',
-      config(config) {
+      config(config: UserConfig) {
         // Force loadShare modules and runtimeInitStatus into separate chunks.
         //
         // For Vite 8+: loadShare chunks need separate TLA barriers
@@ -377,7 +423,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
           config.build.modulePreload = {
             ...currentModulePreload,
-            resolveDependencies(filename, deps, context) {
+            resolveDependencies(
+              filename: string,
+              deps: string[],
+              context: ModulePreloadResolveContext
+            ) {
               const resolvedDeps = existingResolveDependencies
                 ? existingResolveDependencies(filename, deps, context)
                 : deps;
@@ -404,7 +454,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
         let warnedAboutCodeSplitting = false;
         let warnedAboutCodeSplittingGroups = false;
-        const ensureCodeSplitting = (output: any) => {
+        const ensureCodeSplitting = (output: MutableBundlerOutput) => {
           if (output?.codeSplitting === false) {
             delete output.codeSplitting;
             if (warnedAboutCodeSplitting) return;
@@ -432,11 +482,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         };
 
         let warnedAboutManualChunks = false;
-        const applyManualChunks = (output: any) => {
+        const applyManualChunks = (output: MutableBundlerOutput) => {
           ensureCodeSplitting(output);
-          const isPatchedByPlugin = !!(
-            output.manualChunks && patchedManualChunks.has(output.manualChunks as Function)
-          );
+          const isPatchedByPlugin =
+            typeof output.manualChunks === 'function' &&
+            patchedManualChunks.has(output.manualChunks);
           if (output.manualChunks && !isPatchedByPlugin && !warnedAboutManualChunks) {
             warnedAboutManualChunks = true;
             mfWarn(
@@ -464,48 +514,52 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.build.rollupOptions = config.build.rollupOptions || {};
         const rollupOutput = config.build.rollupOptions.output;
         if (Array.isArray(rollupOutput)) {
-          rollupOutput.forEach((output) => applyManualChunks(output as any));
+          rollupOutput.forEach((output) => applyManualChunks(output as MutableBundlerOutput));
         } else {
-          applyManualChunks((config.build.rollupOptions.output ||= {}) as any);
+          applyManualChunks((config.build.rollupOptions.output ||= {}) as MutableBundlerOutput);
         }
 
         // Vite 8+ reads build.rolldownOptions instead of rollupOptions.
         // Apply the same split there so runtimeInit and loadShare stay isolated
         // under both bundlers.
         const buildWithRolldown = config.build as typeof config.build & {
-          rolldownOptions?: { output?: any };
+          rolldownOptions?: RolldownOptionsLike;
         };
         buildWithRolldown.rolldownOptions = buildWithRolldown.rolldownOptions || {};
-        const rolldownOutput = buildWithRolldown.rolldownOptions.output;
-        const snapshotRolldownOutput = (output: Record<string, any>) => ({
+        const rolldownOutput = buildWithRolldown.rolldownOptions.output as
+          | MutableBundlerOutput
+          | MutableBundlerOutput[]
+          | undefined;
+        const snapshotRolldownOutput = (output: MutableBundlerOutput): OutputNameOptions => ({
           entryFileNames: output.entryFileNames,
           chunkFileNames: output.chunkFileNames,
           assetFileNames: output.assetFileNames,
         });
         if (Array.isArray(rolldownOutput)) {
-          rolldownOutput.forEach((output) => applyManualChunks(output as any));
-          desiredRolldownOutput = rolldownOutput.map((output) =>
-            snapshotRolldownOutput(output as Record<string, any>)
-          );
+          rolldownOutput.forEach((output) => applyManualChunks(output));
+          desiredRolldownOutput = rolldownOutput.map((output) => snapshotRolldownOutput(output));
         } else {
-          applyManualChunks((buildWithRolldown.rolldownOptions.output ||= {}) as any);
+          applyManualChunks(
+            (buildWithRolldown.rolldownOptions.output ||= {}) as MutableBundlerOutput
+          );
           // Vite 8's Rolldown build path overwrites output options like
           // entryFileNames/chunkFileNames/assetFileNames. Keep only those
           // values so we can restore them in buildApp without clobbering other
           // later output mutations from Vite or plugins.
           desiredRolldownOutput = [
-            snapshotRolldownOutput(buildWithRolldown.rolldownOptions.output as Record<string, any>),
+            snapshotRolldownOutput(
+              buildWithRolldown.rolldownOptions.output as MutableBundlerOutput
+            ),
           ];
         }
       },
-      async buildApp(builder) {
-        if (!desiredRolldownOutput) return;
+      async buildApp(builder: BuilderLike) {
+        const desiredOutput = desiredRolldownOutput;
+        if (!desiredOutput) return;
 
         const applyRolldownOutput = (
-          output: Record<string, any> | undefined,
-          restoredOutput:
-            | Pick<Record<string, any>, 'entryFileNames' | 'chunkFileNames' | 'assetFileNames'>
-            | undefined
+          output: MutableBundlerOutput | undefined,
+          restoredOutput: OutputNameOptions | undefined
         ) => {
           if (!output || !restoredOutput) return;
           if (restoredOutput.entryFileNames !== undefined) {
@@ -520,24 +574,26 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         };
 
         for (const environment of Object.values(builder.environments)) {
-          const getRolldownOptions = (environment as any)?.getRolldownOptions;
+          const getRolldownOptions = environment.getRolldownOptions;
           if (typeof getRolldownOptions !== 'function') continue;
 
-          (environment as any).getRolldownOptions = async () => {
-            const rolldownOptions = await getRolldownOptions.call(environment);
+          environment.getRolldownOptions = async () => {
+            const rolldownOptions = (await getRolldownOptions.call(
+              environment
+            )) as RolldownOptionsLike;
             if (Array.isArray(rolldownOptions.output)) {
-              rolldownOptions.output.forEach((output: Record<string, any>, index: number) =>
-                applyRolldownOutput(output, desiredRolldownOutput?.[index])
-              );
+              rolldownOptions.output.forEach((output, index: number) => {
+                applyRolldownOutput(output, desiredOutput[index]);
+              });
             } else {
               rolldownOptions.output ||= {};
-              applyRolldownOutput(rolldownOptions.output, desiredRolldownOutput[0]);
+              applyRolldownOutput(rolldownOptions.output, desiredOutput[0]);
             }
             return rolldownOptions;
           };
         }
       },
-      load(id) {
+      load(id: string) {
         if (id.startsWith('\0')) return;
         if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
           let code = readFileSync(id, 'utf-8');
@@ -586,9 +642,13 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           return { code, syntheticNamedExports: '__moduleExports' };
         }
       },
-      generateBundle(_, bundle) {
+      generateBundle(
+        _outputOptions: NormalizedOutputOptionsLike,
+        bundle: BundleLike,
+        _isWrite: boolean
+      ) {
         for (const [fileName, chunk] of Object.entries(bundle)) {
-          if (chunk.type !== 'chunk') continue;
+          if (!isOutputChunk(chunk)) continue;
           if (!isFederationControlChunk(fileName, filename)) continue;
 
           chunk.code = sanitizeFederationControlChunk(chunk.code, fileName, filename);
@@ -608,7 +668,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         // inline them in consuming chunks, then remove the proxy imports.
         const proxyChunks = new Map<string, { code: string; fileName: string }>();
         for (const [fileName, chunk] of Object.entries(bundle)) {
-          if (chunk.type !== 'chunk') continue;
+          if (!isOutputChunk(chunk)) continue;
           if (fileName.includes(LOAD_SHARE_TAG) && fileName.includes('commonjs-proxy')) {
             proxyChunks.set(fileName, { code: chunk.code, fileName });
           }
@@ -618,14 +678,14 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           // Proxy chunks export: standalone helpers + wrapped loadShare namespace.
           // We only inline the standalone helpers; namespace deps are redirected.
           for (const [fileName, chunk] of Object.entries(bundle)) {
-            if (chunk.type !== 'chunk') continue;
+            if (!isOutputChunk(chunk)) continue;
             if (fileName.includes(LOAD_SHARE_TAG)) continue;
 
             let code = chunk.code;
             let modified = false;
             const claimedLocals = new Set<string>();
 
-            for (const [proxyFileName, proxyInfo] of proxyChunks) {
+            for (const [proxyFileName, proxyInfo] of Array.from(proxyChunks.entries())) {
               // Match import from this specific proxy chunk
               // Strip directory prefix (bundle keys use "assets/" but imports use "./")
               const proxyBaseName = proxyFileName
@@ -747,18 +807,18 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       name: 'module-federation-strip-empty-preload-helper',
       enforce: 'post' as const,
       apply: 'build' as const,
-      renderChunk(code, chunk) {
+      renderChunk(code: string, chunk: RenderedChunkLike) {
         if (!isFederationControlChunk(chunk.fileName, filename)) return;
 
         const nextCode = sanitizeFederationControlChunk(code, chunk.fileName, filename);
 
         return nextCode === code ? null : { code: nextCode, map: null };
       },
-      writeBundle(outputOptions, bundle) {
+      writeBundle(outputOptions: NormalizedOutputOptionsLike, bundle: BundleLike) {
         if (!outputOptions.dir) return;
 
         for (const chunk of Object.values(bundle)) {
-          if (chunk.type !== 'chunk') continue;
+          if (!isOutputChunk(chunk)) continue;
           if (!isFederationControlChunk(chunk.fileName, filename)) continue;
 
           const outputPath = path.join(outputOptions.dir, chunk.fileName);
@@ -778,7 +838,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       enforce: 'post',
       // used to expose plugin options: https://github.com/rolldown/rolldown/discussions/2577#discussioncomment-11137593
       _options: options,
-      config(config, { command: _command }: { command: string }) {
+      config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
 
         // For Vite 8+, resolve to ESM entry
@@ -787,8 +847,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         if (isRolldown) {
           implementation = implementation.replace(/\.cjs(\.js)?$/, '.js');
         }
-        // TODO: singleton
-        (config.resolve as any).alias.push({
+
+        appendResolveAlias(config, {
           find: '@module-federation/runtime',
           replacement: implementation,
         });
@@ -868,11 +928,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       name: 'module-federation-vinext-fix-rsc-preload-as',
       enforce: 'post' as const,
       apply: 'build' as const,
-      generateBundle(_: unknown, bundle: Record<string, any>) {
+      generateBundle(_: NormalizedOutputOptionsLike, bundle: BundleLike, _isWrite: boolean) {
         if (!hasPackageDependency('vinext')) return;
 
         for (const chunk of Object.values(bundle)) {
-          if (chunk.type !== 'chunk') continue;
+          if (!isOutputChunk(chunk)) continue;
           if (!chunk.code.includes('case"L"')) continue;
 
           chunk.code = chunk.code.replace(
@@ -916,11 +976,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
                 disablePreload = getConfiguredDisableAssetsAnalyze(command);
               },
-              generateBundle(_: unknown, bundle: Record<string, any>) {
+              generateBundle(
+                _outputOptions: NormalizedOutputOptionsLike,
+                bundle: BundleLike,
+                _isWrite: boolean
+              ) {
                 if (disablePreload) return;
 
                 for (const chunk of Object.values(bundle)) {
-                  if (chunk.type !== 'chunk') continue;
+                  if (!isOutputChunk(chunk)) continue;
                   if (!chunk.code.includes('modulepreload')) continue;
                   const chunkDir = path.dirname(chunk.fileName);
                   const prefixToRoot = chunkDir === '.' ? '' : `${path.relative(chunkDir, '.')}/`;

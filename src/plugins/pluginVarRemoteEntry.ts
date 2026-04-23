@@ -1,7 +1,7 @@
 import { Plugin } from 'vite';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
-import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { createModuleFederationError, mfWarn } from '../utils/logger';
+import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 const VarRemoteEntry = (): Plugin[] => {
   const mfOptions = getNormalizeModuleFederationOptions();
@@ -107,7 +107,6 @@ const VarRemoteEntry = (): Plugin[] => {
 
     const isValidName = isValidVarName(name);
 
-    // todo: implement publicPath/getPublicPath support
     return `
   ${isValidName ? `var ${name};` : ''}
   ${isValidName ? name : `globalThis['${name}']`} = (function () {

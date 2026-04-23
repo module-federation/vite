@@ -1,4 +1,4 @@
-import { OutputBundle } from 'rollup';
+import type { OutputBundleItem } from './cssModuleHelpers';
 
 /**
  * Resolve the local alias for a non-inlineable proxy binding.
@@ -34,7 +34,7 @@ export function resolveProxyAlias(
   };
 }
 
-export function findRemoteEntryFile(filename: string, bundle: OutputBundle) {
+export function findRemoteEntryFile(filename: string, bundle: Record<string, OutputBundleItem>) {
   for (const [_, fileData] of Object.entries(bundle)) {
     if (
       filename.replace(/[\[\]]/g, '_').replace(/\.[^/.]+$/, '') === fileData.name ||

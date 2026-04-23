@@ -1,8 +1,40 @@
+import type { Alias, MinimalPluginContextWithoutEnvironment } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkAliasConflicts } from '../pluginCheckAliasConflicts';
+import type { ShareItem } from '../../utils/normalizeModuleFederationOptions';
+import { callHook } from '../../utils/__tests__/viteHookHelpers';
+
+function createSharedItem(name: string, version: string): ShareItem {
+  return {
+    name,
+    version,
+    scope: 'default',
+    from: 'host',
+    shareConfig: {
+      requiredVersion: `^${version}`,
+    },
+  };
+}
+
+type MockResolvedConfig = {
+  resolve?: {
+    alias?: Alias[];
+  };
+};
+
+function runConfigResolved(
+  plugin: ReturnType<typeof checkAliasConflicts>,
+  config: MockResolvedConfig
+): void {
+  callHook(
+    plugin.configResolved,
+    {} as MinimalPluginContextWithoutEnvironment,
+    config as unknown as import('vite').ResolvedConfig
+  );
+}
 
 describe('pluginCheckAliasConflicts', () => {
-  let consoleWarnSpy: any;
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -15,28 +47,12 @@ describe('pluginCheckAliasConflicts', () => {
   it('should warn when alias conflicts with shared module', () => {
     const plugin = checkAliasConflicts({
       shared: {
-        vue: {
-          name: 'vue',
-          version: '3.2.45',
-          scope: 'default',
-          from: 'host',
-          shareConfig: {
-            requiredVersion: '^3.2.45',
-          } as any,
-        },
-        pinia: {
-          name: 'pinia',
-          version: '2.0.28',
-          scope: 'default',
-          from: 'host',
-          shareConfig: {
-            requiredVersion: '^2.0.28',
-          } as any,
-        },
+        vue: createSharedItem('vue', '3.2.45'),
+        pinia: createSharedItem('pinia', '2.0.28'),
       },
     });
 
-    const mockConfig = {
+    const mockConfig: MockResolvedConfig = {
       resolve: {
         alias: [
           {
@@ -55,7 +71,7 @@ describe('pluginCheckAliasConflicts', () => {
       },
     };
 
-    plugin.configResolved!(mockConfig as any);
+    runConfigResolved(plugin, mockConfig);
 
     expect(consoleWarnSpy).toHaveBeenCalledTimes(4);
     expect(consoleWarnSpy).toHaveBeenCalledWith(
@@ -72,19 +88,11 @@ describe('pluginCheckAliasConflicts', () => {
   it('should not warn when no alias conflicts exist', () => {
     const plugin = checkAliasConflicts({
       shared: {
-        vue: {
-          name: 'vue',
-          version: '3.2.45',
-          scope: 'default',
-          from: 'host',
-          shareConfig: {
-            requiredVersion: '^3.2.45',
-          } as any,
-        },
+        vue: createSharedItem('vue', '3.2.45'),
       },
     });
 
-    const mockConfig = {
+    const mockConfig: MockResolvedConfig = {
       resolve: {
         alias: [
           {
@@ -95,7 +103,7 @@ describe('pluginCheckAliasConflicts', () => {
       },
     };
 
-    plugin.configResolved!(mockConfig as any);
+    runConfigResolved(plugin, mockConfig);
 
     expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
@@ -105,7 +113,7 @@ describe('pluginCheckAliasConflicts', () => {
       shared: {},
     });
 
-    const mockConfig = {
+    const mockConfig: MockResolvedConfig = {
       resolve: {
         alias: [
           {
@@ -116,7 +124,7 @@ describe('pluginCheckAliasConflicts', () => {
       },
     };
 
-    plugin.configResolved!(mockConfig as any);
+    runConfigResolved(plugin, mockConfig);
 
     expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
@@ -124,19 +132,11 @@ describe('pluginCheckAliasConflicts', () => {
   it('should handle regex alias patterns', () => {
     const plugin = checkAliasConflicts({
       shared: {
-        react: {
-          name: 'react',
-          version: '18.0.0',
-          scope: 'default',
-          from: 'host',
-          shareConfig: {
-            requiredVersion: '^18.0.0',
-          } as any,
-        },
+        react: createSharedItem('react', '18.0.0'),
       },
     });
 
-    const mockConfig = {
+    const mockConfig: MockResolvedConfig = {
       resolve: {
         alias: [
           {
@@ -147,7 +147,7 @@ describe('pluginCheckAliasConflicts', () => {
       },
     };
 
-    plugin.configResolved!(mockConfig as any);
+    runConfigResolved(plugin, mockConfig);
 
     expect(consoleWarnSpy).toHaveBeenCalled();
     expect(consoleWarnSpy).toHaveBeenCalledWith(
@@ -158,19 +158,11 @@ describe('pluginCheckAliasConflicts', () => {
   it('should handle shared modules with trailing slash', () => {
     const plugin = checkAliasConflicts({
       shared: {
-        'lodash/': {
-          name: 'lodash/',
-          version: '4.17.21',
-          scope: 'default',
-          from: 'host',
-          shareConfig: {
-            requiredVersion: '^4.17.21',
-          } as any,
-        },
+        'lodash/': createSharedItem('lodash/', '4.17.21'),
       },
     });
 
-    const mockConfig = {
+    const mockConfig: MockResolvedConfig = {
       resolve: {
         alias: [
           {
@@ -181,7 +173,7 @@ describe('pluginCheckAliasConflicts', () => {
       },
     };
 
-    plugin.configResolved!(mockConfig as any);
+    runConfigResolved(plugin, mockConfig);
 
     expect(consoleWarnSpy).toHaveBeenCalled();
   });
@@ -189,25 +181,17 @@ describe('pluginCheckAliasConflicts', () => {
   it('should work with undefined alias', () => {
     const plugin = checkAliasConflicts({
       shared: {
-        vue: {
-          name: 'vue',
-          version: '3.2.45',
-          scope: 'default',
-          from: 'host',
-          shareConfig: {
-            requiredVersion: '^3.2.45',
-          } as any,
-        },
+        vue: createSharedItem('vue', '3.2.45'),
       },
     });
 
-    const mockConfig = {
+    const mockConfig: MockResolvedConfig = {
       resolve: {
         alias: undefined,
       },
     };
 
-    plugin.configResolved!(mockConfig as any);
+    runConfigResolved(plugin, mockConfig);
 
     expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
@@ -215,28 +199,12 @@ describe('pluginCheckAliasConflicts', () => {
   it('should skip Module Federation internal aliases (replacement $1)', () => {
     const plugin = checkAliasConflicts({
       shared: {
-        vue: {
-          name: 'vue',
-          version: '3.2.45',
-          scope: 'default',
-          from: 'host',
-          shareConfig: {
-            requiredVersion: '^3.2.45',
-          } as any,
-        },
-        'react-dom': {
-          name: 'react-dom',
-          version: '18.0.0',
-          scope: 'default',
-          from: 'host',
-          shareConfig: {
-            requiredVersion: '^18.0.0',
-          } as any,
-        },
+        vue: createSharedItem('vue', '3.2.45'),
+        'react-dom': createSharedItem('react-dom', '18.0.0'),
       },
     });
 
-    const mockConfig = {
+    const mockConfig: MockResolvedConfig = {
       resolve: {
         alias: [
           {
@@ -253,7 +221,7 @@ describe('pluginCheckAliasConflicts', () => {
       },
     };
 
-    plugin.configResolved!(mockConfig as any);
+    runConfigResolved(plugin, mockConfig);
 
     // Should not warn for internal MF aliases with replacement '$1'
     expect(consoleWarnSpy).not.toHaveBeenCalled();

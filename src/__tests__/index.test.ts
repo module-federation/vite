@@ -1,9 +1,18 @@
-import type { Plugin } from 'vite';
+import type {
+  ConfigEnv,
+  ConfigPluginContext,
+  MinimalPluginContextWithoutEnvironment,
+  Plugin,
+  Rollup,
+  UserConfig,
+  ViteBuilder,
+} from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
+import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
-  hasPackageDependencyMock: vi.fn(() => false),
+  hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>((_dependency: string) => false),
   mfWarn: vi.fn(),
 }));
 
@@ -29,84 +38,162 @@ import { federation } from '../index';
 import { getPreBuildLibImportId, LOAD_SHARE_TAG } from '../virtualModules';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
-function getEsmShimsPlugin(): Plugin {
-  const plugin = federation({
-    name: 'host',
-    filename: 'remoteEntry.js',
-  }).find((entry) => entry.name === 'module-federation-esm-shims');
+type FederationPlugin = Plugin;
+function createChunk(fileName: string, code: string): Rollup.OutputBundle[string] {
+  return {
+    type: 'chunk',
+    fileName,
+    name: fileName,
+    code,
+    map: null,
+    preliminaryFileName: fileName,
+    sourcemapFileName: null,
+    facadeModuleId: null,
+    isDynamicEntry: false,
+    isEntry: false,
+    moduleIds: [],
+    exports: [],
+    modules: {},
+    dynamicImports: [],
+    imports: [],
+  } as unknown as Rollup.OutputBundle[string];
+}
+
+function getEsmShimsPlugin(): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'module-federation-esm-shims');
 
   if (!plugin) throw new Error('module-federation-esm-shims plugin not found');
   return plugin;
 }
 
-function getFixPreloadPlugin(): Plugin {
-  const plugin = federation({
-    name: 'remote',
-    filename: 'remoteEntry.js',
-    exposes: {
-      '.': './src/App.tsx',
-    },
-  }).find((entry) => entry.name === 'module-federation-fix-preload');
+function getFixPreloadPlugin(): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'remote',
+      filename: 'remoteEntry.js',
+      exposes: {
+        '.': './src/App.tsx',
+      },
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'module-federation-fix-preload');
 
   if (!plugin) throw new Error('module-federation-fix-preload plugin not found');
   return plugin;
 }
 
-function getFixPreloadPluginWithManifest(manifest: unknown): Plugin {
-  const plugin = federation({
-    name: 'remote',
-    filename: 'remoteEntry.js',
-    exposes: {
-      '.': './src/App.tsx',
-    },
-    manifest,
-  }).find((entry) => entry.name === 'module-federation-fix-preload');
+function getFixPreloadPluginWithManifest(manifest: PluginManifestOptions): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'remote',
+      filename: 'remoteEntry.js',
+      exposes: {
+        '.': './src/App.tsx',
+      },
+      manifest,
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'module-federation-fix-preload');
 
   if (!plugin) throw new Error('module-federation-fix-preload plugin not found');
   return plugin;
 }
 
-function getVinextFixRscPreloadAsPlugin(): Plugin {
-  const plugin = federation({
-    name: 'host',
-    filename: 'remoteEntry.js',
-  }).find((entry) => entry.name === 'module-federation-vinext-fix-rsc-preload-as');
+function getVinextFixRscPreloadAsPlugin(): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'module-federation-vinext-fix-rsc-preload-as');
 
   if (!plugin) throw new Error('module-federation-vinext-fix-rsc-preload-as plugin not found');
   return plugin;
 }
 
-function getEarlyInitPlugin(): Plugin {
-  const plugin = federation({
-    name: 'host',
-    filename: 'remoteEntry.js',
-    remotes: {
-      remoteApp: {
-        type: 'module',
-        name: 'remoteApp',
-        entry: 'http://localhost:4174/remoteEntry.js',
-        shareScope: 'default',
+function getEarlyInitPlugin(): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      remotes: {
+        remoteApp: {
+          type: 'module',
+          name: 'remoteApp',
+          entry: 'http://localhost:4174/remoteEntry.js',
+          shareScope: 'default',
+        },
       },
-    },
-    shared: {
-      vue: {
-        singleton: false,
+      shared: {
+        vue: {
+          singleton: false,
+        },
       },
-    },
-  }).find((entry) => entry.name === 'vite:module-federation-early-init');
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'vite:module-federation-early-init');
 
   if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
   return plugin;
 }
 
-function getModuleFederationVitePlugin(): Plugin {
-  const plugin = federation({
-    name: 'host',
-    filename: 'remoteEntry.js',
-  }).find((entry) => entry.name === 'module-federation-vite');
+function getModuleFederationVitePlugin(): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'module-federation-vite');
 
   if (!plugin) throw new Error('module-federation-vite plugin not found');
   return plugin;
+}
+
+function runConfig(
+  plugin: FederationPlugin,
+  ctx: ConfigPluginContext,
+  config: UserConfig,
+  env: ConfigEnv
+): void {
+  const hook = plugin.config;
+  if (!hook) throw new Error(`${plugin.name} config hook not found`);
+  if (typeof hook === 'function') {
+    hook.call(ctx, config, env);
+    return;
+  }
+  hook.handler.call(ctx, config, env);
+}
+
+async function runBuildApp(
+  plugin: FederationPlugin,
+  ctx: MinimalPluginContextWithoutEnvironment,
+  builder: ViteBuilder
+): Promise<void> {
+  const hook = plugin.buildApp;
+  if (!hook) throw new Error(`${plugin.name} buildApp hook not found`);
+  if (typeof hook === 'function') {
+    await hook.call(ctx, builder);
+    return;
+  }
+  await hook.handler.call(ctx, builder);
+}
+
+function runGenerateBundle(
+  plugin: FederationPlugin,
+  ctx: Rollup.PluginContext,
+  outputOptions: Rollup.NormalizedOutputOptions,
+  bundle: Rollup.OutputBundle,
+  isWrite = false
+): void {
+  const hook = plugin.generateBundle;
+  if (!hook) throw new Error(`${plugin.name} generateBundle hook not found`);
+  if (typeof hook === 'function') {
+    hook.call(ctx, outputOptions, bundle, isWrite);
+    return;
+  }
+  hook.handler.call(ctx, outputOptions, bundle, isWrite);
 }
 
 describe('federation in test environment', () => {
@@ -152,8 +239,7 @@ describe('module-federation-esm-shims', () => {
       build: {},
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
     const deps = config.build.modulePreload.resolveDependencies(
       'mf-entry-bootstrap-0.js',
@@ -182,8 +268,7 @@ describe('module-federation-esm-shims', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
     const deps = config.build.modulePreload.resolveDependencies(
       'index.js',
@@ -208,8 +293,7 @@ describe('module-federation-esm-shims', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
     expect(config.build.rollupOptions.output.codeSplitting).toBeUndefined();
     expect(config.build.rolldownOptions.output.codeSplitting).toBeUndefined();
@@ -235,8 +319,7 @@ describe('module-federation-esm-shims', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
     expect(config.build.rolldownOptions.output.codeSplitting).toBeUndefined();
     expect(mfWarn).toHaveBeenCalledTimes(1);
@@ -260,8 +343,7 @@ describe('module-federation-esm-shims', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
     // Federation chunks are still isolated
     expect(functionOutput.manualChunks(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
@@ -271,12 +353,13 @@ describe('module-federation-esm-shims', () => {
     // User's manualChunks is ignored — non-federation modules return undefined
     expect(functionOutput.manualChunks('/src/custom.ts')).toBeUndefined();
 
-    expect(
-      (objectOutput.manualChunks as unknown as Function)('/src/react/index.ts')
-    ).toBeUndefined();
-    expect(
-      (objectOutput.manualChunks as unknown as Function)('/src/other/index.ts')
-    ).toBeUndefined();
+    const objectManualChunks: unknown = objectOutput.manualChunks;
+    expect(typeof objectManualChunks).toBe('function');
+    if (typeof objectManualChunks !== 'function') {
+      throw new Error('manualChunks should be patched into a function');
+    }
+    expect(objectManualChunks('/src/react/index.ts')).toBeUndefined();
+    expect(objectManualChunks('/src/other/index.ts')).toBeUndefined();
 
     // Warning was emitted (once for both outputs)
     expect(mfWarn).toHaveBeenCalled();
@@ -309,19 +392,19 @@ describe('module-federation-esm-shims', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
     expect(config.build.rolldownOptions.output[0].codeSplitting).toBeUndefined();
-    expect(config.build.rolldownOptions.output[1].manualChunks(`/virtual/${runtimeInitId}`)).toBe(
-      'runtimeInit'
+    const patchedManualChunks = config.build.rolldownOptions.output[1].manualChunks;
+    expect(typeof patchedManualChunks).toBe('function');
+    if (typeof patchedManualChunks !== 'function') {
+      throw new Error('manualChunks should be patched into a function');
+    }
+    expect(patchedManualChunks(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
+    expect(patchedManualChunks(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
+      `react${LOAD_SHARE_TAG}chunk.js`
     );
-    expect(
-      config.build.rolldownOptions.output[1].manualChunks(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)
-    ).toBe(`react${LOAD_SHARE_TAG}chunk.js`);
-    expect(
-      config.build.rolldownOptions.output[1].manualChunks('/src/other/index.ts')
-    ).toBeUndefined();
+    expect(patchedManualChunks('/src/other/index.ts')).toBeUndefined();
     expect(mfWarn).toHaveBeenCalledTimes(2);
   });
 
@@ -334,10 +417,9 @@ describe('module-federation-esm-shims', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
     const warnCountAfterFirstRun = mfWarn.mock.calls.length;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
     expect(mfWarn).toHaveBeenCalledTimes(warnCountAfterFirstRun);
   });
 
@@ -355,8 +437,7 @@ describe('module-federation-esm-shims', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
     const overwrittenOutput = {
       entryFileNames: 'assets/[name].js',
@@ -372,15 +453,14 @@ describe('module-federation-esm-shims', () => {
       })),
     };
 
-    const buildAppHook =
-      typeof plugin.buildApp === 'function' ? plugin.buildApp : plugin.buildApp?.handler;
-    await buildAppHook?.call(
-      {} as any,
+    await runBuildApp(
+      plugin,
+      {} as MinimalPluginContextWithoutEnvironment,
       {
         environments: {
           client: environment,
         },
-      } as any
+      } as unknown as ViteBuilder
     );
 
     const restoredOptions = await environment.getRolldownOptions();
@@ -410,8 +490,7 @@ describe('module-federation-esm-shims', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({} as any, config, { command: 'build', mode: 'test' });
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
     const environment = {
       getRolldownOptions: vi.fn(async () => ({
@@ -429,15 +508,14 @@ describe('module-federation-esm-shims', () => {
       })),
     };
 
-    const buildAppHook =
-      typeof plugin.buildApp === 'function' ? plugin.buildApp : plugin.buildApp?.handler;
-    await buildAppHook?.call(
-      {} as any,
+    await runBuildApp(
+      plugin,
+      {} as MinimalPluginContextWithoutEnvironment,
       {
         environments: {
           client: environment,
         },
-      } as any
+      } as unknown as ViteBuilder
     );
 
     const restoredOptions = await environment.getRolldownOptions();
@@ -460,11 +538,11 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call(
+    runConfig(
+      plugin,
       {
         meta: { rolldownVersion: '1.0.0' },
-      } as any,
+      } as ConfigPluginContext,
       config,
       { command: 'serve', mode: 'test' }
     );
@@ -483,8 +561,7 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: {} } as any, config, {
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
       command: 'serve',
       mode: 'test',
     });
@@ -503,8 +580,7 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: { rolldownVersion: '1.0.0' } } as any, config, {
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
       command: 'serve',
       mode: 'test',
     });
@@ -513,18 +589,20 @@ describe('vite:module-federation-early-init', () => {
   });
 
   it('excludes bare remote ids even when they match installed packages', () => {
-    const plugin = federation({
-      name: 'host',
-      filename: 'remoteEntry.js',
-      remotes: {
-        scheduler: {
-          type: 'module',
-          name: 'scheduler',
-          entry: 'http://localhost:4175/remoteEntry.js',
-          shareScope: 'default',
+    const plugin: Plugin | undefined = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {
+          scheduler: {
+            type: 'module',
+            name: 'scheduler',
+            entry: 'http://localhost:4175/remoteEntry.js',
+            shareScope: 'default',
+          },
         },
-      },
-    }).find((entry) => entry.name === 'vite:module-federation-early-init');
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
 
     if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
 
@@ -536,8 +614,7 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: { rolldownVersion: '1.0.0' } } as any, config, {
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
       command: 'serve',
       mode: 'test',
     });
@@ -547,7 +624,9 @@ describe('vite:module-federation-early-init', () => {
   });
 
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
-    hasPackageDependencyMock.mockImplementation((dependency) => dependency === 'astro');
+    hasPackageDependencyMock.mockImplementation(
+      (dependency: string): boolean => dependency === 'astro'
+    );
     const plugin = getModuleFederationVitePlugin();
     const config: any = {
       root: process.cwd(),
@@ -560,8 +639,7 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: {} } as any, config, {
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
       command: 'build',
       mode: 'test',
     });
@@ -583,8 +661,7 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: {} } as any, config, {
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
       command: 'build',
       mode: 'test',
     });
@@ -594,14 +671,16 @@ describe('vite:module-federation-early-init', () => {
 });
 
 function getEarlyInitPluginWithImportFalse(): Plugin {
-  const plugin = federation({
-    name: 'remote',
-    filename: 'remoteEntry.js',
-    shared: {
-      vue: { singleton: true, import: false },
-      pinia: { singleton: true, import: false },
-    },
-  }).find((entry) => entry.name === 'vite:module-federation-early-init');
+  const plugin: Plugin | undefined = (
+    federation({
+      name: 'remote',
+      filename: 'remoteEntry.js',
+      shared: {
+        vue: { singleton: true, import: false },
+        pinia: { singleton: true, import: false },
+      },
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'vite:module-federation-early-init');
 
   if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
   return plugin;
@@ -617,8 +696,7 @@ describe('vite:module-federation-early-init with import: false', () => {
       },
     };
 
-    const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config?.handler;
-    configHook?.call({ meta: {} } as any, config, {
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
       command: 'serve',
       mode: 'test',
     });
@@ -636,16 +714,20 @@ describe('module-federation-fix-preload', () => {
   it('keeps nested output paths working', () => {
     const plugin = getFixPreloadPlugin();
     const bundle = {
-      'static/js/preload-helper-abc.js': {
-        type: 'chunk',
-        fileName: 'static/js/preload-helper-abc.js',
-        code: 'const u=function(e){return new URL("../"+e,import.meta.url).href};modulepreload',
-      },
+      'static/js/preload-helper-abc.js': createChunk(
+        'static/js/preload-helper-abc.js',
+        'const u=function(e){return new URL("../"+e,import.meta.url).href};modulepreload'
+      ),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['static/js/preload-helper-abc.js'].code).toContain(
+    expect((bundle['static/js/preload-helper-abc.js'] as Rollup.OutputChunk).code).toContain(
       'new URL("..\\u002F..\\u002F"+e,import.meta.url).href'
     );
   });
@@ -653,32 +735,39 @@ describe('module-federation-fix-preload', () => {
   it('keeps root output paths working', () => {
     const plugin = getFixPreloadPlugin();
     const bundle = {
-      'preload-helper-abc.js': {
-        type: 'chunk',
-        fileName: 'preload-helper-abc.js',
-        code: 'const u=function(e){return new URL("../"+e,import.meta.url).href};modulepreload',
-      },
+      'preload-helper-abc.js': createChunk(
+        'preload-helper-abc.js',
+        'const u=function(e){return new URL("../"+e,import.meta.url).href};modulepreload'
+      ),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
+    expect((bundle['preload-helper-abc.js'] as Rollup.OutputChunk).code).toContain(
+      'new URL(e,import.meta.url).href'
+    );
   });
 
   it('does not corrupt Stencil getScopeId function', () => {
     const plugin = getFixPreloadPlugin();
     const stencilCode = 'va=(e,t)=>"sc-"+e.$tagName$,Wn=(e,t)=>{};modulepreload';
     const bundle = {
-      'assets/index.js': {
-        type: 'chunk',
-        fileName: 'assets/index.js',
-        code: stencilCode,
-      },
+      'assets/index.js': createChunk('assets/index.js', stencilCode),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['assets/index.js'].code).toBe(stencilCode);
+    expect((bundle['assets/index.js'] as Rollup.OutputChunk).code).toBe(stencilCode);
   });
 
   it('does not patch preload helper when manifest disables asset analysis', () => {
@@ -686,25 +775,22 @@ describe('module-federation-fix-preload', () => {
       disableAssetsAnalyze: true,
     });
 
-    plugin.config?.call(
-      {} as any,
-      {} as any,
-      { command: 'build', mode: 'test' } as { command: 'build'; mode: 'test' }
-    );
+    runConfig(plugin, {} as ConfigPluginContext, {}, { command: 'build', mode: 'test' });
 
     const originalCode =
       'const u=function(e){return new URL(\"../\"+e,import.meta.url).href};modulepreload';
     const bundle = {
-      'preload-helper-abc.js': {
-        type: 'chunk',
-        fileName: 'preload-helper-abc.js',
-        code: originalCode,
-      },
+      'preload-helper-abc.js': createChunk('preload-helper-abc.js', originalCode),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['preload-helper-abc.js'].code).toBe(originalCode);
+    expect((bundle['preload-helper-abc.js'] as Rollup.OutputChunk).code).toBe(originalCode);
   });
 
   it('still patches preload helper when manifest keeps asset analysis enabled', () => {
@@ -712,77 +798,96 @@ describe('module-federation-fix-preload', () => {
       disableAssetsAnalyze: false,
     });
 
-    plugin.config?.call(
-      {} as any,
-      {} as any,
-      { command: 'build', mode: 'test' } as { command: 'build'; mode: 'test' }
-    );
+    runConfig(plugin, {} as ConfigPluginContext, {}, { command: 'build', mode: 'test' });
 
     const originalCode =
       'const u=function(e){return new URL("../"+e,import.meta.url).href};modulepreload';
     const bundle = {
-      'preload-helper-abc.js': {
-        type: 'chunk',
-        fileName: 'preload-helper-abc.js',
-        code: originalCode,
-      },
+      'preload-helper-abc.js': createChunk('preload-helper-abc.js', originalCode),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
+    expect((bundle['preload-helper-abc.js'] as Rollup.OutputChunk).code).toContain(
+      'new URL(e,import.meta.url).href'
+    );
   });
 
   it('handles backticks in function expression pattern', () => {
     const plugin = getFixPreloadPlugin();
     const bundle = {
-      'preload-helper-abc.js': {
-        type: 'chunk',
-        fileName: 'preload-helper-abc.js',
-        code: 'const u=function(e){return`../`+e};modulepreload',
-      },
+      'preload-helper-abc.js': createChunk(
+        'preload-helper-abc.js',
+        'const u=function(e){return`../`+e};modulepreload'
+      ),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
+    expect((bundle['preload-helper-abc.js'] as Rollup.OutputChunk).code).toContain(
+      'new URL(e,import.meta.url).href'
+    );
   });
 
   it('handles backticks in arrow function pattern', () => {
     const plugin = getFixPreloadPlugin();
     const bundle = {
-      'preload-helper-abc.js': {
-        type: 'chunk',
-        fileName: 'preload-helper-abc.js',
-        code: 'const u=e=>`../`+e;modulepreload',
-      },
+      'preload-helper-abc.js': createChunk(
+        'preload-helper-abc.js',
+        'const u=e=>`../`+e;modulepreload'
+      ),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['preload-helper-abc.js'].code).toContain('new URL(e,import.meta.url).href');
+    expect((bundle['preload-helper-abc.js'] as Rollup.OutputChunk).code).toContain(
+      'new URL(e,import.meta.url).href'
+    );
   });
 });
 
 describe('module-federation-vinext-fix-rsc-preload-as', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    hasPackageDependencyMock.mockImplementation((dependency) => dependency === 'vinext');
+    hasPackageDependencyMock.mockImplementation(
+      (dependency: string): boolean => dependency === 'vinext'
+    );
   });
 
   it('normalizes stylesheet RSC preload hints to style', () => {
     const plugin = getVinextFixRscPreloadAsPlugin();
     const bundle = {
-      'assets/index.js': {
-        type: 'chunk',
-        fileName: 'assets/index.js',
-        code: 'function mn(t,n,r,e,i,o){switch(e){case 72:switch(r=i[0],i=i.slice(1),t=JSON.parse(i,t._fromJSON),i=kt.d,r){case"L":r=t[0],e=t[1],t.length===3?i.L(r,e,t[2]):i.L(r,e);break}}}',
-      },
+      'assets/index.js': createChunk(
+        'assets/index.js',
+        'function mn(t,n,r,e,i,o){switch(e){case 72:switch(r=i[0],i=i.slice(1),t=JSON.parse(i,t._fromJSON),i=kt.d,r){case"L":r=t[0],e=t[1],t.length===3?i.L(r,e,t[2]):i.L(r,e);break}}}'
+      ),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['assets/index.js'].code).toContain('e==="stylesheet"&&(e="style")');
+    expect((bundle['assets/index.js'] as Rollup.OutputChunk).code).toContain(
+      'e==="stylesheet"&&(e="style")'
+    );
   });
 });
 
@@ -802,17 +907,20 @@ describe('module-federation-esm-shims preview await insertion', () => {
     ].join('\n');
 
     const bundle = {
-      'assets/index.js': {
-        type: 'chunk',
-        fileName: 'assets/index.js',
-        code: originalCode,
-      },
+      'assets/index.js': createChunk('assets/index.js', originalCode),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['assets/index.js'].code).not.toContain('await init_host__loadShare__');
-    expect(bundle['assets/index.js'].code).toContain(
+    expect((bundle['assets/index.js'] as Rollup.OutputChunk).code).not.toContain(
+      'await init_host__loadShare__'
+    );
+    expect((bundle['assets/index.js'] as Rollup.OutputChunk).code).toContain(
       "*  import {SemconvStability, semconvStabilityFromStr} from '@opentelemetry/instrumentation';\n*/\n(init_host__loadShare__react__loadShare__(),factory(module));"
     );
   });
@@ -828,16 +936,21 @@ describe('module-federation-esm-shims preview await insertion', () => {
     ].join('');
 
     const bundle = {
-      'assets/index.js': {
-        type: 'chunk',
-        fileName: 'assets/index.js',
-        code: originalCode,
-      },
+      'assets/index.js': createChunk('assets/index.js', originalCode),
     };
 
-    plugin.generateBundle?.call({} as any, {} as any, bundle as any);
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
 
-    expect(bundle['assets/index.js'].code).not.toContain('await init_react__loadShare__');
-    expect(bundle['assets/index.js'].code).not.toContain('await init_dom__loadShare__');
+    expect((bundle['assets/index.js'] as Rollup.OutputChunk).code).not.toContain(
+      'await init_react__loadShare__'
+    );
+    expect((bundle['assets/index.js'] as Rollup.OutputChunk).code).not.toContain(
+      'await init_dom__loadShare__'
+    );
   });
 });

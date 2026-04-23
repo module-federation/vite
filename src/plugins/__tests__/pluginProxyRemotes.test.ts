@@ -1,4 +1,7 @@
+import type { ConfigEnv, ConfigPluginContext, Rollup, UserConfig } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
+import { callHook } from '../../utils/__tests__/viteHookHelpers';
 
 const {
   addUsedRemoteMock,
@@ -7,13 +10,14 @@ const {
   remoteModulePath,
 } = vi.hoisted(() => ({
   addUsedRemoteMock: vi.fn(),
-  getInstalledPackageEntryMock: vi.fn(() => undefined),
+  getInstalledPackageEntryMock: vi.fn<(pkg: string) => string | undefined>(() => undefined),
   getRemoteVirtualModuleMock: vi.fn(),
   remoteModulePath: '/virtual/scheduler.js',
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
   getInstalledPackageEntry: getInstalledPackageEntryMock,
+  getPackageDetectionCwd: vi.fn(() => '/repo'),
 }));
 
 vi.mock('../../virtualModules', () => ({
@@ -23,6 +27,56 @@ vi.mock('../../virtualModules', () => ({
 }));
 
 import pluginProxyRemotes from '../pluginProxyRemotes';
+
+type AliasEntry = {
+  find: RegExp;
+  replacement?: string;
+  customResolver?: (source: string, importer?: string) => unknown;
+};
+
+type MockUserConfig = UserConfig & {
+  resolve: {
+    alias: AliasEntry[];
+  };
+};
+
+type TestPluginMeta = {
+  rollupVersion: string;
+  rolldownVersion: string;
+  viteVersion: string;
+  watchMode: boolean;
+};
+
+function createPluginMeta(overrides: Partial<TestPluginMeta> = {}): TestPluginMeta {
+  return {
+    rollupVersion: '4.0.0',
+    rolldownVersion: '1.0.0',
+    viteVersion: '7.0.0',
+    watchMode: false,
+    ...overrides,
+  };
+}
+
+function runConfig(plugin: ReturnType<typeof pluginProxyRemotes>, config: MockUserConfig): void {
+  callHook(plugin.config, { meta: createPluginMeta() } as unknown as ConfigPluginContext, config, {
+    command: 'serve',
+    mode: 'test',
+  } as ConfigEnv);
+}
+
+function runResolveId(
+  plugin: ReturnType<typeof pluginProxyRemotes>,
+  source: string,
+  importer: string | undefined
+) {
+  return callHook(
+    plugin.resolveId,
+    { meta: createPluginMeta() } as unknown as Rollup.PluginContext,
+    source,
+    importer,
+    { isEntry: false }
+  );
+}
 
 describe('pluginProxyRemotes', () => {
   beforeEach(() => {
@@ -37,21 +91,22 @@ describe('pluginProxyRemotes', () => {
   }
 
   function getSchedulerPluginAndConfig(configOverrides = {}) {
-    const plugin = pluginProxyRemotes({
-      remotes: {
-        scheduler: {
-          name: 'scheduler',
+    const plugin = pluginProxyRemotes(
+      normalizeModuleFederationOptions({
+        name: 'host',
+        remotes: {
+          scheduler: 'scheduler@http://example.com/remoteEntry.js',
         },
-      },
-    } as any);
-    const config = {
+      })
+    );
+    const config: MockUserConfig = {
       resolve: {
         alias: [],
       },
       ...configOverrides,
-    } as any;
+    };
 
-    (plugin as any).config.call({} as any, config, { command: 'serve' });
+    runConfig(plugin, config);
     return { plugin, config };
   }
 
@@ -64,27 +119,22 @@ describe('pluginProxyRemotes', () => {
   });
 
   it('still proxies bare remote ids from app importers via resolveId', () => {
-    const plugin = pluginProxyRemotes({
-      remotes: {
-        scheduler: {
-          name: 'scheduler',
+    const plugin = pluginProxyRemotes(
+      normalizeModuleFederationOptions({
+        name: 'host',
+        remotes: {
+          scheduler: 'scheduler@http://example.com/remoteEntry.js',
         },
-      },
-    } as any);
-    const config = {
+      })
+    );
+    const config: MockUserConfig = {
       resolve: {
         alias: [],
       },
-    } as any;
+    };
 
-    (plugin as any).config.call({ meta: { rolldownVersion: '1.0.0' } } as any, config, {
-      command: 'serve',
-    });
-    const result = (plugin as any).resolveId.call(
-      { meta: { rolldownVersion: '1.0.0' } } as any,
-      'scheduler',
-      '/repo/src/App.tsx'
-    );
+    runConfig(plugin, config);
+    const result = runResolveId(plugin, 'scheduler', '/repo/src/App.tsx');
 
     expect(result).toBe(remoteModulePath);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve');
@@ -94,11 +144,7 @@ describe('pluginProxyRemotes', () => {
   it('still proxies bare remote ids from node_modules importers when no package collides', () => {
     const { plugin } = getSchedulerPluginAndConfig();
 
-    const result = (plugin as any).resolveId.call(
-      {} as any,
-      'scheduler',
-      '/repo/node_modules/.vite/deps/react-dom.js'
-    );
+    const result = runResolveId(plugin, 'scheduler', '/repo/node_modules/.vite/deps/react-dom.js');
 
     expect(result).toBe(remoteModulePath);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve');
@@ -108,13 +154,9 @@ describe('pluginProxyRemotes', () => {
   it('resolves colliding installed packages for bare ids in node_modules importers', () => {
     getInstalledPackageEntryMock.mockReturnValue('/repo/node_modules/.pnpm/scheduler/index.js');
     const { plugin } = getSchedulerPluginAndConfig({ root: '/repo' });
-    const result = (plugin as any).resolveId.call(
-      { meta: { rolldownVersion: '1.0.0' } } as any,
-      'scheduler',
-      '/repo/node_modules/.vite/deps/react-dom.js'
-    );
+    const result = runResolveId(plugin, 'scheduler', '/repo/node_modules/.vite/deps/react-dom.js');
 
-    expect(result).toBe('/repo/node_modules/.pnpm/scheduler/index.js');
+    expect(result as string | undefined).toBe('/repo/node_modules/.pnpm/scheduler/index.js');
     expect(getRemoteVirtualModuleMock).not.toHaveBeenCalled();
     expect(addUsedRemoteMock).not.toHaveBeenCalled();
   });
@@ -122,8 +164,8 @@ describe('pluginProxyRemotes', () => {
   it('still proxies remote subpaths from node_modules importers', () => {
     const { plugin } = getSchedulerPluginAndConfig();
 
-    const result = (plugin as any).resolveId.call(
-      {} as any,
+    const result = runResolveId(
+      plugin,
       'scheduler/SchedulePanel',
       '/repo/node_modules/some-package/index.js'
     );

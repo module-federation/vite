@@ -9,7 +9,8 @@ import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
 function toRunnableModule(code: string) {
   const transformed = code
     .replace('export default', 'return')
-    .replaceAll('import.meta.url', '__importMetaUrl')
+    .split('import.meta.url')
+    .join('__importMetaUrl')
     .replace(/import\((".*?")\)/g, '__dynamicImport($1)');
 
   const factory = new Function(

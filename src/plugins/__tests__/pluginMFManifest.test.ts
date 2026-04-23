@@ -1,4 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  EmitFile,
+  NormalizedOutputOptions,
+  OutputAsset,
+  OutputBundle,
+  OutputChunk,
+  PluginContext,
+  ResolvedId,
+} from 'rollup';
+import type {
+  ConfigPluginContext,
+  MinimalPluginContextWithoutEnvironment,
+  ResolvedConfig,
+} from 'vite';
+import { callHook } from '../../utils/__tests__/viteHookHelpers';
 
 import manifestPlugin from '../pluginMFManifest';
 
@@ -27,21 +42,75 @@ vi.mock('../../virtualModules', () => ({
   getPreBuildLibImportId,
 }));
 
-const makeBundle = () => ({
+type RenderedModule = NonNullable<OutputChunk['modules']>[string];
+
+function createRenderedModule(): RenderedModule {
+  return {
+    code: '',
+    originalLength: 0,
+    removedExports: [],
+    renderedExports: [],
+    renderedLength: 0,
+  };
+}
+
+const makeBundle = (): OutputBundle => ({
   'remoteEntry.js': {
     type: 'chunk',
     fileName: 'remoteEntry.js',
+    name: 'remoteEntry',
+    facadeModuleId: '/src/remoteEntry.ts',
     code: 'const a = 1;',
+    dynamicImports: [],
+    implicitlyLoadedBefore: [],
+    importedBindings: {},
+    imports: [],
+    isDynamicEntry: false,
+    isEntry: true,
+    isImplicitEntry: false,
+    moduleIds: ['/src/exposed.js'],
     modules: {
-      '/src/exposed.js': {},
+      '/src/exposed.js': createRenderedModule(),
     },
-  },
+    referencedFiles: [],
+    exports: [],
+    map: null,
+    preliminaryFileName: 'remoteEntry.js',
+    sourcemapFileName: null,
+  } satisfies OutputChunk,
   'styles.css': {
     type: 'asset',
     fileName: 'styles.css',
     source: 'body {}',
-  },
+    name: 'styles.css',
+    names: ['styles.css'],
+    needsCodeReference: false,
+    originalFileNames: [],
+    originalFileName: null,
+  } satisfies OutputAsset,
 });
+
+type TestPluginContext = Pick<PluginContext, 'emitFile' | 'resolve'>;
+type GenerateBundleHook = (
+  this: PluginContext,
+  outputOptions: NormalizedOutputOptions,
+  bundle: OutputBundle,
+  isWrite: boolean
+) => void | Promise<void>;
+
+function runGenerateBundle(
+  plugin: ReturnType<typeof manifestPlugin>[1],
+  ctx: TestPluginContext,
+  bundle: OutputBundle
+) {
+  return callHook(
+    plugin.generateBundle as unknown as GenerateBundleHook | { handler: GenerateBundleHook },
+    ctx as PluginContext,
+    {} as NormalizedOutputOptions,
+    bundle,
+    false
+  );
+}
 
 async function runGenerateBundleWithManifest(
   manifestOptions: unknown,
@@ -69,7 +138,7 @@ async function runGenerateBundleWithManifest(
     hostInitInjectLocation: 'html',
     moduleParseTimeout: 10,
     ignoreOrigin: false,
-  } as any);
+  });
   getUsedRemotesMap.mockReturnValue(runtime.usedRemotes || new Map());
   getUsedShares.mockReturnValue(runtime.usedShares || new Set());
   getNormalizeShareItem.mockReturnValue({
@@ -80,23 +149,38 @@ async function runGenerateBundleWithManifest(
   const [, buildPlugin] = manifestPlugin();
   const emitted: Record<string, string> = {};
 
-  buildPlugin.config?.({}, { command, mode: 'test' });
-  buildPlugin.configResolved?.({
-    root: '/',
-    base: '/',
-    build: {},
-    server: { origin: 'http://localhost' },
-  } as any);
+  callHook(buildPlugin.config, {} as ConfigPluginContext, {}, { command, mode: 'test' });
+  callHook(
+    buildPlugin.configResolved,
+    {} as MinimalPluginContextWithoutEnvironment,
+    {
+      root: '/',
+      base: '/',
+      build: {},
+      server: { origin: 'http://localhost' },
+    } as unknown as ResolvedConfig
+  );
 
-  const ctx = {
-    emitFile: vi.fn((asset: { fileName: string; source: string }) => {
-      emitted[asset.fileName] = asset.source;
+  const emitFile: EmitFile = (asset) => {
+    if ('fileName' in asset && typeof asset.fileName === 'string' && 'source' in asset) {
+      emitted[asset.fileName] =
+        typeof asset.source === 'string'
+          ? asset.source
+          : Buffer.from(asset.source ?? new Uint8Array()).toString('utf8');
       return `id:${asset.fileName}`;
-    }),
-    resolve: vi.fn(async () => ({ id: '/node_modules/react/index.js' })),
+    }
+    return 'id:unknown';
+  };
+  const ctx: TestPluginContext = {
+    emitFile,
+    resolve: async (source) =>
+      ({
+        id: `/node_modules/${source}/index.js`,
+        external: false,
+      }) as ResolvedId,
   };
 
-  await buildPlugin.generateBundle?.call(ctx as any, {}, makeBundle() as any);
+  await runGenerateBundle(buildPlugin, ctx, makeBundle());
   return emitted;
 }
 
@@ -114,14 +198,14 @@ describe('pluginMFManifest', () => {
     expect(manifest).toHaveProperty('metaData');
     expect(stats).toHaveProperty('buildOutput');
     expect(
-      stats.buildOutput.find((chunk: any) => chunk.fileName === 'remoteEntry.js')
+      stats.buildOutput.find((chunk: { fileName: string }) => chunk.fileName === 'remoteEntry.js')
     ).toBeTruthy();
   });
 
   it('emits companion stats file using manifest fileName suffix', async () => {
     const emitted = await runGenerateBundleWithManifest({
       fileName: 'path/custom-manifest.json',
-    } as any);
+    });
 
     const manifest = emitted['path/custom-manifest.json'];
     const stats = emitted['path/custom-manifest-stats.json'];
@@ -152,7 +236,7 @@ describe('pluginMFManifest', () => {
     const emitted = await runGenerateBundleWithManifest(
       {
         disableAssetsAnalyze: false,
-      } as any,
+      },
       {
         usedShares: new Set(['react']),
         usedRemotes: new Map([['remote-app', new Set(['remote-app/Button'])]]),
@@ -173,7 +257,7 @@ describe('pluginMFManifest', () => {
       {
         fileName: 'disabled-manifest.json',
         disableAssetsAnalyze: true,
-      } as any,
+      },
       {
         exposePaths: {
           './exposed': { import: './src/exposed.js' },
@@ -210,30 +294,45 @@ describe('pluginMFManifest', () => {
       hostInitInjectLocation: 'html',
       moduleParseTimeout: 10,
       ignoreOrigin: false,
-    } as any);
+    });
     getUsedRemotesMap.mockReturnValue(new Map());
     getUsedShares.mockReturnValue(new Set());
 
     const [, buildPlugin] = manifestPlugin();
     const emitted: Record<string, string> = {};
 
-    buildPlugin.config?.({}, { command: 'build', mode: 'test' });
-    buildPlugin.configResolved?.({
-      root: '/',
-      base: '/',
-      build: {},
-      server: { origin: 'http://localhost' },
-    } as any);
+    callHook(buildPlugin.config, {} as ConfigPluginContext, {}, { command: 'build', mode: 'test' });
+    callHook(
+      buildPlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        root: '/',
+        base: '/',
+        build: {},
+        server: { origin: 'http://localhost' },
+      } as unknown as ResolvedConfig
+    );
 
-    const ctx = {
-      emitFile: vi.fn((asset: { fileName: string; source: string }) => {
-        emitted[asset.fileName] = asset.source;
+    const emitFile: EmitFile = (asset) => {
+      if ('fileName' in asset && typeof asset.fileName === 'string' && 'source' in asset) {
+        emitted[asset.fileName] =
+          typeof asset.source === 'string'
+            ? asset.source
+            : Buffer.from(asset.source ?? new Uint8Array()).toString('utf8');
         return `id:${asset.fileName}`;
-      }),
-      resolve: vi.fn(async () => ({ id: '/node_modules/react/index.js' })),
+      }
+      return 'id:unknown';
+    };
+    const ctx: TestPluginContext = {
+      emitFile,
+      resolve: async (source) =>
+        ({
+          id: `/node_modules/${source}/index.js`,
+          external: false,
+        }) as ResolvedId,
     };
 
-    await buildPlugin.generateBundle?.call(ctx as any, {}, makeBundle() as any);
+    await runGenerateBundle(buildPlugin, ctx, makeBundle());
 
     const manifest = JSON.parse(emitted['mf-manifest.json']);
     expect(manifest.metaData.publicPath).toBe('auto');

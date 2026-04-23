@@ -6,7 +6,11 @@ const FEDERATION_CONTROL_CHUNK_HINTS = [
 
 export function stripEmptyPreloadCalls(code: string): string {
   const helperImportRegex = /import\s*\{\s*_\s*as\s*(\w+)\s*\}\s*from\s*["'][^"']+["']\s*;?/g;
-  const helperAliases = [...code.matchAll(helperImportRegex)].map((match) => match[1]);
+  const helperAliases: string[] = [];
+  let helperImportMatch: RegExpExecArray | null;
+  while ((helperImportMatch = helperImportRegex.exec(code)) !== null) {
+    helperAliases.push(helperImportMatch[1]);
+  }
   let nextCode = code;
 
   for (const alias of helperAliases) {

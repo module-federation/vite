@@ -1,3 +1,4 @@
+import type { ExportSpecifier, ImportSpecifier, parse as parseEsmModule } from 'es-module-lexer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareItem } from '../../utils/normalizeModuleFederationOptions';
 import {
@@ -10,11 +11,33 @@ const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
   mfWarnSpy: vi.fn(),
 }));
-const parseSpy = vi.hoisted(() => vi.fn((source: string) => [[], []]));
+const parseSpy = vi.hoisted(() =>
+  vi.fn<typeof parseEsmModule>((() => [[], []]) as unknown as typeof parseEsmModule)
+);
 
 const { hasPackageDependencyMock } = vi.hoisted(() => ({
-  hasPackageDependencyMock: vi.fn(() => false),
+  hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
 }));
+
+type MockRequire = NodeJS.Require & {
+  resolve: NodeJS.RequireResolve;
+};
+
+function getLastCallFirstArg<T>(mockFn: { mock: { calls: T[][] } }): T | undefined {
+  const calls = mockFn.mock.calls;
+  return calls.length > 0 ? calls[calls.length - 1][0] : undefined;
+}
+
+type ParseResult = ReturnType<typeof parseEsmModule>;
+
+function createParseResult(names: string[]): ParseResult {
+  return [
+    [] as ImportSpecifier[],
+    names.map((name) => ({ n: name }) as ExportSpecifier),
+    false,
+    true,
+  ];
+}
 
 vi.mock('../../utils/logger', () => ({
   mfWarn: mfWarnSpy,
@@ -242,18 +265,18 @@ vi.mock('module', async (importOriginal) => {
             initSync: vi.fn(),
             parse: parseSpy.mockImplementation((source: string) => {
               if (source.includes('useCounter')) {
-                return [[], [{ n: 'useCounter' }, { n: 'useLogger' }, { n: 'default' }]];
+                return createParseResult(['useCounter', 'useLogger', 'default']);
               }
               if (source.includes('__TYPE_ONLY_EXPORT__')) {
-                return [[], [{ n: 'type' }]];
+                return createParseResult(['type']);
               }
               if (source.includes('__RUNTIME_TYPE_EXPORT__')) {
-                return [[], [{ n: 'type' }, { n: 'other' }]];
+                return createParseResult(['type', 'other']);
               }
               if (source.includes('__RUNTIME_REEXPORT_TYPE__')) {
-                return [[], [{ n: 'type' }]];
+                return createParseResult(['type']);
               }
-              return [[], []];
+              return createParseResult([]);
             }),
           };
         }
@@ -319,50 +342,56 @@ vi.mock('module', async (importOriginal) => {
           throw error;
         }
         return {};
-      }) as NodeJS.Require;
+      }) as MockRequire;
 
-      req.resolve = (pkg: string) => {
-        if (pkg === 'transitive-pkg') {
-          if (!fromPath.includes('/repo/package.json')) {
-            throw new Error('MODULE_NOT_FOUND');
+      req.resolve = Object.assign(
+        (pkg: string) => {
+          if (pkg === 'transitive-pkg') {
+            if (!fromPath.includes('/repo/package.json')) {
+              throw new Error('MODULE_NOT_FOUND');
+            }
+            return '/repo/packages/pkg-b/dist/index.js';
           }
-          return '/repo/packages/pkg-b/dist/index.js';
-        }
-        if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
-          return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
-        }
-        if (pkg === 'lit') {
-          return '/repo/apps/remote/node_modules/lit/index.js';
-        }
-        if (pkg === 'lit/directives/class-map.js') {
-          return '/repo/apps/remote/node_modules/lit/directives/class-map.js';
-        }
-        if (pkg === 'mock-package-typeonly' || pkg.startsWith('mock-package-typeonly/')) {
-          return '/repo/apps/remote/node_modules/mock-package-typeonly/src/index.jsx';
-        }
-        if (pkg === 'mock-package-runtime-type' || pkg.startsWith('mock-package-runtime-type/')) {
-          return '/repo/apps/remote/node_modules/mock-package-runtime-type/src/index.js';
-        }
-        if (pkg === 'workspace-shared-lib') {
-          return '/repo/packages/workspace-shared-lib/src/index.tsx';
-        }
-        if (pkg === 'mock-package-reexport-type' || pkg.startsWith('mock-package-reexport-type/')) {
-          return '/repo/apps/remote/node_modules/mock-package-reexport-type/src/index.js';
-        }
-        if (
-          pkg === 'mock-package-generator-export' ||
-          pkg.startsWith('mock-package-generator-export/')
-        ) {
-          return '/repo/apps/remote/node_modules/mock-package-generator-export/src/index.js';
-        }
-        if (
-          pkg === 'mock-package-browser-conditional' ||
-          pkg.startsWith('mock-package-browser-conditional/')
-        ) {
-          return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/server.js';
-        }
-        return `/resolved/${pkg}`;
-      };
+          if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
+            return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
+          }
+          if (pkg === 'lit') {
+            return '/repo/apps/remote/node_modules/lit/index.js';
+          }
+          if (pkg === 'lit/directives/class-map.js') {
+            return '/repo/apps/remote/node_modules/lit/directives/class-map.js';
+          }
+          if (pkg === 'mock-package-typeonly' || pkg.startsWith('mock-package-typeonly/')) {
+            return '/repo/apps/remote/node_modules/mock-package-typeonly/src/index.jsx';
+          }
+          if (pkg === 'mock-package-runtime-type' || pkg.startsWith('mock-package-runtime-type/')) {
+            return '/repo/apps/remote/node_modules/mock-package-runtime-type/src/index.js';
+          }
+          if (pkg === 'workspace-shared-lib') {
+            return '/repo/packages/workspace-shared-lib/src/index.tsx';
+          }
+          if (
+            pkg === 'mock-package-reexport-type' ||
+            pkg.startsWith('mock-package-reexport-type/')
+          ) {
+            return '/repo/apps/remote/node_modules/mock-package-reexport-type/src/index.js';
+          }
+          if (
+            pkg === 'mock-package-generator-export' ||
+            pkg.startsWith('mock-package-generator-export/')
+          ) {
+            return '/repo/apps/remote/node_modules/mock-package-generator-export/src/index.js';
+          }
+          if (
+            pkg === 'mock-package-browser-conditional' ||
+            pkg.startsWith('mock-package-browser-conditional/')
+          ) {
+            return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/server.js';
+          }
+          return `/resolved/${pkg}`;
+        },
+        { paths: vi.fn() }
+      );
 
       return req;
     },

@@ -121,7 +121,7 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
         const parseCompleted = parseStartSet.size === parseEndSet.size;
         const exposesCompleted = !expectsExposesParseEnd || exposesParseEnd;
         if (parseCompleted && exposesCompleted) {
-          _resolve(1);
+          _resolve?.(1);
         }
       },
     },

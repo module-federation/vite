@@ -1,3 +1,14 @@
+import type {
+  ConfigEnv,
+  ConfigPluginContext,
+  IndexHtmlTransformContext,
+  IndexHtmlTransformResult,
+  MinimalPluginContextWithoutEnvironment,
+  Plugin,
+  ResolvedConfig,
+  Rollup,
+  UserConfig,
+} from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
@@ -8,6 +19,80 @@ vi.mock('../../utils/packageUtils', () => ({
 }));
 
 import addEntry from '../pluginAddEntry';
+
+type AddEntryPlugin = ReturnType<typeof addEntry>[number];
+
+type HookLike<TThis, TArgs extends unknown[], TResult> =
+  | ((this: TThis, ...args: TArgs) => TResult)
+  | { handler: (this: TThis, ...args: TArgs) => TResult };
+
+function callPluginHook<TThis, TArgs extends unknown[], TResult>(
+  hook: HookLike<TThis, TArgs, TResult> | undefined,
+  thisArg: TThis,
+  ...args: TArgs
+): TResult | undefined {
+  const handler = typeof hook === 'function' ? hook : hook?.handler;
+  return handler?.call(thisArg, ...args);
+}
+
+function runConfig(
+  plugin: AddEntryPlugin,
+  ctx: ConfigPluginContext,
+  config: UserConfig,
+  env: ConfigEnv
+): void {
+  callPluginHook(plugin.config, ctx, config, env);
+}
+
+function runConfigResolved(plugin: AddEntryPlugin, config: ResolvedConfig): void {
+  if (!plugin.configResolved) throw new Error(`${plugin.name} configResolved hook not found`);
+  callPluginHook(plugin.configResolved, {} as MinimalPluginContextWithoutEnvironment, config);
+}
+
+async function runTransform(plugin: AddEntryPlugin, code: string, id: string) {
+  if (!plugin.transform) throw new Error(`${plugin.name} transform hook not found`);
+  return await callPluginHook(plugin.transform, {} as Rollup.TransformPluginContext, code, id);
+}
+
+async function runTransformIndexHtml(
+  plugin: AddEntryPlugin,
+  html: string,
+  ctx: IndexHtmlTransformContext
+): Promise<void | IndexHtmlTransformResult> {
+  if (!plugin.transformIndexHtml)
+    throw new Error(`${plugin.name} transformIndexHtml hook not found`);
+  return await callPluginHook(
+    plugin.transformIndexHtml,
+    {} as MinimalPluginContextWithoutEnvironment,
+    html,
+    ctx
+  );
+}
+
+async function runLoad(plugin: AddEntryPlugin, id: string) {
+  if (!plugin.load) throw new Error(`${plugin.name} load hook not found`);
+  return await callPluginHook(plugin.load, {} as Rollup.PluginContext, id);
+}
+
+function runBuildStart(
+  plugin: AddEntryPlugin,
+  ctx: Rollup.PluginContext,
+  options: Rollup.NormalizedInputOptions
+): void {
+  if (!plugin.buildStart) throw new Error(`${plugin.name} buildStart hook not found`);
+  callPluginHook(plugin.buildStart, ctx, options);
+}
+
+function runGenerateBundle(
+  plugin: AddEntryPlugin,
+  ctx: Rollup.PluginContext,
+  outputOptions: Rollup.NormalizedOutputOptions,
+  bundle: Rollup.OutputBundle,
+  isWrite = false
+): void {
+  if (!plugin.generateBundle) throw new Error(`${plugin.name} generateBundle hook not found`);
+  callPluginHook(plugin.generateBundle, ctx, outputOptions, bundle, isWrite);
+}
 
 describe('pluginAddEntry', () => {
   beforeEach(() => {
@@ -34,7 +119,8 @@ describe('pluginAddEntry', () => {
       });
 
       const buildPlugin = plugins[1];
-      const result = (await buildPlugin.transform?.(
+      const result = (await runTransform(
+        buildPlugin,
         'export const browserEntry = true;',
         testCase.id
       )) as { code: string } | undefined;
@@ -57,7 +143,11 @@ describe('pluginAddEntry', () => {
     });
     const buildPlugin = plugins[1];
     const originalCode = 'import "/virtual/hostInit.js";\nexport const browserEntry = true;';
-    const result = await buildPlugin.transform?.(originalCode, 'virtual:vinext-app-browser-entry');
+    const result = await runTransform(
+      buildPlugin,
+      originalCode,
+      'virtual:vinext-app-browser-entry'
+    );
 
     expect(result).toBeUndefined();
   });
@@ -86,18 +176,26 @@ describe('pluginAddEntry', () => {
     const servePlugin = plugins[0];
     const buildPlugin = plugins[1];
 
-    servePlugin.config?.({}, { command: 'serve', mode: 'development' });
-    buildPlugin.config?.(
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
       { build: { rollupOptions: {} } },
       { command: 'serve', mode: 'development' }
     );
-    buildPlugin.configResolved?.({
+    runConfigResolved(buildPlugin, {
       root: tempDir,
       base: '/',
       build: { rollupOptions: {} },
-    } as any);
+    } as unknown as ResolvedConfig);
 
-    const result = (await buildPlugin.transform?.(
+    const result = (await runTransform(
+      buildPlugin,
       'export const browserEntry = true;',
       '/src/main.tsx'
     )) as { code: string } | undefined;
@@ -107,7 +205,7 @@ describe('pluginAddEntry', () => {
     expect(result?.code).toContain('})().then(() => import("/src/main.tsx?mf-entry-bootstrap"));');
   });
 
-  it('rewrites dev html entry scripts to external proxy modules instead of inline scripts', () => {
+  it('rewrites dev html entry scripts to external proxy modules instead of inline scripts', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-html-'));
     fs.writeFileSync(path.join(tempDir, 'index.html'), '<html></html>');
 
@@ -119,27 +217,42 @@ describe('pluginAddEntry', () => {
 
     const servePlugin = plugins[0];
     const buildPlugin = plugins[1];
-    servePlugin.config?.({}, { command: 'serve', mode: 'development' });
-    buildPlugin.config?.(
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
       { build: { rollupOptions: {} } },
       { command: 'serve', mode: 'development' }
     );
-    servePlugin.configResolved?.({
+    runConfigResolved(servePlugin, {
       base: '/',
       root: tempDir,
       build: { rollupOptions: {} },
-    } as any);
-    buildPlugin.configResolved?.({
+    } as unknown as ResolvedConfig);
+    runConfigResolved(buildPlugin, {
       base: '/',
       root: tempDir,
       build: { rollupOptions: {} },
-    } as any);
+    } as unknown as ResolvedConfig);
 
-    const hook = servePlugin.transformIndexHtml;
-    const handler = typeof hook === 'object' ? hook.handler : hook;
-    const result = handler?.(
-      '<html><head><script type="module" src="/@vite/client"></script></head><body><script type="module" src="/src/main.tsx"></script></body></html>'
+    const result = await runTransformIndexHtml(
+      servePlugin,
+      '<html><head><script type="module" src="/@vite/client"></script></head><body><script type="module" src="/src/main.tsx"></script></body></html>',
+      {
+        filename: path.join(tempDir, 'index.html'),
+        path: '/index.html',
+        server: undefined,
+        originalUrl: '/index.html',
+      }
     );
+
+    expect(typeof result).toBe('string');
+    if (typeof result !== 'string') throw new Error('transformIndexHtml should return html string');
 
     expect(result).toContain('src="/@vite/client"');
     expect(result).toContain('src="/@id/virtual:mf-html-entry-proxy?');
@@ -147,7 +260,7 @@ describe('pluginAddEntry', () => {
     expect(result).not.toContain('<script type="module">');
   });
 
-  it('rewrites entry scripts and resolves proxy imports with non-root base (#590)', () => {
+  it('rewrites entry scripts and resolves proxy imports with non-root base (#590)', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-html-base-'));
     fs.writeFileSync(path.join(tempDir, 'index.html'), '<html></html>');
 
@@ -159,28 +272,42 @@ describe('pluginAddEntry', () => {
 
     const servePlugin = plugins[0];
     const buildPlugin = plugins[1];
-    servePlugin.config?.({}, { command: 'serve', mode: 'development' });
-    buildPlugin.config?.(
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
       { build: { rollupOptions: {} } },
       { command: 'serve', mode: 'development' }
     );
-    servePlugin.configResolved?.({
+    runConfigResolved(servePlugin, {
       base: '/foo/',
       root: tempDir,
       build: { rollupOptions: {} },
-    } as any);
-    buildPlugin.configResolved?.({
+    } as unknown as ResolvedConfig);
+    runConfigResolved(buildPlugin, {
       base: '/foo/',
       root: tempDir,
       build: { rollupOptions: {} },
-    } as any);
+    } as unknown as ResolvedConfig);
 
     // User's HTML with a non-root base — entry src may or may not include base
-    const hook = servePlugin.transformIndexHtml;
-    const handler = typeof hook === 'object' ? hook.handler : hook;
-    const result = handler?.(
-      '<html><head><script type="module" src="/foo/@vite/client"></script></head><body><script type="module" src="/foo/src/main.tsx"></script></body></html>'
-    ) as string;
+    const result = await runTransformIndexHtml(
+      servePlugin,
+      '<html><head><script type="module" src="/foo/@vite/client"></script></head><body><script type="module" src="/foo/src/main.tsx"></script></body></html>',
+      {
+        filename: path.join(tempDir, 'index.html'),
+        path: '/index.html',
+        server: undefined,
+        originalUrl: '/index.html',
+      }
+    );
+    expect(typeof result).toBe('string');
+    if (typeof result !== 'string') throw new Error('transformIndexHtml should return html string');
 
     // Vite client must not be rewritten
     expect(result).toContain('src="/foo/@vite/client"');
@@ -191,7 +318,9 @@ describe('pluginAddEntry', () => {
     const proxyIdMatch = result.match(/src="\/@id\/(virtual:mf-html-entry-proxy\?[^"]+)"/);
     expect(proxyIdMatch).not.toBeNull();
     const proxyId = decodeURIComponent(proxyIdMatch![1]).replace(/&amp;/g, '&');
-    const code = servePlugin.load?.(proxyId) as string;
+    const code = await runLoad(servePlugin, proxyId);
+    expect(typeof code).toBe('string');
+    if (typeof code !== 'string') throw new Error('load hook should return proxy module code');
 
     // The proxy module must import both init and entry as resolvable paths
     // (no base prefix — Vite's server-side resolver handles base itself)
@@ -210,8 +339,8 @@ describe('pluginAddEntry', () => {
     const buildPlugin = plugins[1];
     const emitted: unknown[] = [];
 
-    buildPlugin.config?.({}, { command: 'build', mode: 'production' });
-    buildPlugin.configResolved?.({
+    runConfig(buildPlugin, {} as ConfigPluginContext, {}, { command: 'build', mode: 'production' });
+    runConfigResolved(buildPlugin, {
       root: '/repo/svelte/host',
       base: '/',
       command: 'build',
@@ -223,13 +352,17 @@ describe('pluginAddEntry', () => {
           },
         },
       },
-    } as any);
+    } as unknown as ResolvedConfig);
 
-    buildPlugin.buildStart?.call(
-      { emitFile: (file: unknown) => emitted.push(file) } as any,
-      {} as any
+    runBuildStart(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => (emitted.push(file), ''),
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
     );
-    const result = await buildPlugin.transform?.(
+    const result = await runTransform(
+      buildPlugin,
       'export const server = true;',
       '/repo/node_modules/@sveltejs/kit/src/runtime/server/index.js'
     );
@@ -247,20 +380,26 @@ describe('pluginAddEntry', () => {
     const servePlugin = plugins[0];
     const buildPlugin = plugins[1];
 
-    servePlugin.config?.({}, { command: 'serve', mode: 'development' });
-    servePlugin.configResolved?.({
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(servePlugin, {
       root: '/repo/svelte/host',
       base: '/',
       build: { rollupOptions: {} },
-    } as any);
-    buildPlugin.configResolved?.({
+    } as unknown as ResolvedConfig);
+    runConfigResolved(buildPlugin, {
       root: '/repo/svelte/host',
       base: '/',
       command: 'serve',
       build: { rollupOptions: {} },
-    } as any);
+    } as unknown as ResolvedConfig);
 
-    const result = await buildPlugin.transform?.(
+    const result = await runTransform(
+      buildPlugin,
       'export const server = true;',
       '/repo/svelte/host/.svelte-kit/generated/server/internal.js'
     );
@@ -277,24 +416,32 @@ describe('pluginAddEntry', () => {
     const servePlugin = plugins[0];
     const buildPlugin = plugins[1];
 
-    servePlugin.config?.({}, { command: 'serve', mode: 'development' });
-    buildPlugin.config?.(
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
       { build: { rollupOptions: {} } },
       { command: 'serve', mode: 'development' }
     );
-    servePlugin.configResolved?.({
+    runConfigResolved(servePlugin, {
       root: '/repo/nuxt/host',
       base: '/',
       build: { rollupOptions: {} },
-    } as any);
-    buildPlugin.configResolved?.({
+    } as unknown as ResolvedConfig);
+    runConfigResolved(buildPlugin, {
       root: '/repo/nuxt/host',
       base: '/',
       command: 'serve',
       build: { rollupOptions: {} },
-    } as any);
+    } as unknown as ResolvedConfig);
 
-    const result = await buildPlugin.transform?.(
+    const result = await runTransform(
+      buildPlugin,
       'export const polyfill = true;',
       '\0vite/modulepreload-polyfill.js'
     );
@@ -328,20 +475,26 @@ describe('pluginAddEntry', () => {
       },
     };
 
-    buildPlugin.configResolved?.({
+    runConfigResolved(buildPlugin, {
       root: '/repo/svelte/host',
       base: '/',
       command: 'build',
       build: { rollupOptions: { input: { client: '/repo/.svelte-kit/generated/client.js' } } },
-    } as any);
-    buildPlugin.buildStart?.call(
-      { emitFile: (file: unknown) => (emitted.push(file), 'host-init-ref') } as any,
-      {} as any
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => (emitted.push(file), 'host-init-ref'),
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
     );
-    buildPlugin.generateBundle?.call(
-      { getFileName: () => 'assets/hostInit.js' } as any,
-      {} as any,
-      bundle,
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'assets/hostInit.js',
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
       false
     );
 

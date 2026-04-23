@@ -26,6 +26,11 @@ import {
   virtualRuntimeInitStatus,
 } from './virtualRuntimeInitStatus';
 
+const JS_IDENTIFIER_REGEX = new RegExp(
+  '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
+  'u'
+);
+
 function escapeGeneratedStringLiteral(value: string): string {
   return JSON.stringify(value).replace(/[<>\u2028\u2029]/g, (char) => {
     switch (char) {
@@ -44,7 +49,7 @@ function escapeGeneratedStringLiteral(value: string): string {
 }
 
 function isValidJsIdentifier(name: string): boolean {
-  return /^[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*$/u.test(name);
+  return JS_IDENTIFIER_REGEX.test(name);
 }
 
 function isValidEsmExportName(name: string | undefined): name is string {
@@ -141,7 +146,9 @@ function getEsmNamedExports(pkg: string): string[] {
     const regexNames = getNamedExportsViaRegex(source, entryPath);
     const filteredNames = names.filter((name) => name !== 'type' || regexNames.includes(name));
 
-    if (filteredNames.length > 0) return [...new Set([...filteredNames, ...regexNames])];
+    if (filteredNames.length > 0) {
+      return Array.from(new Set([...filteredNames, ...regexNames]));
+    }
 
     return regexNames;
   } catch {
@@ -230,7 +237,7 @@ function getNamedExportsViaRegex(
     }
   }
 
-  return [...names];
+  return Array.from(names);
 }
 
 function getPackageNamedExports(pkg: string): string[] {
