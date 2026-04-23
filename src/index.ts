@@ -325,7 +325,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       entryName: 'hostInit',
       entryPath: () => getHostAutoInitPath(),
       inject: hostInitInjectLocation,
-      waitForInit: true,
     }),
     ...addEntry({
       entryName: 'virtualExposes',
@@ -773,19 +772,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
       },
     },
-    {
-      name: 'module-federation-dev-await-shared-init',
-      apply: 'serve',
-      enforce: 'post',
-      transform(code, id) {
-        return;
-      },
-    },
     PluginDevProxyModuleTopLevelAwait(),
     {
       name: 'module-federation-vite',
       enforce: 'post',
-      // @ts-expect-error
       // used to expose plugin options: https://github.com/rolldown/rolldown/discussions/2577#discussioncomment-11137593
       _options: options,
       config(config, { command: _command }: { command: string }) {

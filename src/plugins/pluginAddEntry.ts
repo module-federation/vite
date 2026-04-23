@@ -19,7 +19,6 @@ interface AddEntryOptions {
   entryPath: string | (() => string);
   fileName?: string;
   inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
-  waitForInit?: boolean;
 }
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
@@ -31,10 +30,10 @@ const addEntry = ({
   entryPath,
   fileName,
   inject = 'entry',
-  waitForInit = false,
 }: AddEntryOptions): Plugin[] => {
   const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
   const ENTRY_BOOTSTRAP_QUERY = '?mf-entry-bootstrap';
+  const waitsForInit = entryName === 'hostInit';
   const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
   let devEntryPath = '';
   let entryFiles: string[] = [];
@@ -425,7 +424,7 @@ const addEntry = ({
             /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id));
         if (shouldInject) {
           clientInjected = true;
-          if (!waitForInit) {
+          if (!waitsForInit) {
             const injection = `import ${JSON.stringify(getEntryPath())};\n`;
             return mapCodeToCodeWithSourcemap(injection + code);
           }
