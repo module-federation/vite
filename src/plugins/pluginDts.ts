@@ -1,3 +1,5 @@
+import fs from 'fs';
+import type { IncomingMessage, ServerResponse } from 'http';
 import { normalizeOptions, type moduleFederationPlugin } from '@module-federation/sdk';
 import {
   consumeTypesAPI,
@@ -11,6 +13,7 @@ import { rpc, type DTSManagerOptions } from '@module-federation/dts-plugin/core'
 import * as path from 'pathe';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { hasPackageDependency } from '../utils/packageUtils';
 import { createModuleFederationError, mfError } from '../utils/logger';
 
 type DevOptions = {
@@ -28,6 +31,9 @@ const DEFAULT_DEV_OPTIONS: Required<DevOptions> = {
 const DYNAMIC_HINTS_PLUGIN = '@module-federation/dts-plugin/dynamic-remote-type-hints-plugin';
 
 const getIPv4 = () => process.env['FEDERATION_IPV4'] || '127.0.0.1';
+
+const DEV_TYPES_FOLDER = '.dev-server';
+const DEFAULT_PUBLIC_TYPES_FOLDER = '@mf-types';
 
 type DevWorkerOptions = DTSManagerOptions & {
   name: string;
@@ -133,6 +139,136 @@ const ensureRuntimePlugin = (
   }
 };
 
+const getExposeImportPaths = (options: NormalizedModuleFederationOptions): string[] => {
+  return Object.values(options.exposes)
+    .map((value) => {
+      if (typeof value === 'string') {
+        return value;
+      }
+
+      return Array.isArray(value.import) ? value.import[0] : value.import;
+    })
+    .filter((value): value is string => Boolean(value));
+};
+
+const usesVueSfcExposes = (options: NormalizedModuleFederationOptions): boolean => {
+  return getExposeImportPaths(options).some((value) => value.endsWith('.vue'));
+};
+
+export const resolveDtsPluginOptions = (
+  dts: NormalizedModuleFederationOptions['dts'],
+  options: NormalizedModuleFederationOptions,
+  context: string
+): NormalizedModuleFederationOptions['dts'] => {
+  if (dts === false) {
+    return false;
+  }
+
+  const inferredGenerateTypesDefaults: moduleFederationPlugin.DtsRemoteOptions = {
+    generateAPITypes: true,
+  };
+
+  if (usesVueSfcExposes(options) && hasPackageDependency('vue-tsc', context)) {
+    inferredGenerateTypesDefaults.compilerInstance = 'vue-tsc';
+  }
+
+  if (dts === true || typeof dts === 'undefined') {
+    return {
+      generateTypes: inferredGenerateTypesDefaults,
+    };
+  }
+
+  const generateTypes = dts.generateTypes;
+
+  return {
+    ...dts,
+    generateTypes:
+      generateTypes === false
+        ? false
+        : {
+            ...inferredGenerateTypesDefaults,
+            ...(generateTypes === true || typeof generateTypes === 'undefined'
+              ? {}
+              : generateTypes),
+          },
+  };
+};
+
+const getBasePath = (base: string): string => {
+  if (base.startsWith('http://') || base.startsWith('https://')) {
+    return new URL(base).pathname.replace(/\/$/, '') || '/';
+  }
+  return base.replace(/\/$/, '') || '/';
+};
+
+const joinBaseAndAsset = (base: string, assetFileName: string): string => {
+  const basePath = getBasePath(base);
+  return `${basePath === '/' ? '' : basePath}/${assetFileName}`.replace(/\/{2,}/g, '/');
+};
+
+type DevDtsAssetPaths = {
+  apiFilePath: string;
+  apiRequestPath: string;
+  zipFilePath: string;
+  zipRequestPath: string;
+};
+
+export const getDevDtsAssetPaths = (options: {
+  outputDir: string;
+  publicTypesFolder: string;
+  root: string;
+  base: string;
+}): DevDtsAssetPaths => {
+  const { outputDir, publicTypesFolder, root, base } = options;
+
+  return {
+    apiFilePath: path.resolve(root, outputDir, `${DEV_TYPES_FOLDER}.d.ts`),
+    apiRequestPath: joinBaseAndAsset(base, `${publicTypesFolder}.d.ts`),
+    zipFilePath: path.resolve(root, outputDir, `${DEV_TYPES_FOLDER}.zip`),
+    zipRequestPath: joinBaseAndAsset(base, `${publicTypesFolder}.zip`),
+  };
+};
+
+export const createDevDtsAssetMiddleware = (assetPaths: DevDtsAssetPaths) => {
+  return (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+    const requestPath = req.url?.split('?')[0];
+    const isZipRequest = requestPath === assetPaths.zipRequestPath;
+    const isApiRequest = requestPath === assetPaths.apiRequestPath;
+
+    if (!isZipRequest && !isApiRequest) {
+      next();
+      return;
+    }
+
+    const filePath = isZipRequest ? assetPaths.zipFilePath : assetPaths.apiFilePath;
+    if (!fs.existsSync(filePath)) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+
+    res.statusCode = 200;
+    res.setHeader('Content-Type', isZipRequest ? 'application/x-gzip' : 'application/typescript');
+
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.statusCode = 500;
+      }
+      res.end();
+    });
+    res.on('close', () => {
+      stream.destroy();
+    });
+    stream.pipe(res);
+  };
+};
+
 const normalizeDevDtsOptions = (
   dts: NormalizedModuleFederationOptions['dts'],
   context: string
@@ -174,7 +310,13 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
     return [];
   }
 
-  const dtsModuleFederationConfig = buildDtsModuleFederationConfig(options);
+  const baseDtsModuleFederationConfig = buildDtsModuleFederationConfig(options);
+  const getDtsModuleFederationConfig = (
+    context: string
+  ): moduleFederationPlugin.ModuleFederationPluginOptions => ({
+    ...baseDtsModuleFederationConfig,
+    dts: resolveDtsPluginOptions(options.dts, options, context),
+  });
   let resolvedConfig: ResolvedConfig | undefined;
   let devWorker: DevWorker | undefined;
   let normalizedDevOptions: DevOptions | false | undefined;
@@ -222,7 +364,11 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
       }
 
       const outputDir = resolveOutputDir(resolvedConfig);
-      const normalizedDtsOptions = normalizeDevDtsOptions(options.dts, resolvedConfig.root);
+      const dtsModuleFederationConfig = getDtsModuleFederationConfig(resolvedConfig.root);
+      const normalizedDtsOptions = normalizeDevDtsOptions(
+        dtsModuleFederationConfig.dts as NormalizedModuleFederationOptions['dts'],
+        resolvedConfig.root
+      );
 
       if (typeof normalizedDtsOptions !== 'object') {
         return;
@@ -244,10 +390,24 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
               moduleFederationConfig: {
                 ...dtsModuleFederationConfig,
               },
-              hostRemoteTypesFolder: normalizedGenerateTypes.typesFolder || '@mf-types',
+              hostRemoteTypesFolder:
+                normalizedGenerateTypes.typesFolder || DEFAULT_PUBLIC_TYPES_FOLDER,
               ...normalizedGenerateTypes,
-              typesFolder: '.dev-server',
+              typesFolder: DEV_TYPES_FOLDER,
             };
+
+      if (remote) {
+        server.middlewares.use(
+          createDevDtsAssetMiddleware(
+            getDevDtsAssetPaths({
+              outputDir,
+              publicTypesFolder: remote.hostRemoteTypesFolder || DEFAULT_PUBLIC_TYPES_FOLDER,
+              root: resolvedConfig.root,
+              base: resolvedConfig.base,
+            })
+          )
+        );
+      }
 
       if (
         remote &&
@@ -346,7 +506,10 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
       }
       let normalizedDtsOptions: moduleFederationPlugin.PluginDtsOptions | false;
       try {
-        normalizedDtsOptions = normalizeDtsOptions(dtsModuleFederationConfig, resolvedConfig.root);
+        normalizedDtsOptions = normalizeDtsOptions(
+          getDtsModuleFederationConfig(resolvedConfig.root),
+          resolvedConfig.root
+        );
       } catch (error) {
         logDtsError(error, options.dts);
         return;
@@ -364,7 +527,7 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
         consumeOptions = normalizeConsumeTypesOptions({
           context,
           dtsOptions: normalizedDtsOptions,
-          pluginOptions: dtsModuleFederationConfig,
+          pluginOptions: getDtsModuleFederationConfig(resolvedConfig.root),
         });
       } catch (error) {
         logDtsError(error, normalizedDtsOptions);
@@ -385,7 +548,7 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
           context,
           outputDir,
           dtsOptions: normalizedDtsOptions,
-          pluginOptions: dtsModuleFederationConfig,
+          pluginOptions: getDtsModuleFederationConfig(resolvedConfig.root),
         });
       } catch (error) {
         logDtsError(error, normalizedDtsOptions);
