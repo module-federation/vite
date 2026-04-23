@@ -1,6 +1,9 @@
+import type { IncomingMessage, ServerResponse } from 'http';
+import type { MinimalPluginContextWithoutEnvironment } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import pluginDevRemoteHmr from '../pluginDevRemoteHmr';
-
+import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
+import { callHook } from '../../utils/__tests__/viteHookHelpers';
 const { mfWarn } = vi.hoisted(() => ({
   mfWarn: vi.fn(),
 }));
@@ -10,6 +13,59 @@ vi.mock('../../utils/logger', () => ({
 }));
 
 type WatcherEvent = 'change' | 'add' | 'unlink';
+
+type Middleware = (
+  req: IncomingMessage,
+  res: ServerResponse<IncomingMessage>,
+  next: () => void
+) => void;
+
+type MockServer = {
+  config: {
+    base: string;
+    webSocketToken: string;
+    server: {
+      host: string;
+      port: number;
+      https: boolean;
+      hmr:
+        | undefined
+        | {
+            host?: string;
+            clientPort?: number;
+            path?: string;
+          };
+    };
+  };
+  middlewares: {
+    use: ReturnType<typeof vi.fn<(handler: Middleware) => void>>;
+  };
+  watcher: {
+    on: ReturnType<typeof vi.fn<(event: WatcherEvent, handler: (file: string) => void) => void>>;
+    off: ReturnType<typeof vi.fn<(event: WatcherEvent, handler: (file: string) => void) => void>>;
+  };
+  ws: {
+    send: ReturnType<typeof vi.fn>;
+  };
+  httpServer: {
+    once: ReturnType<typeof vi.fn<(event: string, handler: () => void) => void>>;
+  };
+};
+
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+};
+
+function runConfigureServer(
+  plugin: ReturnType<typeof pluginDevRemoteHmr>,
+  server: MockServer
+): void {
+  callHook(
+    plugin.configureServer,
+    {} as MinimalPluginContextWithoutEnvironment,
+    server as unknown as import('vite').ViteDevServer
+  );
+}
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
@@ -36,24 +92,31 @@ class MockWebSocket {
   }
 }
 
-function createServer(overrides: Record<string, any> = {}) {
+function createServer(overrides: DeepPartial<MockServer> = {}) {
   const watcherHandlers = new Map<WatcherEvent, Set<(file: string) => void>>();
   const closeHandlers: Array<() => void> = [];
-  const middlewares: Array<(req: any, res: any, next: () => void) => void> = [];
+  const middlewares: Middleware[] = [];
 
-  const server = {
+  const server: MockServer = {
     config: {
-      base: '/',
-      webSocketToken: 'dev-token',
+      base: overrides.config?.base ?? '/',
+      webSocketToken: overrides.config?.webSocketToken ?? 'dev-token',
       server: {
-        host: 'localhost',
-        port: 5173,
-        https: false,
-        hmr: undefined,
+        host: overrides.config?.server?.host ?? 'localhost',
+        port: overrides.config?.server?.port ?? 5173,
+        https: overrides.config?.server?.https ?? false,
+        hmr:
+          overrides.config?.server?.hmr === undefined
+            ? undefined
+            : {
+                host: overrides.config.server.hmr.host,
+                clientPort: overrides.config.server.hmr.clientPort,
+                path: overrides.config.server.hmr.path,
+              },
       },
     },
     middlewares: {
-      use: vi.fn((handler: (req: any, res: any, next: () => void) => void) => {
+      use: vi.fn((handler: Middleware) => {
         middlewares.push(handler);
       }),
     },
@@ -75,7 +138,6 @@ function createServer(overrides: Record<string, any> = {}) {
         if (event === 'close') closeHandlers.push(handler);
       }),
     },
-    ...overrides,
   };
 
   return {
@@ -115,15 +177,17 @@ describe('pluginDevRemoteHmr', () => {
       },
     });
 
-    const plugin = pluginDevRemoteHmr({
-      name: 'remote-app',
-      dev: { remoteHmr: true },
-      exposes: { './Button': { import: './src/Button.tsx' } },
-      remotes: {},
-      virtualModuleDir: '__mf__virtual',
-    } as any);
+    const plugin = pluginDevRemoteHmr(
+      normalizeModuleFederationOptions({
+        name: 'remote-app',
+        dev: { remoteHmr: true },
+        exposes: { './Button': { import: './src/Button.tsx' } },
+        remotes: {},
+        virtualModuleDir: '__mf__virtual',
+      })
+    );
 
-    plugin.configureServer?.(server as any);
+    runConfigureServer(plugin, server);
 
     expect(middlewares).toHaveLength(1);
 
@@ -132,7 +196,11 @@ describe('pluginDevRemoteHmr', () => {
       end: vi.fn(),
     };
     const next = vi.fn();
-    middlewares[0]({ url: '/app/__mf_hmr?x=1' }, res, next);
+    middlewares[0](
+      { url: '/app/__mf_hmr?x=1' } as IncomingMessage,
+      res as unknown as ServerResponse<IncomingMessage>,
+      next
+    );
 
     expect(next).not.toHaveBeenCalled();
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'application/json');
@@ -172,7 +240,7 @@ describe('pluginDevRemoteHmr', () => {
     }));
 
     vi.stubGlobal('fetch', fetchMock);
-    vi.stubGlobal('WebSocket', MockWebSocket as any);
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket);
 
     const { server, close } = createServer({
       config: {
@@ -187,19 +255,19 @@ describe('pluginDevRemoteHmr', () => {
       },
     });
 
-    const plugin = pluginDevRemoteHmr({
-      name: 'host-app',
-      dev: { remoteHmr: true },
-      exposes: {},
-      remotes: {
-        remoteApp: {
-          entry: 'http://remote.example/assets/remoteEntry.js?x=1#hash',
+    const plugin = pluginDevRemoteHmr(
+      normalizeModuleFederationOptions({
+        name: 'host-app',
+        dev: { remoteHmr: true },
+        exposes: {},
+        remotes: {
+          remoteApp: 'remoteApp@http://remote.example/assets/remoteEntry.js?x=1#hash',
         },
-      },
-      virtualModuleDir: '__mf__virtual',
-    } as any);
+        virtualModuleDir: '__mf__virtual',
+      })
+    );
 
-    plugin.configureServer?.(server as any);
+    runConfigureServer(plugin, server);
 
     await vi.waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith('http://remote.example/assets/__mf_hmr')
@@ -234,23 +302,23 @@ describe('pluginDevRemoteHmr', () => {
     }));
 
     vi.stubGlobal('fetch', fetchMock);
-    vi.stubGlobal('WebSocket', MockWebSocket as any);
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket);
 
     const { server, emit } = createServer();
 
-    const plugin = pluginDevRemoteHmr({
-      name: 'host-app',
-      dev: { remoteHmr: true },
-      exposes: {},
-      remotes: {
-        remoteApp: {
-          entry: 'http://remote.example/assets/remoteEntry.js',
+    const plugin = pluginDevRemoteHmr(
+      normalizeModuleFederationOptions({
+        name: 'host-app',
+        dev: { remoteHmr: true },
+        exposes: {},
+        remotes: {
+          remoteApp: 'remoteApp@http://remote.example/assets/remoteEntry.js',
         },
-      },
-      virtualModuleDir: '__mf__virtual',
-    } as any);
+        virtualModuleDir: '__mf__virtual',
+      })
+    );
 
-    plugin.configureServer?.(server as any);
+    runConfigureServer(plugin, server);
 
     await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
 

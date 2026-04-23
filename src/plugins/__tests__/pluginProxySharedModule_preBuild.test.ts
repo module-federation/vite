@@ -1,9 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  ConfigEnv,
+  ConfigPluginContext,
+  MinimalPluginContextWithoutEnvironment,
+  ResolvedConfig,
+  UserConfig,
+} from 'vite';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { callHook } from '../../utils/__tests__/viteHookHelpers';
 
 const { hasPackageDependencyMock, existsSyncMock, readFileSyncMock } = vi.hoisted(() => ({
-  hasPackageDependencyMock: vi.fn(),
-  existsSyncMock: vi.fn(() => false),
-  readFileSyncMock: vi.fn(() => '{}'),
+  hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(),
+  existsSyncMock: vi.fn<(path: string) => boolean>(() => false),
+  readFileSyncMock: vi.fn<(path: string) => string>(() => '{}'),
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -51,7 +59,41 @@ vi.mock('../../utils/VirtualModule', () => ({
 import { proxySharedModule } from '../pluginProxySharedModule_preBuild';
 import { NormalizedShared } from '../../utils/normalizeModuleFederationOptions';
 
-const preBuildShareItemMap = new Map<string, NormalizedShared[string]>();
+type AliasEntry = {
+  find: RegExp;
+  replacement?: string | ((value: string) => string);
+  customResolver?: (source: string, importer: string) => unknown;
+};
+
+type MockUserConfig = UserConfig & {
+  resolve: {
+    alias: AliasEntry[];
+  };
+};
+
+type MockConfigResolved = Pick<ResolvedConfig, 'cacheDir'> & {
+  experimental: { rolldownDev: boolean };
+};
+
+const preBuildShareItemMap = new Map<string, NormalizedShared[string] | undefined>();
+let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+
+type TestPluginMeta = {
+  rollupVersion: string;
+  rolldownVersion: string;
+  viteVersion: string;
+  watchMode: boolean;
+};
+
+function createPluginMeta(overrides: Partial<TestPluginMeta> = {}): TestPluginMeta {
+  return {
+    rollupVersion: '4.0.0',
+    rolldownVersion: '1.0.0',
+    viteVersion: '7.0.0',
+    watchMode: false,
+    ...overrides,
+  };
+}
 
 vi.mock('../../virtualModules', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../virtualModules')>();
@@ -125,6 +167,11 @@ describe('pluginProxySharedModule_preBuild', () => {
   beforeEach(() => {
     hasPackageDependencyMock.mockReset();
     preBuildShareItemMap.clear();
+    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleWarnSpy.mockRestore();
   });
 
   for (const testCase of [
@@ -178,25 +225,23 @@ describe('pluginProxySharedModule_preBuild', () => {
 
       const plugins = proxySharedModule({ shared: makeShared() });
       const proxyPlugin = plugins[1];
-      const config = {
+      const config: MockUserConfig = {
         resolve: {
-          alias: [] as Array<{
-            find: RegExp;
-            customResolver?: (source: string, importer: string) => unknown;
-          }>,
+          alias: [],
         },
       };
 
-      proxyPlugin.config?.call(
+      callHook(
+        proxyPlugin.config,
         {
-          meta: {},
+          meta: createPluginMeta(),
           resolve: async (id: string) => ({ id: `/resolved/${id}` }),
-        },
-        config as any,
+        } as unknown as ConfigPluginContext,
+        config,
         {
           command: 'serve',
           mode: 'development',
-        }
+        } as ConfigEnv
       );
 
       const alias = config.resolve.alias.find((entry) => entry.find.test(testCase.source));
@@ -212,13 +257,7 @@ describe('pluginProxySharedModule_preBuild', () => {
         return;
       }
 
-      const resolution = await alias?.customResolver?.call(
-        {
-          resolve: async (id: string) => ({ id: `/resolved/${id}` }),
-        },
-        testCase.source,
-        '/src/main.ts'
-      );
+      const resolution = await alias?.customResolver?.(testCase.source, '/src/main.ts');
       expect(resolution).toBeUndefined();
     });
   }
@@ -244,22 +283,33 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const plugins = proxySharedModule({ shared });
     const proxyPlugin = plugins[1];
-    const config = {
-      resolve: { alias: [] as any[] },
+    const config: MockUserConfig = {
+      resolve: { alias: [] },
     };
 
-    proxyPlugin.config?.call(
-      { meta: {}, resolve: async (id: string) => ({ id: `/resolved/${id}` }) },
-      config as any,
-      { command: 'serve', mode: 'development' }
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'development' } as ConfigEnv
     );
-    proxyPlugin.configResolved?.({
-      cacheDir: '/vite/deps',
-      experimental: { rolldownDev: false },
-    } as any);
+    callHook(
+      proxyPlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        cacheDir: '/vite/deps',
+        experimental: { rolldownDev: false },
+      } as unknown as ResolvedConfig
+    );
 
     // import: false dep should not have a prebuild entry
     expect(preBuildShareItemMap.has('host-only')).toBe(false);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Shared dependency "host-only" has import: false')
+    );
     // Normal deps should still have prebuild entries
     expect(preBuildShareItemMap.has('react')).toBe(true);
     expect(preBuildShareItemMap.has('vue')).toBe(true);
@@ -270,19 +320,21 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const plugins = proxySharedModule({ shared: makeShared() });
     const proxyPlugin = plugins[1];
-    const config = {
+    const config: MockUserConfig = {
       resolve: {
-        alias: [] as Array<{
-          find: RegExp;
-          replacement?: string | ((value: string) => string);
-        }>,
+        alias: [],
       },
     };
 
-    proxyPlugin.config?.call({ meta: {} }, config as any, {
-      command: 'build',
-      mode: 'production',
-    });
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      config,
+      {
+        command: 'build',
+        mode: 'production',
+      } as ConfigEnv
+    );
 
     preBuildShareItemMap.set('transitive', makeShared().transitive);
 
@@ -309,26 +361,23 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const plugins = proxySharedModule({ shared });
     const proxyPlugin = plugins[1];
-    const config = {
+    const config: MockUserConfig = {
       resolve: {
-        alias: [] as Array<{
-          find: RegExp;
-          customResolver?: (source: string, importer: string) => unknown;
-          replacement?: string | ((value: string) => string);
-        }>,
+        alias: [],
       },
     };
 
-    proxyPlugin.config?.call(
+    callHook(
+      proxyPlugin.config,
       {
-        meta: {},
+        meta: createPluginMeta(),
         resolve: async (id: string) => ({ id: `/resolved/${id}` }),
-      },
-      config as any,
+      } as unknown as ConfigPluginContext,
+      config,
       {
         command: 'build',
         mode: 'production',
-      }
+      } as ConfigEnv
     );
 
     preBuildShareItemMap.set('transitive', shared['transitive/']);
@@ -346,19 +395,21 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const plugins = proxySharedModule({ shared: makeShared() });
     const proxyPlugin = plugins[1];
-    const config = {
+    const config: MockUserConfig = {
       resolve: {
-        alias: [] as Array<{
-          find: RegExp;
-          replacement?: string | ((value: string) => string);
-        }>,
+        alias: [],
       },
     };
 
-    proxyPlugin.config?.call({ meta: {} }, config as any, {
-      command: 'build',
-      mode: 'production',
-    });
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      config,
+      {
+        command: 'build',
+        mode: 'production',
+      } as ConfigEnv
+    );
 
     preBuildShareItemMap.set('transitive-no-override', makeShared()['transitive-no-override']);
 
@@ -375,30 +426,28 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const plugins = proxySharedModule({ shared: makeShared() });
     const proxyPlugin = plugins[1];
-    const config = {
+    const config: MockUserConfig = {
       resolve: {
-        alias: [] as Array<{
-          find: RegExp;
-          customResolver?: (source: string, importer: string) => unknown;
-        }>,
+        alias: [],
       },
     };
 
-    proxyPlugin.config?.call(
+    callHook(
+      proxyPlugin.config,
       {
-        meta: {},
+        meta: createPluginMeta(),
         resolve: async (id: string) => ({ id: `/resolved/${id}` }),
-      },
-      config as any,
+      } as unknown as ConfigPluginContext,
+      config,
       {
         command: 'serve',
         mode: 'development',
-      }
+      } as ConfigEnv
     );
 
     const alias = config.resolve.alias.find((entry) => entry.find.test('vue'));
     expect(alias?.customResolver).toBeTypeOf('function');
-    expect(alias?.customResolver?.call({}, 'vue', '/repo/nuxt.config.ts')).toBeUndefined();
+    expect(alias?.customResolver?.('vue', '/repo/nuxt.config.ts')).toBeUndefined();
   });
 
   it('excludes shared sub-dependencies in dev mode and warns', () => {
@@ -457,12 +506,17 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const plugins = proxySharedModule({ shared });
     const proxyPlugin = plugins[1];
-    const config = { resolve: { alias: [] as any[] } };
+    const config: MockUserConfig = { resolve: { alias: [] } };
 
-    proxyPlugin.config?.call({ meta: {} }, config as any, {
-      command: 'serve',
-      mode: 'development',
-    });
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      config,
+      {
+        command: 'serve',
+        mode: 'development',
+      } as ConfigEnv
+    );
 
     // Sub-dependencies should be removed from shared
     expect(shared).toHaveProperty('lit');
@@ -521,12 +575,17 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const plugins = proxySharedModule({ shared });
     const proxyPlugin = plugins[1];
-    const config = { resolve: { alias: [] as any[] } };
+    const config: MockUserConfig = { resolve: { alias: [] } };
 
-    proxyPlugin.config?.call({ meta: {} }, config as any, {
-      command: 'build',
-      mode: 'production',
-    });
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      config,
+      {
+        command: 'build',
+        mode: 'production',
+      } as ConfigEnv
+    );
 
     // In build mode, sub-dependencies should NOT be excluded
     expect(shared).toHaveProperty('lit');
@@ -541,30 +600,32 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const plugins = proxySharedModule({ shared: makeShared() });
     const proxyPlugin = plugins[1];
-    const config = {
+    const config: MockUserConfig = {
       resolve: {
-        alias: [] as Array<{
-          find: RegExp;
-          customResolver?: (source: string, importer: string) => unknown;
-        }>,
+        alias: [],
       },
     };
 
-    proxyPlugin.config?.call(
+    callHook(
+      proxyPlugin.config,
       {
-        meta: {},
+        meta: createPluginMeta(),
         resolve: async (id: string) => ({ id: `/resolved/${id}` }),
-      },
-      config as any,
+      } as unknown as ConfigPluginContext,
+      config,
       {
         command: 'serve',
         mode: 'development',
-      }
+      } as ConfigEnv
     );
-    proxyPlugin.configResolved?.({
-      cacheDir: '/vite/deps',
-      experimental: { rolldownDev: false },
-    } as any);
+    callHook(
+      proxyPlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        cacheDir: '/vite/deps',
+        experimental: { rolldownDev: false },
+      } as unknown as ResolvedConfig
+    );
 
     preBuildShareItemMap.set('transitive-no-override', makeShared()['transitive-no-override']);
 
@@ -591,30 +652,32 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const plugins = proxySharedModule({ shared: makeShared() });
     const proxyPlugin = plugins[1];
-    const config = {
+    const config: MockUserConfig = {
       resolve: {
-        alias: [] as Array<{
-          find: RegExp;
-          customResolver?: (source: string, importer: string) => unknown;
-        }>,
+        alias: [],
       },
     };
 
-    proxyPlugin.config?.call(
+    callHook(
+      proxyPlugin.config,
       {
-        meta: {},
+        meta: createPluginMeta(),
         resolve: async (id: string) => ({ id: `/vite/deps/${id}.js` }),
-      },
-      config as any,
+      } as unknown as ConfigPluginContext,
+      config,
       {
         command: 'serve',
         mode: 'development',
-      }
+      } as ConfigEnv
     );
-    proxyPlugin.configResolved?.({
-      cacheDir: '/vite/deps',
-      experimental: { rolldownDev: false },
-    } as any);
+    callHook(
+      proxyPlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        cacheDir: '/vite/deps',
+        experimental: { rolldownDev: false },
+      } as unknown as ResolvedConfig
+    );
 
     preBuildShareItemMap.set('react', makeShared().react);
 

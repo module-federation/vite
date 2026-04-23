@@ -19,6 +19,8 @@ export function getDefaultMockOptions(
     shareStrategy: 'loaded-first',
     virtualModuleDir: '__mf__virtual',
     hostInitInjectLocation: 'html',
+    bundleAllCSS: false,
+    moduleParseTimeout: 10,
     ...overrides,
   };
 }

@@ -1,5 +1,5 @@
 import { SharedConfig, ShareStrategy } from '@module-federation/runtime/types';
-import type { sharePlugin } from '@module-federation/sdk';
+import type { moduleFederationPlugin } from '@module-federation/sdk';
 
 export type RemoteEntryType =
   | 'var'
@@ -138,7 +138,7 @@ export interface ShareItem {
   version: string | undefined;
   scope: string;
   from: string;
-  shareConfig: SharedConfig & sharePlugin.SharedConfig;
+  shareConfig: SharedConfig & moduleFederationPlugin.SharedConfig;
 }
 
 /**
@@ -205,7 +205,7 @@ function normalizeShareItem(
     | string
     | {
         name: string;
-        import: sharePlugin.SharedConfig['import'];
+        import: moduleFederationPlugin.SharedConfig['import'];
         version?: string;
         shareScope?: string;
         singleton?: boolean;
@@ -278,7 +278,7 @@ function normalizeShared(
         | string
         | {
             name?: string;
-            import?: sharePlugin.SharedConfig['import'];
+            import?: moduleFederationPlugin.SharedConfig['import'];
             version?: string;
             shareScope?: string;
             singleton?: boolean;
@@ -427,7 +427,7 @@ export type ModuleFederationOptions = {
             singleton?: boolean;
             requiredVersion?: string;
             strictVersion?: boolean;
-            import?: sharePlugin.SharedConfig['import'];
+            import?: moduleFederationPlugin.SharedConfig['import'];
           }
       >
     | undefined;

@@ -2,12 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { hasPackageDependencyMock, usedRemotesMapMock, writeSyncSpy, writeTempSpy } = vi.hoisted(
   () => ({
-    hasPackageDependencyMock: vi.fn(),
+    hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
     usedRemotesMapMock: vi.fn(() => ({})),
     writeSyncSpy: vi.fn(),
     writeTempSpy: vi.fn(),
   })
 );
+
+function getLastCallFirstArg<T>(mockFn: { mock: { calls: T[][] } }): T | undefined {
+  const calls = mockFn.mock.calls;
+  return calls.length > 0 ? calls[calls.length - 1][0] : undefined;
+}
 
 vi.mock('../../utils/VirtualModule', () => {
   return {
@@ -208,7 +213,7 @@ describe('virtualRemoteEntry', () => {
     mod.writeHostAutoInit('virtual:test-remote-entry');
 
     expect(writeSyncSpy).toHaveBeenCalled();
-    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const generatedCode = getLastCallFirstArg<string>(writeSyncSpy);
 
     expect(generatedCode).toContain(
       'const remoteEntry = await import("virtual:test-remote-entry");'

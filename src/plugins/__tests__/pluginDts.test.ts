@@ -4,8 +4,9 @@ import path from 'path';
 import { PassThrough } from 'stream';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ResolvedConfig } from 'vite';
+import type { ResolvedConfig, MinimalPluginContextWithoutEnvironment, Rollup } from 'vite';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
+import { callHook } from '../../utils/__tests__/viteHookHelpers';
 
 const hasPackageDependency = vi.hoisted(() => vi.fn(() => false));
 
@@ -24,6 +25,23 @@ import {
 } from '../pluginDts';
 import pluginDts from '../pluginDts';
 
+function runConfigResolved(
+  plugin: NonNullable<ReturnType<typeof pluginDts>[number]>,
+  config: ResolvedConfig
+) {
+  callHook(plugin.configResolved, {} as MinimalPluginContextWithoutEnvironment, config);
+}
+
+function runGenerateBundle(plugin: NonNullable<ReturnType<typeof pluginDts>[number]>) {
+  return callHook(
+    plugin.generateBundle,
+    {} as Rollup.PluginContext,
+    {} as Rollup.NormalizedOutputOptions,
+    {} as Rollup.OutputBundle,
+    false
+  );
+}
+
 function createMockResponse() {
   const headers = new Map<string, string>();
   const response = new PassThrough() as PassThrough &
@@ -36,8 +54,9 @@ function createMockResponse() {
 
   response.statusCode = 0;
   response.headers = headers;
-  response.setHeader = (name: string, value: string) => {
-    headers.set(name, value);
+  response.setHeader = (name, value) => {
+    headers.set(name, String(value));
+    return response as unknown as ServerResponse<IncomingMessage>;
   };
   response.on('data', (chunk) => {
     chunks.push(Buffer.from(chunk));
@@ -66,6 +85,7 @@ describe('pluginDts build', () => {
     const plugins = pluginDts(normalized);
     const buildPlugin = plugins.find((plugin) => plugin.name === 'module-federation-dts-build');
     expect(buildPlugin).toBeTruthy();
+    if (!buildPlugin) throw new Error('build plugin missing');
 
     const config = {
       root: process.cwd(),
@@ -73,8 +93,8 @@ describe('pluginDts build', () => {
     } as ResolvedConfig;
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    buildPlugin?.configResolved?.(config);
-    await expect(buildPlugin?.generateBundle?.()).resolves.toBeUndefined();
+    runConfigResolved(buildPlugin, config);
+    await expect(runGenerateBundle(buildPlugin)).resolves.toBeUndefined();
     expect(consoleSpy).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
