@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { hasPackageDependencyMock, writeSyncSpy, writeTempSpy } = vi.hoisted(() => ({
-  hasPackageDependencyMock: vi.fn(),
-  writeSyncSpy: vi.fn(),
-  writeTempSpy: vi.fn(),
-}));
+const { hasPackageDependencyMock, usedRemotesMapMock, writeSyncSpy, writeTempSpy } = vi.hoisted(
+  () => ({
+    hasPackageDependencyMock: vi.fn(),
+    usedRemotesMapMock: vi.fn(() => ({})),
+    writeSyncSpy: vi.fn(),
+    writeTempSpy: vi.fn(),
+  })
+);
 
 vi.mock('../../utils/VirtualModule', () => {
   return {
@@ -69,7 +72,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
 
 vi.mock('../virtualRemotes', () => {
   return {
-    getUsedRemotesMap: () => ({}),
+    getUsedRemotesMap: usedRemotesMapMock,
   };
 });
 
@@ -100,6 +103,8 @@ vi.mock('../virtualShared_preBuild', () => {
 describe('virtualRemoteEntry', () => {
   beforeEach(async () => {
     hasPackageDependencyMock.mockReset();
+    usedRemotesMapMock.mockReset();
+    usedRemotesMapMock.mockReturnValue({});
     writeSyncSpy.mockClear();
     writeTempSpy.mockClear();
     vi.resetModules();
@@ -293,5 +298,17 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('const mfName = "__mfe_internal__host"');
     expect(code).not.toContain('import exposesMap from');
     expect(code).not.toContain('import {usedShared, usedRemotes} from');
+  });
+
+  it('does not eagerly preload remotes during host auto init', async () => {
+    usedRemotesMapMock.mockReturnValue({
+      remote: new Set(['remote', 'remote/remote-app']),
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+
+    expect(code).not.toContain('runtime.loadRemote("remote")');
+    expect(code).not.toContain('runtime.loadRemote("remote/remote-app")');
   });
 });

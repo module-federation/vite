@@ -1,11 +1,9 @@
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
-import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community';
+import { AllCommunityModule } from 'ag-grid-community';
 import { AgGridReact } from 'ag-grid-react';
 import { useState } from 'react';
 import './agGrid.css';
-
-ModuleRegistry.registerModules([AllCommunityModule]);
 
 export function AgGridDemo() {
   const [rowData] = useState([
@@ -26,7 +24,12 @@ export function AgGridDemo() {
             className="ag-theme-alpine"
             style={{ height: 400, width: 600, margin: '20px' }}
           >
-            <AgGridReact rowData={rowData} columnDefs={columnDefs} theme="legacy" />
+            <AgGridReact
+              rowData={rowData}
+              columnDefs={columnDefs}
+              modules={[AllCommunityModule]}
+              theme="legacy"
+            />
           </div>
         ))}
       </div>

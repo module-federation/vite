@@ -17,10 +17,11 @@ vi.mock('fs', async (importOriginal) => {
 
 vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
+  getInstalledPackageEntry: vi.fn(() => undefined),
   setPackageDetectionCwd: vi.fn(),
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   getIsRolldown: () => false,
-  removePathFromNpmPackage: (pkg: string) => {
+  getPackageName: (pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     return match ? match[0] : pkg;
   },
@@ -41,7 +42,9 @@ vi.mock('../../utils/VirtualModule', () => ({
       ? 'transitive-no-override'
       : value.startsWith('transitive') || value.startsWith('transitive/')
         ? 'transitive'
-        : value,
+        : value.startsWith('react')
+          ? 'react'
+          : value,
   }),
 }));
 
@@ -367,6 +370,37 @@ describe('pluginProxySharedModule_preBuild', () => {
     ).toBe('/workspace/packages/transitive-no-override/dist/index.js');
   });
 
+  it('does not proxy shared deps imported from build config files', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      },
+      config as any,
+      {
+        command: 'serve',
+        mode: 'development',
+      }
+    );
+
+    const alias = config.resolve.alias.find((entry) => entry.find.test('vue'));
+    expect(alias?.customResolver).toBeTypeOf('function');
+    expect(alias?.customResolver?.call({}, 'vue', '/repo/nuxt.config.ts')).toBeUndefined();
+  });
+
   it('excludes shared sub-dependencies in dev mode and warns', () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
@@ -550,5 +584,57 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(resolution).toEqual({
       id: '/resolved//resolved//workspace/packages/transitive-no-override/dist/index.js',
     });
+  });
+
+  it('returns already optimized serve prebuild resolutions without waiting for saved ids', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = plugins[1];
+    const config = {
+      resolve: {
+        alias: [] as Array<{
+          find: RegExp;
+          customResolver?: (source: string, importer: string) => unknown;
+        }>,
+      },
+    };
+
+    proxyPlugin.config?.call(
+      {
+        meta: {},
+        resolve: async (id: string) => ({ id: `/vite/deps/${id}.js` }),
+      },
+      config as any,
+      {
+        command: 'serve',
+        mode: 'development',
+      }
+    );
+    proxyPlugin.configResolved?.({
+      cacheDir: '/vite/deps',
+      experimental: { rolldownDev: false },
+    } as any);
+
+    preBuildShareItemMap.set('react', makeShared().react);
+
+    const alias = config.resolve.alias.find(
+      (entry) => entry.customResolver && entry.find.test('x__prebuild__x')
+    );
+    expect(alias?.customResolver).toBeTypeOf('function');
+
+    const resolution = await Promise.race([
+      alias?.customResolver?.call(
+        {
+          resolve: async (id: string) => ({ id: `/vite/deps/${id}.js` }),
+        },
+        'react__prebuild__',
+        '/src/main.ts'
+      ),
+      new Promise((resolve) => setTimeout(() => resolve('timeout'), 50)),
+    ]);
+
+    expect(resolution).not.toBe('timeout');
+    expect((resolution as { id: string }).id).toContain('/node_modules/');
   });
 });

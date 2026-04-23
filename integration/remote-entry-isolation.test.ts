@@ -55,6 +55,7 @@ describe('remote entry isolation', () => {
     expect(hostInit!.code).not.toContain('__loadShare__');
     expect(hostInit!.code).not.toContain('__vite__mapDeps');
     expect(hostInit!.code).not.toContain('localSharedImportMap');
+    expect(hostInit!.code).toContain('__mf_module_cache__');
     expect(hostInit!.code).not.toContain('virtualExposes');
   });
 });

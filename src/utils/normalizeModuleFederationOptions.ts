@@ -26,7 +26,7 @@ import * as fs from 'fs';
 import { createRequire } from 'node:module';
 import * as path from 'pathe';
 import { createModuleFederationError, mfError, mfWarn } from './logger';
-import { getInstalledPackageJson, removePathFromNpmPackage } from './packageUtils';
+import { getInstalledPackageJson, getPackageDetectionCwd, getPackageName } from './packageUtils';
 
 interface ExposesItem {
   import: string;
@@ -222,13 +222,13 @@ function normalizeShareItem(
   if (!isImportFalse) {
     try {
       try {
-        version = require(path.join(removePathFromNpmPackage(key), 'package.json')).version;
+        version = require(path.join(getPackageName(key), 'package.json')).version;
       } catch (e1) {
         try {
           const localPath = path.join(
             process.cwd(),
             'node_modules',
-            removePathFromNpmPackage(key),
+            getPackageName(key),
             'package.json'
           );
           version = require(localPath).version;
@@ -278,6 +278,7 @@ function normalizeShared(
         | string
         | {
             name?: string;
+            import?: sharePlugin.SharedConfig['import'];
             version?: string;
             shareScope?: string;
             singleton?: boolean;
@@ -287,7 +288,32 @@ function normalizeShared(
       >
     | undefined
 ): NormalizedShared {
-  if (!shared) return {};
+  if (!shared) {
+    const result: NormalizedShared = {};
+    const packageJsonPath = path.join(getPackageDetectionCwd(), 'package.json');
+
+    try {
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
+        name?: string;
+        dependencies?: Record<string, string>;
+      };
+      if (packageJson.name === '@module-federation/vite') return result;
+
+      Object.keys(packageJson.dependencies || {})
+        .filter((key) => shouldAutoShareDependency(key))
+        .forEach((key) => {
+          result[key] = normalizeShareItem(key, {
+            name: key,
+            import: undefined,
+            singleton: true,
+          });
+        });
+    } catch {
+      return result;
+    }
+
+    return result;
+  }
   const result: NormalizedShared = {};
   const sourceEntries: Array<[string, string | Record<string, any>]> = [];
   if (Array.isArray(shared)) {
@@ -311,6 +337,39 @@ function normalizeShared(
   });
 
   return result;
+}
+
+function shouldAutoShareDependency(key: string): boolean {
+  const installed = getInstalledPackageJson(key);
+  const pkg = installed?.packageJson as
+    | {
+        browser?: unknown;
+        exports?: unknown;
+        module?: string;
+        main?: string;
+      }
+    | undefined;
+
+  if (!pkg) return false;
+  if (!pkg.browser && !pkg.exports && typeof pkg.module !== 'string') return false;
+
+  if (key === '@module-federation/vite') {
+    return false;
+  }
+
+  const entry = [pkg.module, pkg.main, typeof pkg.exports === 'string' ? pkg.exports : undefined]
+    .find((value): value is string => typeof value === 'string')
+    ?.replace(/\\/g, '/');
+
+  if (key === 'nuxt' || key === 'nuxt-nightly') {
+    return false;
+  }
+
+  if (key.includes('nuxt') && entry?.endsWith('/dist/module.mjs')) {
+    return false;
+  }
+
+  return true;
 }
 
 function normalizeLibrary(library: any): any {
@@ -502,8 +561,8 @@ export function getNormalizeShareItem(key: string) {
   const options = getNormalizeModuleFederationOptions();
   const shareItem =
     options.shared[key] ||
-    options.shared[removePathFromNpmPackage(key)] ||
-    options.shared[removePathFromNpmPackage(key) + '/'];
+    options.shared[getPackageName(key)] ||
+    options.shared[getPackageName(key) + '/'];
   return shareItem;
 }
 

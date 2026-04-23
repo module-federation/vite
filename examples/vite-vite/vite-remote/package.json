@@ -29,7 +29,7 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "^5.1.2",
-    "vite": "^8.0.8",
+    "vite": "^8.0.10",
     "vite-plugin-top-level-await": "^1.4.4"
   }
 }

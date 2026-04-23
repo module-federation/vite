@@ -1,6 +1,7 @@
 import VirtualModule from '../utils/VirtualModule';
 
 export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
+const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
 
 export function getRuntimeInitGlobalKey() {
   return `__mf_init__${virtualRuntimeInitStatus.getImportId()}__`;
@@ -9,6 +10,10 @@ export function getRuntimeInitGlobalKey() {
 export function getRuntimeInitBootstrapCode() {
   return `
 const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey())};
+const moduleCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
+globalThis[moduleCacheGlobalKey] ||= { share: {}, remote: {} };
+globalThis[moduleCacheGlobalKey].share ||= {};
+globalThis[moduleCacheGlobalKey].remote ||= {};
 if (!globalThis[globalKey]) {
   let initResolve, initReject;
   const initPromise = new Promise((re, rj) => {
@@ -19,6 +24,7 @@ if (!globalThis[globalKey]) {
     initPromise,
     initResolve,
     initReject,
+    moduleCache: globalThis[moduleCacheGlobalKey],
   };
   if (typeof window === 'undefined') {
     initResolve({
@@ -27,6 +33,19 @@ if (!globalThis[globalKey]) {
     });
   }
 }
+globalThis[globalKey].moduleCache ||= globalThis[moduleCacheGlobalKey];
+globalThis[globalKey].moduleCache.share ||= {};
+globalThis[globalKey].moduleCache.remote ||= {};
+`;
+}
+
+export function getRuntimeModuleCacheBootstrapCode() {
+  return `
+const __mfCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
+globalThis[__mfCacheGlobalKey] ||= { share: {}, remote: {} };
+globalThis[__mfCacheGlobalKey].share ||= {};
+globalThis[__mfCacheGlobalKey].remote ||= {};
+const __mfModuleCache = globalThis[__mfCacheGlobalKey];
 `;
 }
 
@@ -92,8 +111,8 @@ export function writeRuntimeInitStatus(command: string) {
   const globalKey = getRuntimeInitGlobalKey();
   const exportStatement =
     command === 'build'
-      ? `const { initPromise, initResolve, initReject } = globalThis[globalKey];
-export { initPromise, initResolve, initReject };`
+      ? `const { initPromise, initResolve, initReject, moduleCache } = globalThis[globalKey];
+export { initPromise, initResolve, initReject, moduleCache };`
       : `module.exports = globalThis[globalKey];`;
 
   virtualRuntimeInitStatus.writeSync(`

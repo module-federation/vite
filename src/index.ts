@@ -16,12 +16,12 @@ import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
-import { isTestEnv } from './utils/isTestEnv';
 import { resolveProxyAlias } from './utils/bundleHelpers';
 import {
   isFederationControlChunk,
   sanitizeFederationControlChunk,
 } from './utils/controlChunkSanitizer';
+import { isTestEnv } from './utils/isTestEnv';
 import { createModuleFederationError, mfWarn } from './utils/logger';
 import {
   ModuleFederationOptions,
@@ -30,13 +30,7 @@ import {
   PluginManifestOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import {
-  getInstalledPackageEntry,
-  getInstalledPackageJson,
-  getIsRolldown,
-  hasPackageDependency,
-  setPackageDetectionCwd,
-} from './utils/packageUtils';
+import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -81,6 +75,26 @@ function escapeUnsafeJsSourceChars(str: string): string {
   return str.replace(/[<>/\\\b\f\n\r\t\0\u2028\u2029]/g, (char) => {
     return UNSAFE_JS_SOURCE_CHAR_MAP[char] ?? char;
   });
+}
+
+function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = false): boolean {
+  const file = path.basename(dep);
+  if (
+    file.includes('__mfe_internal__') ||
+    file.includes('virtual_mf-') ||
+    file.includes('virtualExposes') ||
+    file.includes('localSharedImportMap') ||
+    file.includes('hostInit')
+  ) {
+    return true;
+  }
+
+  return (
+    includeSharedRuntime &&
+    (file.includes('preload-helper') ||
+      file.includes('rolldown-runtime') ||
+      file.startsWith('dist-'))
+  );
 }
 
 function insertAfterLastTopLevelImport(code: string, snippet: string): string | undefined {
@@ -170,26 +184,14 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         for (const key of Object.keys(remotes)) {
           addUsedRemote(key, key);
         }
-        if (_command === 'serve' && isRolldown) {
+        if (_command === 'serve') {
           config.optimizeDeps = config.optimizeDeps || {};
           config.optimizeDeps.exclude = config.optimizeDeps.exclude || [];
           config.optimizeDeps.include = config.optimizeDeps.include || [];
-          // In Vite 8 dev, prebundling bare remote specifiers rewrites
-          // `import("remote/x")` to `/node_modules/.vite/deps/remote_x.js`.
-          // That bypasses the remote namespace fixup path and breaks named
-          // exports on dynamic import, which Angular relies on.
-          const collidingInstalledRemotes = Object.keys(remotes || {}).filter((remoteName) =>
-            getInstalledPackageJson(remoteName, { cwd: root })
-          );
-          const collidingInstalledRemoteEntries = collidingInstalledRemotes.map(
-            (remoteName) => getInstalledPackageEntry(remoteName, { cwd: root }) || remoteName
-          );
-          config.optimizeDeps.exclude.push(
-            ...Object.keys(remotes || {}).filter(
-              (remoteName) => !collidingInstalledRemotes.includes(remoteName)
-            )
-          );
-          config.optimizeDeps.include.push(...collidingInstalledRemoteEntries);
+          // Prebundling bare remote specifiers rewrites imports like
+          // `import("remote/x")` to optimized dep files. That bypasses the
+          // remote namespace fixup path and can resolve same-named packages.
+          config.optimizeDeps.exclude.push(...Object.keys(remotes || {}));
         }
       }
 
@@ -229,7 +231,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             if (!isRolldown && !shouldBypassOptimizeDep) {
               // In non-Rolldown Vite (< 8), loadShare modules are CJS and
               // don't use real TLA, so the dep optimizer handles them fine.
-              optimizeDeps.include.push(getLoadShareImportId(key, isRolldown, _command));
+              optimizeDeps.include.push(getLoadShareImportId(key, isRolldown));
             }
             // When isRolldown (Vite 8+), loadShare modules are ESM with
             // top-level await. Including them in optimizeDeps causes the dep
@@ -244,7 +246,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
   };
 }
 
-function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
+function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const isVinext = hasPackageDependency('vinext');
@@ -323,6 +325,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       entryName: 'hostInit',
       entryPath: () => getHostAutoInitPath(),
       inject: hostInitInjectLocation,
+      waitForInit: true,
     }),
     ...addEntry({
       entryName: 'virtualExposes',
@@ -387,7 +390,15 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
                   hostFile.includes('virtualExposes') ||
                   hostFile.includes('localSharedImportMap'));
 
-              return shouldSkipFederationPreload ? [] : resolvedDeps;
+              if (shouldSkipFederationPreload) return [];
+
+              const hasFederationHtmlDeps =
+                context.hostType === 'html' &&
+                resolvedDeps.some((dep) => isFederationHtmlPreloadDependency(dep));
+
+              return hasFederationHtmlDeps
+                ? resolvedDeps.filter((dep) => !isFederationHtmlPreloadDependency(dep, true))
+                : resolvedDeps;
             },
           };
         }
@@ -559,11 +570,13 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
            *
            * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
            */
-          code = code.replace(
-            'export default exportModule',
-            'export const __moduleExports = exportModule;\n' +
-              'export default exportModule.__esModule ? exportModule.default : exportModule'
-          );
+          if (!code.includes('__moduleExports')) {
+            code = code.replace(
+              'export default exportModule',
+              'export const __moduleExports = exportModule;\n' +
+                'export default exportModule.__esModule ? exportModule.default : exportModule'
+            );
+          }
           // Rollup supports syntheticNamedExports to resolve named imports
           // from the __moduleExports namespace.  Rolldown (Vite 8+) does not
           // support this — the pluginRemoteNamedExports transform handles
@@ -582,45 +595,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
           chunk.code = sanitizeFederationControlChunk(chunk.code, fileName, filename);
         }
 
-        // Pass 1: Add top-level await for CJS init functions
-        for (const [fileName, chunk] of Object.entries(bundle)) {
-          if (chunk.type !== 'chunk') continue;
-          if (fileName.includes(LOAD_SHARE_TAG)) continue;
-
-          let code = chunk.code;
-          let m;
-          const importedFromLoadShare = new Set<string>();
-          const importRegex = /import\s*\{([^}]+)\}\s*from\s*["'][^"']*__loadShare__[^"']*["']/g;
-          while ((m = importRegex.exec(code)) !== null) {
-            for (const spec of m[1].split(',')) {
-              const parts = spec.trim().split(/\s+as\s+/);
-              const local = (parts[1] || parts[0]).trim();
-              if (local) importedFromLoadShare.add(local);
-            }
-          }
-
-          const allInits: string[] = [];
-          for (const v of importedFromLoadShare) {
-            if (new RegExp('\\(' + v + '\\(\\)\\s*,\\s*\\w+\\(\\w+\\)\\)').test(code)) {
-              allInits.push(v);
-            }
-          }
-          if (allInits.length === 0) continue;
-
-          const awaits = allInits.map((v) => `await ${v}();`).join('');
-          const codeWithAwaits = insertAfterLastTopLevelImport(code, awaits);
-          if (codeWithAwaits) {
-            chunk.code = codeWithAwaits;
-            continue;
-          }
-          const exportIdx = code.search(/\bexport\s*[{d]/);
-          if (exportIdx !== -1) {
-            chunk.code = code.slice(0, exportIdx) + awaits + code.slice(exportIdx);
-            continue;
-          }
-        }
-
-        // Pass 2 (standard vite/Rollup): Break transitive TLA deadlock.
+        // Break transitive proxy deadlock.
         //
         // Rollup's CJS plugin creates commonjs-proxy wrapper chunks for
         // loadShare modules. These proxies share CJS helpers
@@ -803,33 +778,7 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
       apply: 'serve',
       enforce: 'post',
       transform(code, id) {
-        const normalizedId = normalizePath(id).split('?')[0];
-        if (!normalizedId.startsWith(depsDir)) return;
-        // Find all init__loadShare__ calls that are used synchronously
-        // inside CJS wrappers (comma expressions) and add top-level await
-        const initPattern = /\b(init_\w+__loadShare__\w+)\b/g;
-        const initFns = new Set<string>();
-        let match;
-        while ((match = initPattern.exec(code)) !== null) {
-          initFns.add(match[1]);
-        }
-        if (initFns.size === 0) return;
-
-        // Check if any of these inits are called without await (inside CJS IIFEs)
-        const hasUnawaited = [...initFns].some((fn) => {
-          // Pattern: fn() used as expression statement (not awaited)
-          return code.includes(`${fn}(),`) || code.includes(`${fn}()`);
-        });
-        if (!hasUnawaited) return;
-
-        // Don't patch the entry files that already have top-level await
-        if (/await\s+init_\w+__loadShare__/.test(code)) return;
-        // Don't patch the loadShare chunk files themselves
-        if (code.includes('__esmMin')) return;
-
-        // Add top-level awaits after imports
-        const awaits = [...initFns].map((fn) => `await ${fn}();`).join('\n') + '\n';
-        return insertAfterLastTopLevelImport(code, awaits);
+        return;
       },
     },
     PluginDevProxyModuleTopLevelAwait(),
@@ -925,6 +874,24 @@ function federation(mfUserOptions: ModuleFederationOptions): Plugin[] {
     },
     ...pluginManifest(),
     ...pluginVarRemoteEntry(),
+    {
+      name: 'module-federation-vinext-fix-rsc-preload-as',
+      enforce: 'post' as const,
+      apply: 'build' as const,
+      generateBundle(_: unknown, bundle: Record<string, any>) {
+        if (!hasPackageDependency('vinext')) return;
+
+        for (const chunk of Object.values(bundle)) {
+          if (chunk.type !== 'chunk') continue;
+          if (!chunk.code.includes('case"L"')) continue;
+
+          chunk.code = chunk.code.replace(
+            /case"L":(\w+)=(\w+)\[0\],(\w+)=\2\[1\],\2\.length===3\?(\w+)\.L\(\1,\3,\2\[2\]\):\4\.L\(\1,\3\)/g,
+            'case"L":$1=$2[0],$3=$2[1],$3==="stylesheet"&&($3="style"),$2.length===3?$4.L($1,$3,$2[2]):$4.L($1,$3)'
+          );
+        }
+      },
+    } satisfies Plugin,
     // Fix preload helper for federated remotes: Vite's preload helper resolves
     // asset URLs against the page origin (e.g. host), but remote chunks need
     // to resolve against their own origin. Replace the hardcoded base URL

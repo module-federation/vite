@@ -194,8 +194,163 @@ describe('pluginAddEntry', () => {
 
     // The proxy module must import both init and entry as resolvable paths
     // (no base prefix — Vite's server-side resolver handles base itself)
-    expect(code).toContain('import "/@id/virtual:mf-host-init"');
-    expect(code).toContain('import "/src/main.tsx"');
+    expect(code).toContain('const { initHost } = await import("/@id/virtual:mf-host-init");');
+    expect(code).toContain('const runtime = await initHost();');
+    expect(code).toContain('})().then(() => import("/src/main.tsx"));');
     expect(code).not.toContain('/foo/');
+  });
+
+  it('skips entry emission and bootstrap transforms during SvelteKit SSR builds', async () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+      waitForInit: true,
+    });
+    const buildPlugin = plugins[1];
+    const emitted: unknown[] = [];
+
+    buildPlugin.config?.({}, { command: 'build', mode: 'production' });
+    buildPlugin.configResolved?.({
+      root: '/repo/svelte/host',
+      base: '/',
+      command: 'build',
+      build: {
+        ssr: true,
+        rollupOptions: {
+          input: {
+            server: '/repo/svelte/host/.svelte-kit/generated/server/index.js',
+          },
+        },
+      },
+    } as any);
+
+    buildPlugin.buildStart?.call(
+      { emitFile: (file: unknown) => emitted.push(file) } as any,
+      {} as any
+    );
+    const result = await buildPlugin.transform?.(
+      'export const server = true;',
+      '/repo/node_modules/@sveltejs/kit/src/runtime/server/index.js'
+    );
+
+    expect(emitted).toEqual([]);
+    expect(result).toBeUndefined();
+  });
+
+  it('does not inject bootstrap imports into SvelteKit server modules during dev', async () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+      waitForInit: true,
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    servePlugin.config?.({}, { command: 'serve', mode: 'development' });
+    servePlugin.configResolved?.({
+      root: '/repo/svelte/host',
+      base: '/',
+      build: { rollupOptions: {} },
+    } as any);
+    buildPlugin.configResolved?.({
+      root: '/repo/svelte/host',
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as any);
+
+    const result = await buildPlugin.transform?.(
+      'export const server = true;',
+      '/repo/svelte/host/.svelte-kit/generated/server/internal.js'
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it('does not inject host init into Vite internal virtual modules during dev fallback', async () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    servePlugin.config?.({}, { command: 'serve', mode: 'development' });
+    buildPlugin.config?.(
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    servePlugin.configResolved?.({
+      root: '/repo/nuxt/host',
+      base: '/',
+      build: { rollupOptions: {} },
+    } as any);
+    buildPlugin.configResolved?.({
+      root: '/repo/nuxt/host',
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as any);
+
+    const result = await buildPlugin.transform?.(
+      'export const polyfill = true;',
+      '\0vite/modulepreload-polyfill.js'
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it('wraps SvelteKit static inline startup behind host init during build', () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+      waitForInit: true,
+    });
+    const buildPlugin = plugins[1];
+    const emitted: unknown[] = [];
+    const bundle: any = {
+      'index.html': {
+        type: 'asset',
+        source: `<html><head></head><body><div><script>
+{
+  __sveltekit_test = { base: new URL(".", location).pathname.slice(0, -1) };
+  const element = document.currentScript.parentElement;
+  Promise.all([
+    import("./_app/immutable/entry/start.js"),
+    import("./_app/immutable/entry/app.js")
+  ]).then(([kit, app]) => {
+    kit.start(app, element);
+  });
+}
+</script></div></body></html>`,
+      },
+    };
+
+    buildPlugin.configResolved?.({
+      root: '/repo/svelte/host',
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: { input: { client: '/repo/.svelte-kit/generated/client.js' } } },
+    } as any);
+    buildPlugin.buildStart?.call(
+      { emitFile: (file: unknown) => (emitted.push(file), 'host-init-ref') } as any,
+      {} as any
+    );
+    buildPlugin.generateBundle?.call(
+      { getFileName: () => 'assets/hostInit.js' } as any,
+      {} as any,
+      bundle,
+      false
+    );
+
+    expect(bundle['index.html'].source).toContain(
+      'await import("/assets/hostInit.js").then(({ initHost }) => initHost());'
+    );
+    expect(bundle['index.html'].source).toContain('kit.start(app, element);');
+    expect(bundle['index.html'].source).not.toContain('type="module" src="/assets/hostInit.js"');
   });
 });

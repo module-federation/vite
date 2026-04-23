@@ -34,16 +34,23 @@ export type InstalledPackageJson = {
 function resolveExportsEntry(exportsField: unknown): string | undefined {
   if (typeof exportsField === 'string') return exportsField;
   if (!exportsField || typeof exportsField !== 'object') return undefined;
-  const rootExport = (exportsField as Record<string, unknown>)['.'];
-  if (typeof rootExport === 'string') return rootExport;
-  if (!rootExport || typeof rootExport !== 'object') return undefined;
-  const rootExportObject = rootExport as Record<string, unknown>;
-  return (
-    (typeof rootExportObject.import === 'string' && rootExportObject.import) ||
-    (typeof rootExportObject.default === 'string' && rootExportObject.default) ||
-    (typeof rootExportObject.require === 'string' && rootExportObject.require) ||
-    undefined
-  );
+  const record = exportsField as Record<string, unknown>;
+  const rootExport = record['.'];
+  if (rootExport) return resolveExportsEntry(rootExport);
+
+  const preferredConditions = ['browser', 'import', 'module', 'default', 'require'];
+
+  for (const condition of preferredConditions) {
+    const target = resolveExportsEntry(record[condition]);
+    if (target) return target;
+  }
+
+  for (const target of Object.values(record)) {
+    const resolved = resolveExportsEntry(target);
+    if (resolved) return resolved;
+  }
+
+  return undefined;
 }
 /**
  * Escaping rules:
@@ -91,7 +98,7 @@ export function packageNameDecode(encoded: string) {
  * @param {string} packageString - The package specifier, e.g., "@scope/pkg/runtime" or "react/jsx-runtime".
  * @returns {string} - The base npm package name.
  */
-export function removePathFromNpmPackage(packageString: string): string {
+export function getPackageName(packageString: string): string {
   const regex = /^(?:@[^/]+\/)?[^/]+/;
   const match = packageString.match(regex);
   return match ? match[0] : packageString;
@@ -102,7 +109,7 @@ export function getInstalledPackageJson(
   opts?: { cwd?: string; packageName?: string }
 ): InstalledPackageJson | undefined {
   const cwd = opts?.cwd || getPackageDetectionCwd();
-  const packageName = opts?.packageName || removePathFromNpmPackage(pkg);
+  const packageName = opts?.packageName || getPackageName(pkg);
   const tryReadPackageJson = (packageJsonPath: string): InstalledPackageJson | undefined => {
     if (!existsSync(packageJsonPath)) return undefined;
     try {
@@ -194,6 +201,16 @@ export function getInstalledPackageEntry(
 ): string | undefined {
   const installed = getInstalledPackageJson(pkg, opts);
   if (!installed) return undefined;
+  const cwd = opts?.cwd || getPackageDetectionCwd();
+  const packageName = opts?.packageName || getPackageName(pkg);
+  if (pkg !== packageName) {
+    try {
+      const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
+      return projectRequire.resolve(pkg);
+    } catch {
+      // Fall back to root package entry resolution below.
+    }
+  }
   const packageJson = installed.packageJson;
   const exportsEntry = resolveExportsEntry(packageJson.exports);
   const explicitEntry =
@@ -210,7 +227,7 @@ export function getInstalledPackageEntry(
  * @returns {string | undefined} - The extension including the dot, or `undefined` when none is present.
  */
 export function getExtFromNpmPackage(packageString: string) {
-  const pkgName = removePathFromNpmPackage(packageString);
+  const pkgName = getPackageName(packageString);
   const subpath = packageString.replace(pkgName, '');
   const parts = subpath.split('.');
   const ext = parts.length > 1 ? '.' + parts.pop() : undefined;

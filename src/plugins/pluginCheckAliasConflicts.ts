@@ -18,30 +18,32 @@ export function checkAliasConflicts(options: { shared?: NormalizedShared }): Plu
       const userAliases: Alias[] = config.resolve?.alias || [];
       const conflicts: Array<{ sharedModule: string; alias: string; target: string }> = [];
 
+      const matchesSharedKey = (aliasEntry: Alias, sharedKey: string) => {
+        const findPattern = aliasEntry.find;
+
+        if (typeof findPattern === 'string') {
+          return findPattern === sharedKey || sharedKey.startsWith(findPattern + '/');
+        }
+        if (findPattern instanceof RegExp) {
+          return findPattern.test(sharedKey);
+        }
+
+        return false;
+      };
+
       for (const sharedKey of sharedKeys) {
         for (const aliasEntry of userAliases) {
-          const findPattern = aliasEntry.find;
           const replacement = aliasEntry.replacement;
+          if (!matchesSharedKey(aliasEntry, sharedKey)) continue;
 
-          // Skip if replacement is not a string (e.g., customResolver)
-          if (typeof replacement !== 'string') continue;
+          // Module Federation aliases are prepended. Once one matches, later
+          // user aliases for the same package no longer bypass sharing.
+          if (replacement === '$1') break;
 
-          // Skip Module Federation internal aliases (used for proxying shared modules)
-          // These are generated with replacement '$1' and should not trigger warnings
-          if (replacement === '$1') continue;
-
-          // Check if alias pattern matches the shared module
-          let isMatch = false;
-          if (typeof findPattern === 'string') {
-            isMatch = findPattern === sharedKey || sharedKey.startsWith(findPattern + '/');
-          } else if (findPattern instanceof RegExp) {
-            isMatch = findPattern.test(sharedKey);
-          }
-
-          if (isMatch) {
+          if (typeof replacement === 'string') {
             conflicts.push({
               sharedModule: sharedKey,
-              alias: String(findPattern),
+              alias: String(aliasEntry.find),
               target: replacement,
             });
           }

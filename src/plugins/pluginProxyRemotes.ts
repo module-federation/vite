@@ -1,8 +1,8 @@
 import { createFilter } from '@rollup/pluginutils';
 import { Plugin } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { getInstalledPackageEntry, getIsRolldown } from '../utils/packageUtils';
-import { addUsedRemote, getRemoteVirtualModule } from '../virtualModules';
+import { getInstalledPackageEntry } from '../utils/packageUtils';
+import { addUsedRemote, getRemoteVirtualModule, refreshHostAutoInit } from '../virtualModules';
 const filter: (id: string) => boolean = createFilter();
 
 function isNodeModulesImporter(importer?: string) {
@@ -14,20 +14,16 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
   let root = process.cwd();
   const { remotes } = options;
 
-  function resolveRemoteId(
-    source: string,
-    importer: string | undefined,
-    remoteName: string,
-    isRolldown: boolean
-  ) {
+  function resolveRemoteId(source: string, importer: string | undefined, remoteName: string) {
     if (source === remoteName) {
       const installedPackageEntry = getInstalledPackageEntry(source, { cwd: root });
       if (installedPackageEntry && (importer === undefined || isNodeModulesImporter(importer))) {
         return installedPackageEntry;
       }
     }
-    const remoteModule = getRemoteVirtualModule(source, command, isRolldown);
+    const remoteModule = getRemoteVirtualModule(source, command);
     addUsedRemote(remoteName, source);
+    refreshHostAutoInit();
     return remoteModule.getPath();
   }
 
@@ -36,24 +32,19 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     config(config, { command: _command }) {
       command = _command;
       root = config.root || process.cwd();
-      const isRolldown = getIsRolldown(this);
       Object.keys(remotes).forEach((key) => {
         const remote = remotes[key];
         (config.resolve as any).alias.push({
           find: new RegExp(`^(${remote.name}(\/.*|$))`),
           replacement: '$1',
-          customResolver(source: string, importer?: string) {
-            return resolveRemoteId(source, importer, remote.name, isRolldown);
-          },
         });
       });
     },
     resolveId(source, importer) {
       if (!filter(source)) return;
-      const isRolldown = getIsRolldown(this);
       for (const remote of Object.values(remotes)) {
-        if (source !== remote.name) continue;
-        return resolveRemoteId(source, importer, remote.name, isRolldown);
+        if (source !== remote.name && !source.startsWith(`${remote.name}/`)) continue;
+        return resolveRemoteId(source, importer, remote.name);
       }
     },
   };

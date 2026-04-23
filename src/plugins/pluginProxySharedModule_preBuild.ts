@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'fs';
+import { createRequire } from 'module';
 import path from 'pathe';
 import { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { mfWarn } from '../utils/logger';
@@ -6,9 +7,10 @@ import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap'
 import { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getIsRolldown,
+  getInstalledPackageEntry,
   getPackageDetectionCwd,
+  getPackageName,
   hasPackageDependency,
-  removePathFromNpmPackage,
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
 import { PromiseStore } from '../utils/PromiseStore';
@@ -20,7 +22,9 @@ import {
   getPreBuildShareItem,
   getLoadShareModulePath,
   getLocalSharedImportMapPath,
+  LOAD_SHARE_TAG,
   PREBUILD_TAG,
+  refreshHostAutoInit,
   writeLoadShareModule,
   writeLocalSharedImportMap,
   writePreBuildLibPath,
@@ -31,13 +35,66 @@ function getPrebuildResolutionSource(pkgName: string, shareItem?: ShareItem): st
   return getConcreteSharedImportSource(pkgName, shareItem) || pkgName;
 }
 
+function tryResolveFromProjectRoot(source: string): string | undefined {
+  if (path.isAbsolute(source) || source.startsWith('.') || source.startsWith('/')) return source;
+  const browserEntry = getInstalledPackageEntry(source, { cwd: getPackageDetectionCwd() });
+  if (browserEntry) return browserEntry;
+  try {
+    const projectRequire = createRequire(
+      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+    );
+    return projectRequire.resolve(source);
+  } catch {
+    return undefined;
+  }
+}
+
+function isBuildConfigImporter(importer: string | undefined): boolean {
+  if (!importer) return false;
+  return /(^|\/)(?:nuxt|vite|vitest|webpack|rollup|rspack)\.config\.[cm]?[jt]sx?$/.test(
+    importer.replace(/\\/g, '/')
+  );
+}
+
+function findPackageJsonFromResolvedEntry(entry: string, packageName: string): string | undefined {
+  let currentDir = path.dirname(entry);
+  while (currentDir !== path.dirname(currentDir)) {
+    const packageJson = path.join(currentDir, 'package.json');
+    if (existsSync(packageJson)) {
+      try {
+        const json = JSON.parse(readFileSync(packageJson, 'utf-8')) as { name?: string };
+        if (json.name === packageName) return packageJson;
+      } catch {
+        return undefined;
+      }
+    }
+    currentDir = path.dirname(currentDir);
+  }
+  return undefined;
+}
+
 /**
  * Reads the dependencies of an installed package from its package.json.
  */
 function getPackageDependencies(pkg: string): string[] {
-  const packageName = removePathFromNpmPackage(pkg);
+  const packageName = getPackageName(pkg);
   const cwd = getPackageDetectionCwd();
   const candidates = [path.join(cwd, 'node_modules', packageName, 'package.json')];
+  try {
+    const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
+    candidates.push(projectRequire.resolve(`${packageName}/package.json`));
+  } catch {
+    try {
+      const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
+      const packageJson = findPackageJsonFromResolvedEntry(
+        projectRequire.resolve(packageName),
+        packageName
+      );
+      if (packageJson) candidates.push(packageJson);
+    } catch {
+      // fall back to direct node_modules lookup
+    }
+  }
 
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
@@ -63,19 +120,24 @@ function getPackageDependencies(pkg: string): string[] {
  */
 function excludeSharedSubDependencies(shared: NormalizedShared): void {
   const sharedKeys = new Set(Object.keys(shared));
+  const sharedKeyByBase = new Map(
+    Object.keys(shared).map((key) => [key.endsWith('/') ? key.slice(0, -1) : key, key])
+  );
 
   for (const parentKey of sharedKeys) {
     const deps = getPackageDependencies(parentKey);
     for (const dep of deps) {
-      if (sharedKeys.has(dep) && dep !== parentKey) {
+      const depKey = sharedKeyByBase.get(dep);
+      if (depKey && depKey !== parentKey) {
         mfWarn(
           `"${dep}" is a dependency of shared package "${parentKey}" and is also shared separately. ` +
             `This may cause initialization order issues in dev mode. ` +
             `Consider sharing only "${parentKey}".\n` +
             `  Auto-excluding "${dep}" from shared modules for dev mode.`
         );
-        delete shared[dep];
-        sharedKeys.delete(dep);
+        delete shared[depKey];
+        sharedKeys.delete(depKey);
+        sharedKeyByBase.delete(dep);
       }
     }
   }
@@ -125,7 +187,7 @@ export function proxySharedModule(options: {
           excludeSharedSubDependencies(shared);
         }
 
-        (config.resolve as any).alias.push(
+        (config.resolve as any).alias.unshift(
           ...Object.keys(shared)
             .filter((key) => !(useDirectReactImport && key === 'react'))
             .map((key) => {
@@ -143,6 +205,9 @@ export function proxySharedModule(options: {
                 replacement: '$1',
                 customResolver(source: string, importer: string) {
                   if (/\.css$/.test(source)) return;
+                  if (isBuildConfigImporter(importer)) {
+                    return;
+                  }
                   // Hard-stop proxying bare React in dev. Vite's RSC pipeline
                   // expects the native server React entry, and wrapping `react`
                   // through loadShare breaks react-server-dom-webpack.
@@ -157,6 +222,18 @@ export function proxySharedModule(options: {
                   if (importer && importer.includes('localSharedImportMap')) {
                     return;
                   }
+                  if (
+                    importer &&
+                    (importer.includes('hostAutoInit') || importer.includes('__H_A_I__'))
+                  ) {
+                    return;
+                  }
+                  if (importer && importer.includes(LOAD_SHARE_TAG)) {
+                    return;
+                  }
+                  if (importer && importer.includes(PREBUILD_TAG)) {
+                    return;
+                  }
                   // Trailing-slash keys (e.g. "react/") match subpath imports like
                   // "react/jsx-dev-runtime". However, the MF runtime's loadShare does
                   // exact key lookup — subpath shares aren't registered and loadShare
@@ -166,13 +243,14 @@ export function proxySharedModule(options: {
                   if (key.endsWith('/') && source !== key.slice(0, -1)) {
                     return;
                   }
-                  const loadSharePath = getLoadShareModulePath(source, isRolldown, command);
+                  const loadSharePath = getLoadShareModulePath(source, isRolldown);
                   writeLoadShareModule(source, shared[key], command, isRolldown);
                   if (shared[key].shareConfig.import !== false) {
                     writePreBuildLibPath(source, shared[key]);
                   }
                   addUsedShares(source);
                   writeLocalSharedImportMap();
+                  refreshHostAutoInit();
                   return (this as any).resolve(loadSharePath, importer);
                 },
               };
@@ -196,19 +274,30 @@ export function proxySharedModule(options: {
                     find: new RegExp(`(.*${PREBUILD_TAG}.*)`),
                     replacement: '$1',
                     async customResolver(source: string, importer: string) {
+                      if (source.startsWith('.')) {
+                        return;
+                      }
                       const module = assertModuleFound(PREBUILD_TAG, source) as VirtualModule;
                       const pkgName = module.name;
                       const importSource = getPrebuildResolutionSource(
                         pkgName,
                         getPreBuildShareItem(pkgName)
                       );
-                      const resolved = await (this as any).resolve(importSource, importer);
+                      const direct = tryResolveFromProjectRoot(importSource);
+                      const resolved = await (this as any).resolve(
+                        direct || importSource,
+                        importer
+                      );
                       if (!resolved?.id) return;
                       const result = resolved.id;
-                      if (_config && !result.includes(_config.cacheDir)) {
-                        // save pre-bunding module id
-                        savePrebuild.set(pkgName, Promise.resolve(result));
+                      if (!_config || result.includes(_config.cacheDir)) {
+                        if (direct) {
+                          return (await (this as any).resolve(direct, importer)) || { id: direct };
+                        }
+                        return resolved;
                       }
+                      // save pre-bunding module id
+                      savePrebuild.set(pkgName, Promise.resolve(result));
                       // Fix localSharedImportMap import id
                       return await (this as any).resolve(await savePrebuild.get(pkgName), importer);
                     },
@@ -241,6 +330,7 @@ export function proxySharedModule(options: {
           addUsedShares(key);
         });
         writeLocalSharedImportMap();
+        refreshHostAutoInit();
       },
     },
   ];
