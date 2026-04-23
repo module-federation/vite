@@ -102,8 +102,9 @@ describe('pluginAddEntry', () => {
       '/src/main.tsx'
     )) as { code: string } | undefined;
 
-    expect(result?.code).toContain('import "/virtual/hostInit.js";');
-    expect(result?.code).toContain('export const browserEntry = true;');
+    expect(result?.code).toContain('const { initHost } = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain('const runtime = await initHost();');
+    expect(result?.code).toContain('})().then(() => import("/src/main.tsx?mf-entry-bootstrap"));');
   });
 
   it('rewrites dev html entry scripts to external proxy modules instead of inline scripts', () => {
@@ -205,7 +206,6 @@ describe('pluginAddEntry', () => {
       entryName: 'hostInit',
       entryPath: '/virtual/hostInit.js',
       inject: 'html',
-      waitForInit: true,
     });
     const buildPlugin = plugins[1];
     const emitted: unknown[] = [];
@@ -243,7 +243,6 @@ describe('pluginAddEntry', () => {
       entryName: 'hostInit',
       entryPath: '/virtual/hostInit.js',
       inject: 'html',
-      waitForInit: true,
     });
     const servePlugin = plugins[0];
     const buildPlugin = plugins[1];
@@ -308,7 +307,6 @@ describe('pluginAddEntry', () => {
       entryName: 'hostInit',
       entryPath: '/virtual/hostInit.js',
       inject: 'html',
-      waitForInit: true,
     });
     const buildPlugin = plugins[1];
     const emitted: unknown[] = [];
