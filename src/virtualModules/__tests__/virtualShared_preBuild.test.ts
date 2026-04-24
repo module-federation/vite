@@ -105,7 +105,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-browser-conditional/dist/browser.js') ||
       filePath.endsWith('node_modules/mock-package-browser-conditional/dist/server.js') ||
       filePath.endsWith('/mock-package-browser-conditional/dist/server.js') ||
-      filePath.endsWith('/repo/packages/workspace-shared-lib/package.json')
+      filePath.endsWith('/repo/packages/workspace-shared-lib/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json')
   ),
   readFileSync: vi.fn((filePath: string) => {
     if (
@@ -243,6 +244,9 @@ export { type, other } from './foo';`;
     if (filePath.endsWith('/repo/packages/workspace-shared-lib/package.json')) {
       return JSON.stringify({ name: 'workspace-shared-lib' });
     }
+    if (filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json')) {
+      return JSON.stringify({ name: 'different-package-name' });
+    }
     throw new Error(`Unexpected readFileSync path: ${filePath}`);
   }),
 }));
@@ -341,6 +345,9 @@ vi.mock('module', async (importOriginal) => {
 
       req.resolve = Object.assign(
         (pkg: string) => {
+          if (pkg === 'missing-project-only') {
+            throw new Error('MODULE_NOT_FOUND');
+          }
           if (pkg === 'transitive-pkg') {
             if (!fromPath.includes('/repo/package.json')) {
               throw new Error('MODULE_NOT_FOUND');
@@ -364,6 +371,9 @@ vi.mock('module', async (importOriginal) => {
           }
           if (pkg === 'workspace-shared-lib') {
             return '/repo/packages/workspace-shared-lib/src/index.tsx';
+          }
+          if (pkg === 'workspace-name-mismatch') {
+            return '/repo/packages/workspace-name-mismatch/src/index.ts';
           }
           if (
             pkg === 'mock-package-reexport-type' ||
@@ -693,6 +703,14 @@ describe('writeLoadShareModule', () => {
     );
   });
 
+  it('falls back to project require resolution when package metadata is unavailable', () => {
+    expect(getProjectResolvedImportPath('plain-project-only')).toBe('/resolved/plain-project-only');
+  });
+
+  it('returns undefined when project require resolution fails', () => {
+    expect(getProjectResolvedImportPath('missing-project-only')).toBeUndefined();
+  });
+
   it('falls back to default-only export for import: false when package is not installed', () => {
     // host-only-dep is NOT resolvable in the test mock setup
     const pkg = 'host-only-dep';
@@ -897,6 +915,31 @@ describe('writeLoadShareModule', () => {
       'exportModule = await import("/repo/packages/workspace-shared-lib/src/index.tsx");'
     );
     expect(generatedCode).not.toContain('__mfLocalShare');
+  });
+
+  it('does not treat parent package.json name mismatches as workspace package matches', () => {
+    const pkg = 'workspace-name-mismatch';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('import * as __mfLocalShare from "mock-import-id";');
+    expect(generatedCode).toContain('exportModule = __mfLocalShare;');
+    expect(generatedCode).not.toContain(
+      'await import("/repo/packages/workspace-name-mismatch/src/index.ts")'
+    );
   });
 
   it('does not emit duplicate side-effect imports for parent-root workspace packages in serve mode', () => {
