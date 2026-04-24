@@ -2,7 +2,6 @@ import defu from 'defu';
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
-import type { OutputOptions } from 'rollup';
 import type { ConfigEnv, ResolvedConfig } from 'vite';
 import { normalizePath, Plugin, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
@@ -59,16 +58,20 @@ import {
 
 const patchedManualChunks = new WeakSet<Function>();
 
-type OutputNameOptions = Pick<
-  OutputOptions,
-  'entryFileNames' | 'chunkFileNames' | 'assetFileNames'
->;
+type OutputNameOption = string | ((...args: unknown[]) => string);
+type ManualChunksOption =
+  | Record<string, string[]>
+  | ((id: string, ...args: unknown[]) => string | void);
+type OutputNameOptions = {
+  entryFileNames?: OutputNameOption;
+  chunkFileNames?: OutputNameOption;
+  assetFileNames?: OutputNameOption;
+};
 type CodeSplittingOptions = { groups?: unknown } & Record<string, unknown>;
-type MutableBundlerOutput = OutputOptions &
-  OutputNameOptions & {
-    codeSplitting?: false | CodeSplittingOptions;
-    manualChunks?: OutputOptions['manualChunks'];
-  };
+type MutableBundlerOutput = OutputNameOptions & {
+  codeSplitting?: false | CodeSplittingOptions;
+  manualChunks?: ManualChunksOption;
+} & Record<string, unknown>;
 type RolldownOptionsLike = { output?: MutableBundlerOutput | MutableBundlerOutput[] };
 type EnvironmentWithRolldownOptions = {
   getRolldownOptions?: () => RolldownOptionsLike | Promise<RolldownOptionsLike>;
