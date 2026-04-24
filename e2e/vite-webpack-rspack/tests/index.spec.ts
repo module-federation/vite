@@ -1,26 +1,26 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from '@playwright/test';
 
-test.describe("Vite Host Tests", () => {
+test.describe('Vite Host Tests', () => {
   test.beforeEach(async ({ page, baseURL }) => {
     await page.goto(baseURL!);
   });
 
-  test("test header - vite host", async ({ page }) => {
-    const womenButton = page.getByRole("button", {
-      name: "Women",
+  test('test header - vite host', async ({ page }) => {
+    const womenButton = page.getByRole('button', {
+      name: 'Women',
       exact: true,
     });
-    const manButton = page.getByRole("button", { name: "Man", exact: true });
-    const companyButton = page.getByRole("button", {
-      name: "Company",
+    const manButton = page.getByRole('button', { name: 'Man', exact: true });
+    const companyButton = page.getByRole('button', {
+      name: 'Company',
       exact: true,
     });
-    const storesButton = page.getByRole("button", {
-      name: "Stores",
+    const storesButton = page.getByRole('button', {
+      name: 'Stores',
       exact: true,
     });
-    const testsButton = page.getByRole("button", {
-      name: "Tests",
+    const testsButton = page.getByRole('button', {
+      name: 'Tests',
       exact: true,
     });
 
@@ -33,20 +33,20 @@ test.describe("Vite Host Tests", () => {
     ]);
   });
 
-  test("test footer - vite host", async ({ page }) => {
-    const productsHeading = page.getByRole("heading", {
+  test('test footer - vite host', async ({ page }) => {
+    const productsHeading = page.getByRole('heading', {
       level: 3,
-      name: "Products",
+      name: 'Products',
       exact: true,
     });
-    const companyHeading = page.getByRole("heading", {
+    const companyHeading = page.getByRole('heading', {
       level: 3,
-      name: "Company",
+      name: 'Company',
       exact: true,
     });
-    const customerServiceHeading = page.getByRole("heading", {
+    const customerServiceHeading = page.getByRole('heading', {
       level: 3,
-      name: "Customer Service",
+      name: 'Customer Service',
       exact: true,
     });
 
@@ -58,25 +58,25 @@ test.describe("Vite Host Tests", () => {
   });
 });
 
-test.describe("Vite module remote", () => {
-  test("has title", async ({ page, baseURL }) => {
+test.describe('Vite module remote', () => {
+  test('has title', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
-    const productHeader = page.getByRole("heading", {
+    const productHeader = page.getByRole('heading', {
       level: 1,
-      name: "Basic Tee",
+      name: 'Basic Tee',
       exact: true,
     });
 
     await expect(productHeader).toBeVisible();
   });
-  test("has sizes", async ({ page, baseURL }) => {
+  test('has sizes', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
-    const xsRadio = page.getByRole("radio", { name: "XS", exact: true });
-    const sRadio = page.getByRole("radio", { name: "S", exact: true });
-    const mRadio = page.getByRole("radio", { name: "M", exact: true });
-    const lRadio = page.getByRole("radio", { name: "L", exact: true });
-    const xlRadio = page.getByRole("radio", { name: "XL", exact: true });
-    const xxlRadio = page.getByRole("radio", { name: "XXL", exact: true });
+    const xsRadio = page.getByRole('radio', { name: 'XS', exact: true });
+    const sRadio = page.getByRole('radio', { name: 'S', exact: true });
+    const mRadio = page.getByRole('radio', { name: 'M', exact: true });
+    const lRadio = page.getByRole('radio', { name: 'L', exact: true });
+    const xlRadio = page.getByRole('radio', { name: 'XL', exact: true });
+    const xxlRadio = page.getByRole('radio', { name: 'XXL', exact: true });
 
     await Promise.all([
       expect(xsRadio).toBeVisible(),
@@ -84,7 +84,6 @@ test.describe("Vite module remote", () => {
       expect(mRadio).toBeVisible(),
       expect(lRadio).toBeVisible(),
       expect(xlRadio).toBeVisible(),
-      expect(xxlRadio).toBeVisible(),
       expect(xxlRadio).toBeVisible(),
     ]);
 
@@ -98,12 +97,12 @@ test.describe("Vite module remote", () => {
   });
 });
 
-test.describe("Vite var remote", () => {
-  test("has title", async ({ page, baseURL }) => {
+test.describe('Vite var remote', () => {
+  test('has title', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
-    const purchasesCountHeader = page.getByRole("heading", {
+    const purchasesCountHeader = page.getByRole('heading', {
       level: 2,
-      name: "Count of purchases",
+      name: 'Count of purchases',
       exact: true,
     });
 
@@ -111,46 +110,46 @@ test.describe("Vite var remote", () => {
   });
 });
 
-test.describe("Rspack remote", () => {
-  test("has title", async ({ page, baseURL }) => {
+test.describe('Rspack remote', () => {
+  test('has title', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
-    const recentReviews = page.getByRole("heading", {
+    const recentReviews = page.getByRole('heading', {
       level: 2,
-      name: "Recent reviews",
+      name: 'Recent reviews',
       exact: true,
     });
     await expect(recentReviews).toBeVisible();
   });
 });
 
-test.describe("Webpack remote", () => {
-  test("has title", async ({ page, baseURL }) => {
+test.describe('Webpack remote', () => {
+  test('has title', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
-    const furtherRecommendations = page.getByRole("heading", {
+    const furtherRecommendations = page.getByRole('heading', {
       level: 2,
-      name: "Customers also purchased",
+      name: 'Customers also purchased',
       exact: true,
     });
     await expect(furtherRecommendations).toBeVisible();
   });
 });
 
-test.describe("Dynamic remote", () => {
-  test("shows dynamic banner on toggle", async ({ page, baseURL }) => {
+test.describe('Dynamic remote', () => {
+  test('shows dynamic banner on toggle', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
-    const showAdToggle = page.getByRole("checkbox", {
-      name: "Show Dynamic Ad",
+    const showAdToggle = page.getByRole('checkbox', {
+      name: 'Show Dynamic Ad',
       exact: true,
     });
 
-    const signUpBanner = page.getByRole("heading", {
+    const signUpBanner = page.getByRole('heading', {
       level: 2,
-      name: "Sign up now!",
+      name: 'Sign up now!',
       exact: true,
     });
-    const specialPromoBanner = page.getByRole("heading", {
+    const specialPromoBanner = page.getByRole('heading', {
       level: 2,
-      name: "Up to 50% off!",
+      name: 'Up to 50% off!',
     });
 
     await showAdToggle.check({ force: true });
@@ -172,24 +171,24 @@ test.describe("Dynamic remote", () => {
     await expect(specialPromoBanner).not.toBeVisible();
   });
 
-  test("verifies shared lodash dependency", async ({ page, baseURL }) => {
+  test('verifies shared lodash dependency', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
-    const showAdToggle = page.getByRole("checkbox", {
-      name: "Show Dynamic Ad",
+    const showAdToggle = page.getByRole('checkbox', {
+      name: 'Show Dynamic Ad',
       exact: true,
     });
 
     // Check that lodash version is displayed in SpecialPromo banner
     await showAdToggle.check({ force: true });
 
-    const specialPromoBanner = page.getByRole("heading", {
+    const specialPromoBanner = page.getByRole('heading', {
       level: 2,
-      name: "Up to 50% off!",
+      name: 'Up to 50% off!',
       exact: true,
     });
     await expect(specialPromoBanner).toBeVisible();
 
-    const lodashVersionDisplay = page.getByTestId("lodash-version-display");
+    const lodashVersionDisplay = page.getByTestId('lodash-version-display');
     await expect(lodashVersionDisplay).toBeVisible();
     const versionText = await lodashVersionDisplay.textContent();
     expect(versionText).toMatch(/Shared lodash v\d+\.\d+\.\d+/);
@@ -198,9 +197,9 @@ test.describe("Dynamic remote", () => {
     await showAdToggle.uncheck({ force: true });
     await showAdToggle.check({ force: true });
 
-    const signUpBanner = page.getByRole("heading", {
+    const signUpBanner = page.getByRole('heading', {
       level: 2,
-      name: "Sign up now!",
+      name: 'Sign up now!',
       exact: true,
     });
     await expect(signUpBanner).toBeVisible();
@@ -210,27 +209,27 @@ test.describe("Dynamic remote", () => {
   });
 });
 
-test.describe("Tests remote", () => {
-  test("tests screen is available", async ({ page, baseURL }) => {
+test.describe('Tests remote', () => {
+  test('tests screen is available', async ({ page, baseURL }) => {
     await page.goto(baseURL!);
-    const testsButton = page.getByRole("button", {
-      name: "Tests",
+    const testsButton = page.getByRole('button', {
+      name: 'Tests',
       exact: true,
     });
     await expect(testsButton).toBeVisible();
 
     testsButton.click();
 
-    const testsHeading = page.getByRole("heading", {
+    const testsHeading = page.getByRole('heading', {
       level: 1,
-      name: "Tests Screen",
+      name: 'Tests Screen',
       exact: true,
     });
     await expect(testsHeading).toBeVisible();
 
-    const chartJsElement = page.getByTestId("e2e-chart-js");
+    const chartJsElement = page.getByTestId('e2e-chart-js');
     const dropzoneText = page.getByText("Drag 'n' drop some files here");
-    const easyCropElement = page.getByTestId("e2e-easy-crop");
+    const easyCropElement = page.getByTestId('e2e-easy-crop');
 
     await Promise.all([
       expect(chartJsElement).toBeVisible(),

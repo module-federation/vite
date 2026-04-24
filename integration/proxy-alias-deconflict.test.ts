@@ -72,34 +72,6 @@ describe('resolveProxyAlias', () => {
     expect(result.imported).toBe('myExport');
   });
 
-  it('keeps rewritten locals unique across multiple proxy imports', () => {
-    const firstImport = `import{a as first$1}from"./proxy-a.js"`;
-    const secondImport = `import{b as second$1}from"./proxy-b.js"`;
-    const code = `${firstImport};${secondImport};console.log(app);`;
-    const claimedLocals = new Set(['first$1', 'second$1']);
-
-    claimedLocals.delete('first$1');
-    const first = resolveProxyAlias(
-      { imported: 'a', local: 'first$1' },
-      'o',
-      code,
-      firstImport,
-      claimedLocals
-    );
-    claimedLocals.add(first.local);
-    claimedLocals.delete('second$1');
-    const second = resolveProxyAlias(
-      { imported: 'b', local: 'second$1' },
-      'o',
-      code,
-      secondImport,
-      claimedLocals
-    );
-
-    expect(first.local).toBe('o');
-    expect(second.local).toBe('second$1');
-  });
-
   it('does not reuse proxyLocal across separate proxy files in one chunk', () => {
     const firstImport = `import{a as first$1}from"./proxy-a.js"`;
     const secondImport = `import{b as second$1}from"./proxy-b.js"`;
@@ -121,8 +93,18 @@ describe('resolveProxyAlias', () => {
       return resolved;
     };
 
-    const first = rewriteImport(firstImport, { imported: 'a', local: 'first$1' }, 'o', './proxy-a.js');
-    const second = rewriteImport(secondImport, { imported: 'b', local: 'second$1' }, 'o', './proxy-b.js');
+    const first = rewriteImport(
+      firstImport,
+      { imported: 'a', local: 'first$1' },
+      'o',
+      './proxy-a.js'
+    );
+    const second = rewriteImport(
+      secondImport,
+      { imported: 'b', local: 'second$1' },
+      'o',
+      './proxy-b.js'
+    );
 
     expect(first.local).toBe('o');
     expect(second.local).toBe('second$1');
