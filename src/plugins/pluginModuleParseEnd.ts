@@ -2,7 +2,7 @@
  * Dynamic shared modules, such as "react/" and "react-dom/", can only be parsed during the build process;
  * This plugin allows me to wait until all modules are built, and then expose them together.
  */
-import { Plugin } from 'vite';
+import type { Plugin } from 'vite';
 import { mfWarn } from '../utils/logger';
 
 let _resolve: ((value: any) => void) | null = null;

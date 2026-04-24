@@ -2,8 +2,8 @@ import defu from 'defu';
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
-import type { ConfigEnv, ResolvedConfig } from 'vite';
-import { normalizePath, Plugin, UserConfig } from 'vite';
+import type { ConfigEnv, Plugin, ResolvedConfig, UserConfig } from 'vite';
+import { normalizePath } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
@@ -24,13 +24,13 @@ import {
 } from './utils/controlChunkSanitizer';
 import { isTestEnv } from './utils/isTestEnv';
 import { createModuleFederationError, mfWarn } from './utils/logger';
-import {
+import type {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
-  normalizeModuleFederationOptions,
   PluginManifestOptions,
   ShareItem,
 } from './utils/normalizeModuleFederationOptions';
+import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';

@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
-import { Plugin, ResolvedConfig, UserConfig } from 'vite';
+import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { mfWarn } from '../utils/logger';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
-import { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
+import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getIsRolldown,
   getInstalledPackageEntry,
