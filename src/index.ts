@@ -11,7 +11,7 @@ import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
-import { proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
+import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
@@ -59,16 +59,6 @@ const COMMON_PREFIX_SHARED_PREBUILDS: Record<string, string[]> = {
   'react/': ['react/jsx-runtime', 'react/jsx-dev-runtime'],
   'react-dom/': ['react-dom/client', 'react-dom/server', 'react-dom/server.browser'],
 };
-
-function matchesSharedSource(source: string, key: string): boolean {
-  const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
-  if (key.endsWith('/')) return source === keyBase || source.startsWith(`${keyBase}/`);
-  return source === keyBase;
-}
-
-function findSharedKey(source: string, shared: NormalizedModuleFederationOptions['shared']) {
-  return Object.keys(shared || {}).find((key) => matchesSharedSource(source, key));
-}
 
 function isSharedResolverInternalImporter(importer: string | undefined): boolean {
   return !!importer && (importer.includes(LOAD_SHARE_TAG) || importer.includes('__prebuild__'));

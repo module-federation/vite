@@ -56,14 +56,17 @@ function isBuildConfigImporter(importer: string | undefined): boolean {
   );
 }
 
-function matchesSharedSource(source: string, key: string): boolean {
+export function matchesSharedSource(source: string, key: string): boolean {
   const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
   if (key.endsWith('/')) return source === keyBase || source.startsWith(`${keyBase}/`);
   return source === keyBase;
 }
 
-function findSharedKey(source: string, shared: NormalizedShared): string | undefined {
-  return Object.keys(shared).find((key) => matchesSharedSource(source, key));
+export function findSharedKey(
+  source: string,
+  shared: NormalizedShared | undefined
+): string | undefined {
+  return Object.keys(shared || {}).find((key) => matchesSharedSource(source, key));
 }
 
 function isNodeModulePath(source: string): boolean {

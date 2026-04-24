@@ -1,3 +1,4 @@
+import path from 'pathe';
 import { getPreBuildLibImportId } from '../virtualModules';
 
 export type ViteChunkMetadata = {
@@ -132,7 +133,8 @@ const chunkContainsCssModules = (modules: Record<string, unknown>): boolean => {
 export const processModuleAssets = (
   bundle: Record<string, OutputBundleItem>,
   filesMap: PreloadMap,
-  moduleMatcher: (modulePath: string) => string | undefined
+  moduleMatcher: (modulePath: string) => string | undefined,
+  options: { root?: string; stripKnownJsExtensions?: boolean } = {}
 ) => {
   // Pre-collect all CSS assets in the bundle for fallback matching
   const bundleCssAssets = collectCssAssets(bundle);
@@ -143,7 +145,20 @@ export const processModuleAssets = (
     if (!fileData.modules) continue;
 
     for (const modulePath of Object.keys(fileData.modules)) {
-      const matchKey = moduleMatcher(modulePath);
+      const comparableModulePath = options.root
+        ? path.resolve(options.root, modulePath)
+        : modulePath;
+      const comparableModulePaths = [comparableModulePath];
+      if (options.stripKnownJsExtensions) {
+        const ext = path.extname(comparableModulePath);
+        if (JS_EXTENSIONS.includes(ext as any)) {
+          comparableModulePaths.push(
+            path.join(path.dirname(comparableModulePath), path.basename(comparableModulePath, ext))
+          );
+        }
+      }
+
+      const matchKey = comparableModulePaths.map(moduleMatcher).find(Boolean);
       if (!matchKey) continue;
 
       // Track main JS chunk
