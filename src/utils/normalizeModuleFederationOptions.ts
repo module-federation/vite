@@ -262,7 +262,7 @@ function normalizeShareItem(
     version: explicitVersion || version,
     scope: shareItem.shareScope || 'default',
     shareConfig: {
-      import: typeof shareItem === 'object' ? shareItem.import : undefined,
+      import: shareItem.import,
       singleton: shareItem.singleton || false,
       requiredVersion: shareItem.requiredVersion || (version ? `^${version}` : '*'),
       strictVersion: !!shareItem.strictVersion,

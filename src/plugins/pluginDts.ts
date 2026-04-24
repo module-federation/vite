@@ -81,22 +81,13 @@ const buildDtsModuleFederationConfig = (
 ): moduleFederationPlugin.ModuleFederationPluginOptions => {
   const exposes: Record<string, string> = {};
   Object.entries(options.exposes).forEach(([key, value]) => {
-    if (typeof value === 'string') {
-      exposes[key] = value;
-      return;
-    }
-    const importValue = Array.isArray(value.import) ? value.import[0] : value.import;
-    if (importValue) {
-      exposes[key] = importValue;
+    if (value.import) {
+      exposes[key] = value.import;
     }
   });
 
   const remotes: Record<string, string> = {};
   Object.entries(options.remotes).forEach(([key, remote]) => {
-    if (typeof remote === 'string') {
-      remotes[key] = remote;
-      return;
-    }
     if (!remote.entry) {
       return;
     }
@@ -142,11 +133,7 @@ const ensureRuntimePlugin = (
 const getExposeImportPaths = (options: NormalizedModuleFederationOptions): string[] => {
   return Object.values(options.exposes)
     .map((value) => {
-      if (typeof value === 'string') {
-        return value;
-      }
-
-      return Array.isArray(value.import) ? value.import[0] : value.import;
+      return value.import;
     })
     .filter((value): value is string => Boolean(value));
 };
@@ -409,12 +396,7 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
         );
       }
 
-      if (
-        remote &&
-        !remote.tsConfigPath &&
-        typeof normalizedDtsOptions === 'object' &&
-        normalizedDtsOptions.tsConfigPath
-      ) {
+      if (remote && !remote.tsConfigPath && normalizedDtsOptions.tsConfigPath) {
         remote.tsConfigPath = normalizedDtsOptions.tsConfigPath;
       }
 
