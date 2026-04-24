@@ -31,26 +31,50 @@ export type InstalledPackageJson = {
   packageJson: Record<string, unknown>;
 };
 
-function resolveExportsEntry(exportsField: unknown): string | undefined {
+type PackageEntryConditions = {
+  cwd?: string;
+  packageName?: string;
+  conditions?: string[];
+  resolveSubpathWithRequire?: boolean;
+  fromResolvedEntry?: string;
+};
+
+const DEFAULT_EXPORT_CONDITIONS = ['browser', 'import', 'module', 'default', 'require'];
+
+function resolveExportsEntry(
+  exportsField: unknown,
+  conditions = DEFAULT_EXPORT_CONDITIONS
+): string | undefined {
   if (typeof exportsField === 'string') return exportsField;
   if (!exportsField || typeof exportsField !== 'object') return undefined;
   const record = exportsField as Record<string, unknown>;
   const rootExport = record['.'];
   if (rootExport) return resolveExportsEntry(rootExport);
 
-  const preferredConditions = ['browser', 'import', 'module', 'default', 'require'];
-
-  for (const condition of preferredConditions) {
-    const target = resolveExportsEntry(record[condition]);
+  for (const condition of conditions) {
+    const target = resolveExportsEntry(record[condition], conditions);
     if (target) return target;
   }
 
   for (const target of Object.values(record)) {
-    const resolved = resolveExportsEntry(target);
+    const resolved = resolveExportsEntry(target, conditions);
     if (resolved) return resolved;
   }
 
   return undefined;
+}
+
+function getPackageExportsTarget(pkg: string, packageName: string, exportsField: unknown): unknown {
+  if (typeof exportsField === 'string') return pkg === packageName ? exportsField : undefined;
+  if (!exportsField || typeof exportsField !== 'object') return undefined;
+
+  const record = exportsField as Record<string, unknown>;
+  const subpath = pkg === packageName ? '.' : `.${pkg.slice(packageName.length)}`;
+  if (subpath !== '.') return record[subpath];
+
+  return (
+    record['.'] ?? (!Object.keys(record).some((key) => key.startsWith('.')) ? record : undefined)
+  );
 }
 /**
  * Escaping rules:
@@ -106,7 +130,7 @@ export function getPackageName(packageString: string): string {
 
 export function getInstalledPackageJson(
   pkg: string,
-  opts?: { cwd?: string; packageName?: string }
+  opts?: PackageEntryConditions
 ): InstalledPackageJson | undefined {
   const cwd = opts?.cwd || getPackageDetectionCwd();
   const packageName = opts?.packageName || getPackageName(pkg);
@@ -148,10 +172,14 @@ export function getInstalledPackageJson(
     const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
     let resolvedPath: string | undefined;
 
-    try {
-      resolvedPath = projectRequire.resolve(pkg);
-    } catch {
-      resolvedPath = projectRequire.resolve(packageName);
+    if (opts?.fromResolvedEntry) {
+      resolvedPath = opts.fromResolvedEntry;
+    } else {
+      try {
+        resolvedPath = projectRequire.resolve(pkg);
+      } catch {
+        resolvedPath = projectRequire.resolve(packageName);
+      }
     }
 
     let currentDir = path.dirname(resolvedPath);
@@ -197,13 +225,13 @@ export function getInstalledPackageJson(
 
 export function getInstalledPackageEntry(
   pkg: string,
-  opts?: { cwd?: string; packageName?: string }
+  opts?: PackageEntryConditions
 ): string | undefined {
   const installed = getInstalledPackageJson(pkg, opts);
   if (!installed) return undefined;
   const cwd = opts?.cwd || getPackageDetectionCwd();
   const packageName = opts?.packageName || getPackageName(pkg);
-  if (pkg !== packageName) {
+  if (pkg !== packageName && opts?.resolveSubpathWithRequire !== false) {
     try {
       const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
       return projectRequire.resolve(pkg);
@@ -212,7 +240,10 @@ export function getInstalledPackageEntry(
     }
   }
   const packageJson = installed.packageJson;
-  const exportsEntry = resolveExportsEntry(packageJson.exports);
+  const exportsEntry = resolveExportsEntry(
+    getPackageExportsTarget(pkg, packageName, packageJson.exports),
+    opts?.conditions
+  );
   const explicitEntry =
     exportsEntry ||
     (typeof packageJson.module === 'string' ? packageJson.module : undefined) ||

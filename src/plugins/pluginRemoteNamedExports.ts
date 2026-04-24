@@ -63,8 +63,32 @@ interface DynamicImportInfo {
 }
 
 type ImportInfo = StaticImportInfo | ReexportInfo | ExportAllInfo | DynamicImportInfo;
+type NamedSpecifierKind = 'import' | 'export';
+type ParsedNamedSpecifier<T extends NamedSpecifierKind> = T extends 'import'
+  ? { imported: string; local: string }
+  : { local: string; exported: string };
 
 // ── Shared rewrite logic ──────────────────────────────────────────
+
+function parseNamedSpecifiers<T extends NamedSpecifierKind>(
+  specifiersRaw: string,
+  kind: T
+): Array<ParsedNamedSpecifier<T>> {
+  return specifiersRaw
+    .split(',')
+    .map((s: string) => s.trim())
+    .filter((s: string) => s.length > 0 && !s.startsWith('type '))
+    .map((s: string) => {
+      const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/);
+      const sourceName = asMatch ? asMatch[1] : s;
+      const targetName = asMatch ? asMatch[2] : s;
+      return (
+        kind === 'import'
+          ? { imported: sourceName, local: targetName }
+          : { local: sourceName, exported: targetName }
+      ) as ParsedNamedSpecifier<T>;
+    });
+}
 
 function wrapDynamicImport(original: string): string {
   return (
@@ -355,20 +379,8 @@ async function collectFromEsLexer(
       const braceMatch = stmtText.match(/\{([^}]*)\}/);
       if (!braceMatch) continue;
 
-      const specs = braceMatch[1]
-        .split(',')
-        .map((s: string) => s.trim())
-        .filter((s: string) => s.length > 0 && !s.startsWith('type '));
-
-      if (specs.length === 0) continue;
-
-      const specifiers = specs.map((s: string) => {
-        const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/);
-        return {
-          local: asMatch ? asMatch[1] : s,
-          exported: asMatch ? asMatch[2] : s,
-        };
-      });
+      const specifiers = parseNamedSpecifiers(braceMatch[1], 'export');
+      if (specifiers.length === 0) continue;
 
       result.push({
         kind: 'reexport',
@@ -406,24 +418,11 @@ async function collectFromEsLexer(
     const braceMatch = specifiersPart.match(/\{([^}]*)\}/);
     if (!braceMatch) continue; // default-only
 
-    const namedSpecifiers = braceMatch[1]
-      .split(',')
-      .map((s: string) => s.trim())
-      // Filter out inline type specifiers: import { type Foo, bar } from "..."
-      .filter((s: string) => s.length > 0 && !s.startsWith('type '));
-
-    if (namedSpecifiers.length === 0) continue;
+    const named = parseNamedSpecifiers(braceMatch[1], 'import');
+    if (named.length === 0) continue;
 
     // Check for default import: import Default, { ... } from ...
     const defaultMatch = specifiersPart.match(/^(\w+)\s*,/);
-
-    const named = namedSpecifiers.map((s: string) => {
-      const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/);
-      return {
-        imported: asMatch ? asMatch[1] : s,
-        local: asMatch ? asMatch[2] : s,
-      };
-    });
 
     result.push({
       kind: 'static',
@@ -468,21 +467,10 @@ function collectFromRegex(
     const braceMatch = specifiersPart.match(/\{([^}]*)\}/);
     if (!braceMatch) continue;
 
-    const namedSpecifiers = braceMatch[1]
-      .split(',')
-      .map((s: string) => s.trim())
-      .filter((s: string) => s.length > 0 && !s.startsWith('type '));
-
-    if (namedSpecifiers.length === 0) continue;
+    const named = parseNamedSpecifiers(braceMatch[1], 'import');
+    if (named.length === 0) continue;
 
     const defaultMatch = specifiersPart.match(/^(\w+)\s*,/);
-    const named = namedSpecifiers.map((s: string) => {
-      const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/);
-      return {
-        imported: asMatch ? asMatch[1] : s,
-        local: asMatch ? asMatch[2] : s,
-      };
-    });
 
     result.push({
       kind: 'static',
@@ -499,25 +487,15 @@ function collectFromRegex(
     const [full, specifiersRaw, , source] = match;
     if (!isRemoteImport(source)) continue;
 
-    const specs = specifiersRaw
-      .split(',')
-      .map((s: string) => s.trim())
-      .filter((s: string) => s.length > 0 && !s.startsWith('type '));
-
-    if (specs.length === 0) continue;
+    const specifiers = parseNamedSpecifiers(specifiersRaw, 'export');
+    if (specifiers.length === 0) continue;
 
     result.push({
       kind: 'reexport',
       source,
       start: match.index!,
       end: match.index! + full.length,
-      specifiers: specs.map((s: string) => {
-        const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/);
-        return {
-          local: asMatch ? asMatch[1] : s,
-          exported: asMatch ? asMatch[2] : s,
-        };
-      }),
+      specifiers,
     });
   }
 

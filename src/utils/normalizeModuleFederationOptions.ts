@@ -23,7 +23,6 @@ export type RemoteEntryType =
   | string;
 
 import * as fs from 'fs';
-import { createRequire } from 'node:module';
 import * as path from 'pathe';
 import { createModuleFederationError, mfError, mfWarn } from './logger';
 import { getInstalledPackageJson, getPackageDetectionCwd, getPackageName } from './packageUtils';
@@ -148,37 +147,9 @@ export interface ShareItem {
  * @returns {string | undefined}
  */
 function searchPackageVersion(sharedName: string): string | undefined {
-  try {
-    const projectRequire = createRequire(process.cwd());
-    const sharedPath = projectRequire.resolve(sharedName);
-    let potentialPackageJsonDir = path.dirname(sharedPath);
-    const rootDir = path.parse(potentialPackageJsonDir).root;
-    while (
-      path.parse(potentialPackageJsonDir).base !== 'node_modules' &&
-      potentialPackageJsonDir !== rootDir
-    ) {
-      const potentialPackageJsonPath = path.join(potentialPackageJsonDir, 'package.json');
-      if (fs.existsSync(potentialPackageJsonPath)) {
-        const potentialPackageJsonContent = fs.readFileSync(potentialPackageJsonPath, 'utf-8');
-        try {
-          const potentialPackageJson = JSON.parse(potentialPackageJsonContent);
-          if (
-            typeof potentialPackageJson == 'object' &&
-            potentialPackageJson !== null &&
-            typeof potentialPackageJson.version === 'string' &&
-            potentialPackageJson.name === sharedName
-          ) {
-            return potentialPackageJson.version;
-          }
-        } catch (error) {
-          // Skip malformed package.json and continue searching up the tree
-          if (!(error instanceof SyntaxError)) throw error;
-        }
-      }
-      potentialPackageJsonDir = path.dirname(potentialPackageJsonDir);
-    }
-  } catch (_) {}
-  return undefined;
+  const installed = getInstalledPackageJson(sharedName, { packageName: sharedName });
+  const version = installed?.packageJson.version;
+  return typeof version === 'string' ? version : undefined;
 }
 
 function inferVersionFromRequiredVersion(requiredVersion?: string): string | undefined {

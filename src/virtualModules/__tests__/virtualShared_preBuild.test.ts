@@ -41,28 +41,68 @@ vi.mock('../../utils/logger', () => ({
 vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
-  getInstalledPackageJson: vi.fn((pkg: string) =>
-    pkg === 'mock-package-browser-conditional'
-      ? {
-          path: '/repo/apps/remote/node_modules/mock-package-browser-conditional/package.json',
-          dir: '/repo/apps/remote/node_modules/mock-package-browser-conditional',
-          packageJson: {
-            name: 'mock-package-browser-conditional',
-            exports: {
-              '.': {
-                worker: {
-                  import: './dist/server.js',
-                },
-                browser: {
-                  import: './dist/browser.js',
-                },
+  getInstalledPackageEntry: vi.fn((pkg: string) => {
+    if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
+      return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
+    }
+    if (pkg === 'lit') return '/repo/apps/remote/node_modules/lit/index.js';
+    if (pkg === 'lit/directives/class-map.js') {
+      return '/repo/apps/remote/node_modules/lit/directives/class-map.js';
+    }
+    if (pkg === 'mock-package-typeonly' || pkg.startsWith('mock-package-typeonly/')) {
+      return '/repo/apps/remote/node_modules/mock-package-typeonly/src/index.jsx';
+    }
+    if (pkg === 'mock-package-runtime-type' || pkg.startsWith('mock-package-runtime-type/')) {
+      return '/repo/apps/remote/node_modules/mock-package-runtime-type/src/index.js';
+    }
+    if (pkg === 'mock-package-reexport-type' || pkg.startsWith('mock-package-reexport-type/')) {
+      return '/repo/apps/remote/node_modules/mock-package-reexport-type/src/index.js';
+    }
+    if (
+      pkg === 'mock-package-generator-export' ||
+      pkg.startsWith('mock-package-generator-export/')
+    ) {
+      return '/repo/apps/remote/node_modules/mock-package-generator-export/src/index.js';
+    }
+    if (
+      pkg === 'mock-package-browser-conditional' ||
+      pkg.startsWith('mock-package-browser-conditional/')
+    ) {
+      return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/browser.js';
+    }
+    if (pkg === 'workspace-shared-lib') {
+      return '/repo/packages/workspace-shared-lib/src/index.tsx';
+    }
+  }),
+  getInstalledPackageJson: vi.fn((pkg: string, opts?: { fromResolvedEntry?: string }) => {
+    if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-shared-lib/')) {
+      return {
+        path: '/repo/packages/workspace-shared-lib/package.json',
+        dir: '/repo/packages/workspace-shared-lib',
+        packageJson: { name: 'workspace-shared-lib' },
+      };
+    }
+    if (pkg === 'mock-package-browser-conditional') {
+      return {
+        path: '/repo/apps/remote/node_modules/mock-package-browser-conditional/package.json',
+        dir: '/repo/apps/remote/node_modules/mock-package-browser-conditional',
+        packageJson: {
+          name: 'mock-package-browser-conditional',
+          exports: {
+            '.': {
+              worker: {
+                import: './dist/server.js',
+              },
+              browser: {
                 import: './dist/browser.js',
               },
+              import: './dist/browser.js',
             },
           },
-        }
-      : undefined
-  ),
+        },
+      };
+    }
+  }),
   getPackageName: (packageString: string) => {
     const match = packageString.match(/^(?:@[^/]+\/)?[^/]+/);
     return match ? match[0] : packageString;
