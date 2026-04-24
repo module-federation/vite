@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default () => (
   <a href="#" className="ml-6 hidden p-2 text-gray-400 hover:text-gray-500 lg:block">
     <span className="sr-only">Search</span>

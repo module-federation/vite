@@ -6,7 +6,6 @@ import type { Plugin } from 'vite';
 import { mfWarn } from '../utils/logger';
 
 let _resolve: ((value: any) => void) | null = null;
-let _reject: ((error: any) => void) | null = null;
 let _parseTimeout: ReturnType<typeof setTimeout> | null = null;
 
 let parsePromise = Promise.resolve(1);
@@ -29,14 +28,10 @@ function resetParseState() {
   expectsExposesParseEnd = false;
   parseStartSet = new Set();
   parseEndSet = new Set();
-  parsePromise = new Promise((resolve, reject) => {
+  parsePromise = new Promise((resolve) => {
     _resolve = (v: any) => {
       clearParseTimeout();
       resolve(v);
-    };
-    _reject = (e: any) => {
-      clearParseTimeout();
-      reject(e);
     };
   });
 }

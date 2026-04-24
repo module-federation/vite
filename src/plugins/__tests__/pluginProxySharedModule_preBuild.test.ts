@@ -62,7 +62,6 @@ import { NormalizedShared } from '../../utils/normalizeModuleFederationOptions';
 type AliasEntry = {
   find: RegExp;
   replacement?: string | ((value: string) => string);
-  customResolver?: (source: string, importer: string) => unknown;
 };
 
 type MockUserConfig = UserConfig & {
@@ -71,12 +70,20 @@ type MockUserConfig = UserConfig & {
   };
 };
 
-type MockConfigResolved = Pick<ResolvedConfig, 'cacheDir'> & {
-  experimental: { rolldownDev: boolean };
-};
-
 const preBuildShareItemMap = new Map<string, NormalizedShared[string] | undefined>();
 let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+
+function getProxyPlugin(plugins: ReturnType<typeof proxySharedModule>) {
+  return plugins[1];
+}
+
+function getSharedResolvePlugin(plugins: ReturnType<typeof proxySharedModule>) {
+  return plugins[2];
+}
+
+function getPrebuildResolvePlugin(plugins: ReturnType<typeof proxySharedModule>) {
+  return plugins[3];
+}
 
 type TestPluginMeta = {
   rollupVersion: string;
@@ -224,7 +231,8 @@ describe('pluginProxySharedModule_preBuild', () => {
       });
 
       const plugins = proxySharedModule({ shared: makeShared() });
-      const proxyPlugin = plugins[1];
+      const proxyPlugin = getProxyPlugin(plugins);
+      const sharedResolvePlugin = getSharedResolvePlugin(plugins);
       const config: MockUserConfig = {
         resolve: {
           alias: [],
@@ -244,20 +252,43 @@ describe('pluginProxySharedModule_preBuild', () => {
         } as ConfigEnv
       );
 
-      const alias = config.resolve.alias.find((entry) => entry.find.test(testCase.source));
       if (!testCase.aliasExpected) {
-        expect(alias).toBeUndefined();
+        const resolution = await callHook(
+          sharedResolvePlugin.resolveId,
+          {
+            resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+          } as any,
+          testCase.source,
+          '/src/main.ts',
+          { isEntry: false }
+        );
+        expect(resolution).toBeUndefined();
         return;
       }
-
-      expect(alias).toBeDefined();
 
       if (testCase.shouldProxy) {
-        expect(alias?.customResolver).toBeTypeOf('function');
+        const resolution = await callHook(
+          sharedResolvePlugin.resolveId,
+          {
+            resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+          } as any,
+          testCase.source,
+          '/src/main.ts',
+          { isEntry: false }
+        );
+        expect((resolution as { id: string }).id).toBeDefined();
         return;
       }
 
-      const resolution = await alias?.customResolver?.(testCase.source, '/src/main.ts');
+      const resolution = await callHook(
+        sharedResolvePlugin.resolveId,
+        {
+          resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+        } as any,
+        testCase.source,
+        '/src/main.ts',
+        { isEntry: false }
+      );
       expect(resolution).toBeUndefined();
     });
   }
@@ -282,7 +313,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     };
 
     const plugins = proxySharedModule({ shared });
-    const proxyPlugin = plugins[1];
+    const proxyPlugin = getProxyPlugin(plugins);
     const config: MockUserConfig = {
       resolve: { alias: [] },
     };
@@ -319,7 +350,8 @@ describe('pluginProxySharedModule_preBuild', () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
     const plugins = proxySharedModule({ shared: makeShared() });
-    const proxyPlugin = plugins[1];
+    const proxyPlugin = getProxyPlugin(plugins);
+    const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {
       resolve: {
         alias: [],
@@ -338,12 +370,16 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     preBuildShareItemMap.set('transitive', makeShared().transitive);
 
-    const alias = config.resolve.alias.find((entry) => entry.find.test('x__prebuild__x'));
-    expect(alias).toBeDefined();
-    expect(typeof alias?.replacement).toBe('function');
-    expect((alias?.replacement as (value: string) => string)('transitive__prebuild__')).toBe(
-      '/abs/transitive/index.js'
+    const resolution = await callHook(
+      prebuildResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id }),
+      } as any,
+      'transitive__prebuild__',
+      '/src/main.ts',
+      { isEntry: false }
     );
+    expect((resolution as { id: string }).id).toBe('/abs/transitive/index.js');
   });
 
   it('resolves prebuild aliases from the original shared key, not just pkg name', async () => {
@@ -360,7 +396,8 @@ describe('pluginProxySharedModule_preBuild', () => {
     delete shared.transitive;
 
     const plugins = proxySharedModule({ shared });
-    const proxyPlugin = plugins[1];
+    const proxyPlugin = getProxyPlugin(plugins);
+    const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {
       resolve: {
         alias: [],
@@ -382,19 +419,24 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     preBuildShareItemMap.set('transitive', shared['transitive/']);
 
-    const prebuildAlias = config.resolve.alias.find((entry) => entry.find.test('x__prebuild__x'));
-    expect(prebuildAlias).toBeDefined();
-    expect(typeof prebuildAlias?.replacement).toBe('function');
-    expect(
-      (prebuildAlias?.replacement as (value: string) => string)('transitive__prebuild__')
-    ).toBe('/abs/transitive/slash-entry.js');
+    const resolution = await callHook(
+      prebuildResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id }),
+      } as any,
+      'transitive__prebuild__',
+      '/src/main.ts',
+      { isEntry: false }
+    );
+    expect((resolution as { id: string }).id).toBe('/abs/transitive/slash-entry.js');
   });
 
   it('resolves prebuild aliases to auto-detected workspace sources without explicit share.import', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
     const plugins = proxySharedModule({ shared: makeShared() });
-    const proxyPlugin = plugins[1];
+    const proxyPlugin = getProxyPlugin(plugins);
+    const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {
       resolve: {
         alias: [],
@@ -413,19 +455,26 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     preBuildShareItemMap.set('transitive-no-override', makeShared()['transitive-no-override']);
 
-    const alias = config.resolve.alias.find((entry) => entry.find.test('x__prebuild__x'));
-    expect(alias).toBeDefined();
-    expect(typeof alias?.replacement).toBe('function');
-    expect(
-      (alias?.replacement as (value: string) => string)('transitive-no-override__prebuild__')
-    ).toBe('/workspace/packages/transitive-no-override/dist/index.js');
+    const resolution = await callHook(
+      prebuildResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id }),
+      } as any,
+      'transitive-no-override__prebuild__',
+      '/src/main.ts',
+      { isEntry: false }
+    );
+    expect((resolution as { id: string }).id).toBe(
+      '/workspace/packages/transitive-no-override/dist/index.js'
+    );
   });
 
   it('does not proxy shared deps imported from build config files', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
     const plugins = proxySharedModule({ shared: makeShared() });
-    const proxyPlugin = plugins[1];
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = {
       resolve: {
         alias: [],
@@ -445,9 +494,17 @@ describe('pluginProxySharedModule_preBuild', () => {
       } as ConfigEnv
     );
 
-    const alias = config.resolve.alias.find((entry) => entry.find.test('vue'));
-    expect(alias?.customResolver).toBeTypeOf('function');
-    expect(alias?.customResolver?.('vue', '/repo/nuxt.config.ts')).toBeUndefined();
+    expect(
+      await callHook(
+        sharedResolvePlugin.resolveId,
+        {
+          resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+        } as any,
+        'vue',
+        '/repo/nuxt.config.ts',
+        { isEntry: false }
+      )
+    ).toBeUndefined();
   });
 
   it('excludes shared sub-dependencies in dev mode and warns', () => {
@@ -505,7 +562,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const plugins = proxySharedModule({ shared });
-    const proxyPlugin = plugins[1];
+    const proxyPlugin = getProxyPlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
 
     callHook(
@@ -574,7 +631,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     };
 
     const plugins = proxySharedModule({ shared });
-    const proxyPlugin = plugins[1];
+    const proxyPlugin = getProxyPlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
 
     callHook(
@@ -599,7 +656,8 @@ describe('pluginProxySharedModule_preBuild', () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
     const plugins = proxySharedModule({ shared: makeShared() });
-    const proxyPlugin = plugins[1];
+    const proxyPlugin = getProxyPlugin(plugins);
+    const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {
       resolve: {
         alias: [],
@@ -629,17 +687,14 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     preBuildShareItemMap.set('transitive-no-override', makeShared()['transitive-no-override']);
 
-    const alias = config.resolve.alias.find(
-      (entry) => entry.customResolver && entry.find.test('x__prebuild__x')
-    );
-    expect(alias?.customResolver).toBeTypeOf('function');
-
-    const resolution = await alias?.customResolver?.call(
+    const resolution = await callHook(
+      prebuildResolvePlugin.resolveId,
       {
         resolve: async (id: string) => ({ id: `/resolved/${id}` }),
-      },
+      } as any,
       'transitive-no-override__prebuild__',
-      '/src/main.ts'
+      '/src/main.ts',
+      { isEntry: false }
     );
 
     expect(resolution).toEqual({
@@ -651,7 +706,8 @@ describe('pluginProxySharedModule_preBuild', () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
     const plugins = proxySharedModule({ shared: makeShared() });
-    const proxyPlugin = plugins[1];
+    const proxyPlugin = getProxyPlugin(plugins);
+    const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {
       resolve: {
         alias: [],
@@ -681,23 +737,20 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     preBuildShareItemMap.set('react', makeShared().react);
 
-    const alias = config.resolve.alias.find(
-      (entry) => entry.customResolver && entry.find.test('x__prebuild__x')
-    );
-    expect(alias?.customResolver).toBeTypeOf('function');
-
     const resolution = await Promise.race([
-      alias?.customResolver?.call(
+      callHook(
+        prebuildResolvePlugin.resolveId,
         {
           resolve: async (id: string) => ({ id: `/vite/deps/${id}.js` }),
-        },
+        } as any,
         'react__prebuild__',
-        '/src/main.ts'
+        '/src/main.ts',
+        { isEntry: false }
       ),
       new Promise((resolve) => setTimeout(() => resolve('timeout'), 50)),
     ]);
 
     expect(resolution).not.toBe('timeout');
-    expect((resolution as { id: string }).id).toContain('/node_modules/');
+    expect((resolution as { id: string }).id).toBe('/vite/deps/react.js');
   });
 });

@@ -4,7 +4,6 @@ import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
   getRuntimeInitBootstrapCode,
   getRuntimeModuleCacheBootstrapCode,
-  virtualRuntimeInitStatus,
 } from './virtualRuntimeInitStatus';
 
 const cacheRemoteMap: {

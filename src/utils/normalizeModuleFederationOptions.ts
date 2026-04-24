@@ -57,7 +57,7 @@ function warnOnReservedInternalNamePrefix(name: string, kind: 'containerName' | 
   );
 }
 
-function normalizeExposesItem(key: string, item: string | { import: string }): ExposesItem {
+function normalizeExposesItem(item: string | { import: string }): ExposesItem {
   let importPath: string = '';
   if (typeof item === 'string') {
     importPath = item;
@@ -76,7 +76,7 @@ function normalizeExposes(
   if (!exposes) return {};
   const res: Record<string, ExposesItem> = {};
   Object.keys(exposes).forEach((key) => {
-    res[key] = normalizeExposesItem(key, exposes[key]);
+    res[key] = normalizeExposesItem(exposes[key]);
   });
   return res;
 }

@@ -23,11 +23,6 @@ type MockRequire = NodeJS.Require & {
   resolve: NodeJS.RequireResolve;
 };
 
-function getLastCallFirstArg<T>(mockFn: { mock: { calls: T[][] } }): T | undefined {
-  const calls = mockFn.mock.calls;
-  return calls.length > 0 ? calls[calls.length - 1][0] : undefined;
-}
-
 type ParseResult = ReturnType<typeof parseEsmModule>;
 
 function createParseResult(names: string[]): ParseResult {

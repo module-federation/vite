@@ -16,15 +16,11 @@ import { mfWarn } from '../utils/logger';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getInstalledPackageJson,
-  getPackageName,
   getPackageDetectionCwd,
-  hasPackageDependency,
+  getPackageName,
 } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
-import {
-  getRuntimeModuleCacheBootstrapCode,
-  virtualRuntimeInitStatus,
-} from './virtualRuntimeInitStatus';
+import { getRuntimeModuleCacheBootstrapCode } from './virtualRuntimeInitStatus';
 
 const JS_IDENTIFIER_REGEX = new RegExp(
   '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
@@ -346,6 +342,35 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
   preBuildShareItemMap[pkg] = shareItem;
   const importSource = getConcreteSharedImportSource(pkg, shareItem) || pkg;
+  if (pkg === 'react/jsx-dev-runtime') {
+    preBuildCacheMap[pkg].writeSync(
+      `
+    import __mfPrebuildDefault from ${escapeGeneratedStringLiteral(importSource)};
+    import * as __mfPrebuildNamespace from ${escapeGeneratedStringLiteral(importSource)};
+    const __mfPrebuildExports = __mfPrebuildDefault ?? __mfPrebuildNamespace;
+    export const Fragment = __mfPrebuildExports.Fragment;
+    export const jsxDEV = __mfPrebuildExports.jsxDEV;
+    export default __mfPrebuildExports;
+  `,
+      true
+    );
+    return;
+  }
+  if (pkg === 'react/jsx-runtime') {
+    preBuildCacheMap[pkg].writeSync(
+      `
+    import __mfPrebuildDefault from ${escapeGeneratedStringLiteral(importSource)};
+    import * as __mfPrebuildNamespace from ${escapeGeneratedStringLiteral(importSource)};
+    const __mfPrebuildExports = __mfPrebuildDefault ?? __mfPrebuildNamespace;
+    export const Fragment = __mfPrebuildExports.Fragment;
+    export const jsx = __mfPrebuildExports.jsx;
+    export const jsxs = __mfPrebuildExports.jsxs;
+    export default __mfPrebuildExports;
+  `,
+      true
+    );
+    return;
+  }
   preBuildCacheMap[pkg].writeSync(
     `
     import * as __mfPrebuildExports from ${escapeGeneratedStringLiteral(importSource)};
@@ -376,20 +401,9 @@ export function getSharedImportSource(pkg: string, shareItem?: ShareItem): strin
 export const LOAD_SHARE_TAG = '__loadShare__';
 
 const loadShareCacheMap: Record<string, VirtualModule> = {};
-function shouldUseEsmLoadShare(pkg: string, isRolldown?: boolean): boolean {
-  return (
-    !!isRolldown ||
-    pkg === 'lit' ||
-    pkg.startsWith('lit/') ||
-    pkg === 'vue' ||
-    pkg.startsWith('vue/')
-  );
-}
-export function getLoadShareImportId(pkg: string, isRolldown: boolean): string {
+export function getLoadShareImportId(pkg: string, _isRolldown: boolean): string {
   if (!loadShareCacheMap[pkg]) {
-    const useESM = shouldUseEsmLoadShare(pkg, isRolldown);
-    const ext = useESM ? '.mjs' : '.js';
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
+    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.mjs');
   }
   return loadShareCacheMap[pkg].getImportId();
 }
@@ -402,50 +416,33 @@ export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
   command: string,
-  isRolldown: boolean
+  _isRolldown: boolean
 ) {
   if (!loadShareCacheMap[pkg]) {
-    const useESM =
-      command === 'build' ||
-      shareItem.shareConfig.import === false ||
-      shouldUseEsmLoadShare(pkg, isRolldown);
-    const ext = useESM ? '.mjs' : '.js';
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, ext);
+    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.mjs');
   }
-
-  const useESM =
-    command === 'build' ||
-    shareItem.shareConfig.import === false ||
-    shouldUseEsmLoadShare(pkg, isRolldown);
-  const importLine = useESM
-    ? getRuntimeModuleCacheBootstrapCode()
-    : `const {moduleCache: __mfModuleCache} = require("${virtualRuntimeInitStatus.getImportId()}")`;
+  const importLine = getRuntimeModuleCacheBootstrapCode();
 
   // import: false means the host must provide this module — the remote has no local copy.
   // Generate a minimal loadShare module that just delegates to the runtime.
   // No prebuild imports, no dev warming imports.
   if (shareItem.shareConfig.import === false) {
-    // For ESM builds, try to detect named exports from locally installed devDependencies.
+    // Try to detect named exports from locally installed devDependencies.
     // This enables `import { ref } from 'vue'` even though the module is provided by the host.
-    // For packages that aren't installed, fall back to default-only export (CJS interop
-    // in dev mode, default export in build mode).
-    const namedExports = useESM ? getPackageNamedExports(pkg) : [];
+    // For packages that aren't installed, fall back to default-only export.
+    const namedExports = getPackageNamedExports(pkg);
     let exportLine: string;
-    if (useESM && namedExports.length > 0) {
+    if (namedExports.length > 0) {
       const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
       const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
       exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
     } else {
-      if (useESM) {
-        mfWarn(
-          `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
-            `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +
-            `  Install it as a devDependency to enable named export detection.`
-        );
-      }
-      exportLine = useESM
-        ? 'export default exportModule.default ?? exportModule'
-        : 'module.exports = exportModule';
+      mfWarn(
+        `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
+          `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +
+          `  Install it as a devDependency to enable named export detection.`
+      );
+      exportLine = 'export default exportModule.default ?? exportModule';
     }
     loadShareCacheMap[pkg].writeSync(
       `
@@ -462,8 +459,6 @@ export function writeLoadShareModule(
   }
 
   // Normal path: package is installed locally, create full loadShare with prebuild fallback.
-  const isVinext = hasPackageDependency('vinext');
-  const isAstro = hasPackageDependency('astro');
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
   const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg);
   const devImportSource = concreteSharedImportSource || pkg;
@@ -479,22 +474,14 @@ export function writeLoadShareModule(
   if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
     const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
-    exportLine = useESM
-      ? `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`
-      : `module.exports = exportModule;\n    ${destructure}\n    Object.assign(module.exports, { ${namedExports.map((name, i) => `"${name}": __mf_${i}`).join(', ')} });`;
+    exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
   } else {
-    exportLine = useESM
-      ? `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`
-      : 'module.exports = exportModule';
+    exportLine = `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`;
   }
 
-  const usesLazyLocalFallback =
-    useESM && isWorkspacePackage && shareItem.shareConfig.singleton === true;
+  const usesLazyLocalFallback = isWorkspacePackage && shareItem.shareConfig.singleton === true;
   const prebuildImportLine =
-    !useESM ||
-    usesLazyLocalFallback ||
-    (isWorkspacePackage && command !== 'build') ||
-    skipServePrebuildWarmup
+    usesLazyLocalFallback || (isWorkspacePackage && command !== 'build') || skipServePrebuildWarmup
       ? ''
       : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(sharedImportSource)};`;
   const devDynamicImportLine = isWorkspacePackage
@@ -511,16 +498,11 @@ export function writeLoadShareModule(
     let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
     if (exportModule === undefined) {
       ${
-        command !== 'build' && !useESM
-          ? `exportModule = require(${escapeGeneratedStringLiteral(devImportSource)});
+        usesLazyLocalFallback
+          ? `exportModule = await import(${escapeGeneratedStringLiteral(lazyLocalFallbackSource)});
       __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}] = exportModule;`
-          : useESM
-            ? usesLazyLocalFallback
-              ? `exportModule = await import(${escapeGeneratedStringLiteral(lazyLocalFallbackSource)});
+          : `exportModule = __mfLocalShare;
       __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}] = exportModule;`
-              : `exportModule = __mfLocalShare;
-      __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}] = exportModule;`
-            : `throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.")`
       }
     }
     ${exportLine}

@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default () => (
   <a href="#" className="flex">
     <span className="sr-only">Bag</span>

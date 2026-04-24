@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface ToggleProps {
   label: string;
   checked: boolean;

@@ -85,7 +85,7 @@ vi.mock('../virtualShared_preBuild', () => {
   return {
     getPreBuildLibImportId: (pkg: string) => `virtual:prebuild:${pkg}`,
     getConcreteSharedImportSource: (
-      pkg: string,
+      _pkg: string,
       shareItem?: { shareConfig?: { import?: string | false } }
     ) =>
       typeof shareItem?.shareConfig?.import === 'string' ? shareItem.shareConfig.import : undefined,
@@ -203,7 +203,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('virtual:prebuild:transitive-no-override');
   });
 
-  it('writes host auto init waiting on __tla before init', async () => {
+  it('writes host auto init before init', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => {
       return pkg === 'vinext';
     });
@@ -219,7 +219,6 @@ describe('virtualRemoteEntry', () => {
       'const remoteEntry = await import("virtual:test-remote-entry");'
     );
     expect(generatedCode).toContain('await remoteEntry.init();');
-    expect(generatedCode).not.toContain('Promise.resolve(remoteEntry.__tla)');
     expect(generatedCode).not.toContain('.then(remoteEntry.init)');
     expect(generatedCode).not.toContain('.catch(remoteEntry.init)');
   });

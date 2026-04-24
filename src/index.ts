@@ -3,10 +3,8 @@ import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
 import type { ConfigEnv, Plugin, ResolvedConfig, UserConfig } from 'vite';
-import { normalizePath } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
-import { PluginDevProxyModuleTopLevelAwait } from './plugins/pluginDevProxyModuleTopLevelAwait';
 import pluginDevRemoteHmr from './plugins/pluginDevRemoteHmr';
 import pluginDts from './plugins/pluginDts';
 import pluginManifest from './plugins/pluginMFManifest';
@@ -57,6 +55,24 @@ import {
 } from './virtualModules/virtualShared_preBuild';
 
 const patchedManualChunks = new WeakSet<Function>();
+const COMMON_PREFIX_SHARED_PREBUILDS: Record<string, string[]> = {
+  'react/': ['react/jsx-runtime', 'react/jsx-dev-runtime'],
+  'react-dom/': ['react-dom/client', 'react-dom/server', 'react-dom/server.browser'],
+};
+
+function matchesSharedSource(source: string, key: string): boolean {
+  const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
+  if (key.endsWith('/')) return source === keyBase || source.startsWith(`${keyBase}/`);
+  return source === keyBase;
+}
+
+function findSharedKey(source: string, shared: NormalizedModuleFederationOptions['shared']) {
+  return Object.keys(shared || {}).find((key) => matchesSharedSource(source, key));
+}
+
+function isSharedResolverInternalImporter(importer: string | undefined): boolean {
+  return !!importer && (importer.includes(LOAD_SHARE_TAG) || importer.includes('__prebuild__'));
+}
 
 type OutputNameOption = string | ((...args: unknown[]) => string);
 type ManualChunksOption =
@@ -147,56 +163,6 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
   );
 }
 
-function insertAfterLastTopLevelImport(code: string, snippet: string): string | undefined {
-  let cursor = 0;
-  let lastImportEnd = -1;
-
-  const skipTrivia = () => {
-    while (cursor < code.length) {
-      if (/\s/.test(code[cursor])) {
-        cursor++;
-        continue;
-      }
-      if (code.startsWith('//', cursor)) {
-        const lineEnd = code.indexOf('\n', cursor);
-        cursor = lineEnd === -1 ? code.length : lineEnd + 1;
-        continue;
-      }
-      if (code.startsWith('/*', cursor)) {
-        const commentEnd = code.indexOf('*/', cursor + 2);
-        cursor = commentEnd === -1 ? code.length : commentEnd + 2;
-        continue;
-      }
-      break;
-    }
-  };
-
-  while (cursor < code.length) {
-    // Only scan the initial import block. Once real code starts, later
-    // "import" tokens may be inside strings/comments/minified expressions.
-    skipTrivia();
-    if (!code.startsWith('import', cursor) || !/[\s"'*{]/.test(code[cursor + 6] ?? '')) {
-      break;
-    }
-
-    // Minified preview chunks often place multiple imports on one line, so
-    // line-based insertion can land in the middle of the import block.
-    const statementEnd = code.indexOf(';', cursor);
-    if (statementEnd !== -1) {
-      lastImportEnd = statementEnd + 1;
-      cursor = statementEnd + 1;
-      continue;
-    }
-
-    const lineEnd = code.indexOf('\n', cursor);
-    lastImportEnd = lineEnd === -1 ? code.length : lineEnd + 1;
-    cursor = lastImportEnd;
-  }
-  if (lastImportEnd === -1) return;
-
-  return code.slice(0, lastImportEnd) + snippet + code.slice(lastImportEnd);
-}
-
 /**
  * Plugin that runs FIRST to create virtual module files in the config hook.
  * This prevents 504 "Outdated Optimize Dep" errors by ensuring files exist
@@ -251,13 +217,83 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         if (_command === 'serve') {
           config.optimizeDeps = config.optimizeDeps || {};
           config.optimizeDeps.include = config.optimizeDeps.include || [];
+          const optimizeDeps = config.optimizeDeps as UserConfig['optimizeDeps'] & {
+            rolldownOptions?: { plugins?: unknown[] };
+            esbuildOptions?: { plugins?: unknown[] };
+          };
+          if (isRolldown) {
+            optimizeDeps.rolldownOptions ??= {};
+            optimizeDeps.rolldownOptions.plugins ??= [];
+            optimizeDeps.rolldownOptions.plugins.push({
+              name: 'module-federation:optimize-shared-resolver',
+              resolveId(source: string, importer?: string) {
+                if (isSharedResolverInternalImporter(importer)) return;
+                if (source !== 'react/jsx-runtime' && source !== 'react/jsx-dev-runtime') return;
+                const key = findSharedKey(source, shared);
+                if (!key) return;
+                if (source.endsWith('.css')) return;
+                const shareItem = shared[key];
+                const loadSharePath = getLoadShareModulePath(source, isRolldown);
+                writeLoadShareModule(source, shareItem, _command, isRolldown);
+                if (shareItem.shareConfig?.import !== false) {
+                  writePreBuildLibPath(source, shareItem);
+                }
+                addUsedShares(source);
+                return { id: loadSharePath, external: true };
+              },
+            });
+          } else {
+            optimizeDeps.esbuildOptions ??= {};
+            optimizeDeps.esbuildOptions.plugins ??= [];
+            optimizeDeps.esbuildOptions.plugins.push({
+              name: 'module-federation:optimize-shared-proxy',
+              setup(build: any) {
+                build.onResolve({ filter: /.*/ }, (args: any) => {
+                  if (!args.importer || args.namespace === 'mf-shared') return;
+                  if (isSharedResolverInternalImporter(args.importer)) return;
+                  const key = findSharedKey(args.path, shared);
+                  if (!key || args.path.endsWith('.css')) return;
+                  return { path: args.path, namespace: 'mf-shared' };
+                });
+                build.onLoad({ filter: /.*/, namespace: 'mf-shared' }, (args: any) => {
+                  const key = findSharedKey(args.path, shared);
+                  if (!key) return;
+                  const shareItem = shared[key];
+                  const loadSharePath = getLoadShareModulePath(args.path, isRolldown);
+                  writeLoadShareModule(args.path, shareItem, _command, isRolldown);
+                  if (shareItem.shareConfig?.import !== false) {
+                    writePreBuildLibPath(args.path, shareItem);
+                  }
+                  addUsedShares(args.path);
+                  return {
+                    loader: 'js',
+                    resolveDir: root,
+                    contents: `import * as __mfShared from ${JSON.stringify(loadSharePath)};
+export * from ${JSON.stringify(loadSharePath)};
+export default __mfShared.default ?? __mfShared;`,
+                  };
+                });
+              },
+            });
+          }
           // Include the runtimeInit virtual module so Vite pre-bundles it
           // upfront instead of discovering it at runtime via loadShare imports.
           config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
         }
         for (const key of Object.keys(shared)) {
-          if (key.endsWith('/')) continue;
           const shareItem: ShareItem = shared[key];
+          if (key.endsWith('/')) {
+            if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
+              const optimizeDeps = (config.optimizeDeps ??= {});
+              optimizeDeps.include ??= [];
+              for (const subpath of COMMON_PREFIX_SHARED_PREBUILDS[key] || []) {
+                writePreBuildLibPath(subpath, shareItem);
+                optimizeDeps.include.push(subpath);
+                optimizeDeps.include.push(getPreBuildLibImportId(subpath));
+              }
+            }
+            continue;
+          }
           if (isVinext && key === 'react') {
             addUsedShares(key);
             continue;
@@ -274,19 +310,19 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             const optimizeDeps = (config.optimizeDeps ??= {});
             optimizeDeps.include ??= [];
             optimizeDeps.exclude ??= [];
+            // Vite 8/Rolldown must keep shared packages outside dependency
+            // optimization, otherwise optimized third-party deps can bypass
+            // the shared loadShare proxy. Vite < 8 still uses esbuild and can
+            // fail when an optimizer entry is also external.
             const shouldBypassOptimizeDep = isLitShare(key);
-            if (shouldBypassOptimizeDep) {
+            if (isRolldown || shouldBypassOptimizeDep) {
               optimizeDeps.exclude.push(key);
             }
             if (!isRolldown && !shouldBypassOptimizeDep) {
-              // In non-Rolldown Vite (< 8), loadShare modules are CJS and
-              // don't use real TLA, so the dep optimizer handles them fine.
+              // In non-Rolldown Vite (< 8), loadShare modules are CJS, so the
+              // dep optimizer handles them fine.
               optimizeDeps.include.push(getLoadShareImportId(key, isRolldown));
             }
-            // When isRolldown (Vite 8+), loadShare modules are ESM with
-            // top-level await. Including them in optimizeDeps causes the dep
-            // optimizer to convert ESM→CJS, stripping `await` and turning
-            // shared modules into unresolved Promises (breaks Pinia plugins, etc).
             optimizeDeps.include.push(getPreBuildLibImportId(key));
           }
         }
@@ -300,14 +336,13 @@ function federation(mfUserOptions: ModuleFederationOptions) {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const isVinext = hasPackageDependency('vinext');
-  const { name, remotes, shared, filename, hostInitInjectLocation } = options;
+  const { name, shared, filename, hostInitInjectLocation } = options;
   if (!name) throw createModuleFederationError('name is required');
 
   const remoteEntryId = getRemoteEntryId(options);
   const virtualExposesId = getVirtualExposesId(options);
 
   let command: string;
-  let depsDir = '/node_modules/.vite/deps/';
   let desiredRolldownOutput: OutputNameOptions[] | undefined;
 
   return [
@@ -346,15 +381,6 @@ function federation(mfUserOptions: ModuleFederationOptions) {
       configResolved(config: ResolvedConfig) {
         // Set root path
         VirtualModule.setRoot(config.root);
-        const cacheDir = config.cacheDir;
-        if (cacheDir) {
-          const resolved = path.isAbsolute(cacheDir)
-            ? cacheDir
-            : path.resolve(config.root, cacheDir);
-          depsDir = normalizePath(path.join(resolved, 'deps')) + '/';
-        } else {
-          depsDir = normalizePath(path.join(config.root, 'node_modules', '.vite', 'deps')) + '/';
-        }
         // Ensure virtual package directory exists
         VirtualModule.ensureVirtualPackageExists();
         initVirtualModules(command, remoteEntryId);
@@ -407,13 +433,13 @@ function federation(mfUserOptions: ModuleFederationOptions) {
       config(config: UserConfig) {
         // Force loadShare modules and runtimeInitStatus into separate chunks.
         //
-        // For Vite 8+: loadShare chunks need separate TLA barriers
-        // so the generateBundle hook can patch CJS factories with top-level await.
+        // For Vite 8+: loadShare chunks need separate async init barriers
+        // so the generateBundle hook can patch generated CJS factories.
         //
         // For Rollup (standard vite): runtimeInitStatus MUST be in its own chunk
-        // to break TLA deadlock: loadShare has TLA waiting for initPromise,
-        // remoteEntry resolves initPromise via initResolve — if both are in the
-        // same chunk, the TLA blocks remoteEntry from ever executing.
+        // to break init deadlock: loadShare waits for initPromise, remoteEntry
+        // resolves initPromise via initResolve. If both are in the same chunk,
+        // loadShare blocks remoteEntry from ever executing.
         const runtimeInitId = virtualRuntimeInitStatus.getImportId();
         config.build = config.build || {};
 
@@ -494,13 +520,13 @@ function federation(mfUserOptions: ModuleFederationOptions) {
             warnedAboutManualChunks = true;
             mfWarn(
               'Ignoring `output.manualChunks` because it conflicts with module federation. ' +
-                'Module federation transforms shared dependency imports with top-level await, and grouping ' +
+                'Module federation transforms shared dependency imports with async init wrappers, and grouping ' +
                 'these transformed modules into a single chunk creates circular async dependencies that cause ' +
                 'the application to silently hang.'
             );
           }
           const mfManualChunks = function (id: string) {
-            // Keep runtimeInitStatus in its own chunk to break TLA deadlock
+            // Keep runtimeInitStatus in its own chunk to break init deadlock
             if (id.includes(runtimeInitId)) {
               return 'runtimeInit';
             }
@@ -605,7 +631,7 @@ function federation(mfUserOptions: ModuleFederationOptions) {
           // Rollup from merging them into the loadShare chunk.  Without this,
           // Rollup deduplicates and merges React code into the loadShare chunk,
           // so get() in localSharedImportMap ends up dynamically importing the
-          // SAME chunk whose TLA is already executing → self-referential deadlock.
+          // SAME chunk whose async init is already executing, causing deadlock.
           // The prebuild modules remain reachable via the dynamic import() in
           // localSharedImportMap's get() function, which naturally creates a
           // separate chunk.
@@ -663,9 +689,9 @@ function federation(mfUserOptions: ModuleFederationOptions) {
         // loadShare modules. These proxies share CJS helpers
         // (getDefaultExportFromCjs, getAugmentedNamespace) with prebuild
         // chunks (react, react-dom). This creates a transitive dependency:
-        //   prebuild chunk → commonjs-proxy → loadShare chunk (has TLA)
+        //   prebuild chunk -> commonjs-proxy -> loadShare chunk
         // When get() dynamically imports the prebuild chunk during
-        // loadShare's TLA execution, it blocks on itself → deadlock.
+        // loadShare execution, it blocks on itself, causing deadlock.
         //
         // Fix: extract helper functions from commonjs-proxy chunks and
         // inline them in consuming chunks, then remove the proxy imports.
@@ -835,7 +861,6 @@ function federation(mfUserOptions: ModuleFederationOptions) {
         }
       },
     },
-    PluginDevProxyModuleTopLevelAwait(),
     {
       name: 'module-federation-vite',
       enforce: 'post',
@@ -860,7 +885,7 @@ function federation(mfUserOptions: ModuleFederationOptions) {
             strictRequires: 'auto',
           },
         });
-        const virtualDir = options.virtualModuleDir || '__mf__virtual';
+        const virtualDir = options.virtualModuleDir;
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
@@ -893,7 +918,7 @@ function federation(mfUserOptions: ModuleFederationOptions) {
         });
 
         if (isRolldown) {
-          // Vite 8+: virtual modules use ESM, set target for top-level await
+          // Vite 8+: virtual modules use ESM.
           config.build = defu(config.build || {}, { target: 'esnext' });
         } else {
           // Vite 5-7: virtual modules use CJS for dev, need interop

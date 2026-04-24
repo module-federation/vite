@@ -1,6 +1,5 @@
 import * as path from 'pathe';
-import type { PluginContext } from 'rollup';
-import type { Plugin } from 'vite';
+import { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
@@ -32,11 +31,6 @@ import { resolvePublicPath } from '../utils/publicPath';
  */
 function getBuildVersion(): string {
   return process.env['MF_BUILD_VERSION'] ?? '1.0.0';
-}
-
-// Helper to build share key map with proper context typing
-interface BuildFileToShareKeyMapContext {
-  resolve: PluginContext['resolve'];
 }
 
 const Manifest = (): Plugin[] => {
@@ -197,7 +191,7 @@ const Manifest = (): Plugin[] => {
        * @param options - Rollup output options
        * @param bundle - Generated bundle assets
        */
-      async generateBundle(options, bundle) {
+      async generateBundle(_options, bundle) {
         if (!mfManifestName) return;
 
         let filesMap: PreloadMap = {};
@@ -401,7 +395,7 @@ const Manifest = (): Plugin[] => {
       size:
         typeof chunkOrAsset.code === 'string'
           ? chunkOrAsset.code.length
-          : chunkOrAsset.source?.length || chunkOrAsset.source?.byteLength || undefined,
+          : chunkOrAsset.source?.length || undefined,
     }));
 
     return {

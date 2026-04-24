@@ -53,7 +53,7 @@ const VarRemoteEntry = (): Plugin[] => {
        * @param config - Vite config object
        * @param command - Current Vite command (serve/build)
        */
-      config(config, { command }) {
+      config(config) {
         if (!config.build) config.build = {};
       },
       configResolved(config) {
@@ -64,7 +64,7 @@ const VarRemoteEntry = (): Plugin[] => {
        * @param options - Rollup output options
        * @param bundle - Generated bundle assets
        */
-      async generateBundle(options, bundle) {
+      async generateBundle(_options, bundle) {
         if (!varFilename) return;
 
         const isValidName = isValidVarName(name);

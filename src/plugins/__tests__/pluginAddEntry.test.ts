@@ -4,7 +4,6 @@ import type {
   IndexHtmlTransformContext,
   IndexHtmlTransformResult,
   MinimalPluginContextWithoutEnvironment,
-  Plugin,
   ResolvedConfig,
   Rollup,
   UserConfig,
