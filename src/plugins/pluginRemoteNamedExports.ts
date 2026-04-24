@@ -358,7 +358,7 @@ async function collectFromEsLexer(
       const specs = braceMatch[1]
         .split(',')
         .map((s: string) => s.trim())
-        .filter((s: string) => s.length > 0);
+        .filter((s: string) => s.length > 0 && !s.startsWith('type '));
 
       if (specs.length === 0) continue;
 
@@ -502,7 +502,7 @@ function collectFromRegex(
     const specs = specifiersRaw
       .split(',')
       .map((s: string) => s.trim())
-      .filter((s: string) => s.length > 0);
+      .filter((s: string) => s.length > 0 && !s.startsWith('type '));
 
     if (specs.length === 0) continue;
 

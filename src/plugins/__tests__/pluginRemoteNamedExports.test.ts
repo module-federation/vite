@@ -333,6 +333,24 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain('foo: myFoo');
     });
 
+    it('keeps runtime specifiers and skips inline type specifiers via fallback', async () => {
+      const result = await transform(
+        [
+          'import Default, {',
+          '  type Foo,',
+          '  foo as myFoo,',
+          '  bar,',
+          '} from "remoteApp/utils";',
+        ].join('\n'),
+        '/src/app.tsx',
+        true
+      );
+      expect(result).toContain('default as Default');
+      expect(result).toContain('foo: myFoo');
+      expect(result).toContain('bar');
+      expect(result).not.toContain('type Foo');
+    });
+
     it('handles aliased re-export via fallback', async () => {
       const result = await transform(
         'export { foo as myFoo } from "remoteApp/utils";',
@@ -340,6 +358,17 @@ describe('pluginRemoteNamedExports', () => {
         true
       );
       expect(result).toContain('as myFoo');
+    });
+
+    it('keeps runtime re-exports and skips type re-exports via fallback', async () => {
+      const result = await transform(
+        'export { type Foo, foo as myFoo, bar } from "remoteApp/utils";',
+        '/src/app.tsx',
+        true
+      );
+      expect(result).toContain('as myFoo');
+      expect(result).toContain('as bar');
+      expect(result).not.toContain('type Foo');
     });
 
     it('rewrites namespace import in raw JSX via regex fallback', async () => {
