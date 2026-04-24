@@ -18,21 +18,9 @@ vi.mock('../../utils/packageUtils', () => ({
 }));
 
 import addEntry from '../pluginAddEntry';
+import { callHook } from '../../utils/__tests__/viteHookHelpers';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
-
-type HookLike<TThis, TArgs extends unknown[], TResult> =
-  | ((this: TThis, ...args: TArgs) => TResult)
-  | { handler: (this: TThis, ...args: TArgs) => TResult };
-
-function callPluginHook<TThis, TArgs extends unknown[], TResult>(
-  hook: HookLike<TThis, TArgs, TResult> | undefined,
-  thisArg: TThis,
-  ...args: TArgs
-): TResult | undefined {
-  const handler = typeof hook === 'function' ? hook : hook?.handler;
-  return handler?.call(thisArg, ...args);
-}
 
 function runConfig(
   plugin: AddEntryPlugin,
@@ -40,17 +28,17 @@ function runConfig(
   config: UserConfig,
   env: ConfigEnv
 ): void {
-  callPluginHook(plugin.config, ctx, config, env);
+  callHook(plugin.config, ctx, config, env);
 }
 
 function runConfigResolved(plugin: AddEntryPlugin, config: ResolvedConfig): void {
   if (!plugin.configResolved) throw new Error(`${plugin.name} configResolved hook not found`);
-  callPluginHook(plugin.configResolved, {} as MinimalPluginContextWithoutEnvironment, config);
+  callHook(plugin.configResolved, {} as MinimalPluginContextWithoutEnvironment, config);
 }
 
 async function runTransform(plugin: AddEntryPlugin, code: string, id: string) {
   if (!plugin.transform) throw new Error(`${plugin.name} transform hook not found`);
-  return await callPluginHook(plugin.transform, {} as Rollup.TransformPluginContext, code, id);
+  return await callHook(plugin.transform, {} as Rollup.TransformPluginContext, code, id);
 }
 
 async function runTransformIndexHtml(
@@ -60,7 +48,7 @@ async function runTransformIndexHtml(
 ): Promise<void | IndexHtmlTransformResult> {
   if (!plugin.transformIndexHtml)
     throw new Error(`${plugin.name} transformIndexHtml hook not found`);
-  return await callPluginHook(
+  return await callHook(
     plugin.transformIndexHtml,
     {} as MinimalPluginContextWithoutEnvironment,
     html,
@@ -70,7 +58,7 @@ async function runTransformIndexHtml(
 
 async function runLoad(plugin: AddEntryPlugin, id: string) {
   if (!plugin.load) throw new Error(`${plugin.name} load hook not found`);
-  return await callPluginHook(plugin.load, {} as Rollup.PluginContext, id);
+  return await callHook(plugin.load, {} as Rollup.PluginContext, id);
 }
 
 function runBuildStart(
@@ -79,7 +67,7 @@ function runBuildStart(
   options: Rollup.NormalizedInputOptions
 ): void {
   if (!plugin.buildStart) throw new Error(`${plugin.name} buildStart hook not found`);
-  callPluginHook(plugin.buildStart, ctx, options);
+  callHook(plugin.buildStart, ctx, options);
 }
 
 function runGenerateBundle(
@@ -90,7 +78,7 @@ function runGenerateBundle(
   isWrite = false
 ): void {
   if (!plugin.generateBundle) throw new Error(`${plugin.name} generateBundle hook not found`);
-  callPluginHook(plugin.generateBundle, ctx, outputOptions, bundle, isWrite);
+  callHook(plugin.generateBundle, ctx, outputOptions, bundle, isWrite);
 }
 
 describe('pluginAddEntry', () => {

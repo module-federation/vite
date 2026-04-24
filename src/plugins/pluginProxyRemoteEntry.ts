@@ -149,26 +149,19 @@ export default function ({
       const exposeEntries = Object.entries(options.exposes);
       const allCssAssets = options.bundleAllCSS ? collectCssAssets(bundle) : new Set<string>();
 
-      processModuleAssets(bundle, filesMap, (modulePath) => {
-        const absoluteModulePath = path.resolve(root, modulePath);
-        const matchedExpose = exposeEntries.find(([_, exposeOptions]) => {
-          const exposePath = path.resolve(root, exposeOptions.import);
-          if (absoluteModulePath === exposePath) {
-            return true;
-          }
+      processModuleAssets(
+        bundle,
+        filesMap,
+        (modulePath) => {
+          const matchedExpose = exposeEntries.find(([_, exposeOptions]) => {
+            const exposePath = path.resolve(root, exposeOptions.import);
+            return modulePath === exposePath;
+          });
 
-          const stripKnownJsExt = (filePath: string) => {
-            const ext = path.extname(filePath);
-            return ['.ts', '.tsx', '.jsx', '.mjs', '.cjs'].includes(ext)
-              ? path.join(path.dirname(filePath), path.basename(filePath, ext))
-              : filePath;
-          };
-
-          return stripKnownJsExt(absoluteModulePath) === stripKnownJsExt(exposePath);
-        });
-
-        return matchedExpose?.[1].import;
-      });
+          return matchedExpose?.[1].import;
+        },
+        { root, stripKnownJsExtensions: true }
+      );
 
       if (options.bundleAllCSS) {
         addCssAssetsToAllExports(filesMap, allCssAssets);

@@ -8,14 +8,13 @@ import { getUsedRemotesMap, getUsedShares } from '../virtualModules';
 
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import {
+  addCssAssetsToAllExports,
   buildFileToShareKeyMap,
   collectCssAssets,
   createEmptyAssetMap,
   deduplicateAssets,
-  JS_EXTENSIONS,
   type PreloadMap,
   processModuleAssets,
-  trackAsset,
 } from '../utils/cssModuleHelpers';
 import { resolvePublicPath } from '../utils/publicPath';
 
@@ -72,19 +71,6 @@ const Manifest = (): Plugin[] => {
   let _command: string;
   let _originalConfigBase: string | undefined;
   let viteConfig: any;
-
-  /**
-   * Adds global CSS assets to all module exports
-   * @param filesMap - The preload map to update
-   * @param cssAssets - Set of CSS asset filenames to add
-   */
-  const addCssAssetsToAllExports = (filesMap: PreloadMap, cssAssets: Set<string>) => {
-    Object.keys(filesMap).forEach((key) => {
-      cssAssets.forEach((cssAsset) => {
-        trackAsset(filesMap, key, cssAsset, false, 'css');
-      });
-    });
-  };
 
   return [
     {
@@ -215,28 +201,17 @@ const Manifest = (): Plugin[] => {
           );
 
           // Process exposed modules
-          processModuleAssets(bundle, filesMap, (modulePath) => {
-            const absoluteModulePath = path.resolve(root, modulePath);
-            return exposesModules.find((exposeModule) => {
-              const exposePath = path.resolve(root, exposeModule);
-
-              // First try exact path match
-              if (absoluteModulePath === exposePath) {
-                return true;
-              }
-
-              // Then try path match without known extensions
-              const getPathWithoutKnownExt = (filePath: string) => {
-                const ext = path.extname(filePath);
-                return JS_EXTENSIONS.includes(ext as any)
-                  ? path.join(path.dirname(filePath), path.basename(filePath, ext))
-                  : filePath;
-              };
-              const modulePathNoExt = getPathWithoutKnownExt(absoluteModulePath);
-              const exposePathNoExt = getPathWithoutKnownExt(exposePath);
-              return modulePathNoExt === exposePathNoExt;
-            });
-          });
+          processModuleAssets(
+            bundle,
+            filesMap,
+            (modulePath) => {
+              return exposesModules.find((exposeModule) => {
+                const exposePath = path.resolve(root, exposeModule);
+                return modulePath === exposePath;
+              });
+            },
+            { root, stripKnownJsExtensions: true }
+          );
 
           // Process shared modules
           const fileToShareKey = await buildFileToShareKeyMap(
