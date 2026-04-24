@@ -985,10 +985,8 @@ function federation(mfUserOptions: ModuleFederationOptions) {
               apply: 'build' as const,
               config(_config, { command }) {
                 const manifest = options.manifest;
-                const isConsumerProject = Object.keys(options.exposes).length === 0;
                 const getDefaultDisableAssetsAnalyze = (cfgCommand: string | undefined) =>
                   cfgCommand === 'serve' &&
-                  isConsumerProject &&
                   (typeof manifest !== 'object' ||
                     !Object.prototype.hasOwnProperty.call(manifest, 'disableAssetsAnalyze'));
 

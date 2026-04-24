@@ -262,7 +262,7 @@ const addEntry = ({
           entryFiles = Object.values(inputOptions);
         }
 
-        if (entryFiles && entryFiles.length > 0) {
+        if (entryFiles.length > 0) {
           htmlFilePath = getFirstHtmlEntryFile(entryFiles);
         }
 

@@ -305,55 +305,51 @@ const Manifest = (): Plugin[] => {
     );
 
     // Process shared dependencies
-    const shared = Array.from(getUsedShares())
-      .map((shareKey) => {
-        const shareItem = getNormalizeShareItem(shareKey);
-        const assets = preloadMap[shareKey] || createEmptyAssetMap();
+    const shared = Array.from(getUsedShares()).map((shareKey) => {
+      const shareItem = getNormalizeShareItem(shareKey);
+      const assets = preloadMap[shareKey] || createEmptyAssetMap();
 
-        return {
-          id: `${name}:${shareKey}`,
-          name: shareKey,
-          version: shareItem.version,
-          singleton: shareItem.shareConfig.singleton,
-          requiredVersion: shareItem.shareConfig.requiredVersion,
-          assets: {
-            js: {
-              async: assets.js.async,
-              sync: assets.js.sync,
-            },
-            css: {
-              async: assets.css.async,
-              sync: assets.css.sync,
-            },
+      return {
+        id: `${name}:${shareKey}`,
+        name: shareKey,
+        version: shareItem.version,
+        singleton: shareItem.shareConfig.singleton,
+        requiredVersion: shareItem.shareConfig.requiredVersion,
+        assets: {
+          js: {
+            async: assets.js.async,
+            sync: assets.js.sync,
           },
-        };
-      })
-      .filter(Boolean);
+          css: {
+            async: assets.css.async,
+            sync: assets.css.sync,
+          },
+        },
+      };
+    });
 
     // Process exposed modules
-    const exposes = Object.entries(options.exposes)
-      .map(([key, value]) => {
-        const formatKey = key.replace('./', '');
-        const sourceFile = value.import;
-        const assets = preloadMap[sourceFile] || createEmptyAssetMap();
+    const exposes = Object.entries(options.exposes).map(([key, value]) => {
+      const formatKey = key.replace('./', '');
+      const sourceFile = value.import;
+      const assets = preloadMap[sourceFile] || createEmptyAssetMap();
 
-        return {
-          id: `${name}:${formatKey}`,
-          name: formatKey,
-          assets: {
-            js: {
-              async: assets.js.async,
-              sync: assets.js.sync,
-            },
-            css: {
-              async: assets.css.async,
-              sync: assets.css.sync,
-            },
+      return {
+        id: `${name}:${formatKey}`,
+        name: formatKey,
+        assets: {
+          js: {
+            async: assets.js.async,
+            sync: assets.js.sync,
           },
-          path: key,
-        };
-      })
-      .filter(Boolean);
+          css: {
+            async: assets.css.async,
+            sync: assets.css.sync,
+          },
+        },
+        path: key,
+      };
+    });
 
     return {
       id: name,
