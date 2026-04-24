@@ -56,6 +56,20 @@ function isBuildConfigImporter(importer: string | undefined): boolean {
   );
 }
 
+function matchesSharedSource(source: string, key: string): boolean {
+  const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
+  if (key.endsWith('/')) return source === keyBase || source.startsWith(`${keyBase}/`);
+  return source === keyBase;
+}
+
+function findSharedKey(source: string, shared: NormalizedShared): string | undefined {
+  return Object.keys(shared).find((key) => matchesSharedSource(source, key));
+}
+
+function isNodeModulePath(source: string): boolean {
+  return source.includes('/node_modules/') || source.includes('\\node_modules\\');
+}
+
 function findPackageJsonFromResolvedEntry(entry: string, packageName: string): string | undefined {
   let currentDir = path.dirname(entry);
   while (currentDir !== path.dirname(currentDir)) {
@@ -152,6 +166,7 @@ export function proxySharedModule(options: {
   let _config: ResolvedConfig | undefined;
   let _command = 'serve';
   let useDirectReactImport = false;
+  let useRolldown = false;
   const savePrebuild = new PromiseStore<string>();
 
   return [
@@ -181,129 +196,12 @@ export function proxySharedModule(options: {
         const isAstro = hasPackageDependency('astro');
         const isRolldown = getIsRolldown(this);
         _command = command;
+        useRolldown = isRolldown;
         useDirectReactImport = isVinext || isAstro;
 
         if (command === 'serve') {
           excludeSharedSubDependencies(shared);
         }
-
-        (config.resolve as any).alias.unshift(
-          ...Object.keys(shared)
-            .filter((key) => !(useDirectReactImport && key === 'react'))
-            .map((key) => {
-              const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
-              const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-              const escapedKeyBase = escapeRegex(keyBase);
-              // Trailing-slash keys act as package-prefix shares:
-              // "react/" should match both "react" and "react/*".
-              const pattern = key.endsWith('/')
-                ? `^(${escapedKeyBase}(?:\\/.*)?)$`
-                : `^(${escapedKeyBase})$`;
-              return {
-                // Intercept all shared requests and proxy them to loadShare
-                find: new RegExp(pattern),
-                replacement: '$1',
-                customResolver(source: string, importer: string) {
-                  if (/\.css$/.test(source)) return;
-                  if (isBuildConfigImporter(importer)) {
-                    return;
-                  }
-                  // Hard-stop proxying bare React in dev. Vite's RSC pipeline
-                  // expects the native server React entry, and wrapping `react`
-                  // through loadShare breaks react-server-dom-webpack.
-                  // We still register React in the federation share scope via
-                  // localSharedImportMap, so shared metadata remains available.
-                  if (useDirectReactImport && source === 'react') {
-                    return;
-                  }
-                  // Skip for localSharedImportMap to break circular TLA deadlock:
-                  // loadShare TLA → runtime.loadShare() → get() → import(prebuild)
-                  // → alias to pkg name → shared alias → loadShare (DEADLOCK)
-                  if (importer && importer.includes('localSharedImportMap')) {
-                    return;
-                  }
-                  if (
-                    importer &&
-                    (importer.includes('hostAutoInit') || importer.includes('__H_A_I__'))
-                  ) {
-                    return;
-                  }
-                  if (importer && importer.includes(LOAD_SHARE_TAG)) {
-                    return;
-                  }
-                  if (importer && importer.includes(PREBUILD_TAG)) {
-                    return;
-                  }
-                  // Trailing-slash keys (e.g. "react/") match subpath imports like
-                  // "react/jsx-dev-runtime". However, the MF runtime's loadShare does
-                  // exact key lookup — subpath shares aren't registered and loadShare
-                  // returns false, causing "factory is not a function". Let subpath
-                  // imports resolve normally; the base package singleton sharing
-                  // already ensures a single instance.
-                  if (key.endsWith('/') && source !== key.slice(0, -1)) {
-                    return;
-                  }
-                  const loadSharePath = getLoadShareModulePath(source, isRolldown);
-                  writeLoadShareModule(source, shared[key], command, isRolldown);
-                  if (shared[key].shareConfig.import !== false) {
-                    writePreBuildLibPath(source, shared[key]);
-                  }
-                  addUsedShares(source);
-                  writeLocalSharedImportMap();
-                  refreshHostAutoInit();
-                  return (this as any).resolve(loadSharePath, importer);
-                },
-              };
-            })
-        );
-
-        (config.resolve as any).alias.push(
-          ...Object.keys(shared)
-            .filter((key) => !(useDirectReactImport && key === 'react'))
-            .map((key) => {
-              return command === 'build'
-                ? {
-                    find: new RegExp(`(.*${PREBUILD_TAG}.*)`),
-                    replacement: function ($1: string) {
-                      const module = assertModuleFound(PREBUILD_TAG, $1) as VirtualModule;
-                      const pkgName = module.name;
-                      return getPrebuildResolutionSource(pkgName, getPreBuildShareItem(pkgName));
-                    },
-                  }
-                : {
-                    find: new RegExp(`(.*${PREBUILD_TAG}.*)`),
-                    replacement: '$1',
-                    async customResolver(source: string, importer: string) {
-                      if (source.startsWith('.')) {
-                        return;
-                      }
-                      const module = assertModuleFound(PREBUILD_TAG, source) as VirtualModule;
-                      const pkgName = module.name;
-                      const importSource = getPrebuildResolutionSource(
-                        pkgName,
-                        getPreBuildShareItem(pkgName)
-                      );
-                      const direct = tryResolveFromProjectRoot(importSource);
-                      const resolved = await (this as any).resolve(
-                        direct || importSource,
-                        importer
-                      );
-                      if (!resolved?.id) return;
-                      const result = resolved.id;
-                      if (!_config || result.includes(_config.cacheDir)) {
-                        if (direct) {
-                          return (await (this as any).resolve(direct, importer)) || { id: direct };
-                        }
-                        return resolved;
-                      }
-                      // save pre-bunding module id
-                      savePrebuild.set(pkgName, Promise.resolve(result));
-                      // Fix localSharedImportMap import id
-                      return await (this as any).resolve(await savePrebuild.get(pkgName), importer);
-                    },
-                  };
-            })
-        );
       },
       configResolved(config) {
         _config = config;
@@ -331,6 +229,77 @@ export function proxySharedModule(options: {
         });
         writeLocalSharedImportMap();
         refreshHostAutoInit();
+      },
+    },
+    {
+      name: 'proxyPreBuildShared:resolve-shared-loadShare',
+      enforce: 'pre',
+      async resolveId(source, importer) {
+        const key = findSharedKey(source, shared);
+        if (!key) return;
+        if (useDirectReactImport && key === 'react') return;
+        if (/\.css$/.test(source)) return;
+        if (isBuildConfigImporter(importer)) return;
+        // Hard-stop proxying bare React in dev. Vite's RSC pipeline expects
+        // the native server React entry.
+        if (useDirectReactImport && source === 'react') return;
+        // Avoid recursive loadShare/prebuild/local map resolution loops.
+        if (importer && importer.includes('localSharedImportMap')) return;
+        if (importer && (importer.includes('hostAutoInit') || importer.includes('__H_A_I__'))) {
+          return;
+        }
+        if (importer && importer.includes(LOAD_SHARE_TAG)) return;
+        if (importer && importer.includes(PREBUILD_TAG)) return;
+        // Prefix shares match subpaths, but only base package is proxied.
+        if (key.endsWith('/') && source !== key.slice(0, -1)) return;
+
+        const loadSharePath = getLoadShareModulePath(source, useRolldown);
+        writeLoadShareModule(source, shared[key], _command, useRolldown);
+        if (shared[key].shareConfig.import !== false) {
+          writePreBuildLibPath(source, shared[key]);
+        }
+        addUsedShares(source);
+        writeLocalSharedImportMap();
+        refreshHostAutoInit();
+        return this.resolve(loadSharePath, importer, { skipSelf: true });
+      },
+    },
+    {
+      name: 'proxyPreBuildShared:resolve-prebuild',
+      enforce: 'pre',
+      async resolveId(source, importer) {
+        if (!source.includes(PREBUILD_TAG)) return;
+        if (source.startsWith('.')) return;
+
+        const module = assertModuleFound(PREBUILD_TAG, source) as VirtualModule;
+        const pkgName = module.name;
+        const importSource = getPrebuildResolutionSource(pkgName, getPreBuildShareItem(pkgName));
+
+        if (_command === 'build') {
+          return this.resolve(importSource, importer, { skipSelf: true });
+        }
+
+        const direct = tryResolveFromProjectRoot(importSource);
+        const directSource = direct && !isNodeModulePath(direct) ? direct : undefined;
+        const resolved = await this.resolve(directSource || importSource, importer, {
+          skipSelf: true,
+        });
+        if (!resolved?.id) return;
+        const result = resolved.id;
+        if (!_config || result.includes(_config.cacheDir)) {
+          if (directSource) {
+            return (
+              (await this.resolve(directSource, importer, { skipSelf: true })) || {
+                id: directSource,
+              }
+            );
+          }
+          return resolved;
+        }
+        // save pre-bunding module id
+        savePrebuild.set(pkgName, Promise.resolve(result));
+        // Fix localSharedImportMap import id
+        return await this.resolve(await savePrebuild.get(pkgName), importer, { skipSelf: true });
       },
     },
   ];

@@ -1,7 +1,6 @@
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-import topLevelAwait from 'vite-plugin-top-level-await';
 
 // https://vitejs.dev/config/
 const isMixed2 = process.env.MIXED_VV === '2';
@@ -67,8 +66,6 @@ export default defineConfig({
         '@vite-vite/shared-lib': { singleton: true },
       },
     }),
-    // If you set build.target: "chrome89", you can remove this plugin
-    false && topLevelAwait(),
   ].filter(Boolean),
   build: {
     target: 'chrome89',

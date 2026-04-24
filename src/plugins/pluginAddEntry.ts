@@ -156,7 +156,7 @@ const addEntry = ({
     {
       name: 'add-entry',
       apply: 'serve',
-      config(config, { command }) {
+      config(_config, { command }) {
         _command = command;
       },
       configResolved(config) {
@@ -178,7 +178,7 @@ const addEntry = ({
         }
       },
       configureServer(server) {
-        server.middlewares.use((req, res, next) => {
+        server.middlewares.use((req, _res, next) => {
           if (!fileName) {
             next();
             return;
@@ -300,7 +300,7 @@ const addEntry = ({
           }
         }
       },
-      generateBundle(options, bundle) {
+      generateBundle(_options, bundle) {
         if (skipSvelteKitSsrBuild()) return;
         if (!injectHtml()) return;
         const file = this.getFileName(emitFileId);

@@ -210,12 +210,10 @@ describe('pluginCheckAliasConflicts', () => {
           {
             find: /^vue$/,
             replacement: '$1',
-            customResolver: () => {},
           },
           {
             find: /^react-dom$/,
             replacement: '$1',
-            customResolver: () => {},
           },
         ],
       },

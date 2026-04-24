@@ -31,7 +31,6 @@ import pluginProxyRemotes from '../pluginProxyRemotes';
 type AliasEntry = {
   find: RegExp;
   replacement?: string;
-  customResolver?: (source: string, importer?: string) => unknown;
 };
 
 type MockUserConfig = UserConfig & {
@@ -115,7 +114,6 @@ describe('pluginProxyRemotes', () => {
 
     expect(alias.find.test('scheduler')).toBe(true);
     expect(alias.find.test('scheduler/SchedulePanel')).toBe(true);
-    expect(alias.customResolver).toBeUndefined();
   });
 
   it('still proxies bare remote ids from app importers via resolveId', () => {

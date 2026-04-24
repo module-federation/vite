@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import ProductHeader from './ProductHeader';
 import ProductImage from './ProductImage';
 

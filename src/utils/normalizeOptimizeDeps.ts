@@ -6,7 +6,7 @@ export interface Command {
 
 export default {
   name: 'normalizeOptimizeDeps',
-  config: (config: UserConfig, { command }: Command) => {
+  config: (config: UserConfig) => {
     let { optimizeDeps } = config;
     if (!optimizeDeps) {
       config.optimizeDeps = {};

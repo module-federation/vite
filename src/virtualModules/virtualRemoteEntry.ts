@@ -32,11 +32,8 @@ export function getUsedShares() {
 export function addUsedShares(pkg: string) {
   usedShares.add(pkg);
 }
-// *** Expose locally provided shared modules here
-const localSharedImportMapModule = new VirtualModule('localSharedImportMap');
 export function getLocalSharedImportMapPath() {
   return getLocalSharedImportMapPath_temp();
-  // return localSharedImportMapModule.getPath()
 }
 let prevLocalSharedImportMapContent: string | undefined;
 export function writeLocalSharedImportMap() {
@@ -151,7 +148,7 @@ export function generateLocalSharedImportMap() {
                   name: ${JSON.stringify(remote.name)},
                   type: ${JSON.stringify(remote.type)},
                   entry: ${JSON.stringify(remote.entry)},
-                  shareScope: ${JSON.stringify(remote.shareScope) ?? 'default'},
+                  shareScope: ${JSON.stringify(remote.shareScope ?? 'default')},
                 }
           `;
         })
@@ -337,7 +334,7 @@ export const HOST_AUTO_INIT_TAG = '__H_A_I__';
 const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG);
 let currentHostAutoInitRemoteEntryId = REMOTE_ENTRY_ID;
 let currentHostAutoInitCommand = 'build';
-export function generateHostAutoInitCode(remoteEntryImport: string, command = 'build') {
+export function generateHostAutoInitCode(remoteEntryImport: string, _command = 'build') {
   return `
     ${getRuntimeModuleCacheBootstrapCode()}
     let hostInitPromise;

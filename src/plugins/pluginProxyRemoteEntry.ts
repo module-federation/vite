@@ -41,7 +41,7 @@ export default function ({
       viteConfig = config;
       root = config.root;
     },
-    config(config, { command }) {
+    config(_config, { command }) {
       _command = command;
     },
     async buildStart() {

@@ -6,7 +6,7 @@ export interface Command {
 
 export default {
   name: 'alias-transform-plugin',
-  config: (config: UserConfig, { command }: { command: Command }) => {
+  config: (config: UserConfig) => {
     if (!config.resolve) config.resolve = {};
     if (!config.resolve.alias) config.resolve.alias = [];
     const { alias } = config.resolve;

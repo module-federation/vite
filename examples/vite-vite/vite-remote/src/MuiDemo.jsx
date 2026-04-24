@@ -1,7 +1,6 @@
 import { css } from '@emotion/react';
 import { createTheme, Paper, ThemeProvider, Typography } from '@mui/material';
 import Button from '@mui/material/Button';
-import React from 'react';
 import styles from './Mui5Widget.module.css';
 
 const FooterClasses = {
