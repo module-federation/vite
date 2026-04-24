@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'pathe';
-import { Plugin } from 'vite';
+import type { Plugin } from 'vite';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
 import {
@@ -9,7 +9,7 @@ import {
   sanitizeDevEntryPath,
 } from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
-import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getRuntimeModuleCacheBootstrapCode } from '../virtualModules/virtualRuntimeInitStatus';
 import { getUsedRemotesMap } from '../virtualModules/virtualRemotes';

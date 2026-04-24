@@ -1,4 +1,4 @@
-import { Plugin } from 'vite';
+import type { Plugin } from 'vite';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import { createModuleFederationError, mfWarn } from '../utils/logger';
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';

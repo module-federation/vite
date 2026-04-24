@@ -3,7 +3,7 @@
  */
 import { createFilter } from '@rollup/pluginutils';
 import MagicString from 'magic-string';
-import { Plugin } from 'vite';
+import type { Plugin } from 'vite';
 import { loadWalk } from '../utils/loadWalk';
 import { createModuleFederationError } from '../utils/logger';
 import { hasPackageDependency } from '../utils/packageUtils';

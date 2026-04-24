@@ -1,6 +1,6 @@
 import * as path from 'pathe';
 import type { PluginContext } from 'rollup';
-import { Plugin } from 'vite';
+import type { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
@@ -14,7 +14,7 @@ import {
   createEmptyAssetMap,
   deduplicateAssets,
   JS_EXTENSIONS,
-  PreloadMap,
+  type PreloadMap,
   processModuleAssets,
   trackAsset,
 } from '../utils/cssModuleHelpers';

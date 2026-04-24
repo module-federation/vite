@@ -1,6 +1,6 @@
 import { createFilter } from '@rollup/pluginutils';
-import { Plugin } from 'vite';
-import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import type { Plugin } from 'vite';
+import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getInstalledPackageEntry } from '../utils/packageUtils';
 import { addUsedRemote, getRemoteVirtualModule, refreshHostAutoInit } from '../virtualModules';
 const filter: (id: string) => boolean = createFilter();

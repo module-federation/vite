@@ -6,4 +6,7 @@ export default defineConfig({
   outDir: 'lib',
   dts: true,
   clean: true,
+  deps: {
+    onlyAllowBundle: false,
+  },
 });

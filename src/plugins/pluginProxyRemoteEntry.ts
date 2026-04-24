@@ -1,7 +1,7 @@
 import { createFilter } from '@rollup/pluginutils';
 import * as path from 'pathe';
 import { fileURLToPath } from 'url';
-import { Plugin } from 'vite';
+import type { Plugin } from 'vite';
 import {
   addCssAssetsToAllExports,
   collectCssAssets,
@@ -9,7 +9,7 @@ import {
   processModuleAssets,
 } from '../utils/cssModuleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
-import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { resolvePublicPath } from '../utils/publicPath';
 import {
   generateExposes,
