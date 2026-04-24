@@ -26,6 +26,17 @@ vi.mock('fs', async (importOriginal) => {
 vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: vi.fn(() => undefined),
+  getInstalledPackageJson: vi.fn((pkg: string) => {
+    const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
+    const packageName = match ? match[0] : pkg;
+    const packageJsonPath = `/repo/apps/remote/node_modules/${packageName}/package.json`;
+    if (!existsSyncMock(packageJsonPath)) return undefined;
+    return {
+      path: packageJsonPath,
+      dir: `/repo/apps/remote/node_modules/${packageName}`,
+      packageJson: JSON.parse(readFileSyncMock(packageJsonPath)),
+    };
+  }),
   setPackageDetectionCwd: vi.fn(),
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   getIsRolldown: () => false,

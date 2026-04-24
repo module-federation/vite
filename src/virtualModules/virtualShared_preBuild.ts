@@ -15,6 +15,7 @@ import path from 'pathe';
 import { mfWarn } from '../utils/logger';
 import { ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
+  getInstalledPackageEntry,
   getInstalledPackageJson,
   getPackageDetectionCwd,
   getPackageName,
@@ -69,59 +70,13 @@ function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
   }
 }
 
-function resolveImportTarget(exportsField: unknown): string | undefined {
-  if (typeof exportsField === 'string') return exportsField;
-  if (!exportsField || typeof exportsField !== 'object') return undefined;
-
-  const record = exportsField as Record<string, unknown>;
-  const preferredConditions = ['browser', 'import', 'module', 'default'];
-  for (const condition of preferredConditions) {
-    const target = resolveImportTarget(record[condition]);
-    if (target) return target;
-  }
-
-  for (const target of Object.values(record)) {
-    const resolved = resolveImportTarget(target);
-    if (resolved) return resolved;
-  }
-
-  return undefined;
-}
-
 function getPackageEsmEntryPath(pkg: string): string | undefined {
-  try {
-    const resolvedEntryPath = resolvePackageEntryFromProjectRoot(pkg);
-    const installedPackageJson = getInstalledPackageJson(pkg);
-    if (!installedPackageJson) return resolvedEntryPath;
-
-    const packageName = getPackageName(pkg);
-    const packageJson = installedPackageJson.packageJson as {
-      exports?: Record<string, unknown> | string;
-      module?: string;
-    };
-    const subpath = pkg === packageName ? '.' : `.${pkg.slice(packageName.length)}`;
-
-    const exportsField =
-      typeof packageJson.exports === 'string'
-        ? subpath === '.'
-          ? packageJson.exports
-          : undefined
-        : (packageJson.exports?.[subpath] ??
-          (subpath === '.'
-            ? (packageJson.exports?.['.'] ??
-              (packageJson.exports &&
-              !Object.keys(packageJson.exports).some((key) => key.startsWith('.'))
-                ? packageJson.exports
-                : undefined))
-            : undefined));
-
-    const target = resolveImportTarget(exportsField) || packageJson.module;
-    if (!target) return resolvedEntryPath;
-
-    return path.resolve(installedPackageJson.dir, target);
-  } catch {
-    return resolvePackageEntryFromProjectRoot(pkg);
-  }
+  return (
+    getInstalledPackageEntry(pkg, {
+      conditions: ['browser', 'import', 'module', 'default'],
+      resolveSubpathWithRequire: false,
+    }) || resolvePackageEntryFromProjectRoot(pkg)
+  );
 }
 
 function getEsmNamedExports(pkg: string): string[] {
@@ -285,22 +240,10 @@ function isWorkspaceFilePath(resolved: string | undefined): resolved is string {
 
 function isWorkspacePackageEntry(pkg: string, resolved: string | undefined): resolved is string {
   if (!resolved || !path.isAbsolute(resolved) || !isWorkspaceFilePath(resolved)) return false;
-
-  let currentDir = path.dirname(resolved);
-  while (currentDir !== path.dirname(currentDir)) {
-    const packageJsonPath = path.join(currentDir, 'package.json');
-    if (existsSync(packageJsonPath)) {
-      try {
-        const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
-        return packageJson.name === getPackageName(pkg);
-      } catch {
-        return false;
-      }
-    }
-    currentDir = path.dirname(currentDir);
-  }
-
-  return false;
+  return !!getInstalledPackageJson(pkg, {
+    packageName: getPackageName(pkg),
+    fromResolvedEntry: resolved,
+  });
 }
 
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {

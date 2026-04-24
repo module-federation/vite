@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
 import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
@@ -7,6 +6,7 @@ import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap'
 import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getIsRolldown,
+  getInstalledPackageJson,
   getInstalledPackageEntry,
   getPackageDetectionCwd,
   getPackageName,
@@ -73,59 +73,13 @@ function isNodeModulePath(source: string): boolean {
   return source.includes('/node_modules/') || source.includes('\\node_modules\\');
 }
 
-function findPackageJsonFromResolvedEntry(entry: string, packageName: string): string | undefined {
-  let currentDir = path.dirname(entry);
-  while (currentDir !== path.dirname(currentDir)) {
-    const packageJson = path.join(currentDir, 'package.json');
-    if (existsSync(packageJson)) {
-      try {
-        const json = JSON.parse(readFileSync(packageJson, 'utf-8')) as { name?: string };
-        if (json.name === packageName) return packageJson;
-      } catch {
-        return undefined;
-      }
-    }
-    currentDir = path.dirname(currentDir);
-  }
-  return undefined;
-}
-
 /**
  * Reads the dependencies of an installed package from its package.json.
  */
 function getPackageDependencies(pkg: string): string[] {
   const packageName = getPackageName(pkg);
-  const cwd = getPackageDetectionCwd();
-  const candidates = [path.join(cwd, 'node_modules', packageName, 'package.json')];
-  try {
-    const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
-    candidates.push(projectRequire.resolve(`${packageName}/package.json`));
-  } catch {
-    try {
-      const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
-      const packageJson = findPackageJsonFromResolvedEntry(
-        projectRequire.resolve(packageName),
-        packageName
-      );
-      if (packageJson) candidates.push(packageJson);
-    } catch {
-      // fall back to direct node_modules lookup
-    }
-  }
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      try {
-        const json = JSON.parse(readFileSync(candidate, 'utf-8')) as {
-          dependencies?: Record<string, string>;
-        };
-        return Object.keys(json.dependencies || {});
-      } catch {
-        // skip
-      }
-    }
-  }
-  return [];
+  const installed = getInstalledPackageJson(packageName, { packageName });
+  return Object.keys((installed?.packageJson.dependencies as Record<string, string>) || {});
 }
 
 /**
