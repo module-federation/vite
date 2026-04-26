@@ -436,6 +436,51 @@ describe('pluginAddEntry', () => {
     expect(result).toBeUndefined();
   });
 
+  it('skips SSR fallback bootstrap when _forceClientInjected is true', async () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+      _forceClientInjected: true,
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(servePlugin, {
+      root: '/repo/remote-app',
+      base: '/',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    runConfigResolved(buildPlugin, {
+      root: '/repo/remote-app',
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    // This module would normally trigger the SSR fallback injection path
+    const result = await runTransform(
+      buildPlugin,
+      'export const app = true;',
+      '/repo/remote-app/src/main.ts'
+    );
+
+    // With _forceClientInjected, the fallback path is skipped
+    expect(result).toBeUndefined();
+  });
+
   it('wraps SvelteKit static inline startup behind host init during build', () => {
     const plugins = addEntry({
       entryName: 'hostInit',
