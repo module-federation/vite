@@ -6,7 +6,6 @@ import type { ConfigEnv, Plugin, ResolvedConfig, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr from './plugins/pluginDevRemoteHmr';
-import pluginSharedReactRefresh from './plugins/pluginSharedReactRefresh';
 import pluginDts from './plugins/pluginDts';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
@@ -381,7 +380,6 @@ function federation(mfUserOptions: ModuleFederationOptions) {
     checkAliasConflicts({ shared }),
     normalizeOptimizeDepsPlugin,
     ...pluginDts(options),
-    pluginSharedReactRefresh(options),
     pluginDevRemoteHmr(options),
     ...addEntry({
       entryName: 'remoteEntry',
