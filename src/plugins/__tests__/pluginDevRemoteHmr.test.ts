@@ -189,14 +189,14 @@ describe('pluginDevRemoteHmr', () => {
 
     runConfigureServer(plugin, server);
 
-    expect(middlewares).toHaveLength(1);
+    expect(middlewares).toHaveLength(2);
 
     const res = {
       setHeader: vi.fn(),
       end: vi.fn(),
     };
     const next = vi.fn();
-    middlewares[0](
+    middlewares[1](
       { url: '/app/__mf_hmr?x=1' } as IncomingMessage,
       res as unknown as ServerResponse<IncomingMessage>,
       next
@@ -228,6 +228,96 @@ describe('pluginDevRemoteHmr', () => {
 
     close();
     expect(server.watcher.off).toHaveBeenCalledTimes(3);
+  });
+
+  describe('react-refresh proxy middleware', () => {
+    function makeRemotePlugin(opts: { exposes?: Record<string, unknown>; remoteHmr?: boolean }) {
+      return pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'test-app',
+          dev: opts.remoteHmr ? { remoteHmr: true } : undefined,
+          exposes: opts.exposes ?? {},
+          remotes: {},
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+    }
+
+    it('should intercept /@react-refresh on remote dev servers', () => {
+      const { server, middlewares } = createServer();
+      const plugin = makeRemotePlugin({
+        exposes: { './Foo': { import: './src/Foo.tsx' } },
+        remoteHmr: true,
+      });
+      runConfigureServer(plugin, server);
+
+      const res = { setHeader: vi.fn(), end: vi.fn() };
+      const next = vi.fn();
+      middlewares[0](
+        { url: '/@react-refresh' } as IncomingMessage,
+        res as unknown as ServerResponse<IncomingMessage>,
+        next
+      );
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Type',
+        'application/javascript; charset=utf-8'
+      );
+      expect(res.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', '*');
+      expect(res.end).toHaveBeenCalledWith(expect.stringContaining('window.location.origin'));
+    });
+
+    it('should pass through non-/@react-refresh requests', () => {
+      const { server, middlewares } = createServer();
+      const plugin = makeRemotePlugin({
+        exposes: { './Foo': { import: './src/Foo.tsx' } },
+        remoteHmr: true,
+      });
+      runConfigureServer(plugin, server);
+
+      const res = { setHeader: vi.fn(), end: vi.fn() };
+      const next = vi.fn();
+      middlewares[0](
+        { url: '/some-other-path' } as IncomingMessage,
+        res as unknown as ServerResponse<IncomingMessage>,
+        next
+      );
+
+      expect(next).toHaveBeenCalled();
+      expect(res.end).not.toHaveBeenCalled();
+    });
+
+    it('should strip query strings when matching /@react-refresh', () => {
+      const { server, middlewares } = createServer();
+      const plugin = makeRemotePlugin({
+        exposes: { './Foo': { import: './src/Foo.tsx' } },
+        remoteHmr: true,
+      });
+      runConfigureServer(plugin, server);
+
+      const res = { setHeader: vi.fn(), end: vi.fn() };
+      const next = vi.fn();
+      middlewares[0](
+        { url: '/@react-refresh?v=123' } as IncomingMessage,
+        res as unknown as ServerResponse<IncomingMessage>,
+        next
+      );
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.end).toHaveBeenCalledWith(expect.stringContaining('window.location.origin'));
+    });
+
+    it('should not intercept /@react-refresh when not a remote', () => {
+      const { server, middlewares } = createServer();
+      const plugin = makeRemotePlugin({
+        exposes: {},
+        remoteHmr: true,
+      });
+      runConfigureServer(plugin, server);
+
+      expect(middlewares).toHaveLength(0);
+    });
   });
 
   it('connects host to remote hmr websocket and triggers full reload', async () => {
