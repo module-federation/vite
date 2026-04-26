@@ -436,12 +436,12 @@ describe('pluginAddEntry', () => {
     expect(result).toBeUndefined();
   });
 
-  it('skips SSR fallback bootstrap when _forceClientInjected is true', async () => {
+  it('skips SSR fallback bootstrap when forceClientInjected is true', async () => {
     const plugins = addEntry({
       entryName: 'hostInit',
       entryPath: '/virtual/hostInit.js',
       inject: 'html',
-      _forceClientInjected: true,
+      forceClientInjected: true,
     });
     const servePlugin = plugins[0];
     const buildPlugin = plugins[1];
@@ -477,7 +477,7 @@ describe('pluginAddEntry', () => {
       '/repo/remote-app/src/main.ts'
     );
 
-    // With _forceClientInjected, the fallback path is skipped
+    // With forceClientInjected, the fallback path is skipped
     expect(result).toBeUndefined();
   });
 

@@ -390,7 +390,7 @@ function federation(mfUserOptions: ModuleFederationOptions) {
       entryName: 'hostInit',
       entryPath: () => getHostAutoInitPath(),
       inject: hostInitInjectLocation,
-      _forceClientInjected: Object.keys(options.exposes).length > 0,
+      forceClientInjected: Object.keys(options.exposes).length > 0,
     }),
     ...addEntry({
       entryName: 'virtualExposes',
