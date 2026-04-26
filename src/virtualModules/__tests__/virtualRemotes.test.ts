@@ -46,4 +46,32 @@ describe('generateRemotes', () => {
 
     expect(virtual.getImportId()).toContain('.mjs');
   });
+
+  describe('proxy invariants', () => {
+    it('ownKeys includes non-configurable target keys', () => {
+      const code = generateRemotes('remote/Proxy', 'serve');
+
+      // The ownKeys trap must include non-configurable target own keys to satisfy the Proxy invariant
+      expect(code).toContain('Reflect.ownKeys(proxyTarget)');
+      expect(code).toContain('!d.configurable');
+      expect(code).toContain('keys.add(k)');
+    });
+
+    it('getOwnPropertyDescriptor returns target descriptor for non-configurable props', () => {
+      const code = generateRemotes('remote/Proxy', 'serve');
+
+      // The getOwnPropertyDescriptor trap must report non-configurable target props accurately
+      expect(code).toContain('getOwnPropertyDescriptor(_target, prop)');
+      expect(code).toContain('Object.getOwnPropertyDescriptor(proxyTarget, prop)');
+      expect(code).toContain('if (targetDesc && !targetDesc.configurable) return targetDesc;');
+    });
+
+    it('proxy still delegates property access to the remote module', () => {
+      const code = generateRemotes('remote/Proxy', 'serve');
+
+      // The get trap should proxy properties to the loaded module
+      expect(code).toContain('const mod = getModule();');
+      expect(code).toContain('return prop in mod ? mod[prop] : mod.default?.[prop];');
+    });
+  });
 });

@@ -19,6 +19,8 @@ interface AddEntryOptions {
   entryPath: string | (() => string);
   fileName?: string;
   inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
+  /** When true, skip the SSR fallback bootstrap wrapper (used for MF remotes whose HTML is never browser-requested). */
+  forceClientInjected?: boolean;
 }
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
@@ -30,6 +32,7 @@ const addEntry = ({
   entryPath,
   fileName,
   inject = 'entry',
+  forceClientInjected,
 }: AddEntryOptions): Plugin[] => {
   const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
   const ENTRY_BOOTSTRAP_QUERY = '?mf-entry-bootstrap';
@@ -41,7 +44,7 @@ const addEntry = ({
   let _command: string;
   let emitFileId: string;
   let viteConfig: any;
-  let clientInjected = false;
+  let clientInjected = forceClientInjected ?? false;
   let emittedFileName: string | undefined;
 
   function skipSvelteKitSsrBuild() {
