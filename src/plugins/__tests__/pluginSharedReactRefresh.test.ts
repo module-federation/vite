@@ -37,7 +37,10 @@ function makePlugin(opts: { exposes?: Record<string, unknown>; remoteHmr?: boole
 
 describe('pluginSharedReactRefresh', () => {
   it('returns plugin with correct name and apply mode', () => {
-    const plugin = makePlugin({ exposes: { './Foo': { import: './src/Foo.tsx' } }, remoteHmr: true });
+    const plugin = makePlugin({
+      exposes: { './Foo': { import: './src/Foo.tsx' } },
+      remoteHmr: true,
+    });
     expect(plugin.name).toBe('module-federation-shared-react-refresh');
     expect(plugin.apply).toBe('serve');
   });
@@ -54,7 +57,10 @@ describe('pluginSharedReactRefresh', () => {
   });
 
   it('does not add middleware when remoteHmr is disabled', () => {
-    const plugin = makePlugin({ exposes: { './Foo': { import: './src/Foo.tsx' } }, remoteHmr: false });
+    const plugin = makePlugin({
+      exposes: { './Foo': { import: './src/Foo.tsx' } },
+      remoteHmr: false,
+    });
     const { server, middlewares } = createServer();
     callHook(
       plugin.configureServer,
@@ -65,7 +71,10 @@ describe('pluginSharedReactRefresh', () => {
   });
 
   it('adds middleware when remote with remoteHmr enabled', () => {
-    const plugin = makePlugin({ exposes: { './Foo': { import: './src/Foo.tsx' } }, remoteHmr: true });
+    const plugin = makePlugin({
+      exposes: { './Foo': { import: './src/Foo.tsx' } },
+      remoteHmr: true,
+    });
     const { server, middlewares } = createServer();
     callHook(
       plugin.configureServer,
@@ -76,7 +85,10 @@ describe('pluginSharedReactRefresh', () => {
   });
 
   it('middleware intercepts /@react-refresh requests', () => {
-    const plugin = makePlugin({ exposes: { './Foo': { import: './src/Foo.tsx' } }, remoteHmr: true });
+    const plugin = makePlugin({
+      exposes: { './Foo': { import: './src/Foo.tsx' } },
+      remoteHmr: true,
+    });
     const { server, middlewares } = createServer();
     callHook(
       plugin.configureServer,
@@ -93,13 +105,19 @@ describe('pluginSharedReactRefresh', () => {
     );
 
     expect(next).not.toHaveBeenCalled();
-    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'application/javascript; charset=utf-8');
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/javascript; charset=utf-8'
+    );
     expect(res.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', '*');
     expect(res.end).toHaveBeenCalledWith(expect.stringContaining('window.location.origin'));
   });
 
   it('middleware passes through non-/@react-refresh requests', () => {
-    const plugin = makePlugin({ exposes: { './Foo': { import: './src/Foo.tsx' } }, remoteHmr: true });
+    const plugin = makePlugin({
+      exposes: { './Foo': { import: './src/Foo.tsx' } },
+      remoteHmr: true,
+    });
     const { server, middlewares } = createServer();
     callHook(
       plugin.configureServer,
@@ -120,7 +138,10 @@ describe('pluginSharedReactRefresh', () => {
   });
 
   it('middleware strips query strings when matching', () => {
-    const plugin = makePlugin({ exposes: { './Foo': { import: './src/Foo.tsx' } }, remoteHmr: true });
+    const plugin = makePlugin({
+      exposes: { './Foo': { import: './src/Foo.tsx' } },
+      remoteHmr: true,
+    });
     const { server, middlewares } = createServer();
     callHook(
       plugin.configureServer,
