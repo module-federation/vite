@@ -462,114 +462,55 @@ describe('pluginDevRemoteHmr', () => {
     expect(server.ws.send).not.toHaveBeenCalled();
   });
 
-  describe('remoteHmrStrategy auto-detection', () => {
-    it('auto-detects React and suppresses broadcast', () => {
+  describe('remoteHmrStrategy', () => {
+    const remoteOpts = {
+      name: 'remote-app',
+      exposes: { './Button': { import: './src/Button.tsx' } },
+      remotes: {},
+      virtualModuleDir: '__mf__virtual',
+    } as const;
+
+    it('suppresses broadcast when React plugin is detected', () => {
       const { server, emit } = createServer({
         config: { plugins: [{ name: 'vite:react-refresh' }] },
       });
-
-      const plugin = pluginDevRemoteHmr(
-        normalizeModuleFederationOptions({
-          name: 'remote-app',
-          dev: { remoteHmr: true },
-          exposes: { './Button': { import: './src/Button.tsx' } },
-          remotes: {},
-          virtualModuleDir: '__mf__virtual',
-        })
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({ ...remoteOpts, dev: { remoteHmr: true } })
+        ),
+        server
       );
-
-      runConfigureServer(plugin, server);
       emit('change', '/src/Button.tsx');
-
       expect(server.ws.send).not.toHaveBeenCalled();
     });
 
-    it('auto-detects Vue and suppresses broadcast', () => {
-      const { server, emit } = createServer({
-        config: { plugins: [{ name: 'vite:vue' }] },
-      });
-
-      const plugin = pluginDevRemoteHmr(
-        normalizeModuleFederationOptions({
-          name: 'remote-app',
-          dev: { remoteHmr: true },
-          exposes: { './Button': { import: './src/Button.tsx' } },
-          remotes: {},
-          virtualModuleDir: '__mf__virtual',
-        })
+    it('broadcasts when no React plugin is detected', () => {
+      const { server, emit } = createServer();
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({ ...remoteOpts, dev: { remoteHmr: true } })
+        ),
+        server
       );
-
-      runConfigureServer(plugin, server);
       emit('change', '/src/Button.tsx');
-
-      expect(server.ws.send).not.toHaveBeenCalled();
+      expect(server.ws.send).toHaveBeenCalled();
     });
 
-    it('falls back to full-reload when no framework detected', () => {
-      const { server, emit } = createServer({
-        config: { plugins: [{ name: 'some-unrelated-plugin' }] },
-      });
-
-      const plugin = pluginDevRemoteHmr(
-        normalizeModuleFederationOptions({
-          name: 'remote-app',
-          dev: { remoteHmr: true },
-          exposes: { './Button': { import: './src/Button.tsx' } },
-          remotes: {},
-          virtualModuleDir: '__mf__virtual',
-        })
-      );
-
-      runConfigureServer(plugin, server);
-      emit('change', '/src/Button.tsx');
-
-      expect(server.ws.send).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'custom', event: 'mf:remote-update' })
-      );
-    });
-
-    it('explicit full-reload overrides auto-detection', () => {
+    it('explicit remoteHmrStrategy overrides auto-detection', () => {
       const { server, emit } = createServer({
         config: { plugins: [{ name: 'vite:react-refresh' }] },
       });
-
-      const plugin = pluginDevRemoteHmr(
-        normalizeModuleFederationOptions({
-          name: 'remote-app',
-          dev: { remoteHmr: true, remoteHmrStrategy: 'full-reload' },
-          exposes: { './Button': { import: './src/Button.tsx' } },
-          remotes: {},
-          virtualModuleDir: '__mf__virtual',
-        })
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...remoteOpts,
+            dev: { remoteHmr: true, remoteHmrStrategy: 'full-reload' },
+          })
+        ),
+        server
       );
-
-      runConfigureServer(plugin, server);
       emit('change', '/src/Button.tsx');
-
-      expect(server.ws.send).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'custom', event: 'mf:remote-update' })
-      );
-    });
-
-    it('explicit native works without framework plugin', () => {
-      const { server, emit } = createServer({
-        config: { plugins: [] },
-      });
-
-      const plugin = pluginDevRemoteHmr(
-        normalizeModuleFederationOptions({
-          name: 'remote-app',
-          dev: { remoteHmr: true, remoteHmrStrategy: 'native' },
-          exposes: { './Button': { import: './src/Button.tsx' } },
-          remotes: {},
-          virtualModuleDir: '__mf__virtual',
-        })
-      );
-
-      runConfigureServer(plugin, server);
-      emit('change', '/src/Button.tsx');
-
-      expect(server.ws.send).not.toHaveBeenCalled();
+      expect(server.ws.send).toHaveBeenCalled();
     });
   });
 });

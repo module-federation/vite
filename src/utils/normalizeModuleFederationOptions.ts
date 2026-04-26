@@ -471,13 +471,16 @@ interface PluginDevOptions {
    * Controls how cross-federation HMR updates are delivered to the browser.
    *
    * By default, the strategy is auto-detected from the Vite plugin pipeline:
-   * when a framework with native HMR support is detected (React, Vue, Svelte,
-   * Solid), the broadcast/relay is suppressed and Vite's native HMR handles
-   * updates. Otherwise, the host relays remote changes as full page reloads.
+   * when a React plugin is detected (`@vitejs/plugin-react` or
+   * `@vitejs/plugin-react-swc`), the broadcast/relay is suppressed and
+   * React Fast Refresh handles updates via the shared `/@react-refresh` proxy.
+   * Other frameworks fall back to full page reloads until cross-federation
+   * HMR plumbing is implemented for them.
    *
    * Set explicitly to override auto-detection:
-   * - `'full-reload'`: Force full page reloads (escape hatch for edge cases).
-   * - `'native'`: Force native HMR even if no framework plugin is detected.
+   * - `'full-reload'`: Force full page reloads even with React.
+   * - `'native'`: Force native HMR suppression (use only if you have
+   *   cross-federation HMR working for your framework).
    */
   remoteHmrStrategy?: 'full-reload' | 'native';
 }
