@@ -24,6 +24,7 @@ type MockServer = {
   config: {
     base: string;
     webSocketToken: string;
+    plugins: Array<{ name: string }>;
     server: {
       host: string;
       port: number;
@@ -101,6 +102,7 @@ function createServer(overrides: DeepPartial<MockServer> = {}) {
     config: {
       base: overrides.config?.base ?? '/',
       webSocketToken: overrides.config?.webSocketToken ?? 'dev-token',
+      plugins: overrides.config?.plugins ?? [],
       server: {
         host: overrides.config?.server?.host ?? 'localhost',
         port: overrides.config?.server?.port ?? 5173,
@@ -458,5 +460,116 @@ describe('pluginDevRemoteHmr', () => {
     emit('change', 'C:\\project\\mf-stats.json');
 
     expect(server.ws.send).not.toHaveBeenCalled();
+  });
+
+  describe('remoteHmrStrategy auto-detection', () => {
+    it('auto-detects React and suppresses broadcast', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'vite:react-refresh' }] },
+      });
+
+      const plugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'remote-app',
+          dev: { remoteHmr: true },
+          exposes: { './Button': { import: './src/Button.tsx' } },
+          remotes: {},
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+
+      runConfigureServer(plugin, server);
+      emit('change', '/src/Button.tsx');
+
+      expect(server.ws.send).not.toHaveBeenCalled();
+    });
+
+    it('auto-detects Vue and suppresses broadcast', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+
+      const plugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'remote-app',
+          dev: { remoteHmr: true },
+          exposes: { './Button': { import: './src/Button.tsx' } },
+          remotes: {},
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+
+      runConfigureServer(plugin, server);
+      emit('change', '/src/Button.tsx');
+
+      expect(server.ws.send).not.toHaveBeenCalled();
+    });
+
+    it('falls back to full-reload when no framework detected', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'some-unrelated-plugin' }] },
+      });
+
+      const plugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'remote-app',
+          dev: { remoteHmr: true },
+          exposes: { './Button': { import: './src/Button.tsx' } },
+          remotes: {},
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+
+      runConfigureServer(plugin, server);
+      emit('change', '/src/Button.tsx');
+
+      expect(server.ws.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'custom', event: 'mf:remote-update' })
+      );
+    });
+
+    it('explicit full-reload overrides auto-detection', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'vite:react-refresh' }] },
+      });
+
+      const plugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'remote-app',
+          dev: { remoteHmr: true, remoteHmrStrategy: 'full-reload' },
+          exposes: { './Button': { import: './src/Button.tsx' } },
+          remotes: {},
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+
+      runConfigureServer(plugin, server);
+      emit('change', '/src/Button.tsx');
+
+      expect(server.ws.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'custom', event: 'mf:remote-update' })
+      );
+    });
+
+    it('explicit native works without framework plugin', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [] },
+      });
+
+      const plugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'remote-app',
+          dev: { remoteHmr: true, remoteHmrStrategy: 'native' },
+          exposes: { './Button': { import: './src/Button.tsx' } },
+          remotes: {},
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+
+      runConfigureServer(plugin, server);
+      emit('change', '/src/Button.tsx');
+
+      expect(server.ws.send).not.toHaveBeenCalled();
+    });
   });
 });

@@ -147,6 +147,31 @@ function isRemoteHmrEnabled(dev: NormalizedModuleFederationOptions['dev']) {
   return typeof dev === 'object' && dev !== null && dev.remoteHmr === true;
 }
 
+/**
+ * Detects whether the Vite plugin pipeline includes a framework with native
+ * HMR support, making the broadcast/relay mechanism unnecessary.
+ */
+function hasNativeHmrFramework(plugins: readonly { name: string }[]): boolean {
+  const nativeHmrPlugins = [
+    'vite:react-refresh', // @vitejs/plugin-react
+    'vite:react-swc:refresh', // @vitejs/plugin-react-swc
+    'vite:vue', // @vitejs/plugin-vue
+    'vite-plugin-svelte', // @sveltejs/vite-plugin
+    'solid', // vite-plugin-solid
+  ];
+  return plugins.some((p) => nativeHmrPlugins.includes(p.name));
+}
+
+function resolveHmrStrategy(
+  dev: NormalizedModuleFederationOptions['dev'],
+  plugins: readonly { name: string }[]
+): 'full-reload' | 'native' {
+  if (typeof dev === 'object' && dev !== null && typeof dev.remoteHmrStrategy === 'string') {
+    return dev.remoteHmrStrategy;
+  }
+  return hasNativeHmrFramework(plugins) ? 'native' : 'full-reload';
+}
+
 export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOptions): Plugin {
   return {
     name: 'module-federation-dev-remote-hmr',
@@ -156,6 +181,7 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
 
       const isRemote = Object.keys(options.exposes).length > 0;
       const isHost = Object.keys(options.remotes).length > 0;
+      const strategy = resolveHmrStrategy(options.dev, server.config.plugins);
 
       if (isRemote) {
         const endpointPath = getRemoteHmrPath(server.config.base);
@@ -191,6 +217,7 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
         });
 
         const broadcast = (file: string) => {
+          if (strategy === 'native') return;
           if (shouldIgnoreFile(file, options)) return;
 
           server.ws.send({
@@ -282,6 +309,7 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
 
             const ws = new WebSocket(metadata.wsUrl, 'vite-hmr');
             ws.onmessage = (rawEvent: { data: unknown }) => {
+              if (strategy === 'native') return;
               const message = parseRemoteHmrMessage(rawEvent.data);
               if (!message || message.event !== REMOTE_HMR_EVENT) return;
               server.ws.send({ type: 'full-reload' });
@@ -318,6 +346,7 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
         }
 
         const triggerHostReload = (file: string) => {
+          if (strategy === 'native') return;
           if (shouldIgnoreFile(file, options)) return;
           server.ws.send({ type: 'full-reload' });
         };
