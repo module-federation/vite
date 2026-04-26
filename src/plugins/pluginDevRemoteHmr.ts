@@ -41,7 +41,13 @@ function shouldIgnoreFile(file: string, options: NormalizedModuleFederationOptio
     file.includes('/.vite/') ||
     file.includes('\\.vite\\') ||
     file.includes('/.__mf__temp/') ||
-    file.includes('\\.__mf__temp\\')
+    file.includes('\\.__mf__temp\\') ||
+    file.includes('/.mf/') ||
+    file.includes('\\.mf\\') ||
+    file.includes('/mf-manifest.json') ||
+    file.includes('\\mf-manifest.json') ||
+    file.includes('/mf-stats.json') ||
+    file.includes('\\mf-stats.json')
   );
 }
 

@@ -329,4 +329,44 @@ describe('pluginDevRemoteHmr', () => {
     expect(server.ws.send).toHaveBeenCalledWith({ type: 'full-reload' });
     expect(server.ws.send).toHaveBeenCalledTimes(1);
   });
+
+  it('should ignore .mf output directory files', () => {
+    const plugin = pluginDevRemoteHmr(
+      normalizeModuleFederationOptions({
+        name: 'remote-app',
+        filename: 'remoteEntry.js',
+        exposes: { './Button': './src/Button.tsx' },
+        virtualModuleDir: '__mf__virtual',
+      })
+    );
+
+    const { server, emit } = createServer();
+    runConfigureServer(plugin, server);
+
+    emit('change', '/project/.mf/diagnostics/latest.json');
+    emit('change', 'C:\\project\\.mf\\diagnostics\\latest.json');
+
+    expect(server.ws.send).not.toHaveBeenCalled();
+  });
+
+  it('should ignore mf-manifest.json and mf-stats.json', () => {
+    const plugin = pluginDevRemoteHmr(
+      normalizeModuleFederationOptions({
+        name: 'remote-app',
+        filename: 'remoteEntry.js',
+        exposes: { './Button': './src/Button.tsx' },
+        virtualModuleDir: '__mf__virtual',
+      })
+    );
+
+    const { server, emit } = createServer();
+    runConfigureServer(plugin, server);
+
+    emit('change', '/project/mf-manifest.json');
+    emit('change', 'C:\\project\\mf-manifest.json');
+    emit('change', '/project/mf-stats.json');
+    emit('change', 'C:\\project\\mf-stats.json');
+
+    expect(server.ws.send).not.toHaveBeenCalled();
+  });
 });
