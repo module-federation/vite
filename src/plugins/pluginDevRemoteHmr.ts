@@ -148,19 +148,18 @@ function isRemoteHmrEnabled(dev: NormalizedModuleFederationOptions['dev']) {
 }
 
 /**
- * Detects whether the Vite plugin pipeline includes a React plugin with
- * cross-federation HMR support via the shared /@react-refresh proxy.
+ * Detects whether the Vite plugin pipeline includes a framework with
+ * cross-federation HMR support (a shared runtime proxy that works
+ * across module federation boundaries).
  *
- * Other frameworks (Vue, Svelte, Solid) have native HMR but lack
- * cross-federation plumbing — they remain on full-reload until
- * equivalent shared-runtime proxies are implemented.
+ * Currently only React is supported via the shared /@react-refresh proxy.
  */
-function hasReactHmrPlugin(plugins: readonly { name: string }[]): boolean {
-  const reactHmrPlugins = [
+function hasCrossFederationHmr(plugins: readonly { name: string }[]): boolean {
+  const supportedPlugins = [
     'vite:react-refresh', // @vitejs/plugin-react
     'vite:react-swc:refresh', // @vitejs/plugin-react-swc
   ];
-  return plugins.some((p) => reactHmrPlugins.includes(p.name));
+  return plugins.some((p) => supportedPlugins.includes(p.name));
 }
 
 function resolveHmrStrategy(
@@ -170,7 +169,7 @@ function resolveHmrStrategy(
   if (typeof dev === 'object' && dev !== null && typeof dev.remoteHmrStrategy === 'string') {
     return dev.remoteHmrStrategy;
   }
-  return hasReactHmrPlugin(plugins) ? 'native' : 'full-reload';
+  return hasCrossFederationHmr(plugins) ? 'native' : 'full-reload';
 }
 
 export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOptions): Plugin {
