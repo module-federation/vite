@@ -108,10 +108,18 @@ export default exportModule?.__esModule ? exportModule.default : exportModule.de
         },
         ownKeys() {
           const mod = getModule();
-          if (!mod) return [];
-          return Reflect.ownKeys(mod);
+          const keys = new Set(mod ? Reflect.ownKeys(mod) : []);
+          // Proxy invariant: must include non-configurable target own keys
+          for (const k of Reflect.ownKeys(proxyTarget)) {
+            const d = Object.getOwnPropertyDescriptor(proxyTarget, k);
+            if (d && !d.configurable) keys.add(k);
+          }
+          return Array.from(keys);
         },
         getOwnPropertyDescriptor(_target, prop) {
+          // Proxy invariant: non-configurable target props must be reported accurately
+          const targetDesc = Object.getOwnPropertyDescriptor(proxyTarget, prop);
+          if (targetDesc && !targetDesc.configurable) return targetDesc;
           const mod = getModule();
           if (!mod) return undefined;
           return Object.getOwnPropertyDescriptor(mod, prop) || {
