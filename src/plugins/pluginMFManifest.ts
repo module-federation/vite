@@ -16,7 +16,7 @@ import {
   type PreloadMap,
   processModuleAssets,
 } from '../utils/cssModuleHelpers';
-import { resolvePublicPath } from '../utils/publicPath';
+import { resolvePublicPath } from '../utils/pathNormalization';
 
 /**
  * Resolves the build version for the module federation manifest.

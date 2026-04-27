@@ -2,7 +2,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import path from 'pathe';
 import { tmpdir } from 'os';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getInstalledPackageEntry, getInstalledPackageJson } from '../packageUtils';
+import {
+  getInstalledPackageEntry,
+  getInstalledPackageJson,
+  getPackageNameFromNodeModulePath,
+} from '../packageUtils';
 
 describe('getInstalledPackageJson', () => {
   const tempDirs: string[] = [];
@@ -77,5 +81,18 @@ describe('getInstalledPackageJson', () => {
     const entry = getInstalledPackageEntry(packageName, { cwd: hostDir });
 
     expect(entry).toBe(path.join(packageDir, 'dist/browser.js'));
+  });
+});
+
+describe('getPackageNameFromNodeModulePath', () => {
+  it('extracts unscoped and scoped package names', () => {
+    expect(getPackageNameFromNodeModulePath('/repo/node_modules/vue/dist/vue.js')).toBe('vue');
+    expect(getPackageNameFromNodeModulePath('/repo/node_modules/@scope/pkg/dist/index.js')).toBe(
+      '@scope/pkg'
+    );
+  });
+
+  it('returns undefined for non-node_modules paths', () => {
+    expect(getPackageNameFromNodeModulePath('/repo/vendor/vue.js')).toBeUndefined();
   });
 });

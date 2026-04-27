@@ -5,6 +5,7 @@ import {
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  isExplicitSharedKey,
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
@@ -198,7 +199,15 @@ function getOrderedUsedShares() {
 }
 
 function getShareItemForPreload(pkg: string) {
-  return getNormalizeShareItem(pkg) || getNormalizeShareItem(`${pkg}/`);
+  const shared = getNormalizeModuleFederationOptions().shared;
+  const packageName = pkg.startsWith('@')
+    ? pkg.split('/').slice(0, 2).join('/')
+    : pkg.split('/')[0];
+  const wildcardKey = `${packageName}/`;
+
+  if (isExplicitSharedKey(pkg)) return shared[pkg];
+  if (isExplicitSharedKey(wildcardKey)) return shared[wildcardKey];
+  return undefined;
 }
 
 export function generateDirectSharedCacheSeedCode(command = 'build') {

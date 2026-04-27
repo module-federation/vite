@@ -403,6 +403,20 @@ const addEntry = ({
         if (
           isVinext &&
           inject === 'html' &&
+          id.includes('virtual:vite-rsc/remove-duplicate-server-css')
+        ) {
+          const namespaceReactImport = `import * as React from 'react';`;
+          if (code.includes(namespaceReactImport)) return;
+          const rewritten = code.replace(
+            /import\s+React\s+from\s+['"]react['"];?/,
+            namespaceReactImport
+          );
+          return rewritten === code ? undefined : mapCodeToCodeWithSourcemap(rewritten);
+        }
+
+        if (
+          isVinext &&
+          inject === 'html' &&
           (id.includes('virtual:vite-rsc/entry-browser') ||
             id.includes('virtual:vinext-app-browser-entry'))
         ) {

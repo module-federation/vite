@@ -128,6 +128,17 @@ export function getPackageName(packageString: string): string {
   return match ? match[0] : packageString;
 }
 
+export function getPackageNameFromNodeModulePath(source: string): string | undefined {
+  const normalized = source.replace(/\\/g, '/');
+  const nodeModulesIndex = normalized.lastIndexOf('/node_modules/');
+  if (nodeModulesIndex < 0) return;
+
+  const parts = normalized.slice(nodeModulesIndex + '/node_modules/'.length).split('/');
+  if (!parts[0]) return;
+  if (parts[0].startsWith('@')) return parts[1] ? `${parts[0]}/${parts[1]}` : undefined;
+  return parts[0];
+}
+
 export function getInstalledPackageJson(
   pkg: string,
   opts?: PackageEntryConditions

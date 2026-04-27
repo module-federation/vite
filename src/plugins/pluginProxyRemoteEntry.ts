@@ -10,7 +10,7 @@ import {
 } from '../utils/cssModuleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { resolvePublicPath } from '../utils/publicPath';
+import { resolvePublicPath } from '../utils/pathNormalization';
 import {
   generateExposes,
   generateHostAutoInitCode,
