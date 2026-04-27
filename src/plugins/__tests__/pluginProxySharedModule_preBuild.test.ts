@@ -44,6 +44,14 @@ vi.mock('../../utils/packageUtils', () => ({
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     return match ? match[0] : pkg;
   },
+  getPackageNameFromNodeModulePath: (filePath: string) => {
+    const normalized = filePath.replace(/\\/g, '/');
+    const marker = '/node_modules/';
+    const index = normalized.lastIndexOf(marker);
+    if (index < 0) return undefined;
+    const [first, second] = normalized.slice(index + marker.length).split('/');
+    return first?.startsWith('@') ? `${first}/${second}` : first;
+  },
 }));
 
 vi.mock('../../utils/VirtualModule', () => ({
@@ -167,6 +175,17 @@ function makeShared(): NormalizedShared {
         strictVersion: false,
       },
     },
+    'react-dom': {
+      name: 'react-dom',
+      from: '',
+      version: '19.2.4',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: '^19.2.4',
+        strictVersion: false,
+      },
+    },
     'transitive-no-override': {
       name: 'transitive-no-override',
       from: '',
@@ -228,6 +247,14 @@ describe('pluginProxySharedModule_preBuild', () => {
     {
       name: 'proxies non-react shared modules through loadShare in serve mode when vinext is disabled',
       source: 'vue',
+      hasVinext: false,
+      hasAstro: false,
+      aliasExpected: true,
+      shouldProxy: true,
+    },
+    {
+      name: 'proxies react-dom/client through loadShare when react-dom is shared',
+      source: 'react-dom/client',
       hasVinext: false,
       hasAstro: false,
       aliasExpected: true,
@@ -355,6 +382,40 @@ describe('pluginProxySharedModule_preBuild', () => {
     // Normal deps should still have prebuild entries
     expect(preBuildShareItemMap.has('react')).toBe(true);
     expect(preBuildShareItemMap.has('vue')).toBe(true);
+  });
+
+  it('keeps common shared subpaths when resolving node_modules paths', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = {
+      resolve: { alias: [] },
+    };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'development' } as ConfigEnv
+    );
+
+    await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id }),
+      } as any,
+      '/repo/apps/remote/node_modules/react-dom/client.js?v=123',
+      '/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect(preBuildShareItemMap.has('react-dom/client')).toBe(true);
+    expect(preBuildShareItemMap.has('react-dom')).toBe(false);
   });
 
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {

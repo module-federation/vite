@@ -219,8 +219,10 @@ export function getLocalProviderImportPath(pkg: string): string | undefined {
 }
 
 export function getProjectResolvedImportPath(pkg: string): string | undefined {
-  const esmEntry = getPackageEsmEntryPath(pkg);
-  if (esmEntry) return esmEntry;
+  if (pkg === getPackageName(pkg)) {
+    const esmEntry = getPackageEsmEntryPath(pkg);
+    if (esmEntry) return esmEntry;
+  }
 
   try {
     const projectRequire = createRequire(
@@ -282,7 +284,7 @@ const preBuildCacheMap: Record<string, VirtualModule> = {};
 const preBuildShareItemMap: Record<string, ShareItem | undefined> = {};
 export const PREBUILD_TAG = '__prebuild__';
 export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
+  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
   preBuildShareItemMap[pkg] = shareItem;
   const importSource = getConcreteSharedImportSource(pkg, shareItem) || pkg;
   if (pkg === 'react/jsx-dev-runtime') {
@@ -324,12 +326,12 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
   );
 }
 export function getPreBuildLibImportId(pkg: string): string {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
+  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
   const importId = preBuildCacheMap[pkg].getImportId();
   return importId;
 }
 export function getPreBuildLibPath(pkg: string): string {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG);
+  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
   return preBuildCacheMap[pkg].getPath();
 }
 export function getPreBuildShareItem(pkg: string): ShareItem | undefined {
@@ -423,10 +425,11 @@ export function writeLoadShareModule(
   }
 
   const usesLazyLocalFallback = isWorkspacePackage && shareItem.shareConfig.singleton === true;
+  const staticLocalShareSource = skipServePrebuildWarmup ? devImportSource : sharedImportSource;
   const prebuildImportLine =
-    usesLazyLocalFallback || (isWorkspacePackage && command !== 'build') || skipServePrebuildWarmup
+    usesLazyLocalFallback || (isWorkspacePackage && command !== 'build')
       ? ''
-      : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(sharedImportSource)};`;
+      : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
   const devDynamicImportLine = isWorkspacePackage
     ? ''
     : command !== 'build' && !skipServePrebuildWarmup

@@ -57,11 +57,11 @@ describe('pluginCheckAliasConflicts', () => {
         alias: [
           {
             find: 'vue',
-            replacement: '/path/to/project/node_modules/vue/dist/vue.runtime.esm-bundler.js',
+            replacement: '/path/to/project/vendor/vue',
           },
           {
             find: 'pinia',
-            replacement: '/path/to/project/node_modules/pinia/dist/pinia.mjs',
+            replacement: '/path/to/project/vendor/pinia',
           },
           {
             find: 'shared',
@@ -83,6 +83,34 @@ describe('pluginCheckAliasConflicts', () => {
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Shared module "pinia" is aliased by "pinia"')
     );
+  });
+
+  it('should not warn when alias points at the same node_modules package', () => {
+    const plugin = checkAliasConflicts({
+      shared: {
+        vue: createSharedItem('vue', '3.2.45'),
+        pinia: createSharedItem('pinia', '2.0.28'),
+      },
+    });
+
+    const mockConfig: MockResolvedConfig = {
+      resolve: {
+        alias: [
+          {
+            find: 'vue',
+            replacement: '/path/to/project/node_modules/vue/dist/vue.runtime.esm-bundler.js',
+          },
+          {
+            find: 'pinia',
+            replacement: '/path/to/project/node_modules/pinia/dist/pinia.mjs',
+          },
+        ],
+      },
+    };
+
+    runConfigResolved(plugin, mockConfig);
+
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('should not warn when no alias conflicts exist', () => {
@@ -141,7 +169,7 @@ describe('pluginCheckAliasConflicts', () => {
         alias: [
           {
             find: /^react$/,
-            replacement: '/path/to/project/node_modules/react/index.js',
+            replacement: '/path/to/project/vendor/react',
           },
         ],
       },
@@ -155,7 +183,7 @@ describe('pluginCheckAliasConflicts', () => {
     );
   });
 
-  it('should handle shared modules with trailing slash', () => {
+  it('should not warn for trailing slash shared modules pointing at same node_modules package', () => {
     const plugin = checkAliasConflicts({
       shared: {
         'lodash/': createSharedItem('lodash/', '4.17.21'),
@@ -175,7 +203,7 @@ describe('pluginCheckAliasConflicts', () => {
 
     runConfigResolved(plugin, mockConfig);
 
-    expect(consoleWarnSpy).toHaveBeenCalled();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
   it('should work with undefined alias', () => {

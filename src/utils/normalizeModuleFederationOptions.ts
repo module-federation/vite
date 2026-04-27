@@ -275,6 +275,7 @@ function normalizeShared(
       >
     | undefined
 ): NormalizedShared {
+  explicitSharedKeys = new Set();
   if (!shared) {
     const result: NormalizedShared = {};
     const packageJsonPath = path.join(getPackageDetectionCwd(), 'package.json');
@@ -306,12 +307,14 @@ function normalizeShared(
   if (Array.isArray(shared)) {
     shared.forEach((key) => {
       result[key] = normalizeShareItem(key, key);
+      explicitSharedKeys.add(key);
       sourceEntries.push([key, key]);
     });
   } else if (typeof shared === 'object') {
     Object.keys(shared).forEach((key) => {
       const value = shared[key] as any;
       result[key] = normalizeShareItem(key, value);
+      explicitSharedKeys.add(key);
       sourceEntries.push([key, value]);
     });
   }
@@ -539,9 +542,14 @@ interface DtsHostOptions {
 }
 
 let config: NormalizedModuleFederationOptions;
+let explicitSharedKeys: Set<string> = new Set();
 
 export function getNormalizeModuleFederationOptions() {
   return config;
+}
+
+export function isExplicitSharedKey(key: string) {
+  return explicitSharedKeys.has(key);
 }
 
 export function getNormalizeShareItem(key: string) {

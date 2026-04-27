@@ -5,11 +5,18 @@ import { mfWarn } from '../utils/logger';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
+  getCommonSharedSubpathFromNodeModulePath,
+  getCommonSharedSubpaths,
+  getMatchingNodeModuleSubpath,
+  isNodeModulePath,
+} from '../utils/pathNormalization';
+import {
   getIsRolldown,
   getInstalledPackageJson,
   getInstalledPackageEntry,
   getPackageDetectionCwd,
   getPackageName,
+  getPackageNameFromNodeModulePath,
   hasPackageDependency,
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
@@ -59,6 +66,7 @@ function isBuildConfigImporter(importer: string | undefined): boolean {
 export function matchesSharedSource(source: string, key: string): boolean {
   const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
   if (key.endsWith('/')) return source === keyBase || source.startsWith(`${keyBase}/`);
+  if (getCommonSharedSubpaths(keyBase).includes(source)) return true;
   return source === keyBase;
 }
 
@@ -66,11 +74,29 @@ export function findSharedKey(
   source: string,
   shared: NormalizedShared | undefined
 ): string | undefined {
-  return Object.keys(shared || {}).find((key) => matchesSharedSource(source, key));
+  const keys = Object.keys(shared || {});
+  return keys.find((key) => source === key) ?? keys.find((key) => matchesSharedSource(source, key));
 }
 
-function isNodeModulePath(source: string): boolean {
-  return source.includes('/node_modules/') || source.includes('\\node_modules\\');
+function findSharedKeyForSource(
+  source: string,
+  shared: NormalizedShared | undefined
+): string | undefined {
+  const key = findSharedKey(source, shared);
+  if (key) return key;
+
+  if (isNodeModulePath(source)) {
+    const explicitSubpathKey = getMatchingNodeModuleSubpath(
+      source,
+      Object.keys(shared || {}).filter(
+        (sharedKey) => sharedKey.includes('/') && !sharedKey.endsWith('/')
+      )
+    );
+    if (explicitSubpathKey) return explicitSubpathKey;
+  }
+
+  const packageName = getPackageNameFromNodeModulePath(source);
+  return packageName ? findSharedKey(packageName, shared) : undefined;
 }
 
 /**
@@ -192,7 +218,7 @@ export function proxySharedModule(options: {
       name: 'proxyPreBuildShared:resolve-shared-loadShare',
       enforce: 'pre',
       async resolveId(source, importer) {
-        const key = findSharedKey(source, shared);
+        const key = findSharedKeyForSource(source, shared);
         if (!key) return;
         if (useDirectReactImport && key === 'react') return;
         if (/\.css$/.test(source)) return;
@@ -210,12 +236,15 @@ export function proxySharedModule(options: {
         // Prefix shares match subpaths, but only base package is proxied.
         if (key.endsWith('/') && source !== key.slice(0, -1)) return;
 
-        const loadSharePath = getLoadShareModulePath(source, useRolldown);
-        writeLoadShareModule(source, shared[key], _command, useRolldown);
+        const shareSource = isNodeModulePath(source)
+          ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
+          : source;
+        const loadSharePath = getLoadShareModulePath(shareSource, useRolldown);
+        writeLoadShareModule(shareSource, shared[key], _command, useRolldown);
         if (shared[key].shareConfig.import !== false) {
-          writePreBuildLibPath(source, shared[key]);
+          writePreBuildLibPath(shareSource, shared[key]);
         }
-        addUsedShares(source);
+        addUsedShares(shareSource);
         writeLocalSharedImportMap();
         refreshHostAutoInit();
         return this.resolve(loadSharePath, importer, { skipSelf: true });

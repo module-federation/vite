@@ -45,6 +45,9 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
       return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
     }
+    if (pkg === 'mock-package-subpath/feature') {
+      return '/repo/apps/remote/node_modules/mock-package-subpath/dist/browser-feature.js';
+    }
     if (pkg === 'lit') return '/repo/apps/remote/node_modules/lit/index.js';
     if (pkg === 'lit/directives/class-map.js') {
       return '/repo/apps/remote/node_modules/lit/directives/class-map.js';
@@ -397,6 +400,9 @@ vi.mock('module', async (importOriginal) => {
           if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
             return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
           }
+          if (pkg === 'mock-package-subpath/feature') {
+            return '/repo/apps/remote/node_modules/mock-package-subpath/dist/require-feature.js';
+          }
           if (pkg === 'lit') {
             return '/repo/apps/remote/node_modules/lit/index.js';
           }
@@ -743,6 +749,12 @@ describe('writeLoadShareModule', () => {
     );
   });
 
+  it('uses project require resolution for package subpath import paths', () => {
+    expect(getProjectResolvedImportPath('mock-package-subpath/feature')).toBe(
+      '/repo/apps/remote/node_modules/mock-package-subpath/dist/require-feature.js'
+    );
+  });
+
   it('falls back to project require resolution when package metadata is unavailable', () => {
     expect(getProjectResolvedImportPath('plain-project-only')).toBe('/resolved/plain-project-only');
   });
@@ -1023,6 +1035,9 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).toContain('const __mfCacheGlobalKey =');
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "lit/directives/class-map.js";'
+    );
     expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
     expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
     expect(generatedCode).not.toContain('__prebuild__');
@@ -1050,6 +1065,7 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).toContain('const __mfCacheGlobalKey =');
+    expect(generatedCode).toContain('import * as __mfLocalShare from "lit";');
     expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
     expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
     expect(generatedCode).not.toContain('__prebuild__');

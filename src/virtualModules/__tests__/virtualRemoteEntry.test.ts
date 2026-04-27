@@ -56,10 +56,12 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       name: 'host',
       filename: 'remoteEntry.js',
       remotes: {},
+      shared: {},
       shareScope: 'default',
       runtimePlugins: [],
       shareStrategy: 'version-first',
     }),
+    isExplicitSharedKey: () => true,
     getNormalizeShareItem: (pkg: string) => ({
       name: pkg,
       from: '',
@@ -314,5 +316,17 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).not.toContain('runtime.loadRemote("remote")');
     expect(code).not.toContain('runtime.loadRemote("remote/remote-app")');
+  });
+
+  it('does not preload generated subpath shares from a root shared package', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('lit/decorators.js');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+
+    expect(code).toContain('Object.entries(usedShared)');
+    expect(code).not.toContain('"lit/decorators.js"');
   });
 });
