@@ -147,7 +147,9 @@ export interface ShareItem {
  * @returns {string | undefined}
  */
 function searchPackageVersion(sharedName: string): string | undefined {
-  const installed = getInstalledPackageJson(sharedName, { packageName: sharedName });
+  const installed = getInstalledPackageJson(sharedName, {
+    packageName: sharedName,
+  });
   const version = installed?.packageJson.version;
   return typeof version === 'string' ? version : undefined;
 }
@@ -161,7 +163,9 @@ function inferVersionFromRequiredVersion(requiredVersion?: string): string | und
 function getLitExportSubpathShares(sharedName: string): string[] {
   if (sharedName !== 'lit') return [];
 
-  const installedPackageJson = getInstalledPackageJson(sharedName, { packageName: sharedName });
+  const installedPackageJson = getInstalledPackageJson(sharedName, {
+    packageName: sharedName,
+  });
   const exportsField = installedPackageJson?.packageJson.exports;
   if (!exportsField || typeof exportsField === 'string') return [];
 
@@ -188,27 +192,39 @@ function normalizeShareItem(
 
   const isImportFalse = typeof shareItem === 'object' && shareItem.import === false;
 
-  // Skip package.json resolution when import: false — this app doesn't
-  // provide the package, so it may not be installed at all.
-  if (!isImportFalse) {
+  // Version resolution is required even when import: false.
+  //
+  // The `import: false` flag indicates "this app does not PROVIDE the module"
+  // (it must be supplied by the host), but the runtime still needs to know
+  // the version for share scope registration and singleton validation.
+  //
+  // Without a resolved version, the MF runtime defaults to version "0",
+  // which breaks satisfy() checks and causes false-positive warnings like:
+  //   "Version 0 from ... does not satisfy the requirement of ... which needs *)"
+  //
+  // Errors are only thrown when version resolution fails for non-import:false
+  // modules, as those are expected to be resolvable.
+  try {
     try {
+      version = require(path.join(getPackageName(key), 'package.json')).version;
+    } catch (e1) {
       try {
-        version = require(path.join(getPackageName(key), 'package.json')).version;
-      } catch (e1) {
-        try {
-          const localPath = path.join(
-            process.cwd(),
-            'node_modules',
-            getPackageName(key),
-            'package.json'
-          );
-          version = require(localPath).version;
-        } catch (e2) {
-          version = searchPackageVersion(key);
-          if (!version) mfError(e1);
+        const localPath = path.join(
+          process.cwd(),
+          'node_modules',
+          getPackageName(key),
+          'package.json'
+        );
+        version = require(localPath).version;
+      } catch (e2) {
+        version = searchPackageVersion(key);
+        if (!version && !isImportFalse) {
+          mfError(e1);
         }
       }
-    } catch (e) {
+    }
+  } catch (e) {
+    if (!isImportFalse) {
       mfError(`Unexpected error resolving version for ${key}:`, e);
     }
   }

@@ -231,7 +231,10 @@ describe('pluginDevRemoteHmr', () => {
   });
 
   describe('react-refresh proxy middleware', () => {
-    function makeRemotePlugin(opts: { exposes?: Record<string, unknown>; remoteHmr?: boolean }) {
+    function makeRemotePlugin(opts: {
+      exposes?: Record<string, string | { import: string }>;
+      remoteHmr?: boolean;
+    }) {
       return pluginDevRemoteHmr(
         normalizeModuleFederationOptions({
           name: 'test-app',
