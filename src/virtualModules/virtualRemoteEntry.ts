@@ -269,7 +269,7 @@ export function generateRemoteEntry(
   if (typeof __VUE_HMR_RUNTIME__ === 'undefined') {
     globalThis.__VUE_HMR_RUNTIME__ = { createRecord() {}, rerender() {}, reload() {} };
   }
-  import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
+  import {createInstance, loadRemote} from "@module-federation/runtime";
   ${pluginImportNames.map((item) => item[1]).join('\n')}
   ${
     command === 'build'
@@ -280,6 +280,7 @@ export function generateRemoteEntry(
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
   const mfName = ${JSON.stringify(options.internalName)}
+  let runtimeInstance
   let localSharedImportMapPromise
   let exposesMapPromise
 
@@ -296,13 +297,19 @@ export function generateRemoteEntry(
   async function init(shared = {}, initScope = []) {
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
     ${generateDirectSharedCacheSeedCode(command)}
-    const initRes = runtimeInit({
+    const runtimeOptions = {
       name: mfName,
       remotes: usedRemotes,
       shared: usedShared,
       plugins: [${pluginImportNames.map((item) => `${item[0]}(${item[2]})`).join(', ')}],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
-    });
+    };
+    if (!runtimeInstance) {
+      runtimeInstance = createInstance(runtimeOptions);
+    } else {
+      runtimeInstance.initOptions(runtimeOptions);
+    }
+    const initRes = runtimeInstance;
     // handling circular init calls
     var initToken = initTokens[shareScopeName];
     if (!initToken)

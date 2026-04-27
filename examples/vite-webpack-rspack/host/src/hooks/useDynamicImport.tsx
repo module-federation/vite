@@ -1,5 +1,5 @@
-import { loadRemote } from '@module-federation/runtime';
 import { ElementType, useEffect, useState } from 'react';
+import { mfRuntime } from '../mfRuntime';
 
 interface DynamicImportProps {
   module: string;
@@ -12,7 +12,7 @@ async function loadRemoteWithRetry(id: string, retries = 20, delayMs = 500) {
   let lastError: unknown;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      return await loadRemote(id);
+      return await mfRuntime.loadRemote(id);
     } catch (error) {
       lastError = error;
       if (attempt < retries) {
