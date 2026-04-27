@@ -288,7 +288,34 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
-    it('skips package.json resolution for import: false and does not error', () => {
+    it('resolves version for import: false when package is installed', () => {
+      mfErrorSpy.mockClear();
+
+      // Version resolution is required even when import: false.
+      // The `import: false` flag indicates "this app does not PROVIDE the module"
+      // (it must be supplied by the host), but the runtime still needs to know
+      // the version for share scope registration and singleton validation.
+      // Without a resolved version, the MF runtime defaults to version "0",
+      // which breaks satisfy() checks and causes false-positive singleton warnings.
+      const result = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          react: {
+            import: false,
+            singleton: true,
+          },
+        },
+      }).shared;
+
+      // Should resolve version from react's package.json
+      expect(result['react'].version).toBeDefined();
+      expect(result['react'].version).not.toBe('0');
+      expect(result['react'].shareConfig.requiredVersion).toMatch(/^\^/);
+      expect(result['react'].shareConfig.import).toBe(false);
+      expect(result['react'].shareConfig.singleton).toBe(true);
+    });
+
+    it('does not error when version resolution fails for import: false', () => {
       mfErrorSpy.mockClear();
 
       const result = normalizeModuleFederationOptions({
@@ -301,9 +328,11 @@ describe('normalizeModuleFederationOption', () => {
         },
       }).shared;
 
-      // Should not trigger any mfError calls for unresolvable packages
+      // Should not trigger any mfError calls for unresolvable packages when import: false
       expect(mfErrorSpy).not.toHaveBeenCalled();
 
+      // Version should be undefined but should not cause runtime issues
+      // because the host should provide this module
       expect(result['not-installed-pkg']).toEqual({
         from: '',
         name: 'not-installed-pkg',
