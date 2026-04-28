@@ -724,6 +724,66 @@ describe('pluginProxySharedModule_preBuild', () => {
     readFileSyncMock.mockReset().mockReturnValue('{}');
   });
 
+  it('preserves import false shared sub-dependencies in dev mode without warning', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    existsSyncMock.mockImplementation(
+      (p: string) => p === '/repo/apps/remote/node_modules/shared-lib/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p === '/repo/apps/remote/node_modules/shared-lib/package.json') {
+        return JSON.stringify({
+          name: 'shared-lib',
+          dependencies: { pinia: '^3.0.0' },
+        });
+      }
+      return '{}';
+    });
+
+    const shared: NormalizedShared = {
+      'shared-lib': {
+        name: 'shared-lib',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^1.0.0', strictVersion: false },
+      },
+      pinia: {
+        name: 'pinia',
+        from: '',
+        version: '3.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^3.0.0',
+          strictVersion: false,
+          import: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      config,
+      {
+        command: 'serve',
+        mode: 'development',
+      } as ConfigEnv
+    );
+
+    expect(shared).toHaveProperty('shared-lib');
+    expect(shared).toHaveProperty('pinia');
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
+
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+  });
+
   it('uses auto-detected workspace sources in serve prebuild resolution without null deref', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
