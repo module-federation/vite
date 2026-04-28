@@ -126,6 +126,10 @@ function excludeSharedSubDependencies(shared: NormalizedShared): void {
     for (const dep of deps) {
       const depKey = sharedKeyByBase.get(dep);
       if (depKey && depKey !== parentKey) {
+        if (shared[depKey]?.shareConfig.import === false) {
+          continue;
+        }
+
         mfWarn(
           `"${dep}" is a dependency of shared package "${parentKey}" and is also shared separately. ` +
             `This may cause initialization order issues in dev mode. ` +
