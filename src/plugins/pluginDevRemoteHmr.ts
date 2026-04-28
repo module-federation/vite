@@ -144,7 +144,7 @@ function getStringPreview(value: unknown, max = 180) {
 }
 
 function isRemoteHmrEnabled(dev: NormalizedModuleFederationOptions['dev']) {
-  return typeof dev === 'object' && dev !== null && dev.remoteHmr === true;
+  return typeof dev === 'object' && dev !== null && !!dev.remoteHmr;
 }
 
 /**
@@ -166,8 +166,8 @@ function resolveHmrStrategy(
   dev: NormalizedModuleFederationOptions['dev'],
   plugins: readonly { name: string }[]
 ): 'full-reload' | 'native' {
-  if (typeof dev === 'object' && dev !== null && typeof dev.remoteHmrStrategy === 'string') {
-    return dev.remoteHmrStrategy;
+  if (typeof dev === 'object' && dev !== null && dev.remoteHmr === 'full-reload') {
+    return 'full-reload';
   }
   return hasCrossFederationHmr(plugins) ? 'native' : 'full-reload';
 }

@@ -462,7 +462,7 @@ describe('pluginDevRemoteHmr', () => {
     expect(server.ws.send).not.toHaveBeenCalled();
   });
 
-  describe('remoteHmrStrategy', () => {
+  describe('remoteHmr strategy', () => {
     const remoteOpts = {
       name: 'remote-app',
       exposes: { './Button': { import: './src/Button.tsx' } },
@@ -496,7 +496,7 @@ describe('pluginDevRemoteHmr', () => {
       expect(server.ws.send).toHaveBeenCalled();
     });
 
-    it('explicit remoteHmrStrategy overrides auto-detection', () => {
+    it('explicit full-reload overrides auto-detection', () => {
       const { server, emit } = createServer({
         config: { plugins: [{ name: 'vite:react-refresh' }] },
       });
@@ -504,7 +504,7 @@ describe('pluginDevRemoteHmr', () => {
         pluginDevRemoteHmr(
           normalizeModuleFederationOptions({
             ...remoteOpts,
-            dev: { remoteHmr: true, remoteHmrStrategy: 'full-reload' },
+            dev: { remoteHmr: 'full-reload' },
           })
         ),
         server

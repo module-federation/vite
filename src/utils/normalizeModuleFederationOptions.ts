@@ -466,23 +466,19 @@ interface PluginDevOptions {
   disableLiveReload?: boolean;
   disableHotTypesReload?: boolean;
   disableDynamicRemoteTypeHints?: boolean;
-  remoteHmr?: boolean;
   /**
-   * Controls how cross-federation HMR updates are delivered to the browser.
+   * Controls cross-federation HMR for remote modules.
    *
-   * By default, the strategy is auto-detected from the Vite plugin pipeline:
-   * when a React plugin is detected (`@vitejs/plugin-react` or
-   * `@vitejs/plugin-react-swc`), the broadcast/relay is suppressed and
-   * React Fast Refresh handles updates via the shared `/@react-refresh` proxy.
-   * Other frameworks fall back to full page reloads until cross-federation
-   * HMR plumbing is implemented for them.
-   *
-   * Set explicitly to override auto-detection:
-   * - `'full-reload'`: Force full page reloads even with React.
-   * - `'native'`: Force native HMR suppression (use only if you have
-   *   cross-federation HMR working for your framework).
+   * - `false` / `undefined` — HMR disabled (default).
+   * - `true` — HMR enabled with auto-detected strategy: when a React plugin
+   *   is detected (`@vitejs/plugin-react` or `@vitejs/plugin-react-swc`),
+   *   broadcast/relay is suppressed and React Fast Refresh handles updates
+   *   via the shared `/@react-refresh` proxy. Other frameworks fall back to
+   *   full page reloads.
+   * - `'full-reload'` — HMR enabled, always use full page reloads even when
+   *   a framework with native cross-federation HMR is detected.
    */
-  remoteHmrStrategy?: 'full-reload' | 'native';
+  remoteHmr?: boolean | 'full-reload';
 }
 
 interface RemoteTypeUrl {
