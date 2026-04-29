@@ -210,16 +210,8 @@ function getShareItemForPreload(pkg: string) {
   return undefined;
 }
 
-export function generateDirectSharedCacheSeedCode(command = 'build') {
-  return getOrderedUsedShares()
-    .map((pkg) => {
-      const shareItem = getShareItemForPreload(pkg);
-      if (!shareItem || shareItem.shareConfig.import === false) return null;
-      const importPath =
-        command === 'serve'
-          ? getLocalSharedPackagePath(pkg, shareItem)
-          : getDirectSharedCacheSeedImportPath(pkg, shareItem);
-      return `if (__mfModuleCache.share[${JSON.stringify(pkg)}] === undefined) {
+function generateSharedCacheSeedItem(pkg: string, importPath: string) {
+  return `if (__mfModuleCache.share[${JSON.stringify(pkg)}] === undefined) {
         const mod = await import(${JSON.stringify(importPath)});
         const exportModule = ${JSON.stringify(shouldUseDirectReactImport())} && ${JSON.stringify(pkg)} === "react"
           ? (mod?.default ?? mod)
@@ -230,6 +222,52 @@ export function generateDirectSharedCacheSeedCode(command = 'build') {
         });
         __mfModuleCache.share[${JSON.stringify(pkg)}] = exportModule;
       }`;
+}
+
+export function generateDirectSharedCacheSeedCode(command = 'build') {
+  return getOrderedUsedShares()
+    .map((pkg) => {
+      const shareItem = getShareItemForPreload(pkg);
+      if (!shareItem || shareItem.shareConfig.import === false) return null;
+      const importPath =
+        command === 'serve'
+          ? getLocalSharedPackagePath(pkg, shareItem)
+          : getDirectSharedCacheSeedImportPath(pkg, shareItem);
+      return generateSharedCacheSeedItem(pkg, importPath);
+    })
+    .filter((item) => item !== null)
+    .join('\n');
+}
+
+function getBrowserImportPath(importPath: string) {
+  if (/^(?:[a-zA-Z]:[\\/]|\/)/.test(importPath) && !importPath.startsWith('/@')) {
+    return `/@fs/${importPath}`;
+  }
+  return importPath;
+}
+
+function getHostAutoInitSharedSeedItems() {
+  return getOrderedUsedShares()
+    .map((pkg) => ({ pkg, shareItem: getShareItemForPreload(pkg) }))
+    .filter(({ shareItem }) => shareItem?.shareConfig.import === false)
+    .sort((a, b) => {
+      const priority = (pkg: string) => (pkg === 'vue' ? 0 : pkg === 'pinia' ? 1 : 2);
+      const aIsLocal = !!getLocalProviderImportPath(a.pkg);
+      const bIsLocal = !!getLocalProviderImportPath(b.pkg);
+      return (
+        priority(a.pkg) - priority(b.pkg) ||
+        Number(aIsLocal) - Number(bIsLocal) ||
+        a.pkg.localeCompare(b.pkg)
+      );
+    });
+}
+
+function generateHostAutoInitSharedCacheSeedCode() {
+  return getHostAutoInitSharedSeedItems()
+    .map(({ pkg, shareItem }) => {
+      if (!shareItem) return null;
+      const importPath = getBrowserImportPath(getDirectSharedCacheSeedImportPath(pkg, shareItem));
+      return generateSharedCacheSeedItem(pkg, importPath);
     })
     .filter((item) => item !== null)
     .join('\n');
@@ -357,6 +395,7 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
     async function initHost() {
       if (!hostInitPromise) {
         hostInitPromise = (async () => {
+          ${generateHostAutoInitSharedCacheSeedCode()}
           const remoteEntry = await import(${remoteEntryImport});
           const runtime = await remoteEntry.init();
           const usedShared = ${generateUsedSharedPreloadConfig()};
