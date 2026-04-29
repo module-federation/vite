@@ -87,6 +87,10 @@ function isSharedResolverInternalImporter(importer: string | undefined): boolean
   return !!importer && (importer.includes(LOAD_SHARE_TAG) || importer.includes('__prebuild__'));
 }
 
+function isCommonJsImporter(importer: string | undefined): boolean {
+  return !!importer && (importer.endsWith('.cjs') || importer.includes('/cjs/'));
+}
+
 type OutputNameOption = string | ((...args: unknown[]) => string);
 type ManualChunksOption =
   | Record<string, string[]>
@@ -243,7 +247,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
               name: 'module-federation:optimize-shared-resolver',
               resolveId(source: string, importer?: string) {
                 if (isSharedResolverInternalImporter(importer)) return;
-                if (source !== 'react/jsx-runtime' && source !== 'react/jsx-dev-runtime') return;
+                if (isCommonJsImporter(importer)) return;
                 const key = findSharedKey(source, shared);
                 if (!key) return;
                 if (source.endsWith('.css')) return;

@@ -602,6 +602,37 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('vue', true));
   });
 
+  it('proxies shared deps during Rolldown optimizeDeps resolution', () => {
+    const plugin = getEarlyInitPlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    runConfig(
+      plugin,
+      {
+        meta: { rolldownVersion: '1.0.0' },
+      } as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'test' }
+    );
+
+    const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-resolver'
+    );
+
+    expect(resolver.resolveId('vue', '/repo/node_modules/some-lib/index.js')).toEqual({
+      id: expect.stringContaining(LOAD_SHARE_TAG),
+      external: true,
+    });
+    expect(resolver.resolveId('react', '/repo/node_modules/react-dom/cjs/react-dom.js')).toBe(
+      undefined
+    );
+  });
+
   it('keeps loadShare optimizeDeps include in non-Rolldown serve', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {
