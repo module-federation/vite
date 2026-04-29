@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { hasPackageDependencyMock, usedRemotesMapMock, writeSyncSpy, writeTempSpy } = vi.hoisted(
-  () => ({
-    hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
-    usedRemotesMapMock: vi.fn(() => ({})),
-    writeSyncSpy: vi.fn(),
-    writeTempSpy: vi.fn(),
-  })
-);
+const {
+  hasPackageDependencyMock,
+  normalizedSharedMock,
+  usedRemotesMapMock,
+  writeSyncSpy,
+  writeTempSpy,
+} = vi.hoisted(() => ({
+  hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
+  normalizedSharedMock: vi.fn(() => ({})),
+  usedRemotesMapMock: vi.fn(() => ({})),
+  writeSyncSpy: vi.fn(),
+  writeTempSpy: vi.fn(),
+}));
 
 function getLastCallFirstArg<T>(mockFn: { mock: { calls: T[][] } }): T | undefined {
   const calls = mockFn.mock.calls;
@@ -56,12 +61,12 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       name: 'host',
       filename: 'remoteEntry.js',
       remotes: {},
-      shared: {},
+      shared: normalizedSharedMock(),
       shareScope: 'default',
       runtimePlugins: [],
       shareStrategy: 'version-first',
     }),
-    isExplicitSharedKey: () => true,
+    isExplicitSharedKey: (key: string) => key in normalizedSharedMock(),
     getNormalizeShareItem: (pkg: string) => ({
       name: pkg,
       from: '',
@@ -95,6 +100,8 @@ vi.mock('../virtualShared_preBuild', () => {
       pkg === 'transitive-no-override'
         ? '/workspace/packages/transitive-no-override/dist/index.js'
         : undefined,
+    getProjectResolvedImportPath: (pkg: string) =>
+      pkg === 'wildcard-pkg/button' ? '/repo/node_modules/wildcard-pkg/dist/button.js' : undefined,
     getSharedImportSource: (
       pkg: string,
       shareItem?: { shareConfig?: { import?: string | false } }
@@ -110,6 +117,8 @@ vi.mock('../virtualShared_preBuild', () => {
 describe('virtualRemoteEntry', () => {
   beforeEach(async () => {
     hasPackageDependencyMock.mockReset();
+    normalizedSharedMock.mockReset();
+    normalizedSharedMock.mockReturnValue({});
     usedRemotesMapMock.mockReset();
     usedRemotesMapMock.mockReturnValue({});
     writeSyncSpy.mockClear();
@@ -328,5 +337,55 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('Object.entries(usedShared)');
     expect(code).not.toContain('"lit/decorators.js"');
+  });
+
+  it('does not seed a bare package for trailing slash shared packages', async () => {
+    normalizedSharedMock.mockReturnValue({
+      'wildcard-pkg/': {
+        name: 'wildcard-pkg/',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^1.0.0',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+
+    const code = mod.generateDirectSharedCacheSeedCode('build');
+
+    expect(code).not.toContain('wildcard-pkg');
+    expect(code).not.toContain('index.js');
+  });
+
+  it('seeds the actual used subpath for trailing slash shared packages', async () => {
+    normalizedSharedMock.mockReturnValue({
+      'wildcard-pkg/': {
+        name: 'wildcard-pkg/',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^1.0.0',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('wildcard-pkg/button');
+
+    const code = mod.generateDirectSharedCacheSeedCode('build');
+
+    expect(code).toContain('__mfModuleCache.share["wildcard-pkg/button"]');
+    expect(code).toContain('await import("/repo/node_modules/wildcard-pkg/dist/button.js")');
+    expect(code).not.toContain('__mfModuleCache.share["wildcard-pkg"]');
   });
 });

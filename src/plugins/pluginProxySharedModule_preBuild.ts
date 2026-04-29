@@ -237,9 +237,6 @@ export function proxySharedModule(options: {
         }
         if (importer && importer.includes(LOAD_SHARE_TAG)) return;
         if (importer && importer.includes(PREBUILD_TAG)) return;
-        // Prefix shares match subpaths, but only base package is proxied.
-        if (key.endsWith('/') && source !== key.slice(0, -1)) return;
-
         const shareSource = isNodeModulePath(source)
           ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
           : source;

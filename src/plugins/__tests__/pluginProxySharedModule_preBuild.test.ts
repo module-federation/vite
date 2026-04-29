@@ -418,6 +418,48 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(preBuildShareItemMap.has('react-dom')).toBe(false);
   });
 
+  it('proxies subpath imports for trailing slash shared packages', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared = makeShared();
+    shared['transitive/'] = {
+      ...shared.transitive,
+      name: 'transitive/',
+    };
+    delete shared.transitive;
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = {
+      resolve: { alias: [] },
+    };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'development' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id }),
+      } as any,
+      'transitive/button',
+      '/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect((resolution as { id: string }).id).toBeDefined();
+    expect(preBuildShareItemMap.has('transitive/button')).toBe(true);
+    expect(preBuildShareItemMap.has('transitive')).toBe(false);
+  });
+
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
