@@ -245,7 +245,8 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             optimizeDeps.rolldownOptions.plugins ??= [];
             optimizeDeps.rolldownOptions.plugins.push({
               name: 'module-federation:optimize-shared-resolver',
-              resolveId(source: string, importer?: string) {
+              resolveId(source: string, importer?: string, options?: { kind?: string }) {
+                if (options?.kind?.startsWith('require')) return;
                 if (isSharedResolverInternalImporter(importer)) return;
                 if (isCommonJsImporter(importer)) return;
                 const key = findSharedKey(source, shared);
@@ -917,7 +918,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
-        config.optimizeDeps.include.push(virtualDir);
+        if (!isRolldown) {
+          config.optimizeDeps.include.push(virtualDir);
+        }
 
         // Prevent Vite from externalizing virtual modules during SSR.
         // Files in node_modules/__mf__virtual/ contain `import("virtual:...")`
@@ -952,7 +955,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           // Vite 5-7: virtual modules use CJS for dev, need interop
           config.optimizeDeps.needsInterop ||= [];
           config.optimizeDeps.needsInterop.push(virtualDir);
-          config.optimizeDeps.needsInterop.push(getLocalSharedImportMapPath());
         }
 
         const isAstro = hasPackageDependency('astro');

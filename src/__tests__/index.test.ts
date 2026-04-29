@@ -8,7 +8,10 @@ import type {
   ViteBuilder,
 } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
+import {
+  getLoadShareImportId,
+  getLoadShareModulePath,
+} from '../virtualModules/virtualShared_preBuild';
 import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
@@ -130,6 +133,23 @@ function getEarlyInitPlugin(): FederationPlugin {
       shared: {
         vue: {
           singleton: false,
+        },
+      },
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'vite:module-federation-early-init');
+
+  if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+  return plugin;
+}
+
+function getEarlyInitPluginWithReactShared(): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      shared: {
+        react: {
+          singleton: true,
         },
       },
     }) as Plugin[]
@@ -704,6 +724,35 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).not.toContain('/repo/node_modules/scheduler/index.js');
   });
 
+  it('only resolves React JSX runtime shared imports for Rolldown optimizeDeps', () => {
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
+      (entry: { name: string }) => entry.name === 'module-federation:optimize-shared-resolver'
+    );
+    if (!resolver) throw new Error('optimize shared resolver not found');
+
+    expect(resolver.resolveId('react/jsx-runtime', '/repo/src/App.tsx')).toEqual({
+      id: getLoadShareModulePath('react/jsx-runtime', true),
+      external: true,
+    });
+    expect(resolver.resolveId('react', '/repo/src/App.tsx')).toBeUndefined();
+    expect(
+      resolver.resolveId('react/jsx-runtime', '/repo/src/App.cjs', { kind: 'require-call' })
+    ).toBeUndefined();
+  });
+
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'astro'
@@ -748,6 +797,28 @@ describe('vite:module-federation-early-init', () => {
     });
 
     expect(config.define.ENV_TARGET).toBe('"node"');
+  });
+
+  it('does not include virtual module dir or needsInterop for Rolldown optimizeDeps', () => {
+    const plugin = getModuleFederationVitePlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      resolve: {
+        alias: [],
+      },
+    };
+
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.include).toContain('@module-federation/runtime');
+    expect(config.optimizeDeps.include).not.toContain('__mf__virtual');
+    expect(config.optimizeDeps.needsInterop).toBeUndefined();
   });
 });
 

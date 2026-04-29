@@ -40,6 +40,7 @@ vi.mock('../../utils/packageUtils', () => ({
   setPackageDetectionCwd: vi.fn(),
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   getIsRolldown: () => false,
+  packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
   getPackageName: (pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     return match ? match[0] : pkg;
@@ -76,7 +77,10 @@ vi.mock('../../utils/VirtualModule', () => ({
 }));
 
 import { proxySharedModule } from '../pluginProxySharedModule_preBuild';
-import { NormalizedShared } from '../../utils/normalizeModuleFederationOptions';
+import {
+  NormalizedShared,
+  normalizeModuleFederationOptions,
+} from '../../utils/normalizeModuleFederationOptions';
 
 type AliasEntry = {
   find: RegExp;
@@ -102,6 +106,10 @@ function getSharedResolvePlugin(plugins: ReturnType<typeof proxySharedModule>) {
 
 function getPrebuildResolvePlugin(plugins: ReturnType<typeof proxySharedModule>) {
   return plugins[3];
+}
+
+function getLocalSharedImportMapPlugin(plugins: ReturnType<typeof proxySharedModule>) {
+  return plugins[0];
 }
 
 type TestPluginMeta = {
@@ -209,6 +217,31 @@ describe('pluginProxySharedModule_preBuild', () => {
 
   afterEach(() => {
     consoleWarnSpy.mockRestore();
+  });
+
+  it('serves localSharedImportMap as a pure Vite virtual module', async () => {
+    normalizeModuleFederationOptions({
+      name: 'host',
+      exposes: {},
+      remotes: {},
+      shared: {
+        react: {
+          singleton: true,
+        },
+      },
+    });
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugin = getLocalSharedImportMapPlugin(plugins);
+    const importId = 'virtual:mf-localSharedImportMap:__mfe_internal__host';
+    const resolvedId = '\0virtual:mf-localSharedImportMap:__mfe_internal__host';
+
+    expect(callHook(plugin.resolveId, {} as any, importId, undefined, {} as any)).toBe(resolvedId);
+
+    const code = await callHook(plugin.load, {} as any, resolvedId, {} as any);
+    expect(code).toContain('export {');
+    expect(code).toContain('usedShared');
+    expect(code).toContain('@module-federation/runtime');
   });
 
   for (const testCase of [

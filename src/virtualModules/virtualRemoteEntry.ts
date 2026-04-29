@@ -1,15 +1,11 @@
 import {
-  getLocalSharedImportMapPath_temp,
-  writeLocalSharedImportMap_temp,
-} from '../utils/localSharedImportMap_temp';
-import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
   isExplicitSharedKey,
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
-import { hasPackageDependency } from '../utils/packageUtils';
+import { hasPackageDependency, packageNameEncode } from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
@@ -33,16 +29,28 @@ export function getUsedShares() {
 export function addUsedShares(pkg: string) {
   usedShares.add(pkg);
 }
+const LOCAL_SHARED_IMPORT_MAP_ID = 'virtual:mf-localSharedImportMap';
+
 export function getLocalSharedImportMapPath() {
-  return getLocalSharedImportMapPath_temp();
+  const { internalName, name } = getNormalizeModuleFederationOptions();
+  return `${LOCAL_SHARED_IMPORT_MAP_ID}:${packageNameEncode(internalName || name)}`;
 }
+
+export function getResolvedLocalSharedImportMapId() {
+  return `\0${getLocalSharedImportMapPath()}`;
+}
+
+let invalidateLocalSharedImportMap: (() => void) | undefined;
+export function setLocalSharedImportMapInvalidator(invalidator: (() => void) | undefined) {
+  invalidateLocalSharedImportMap = invalidator;
+}
+
 let prevLocalSharedImportMapContent: string | undefined;
 export function writeLocalSharedImportMap() {
   const nextContent = generateLocalSharedImportMap();
   if (prevLocalSharedImportMapContent !== nextContent) {
     prevLocalSharedImportMapContent = nextContent;
-    writeLocalSharedImportMap_temp(nextContent);
-    //   localSharedImportMapModule.writeSync(generateLocalSharedImportMap(), true)
+    invalidateLocalSharedImportMap?.();
   }
 }
 
@@ -321,6 +329,14 @@ export function generateRemoteEntry(
   let runtimeInstance
   let localSharedImportMapPromise
   let exposesMapPromise
+  const shouldRetrySharedInitError = ${command !== 'build'} && ((error) => {
+    const message = String((error && error.message) || error || '');
+    return message.includes('Importing a module script failed') ||
+      message.includes('Failed to fetch') ||
+      message.includes('Load failed') ||
+      message.includes('Outdated Optimize Dep');
+  });
+  const waitSharedInitRetry = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function getLocalSharedImportMap() {
     localSharedImportMapPromise ??= import("${getLocalSharedImportMapPath()}")
@@ -357,11 +373,21 @@ export function generateRemoteEntry(
     initRes.initShareScopeMap('${options.shareScope}', shared);
     initResolve(initRes)
     try {
-      await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
-        strategy: '${options.shareStrategy}',
-        from: "build",
-        initScope
-      }));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
+            strategy: '${options.shareStrategy}',
+            from: "build",
+            initScope
+          }));
+          break;
+        } catch (e) {
+          if (!shouldRetrySharedInitError(e) || attempt >= 19) {
+            throw e;
+          }
+          await waitSharedInitRetry(250);
+        }
+      }
     } catch (e) {
       console.error('[Module Federation]', e)
     }

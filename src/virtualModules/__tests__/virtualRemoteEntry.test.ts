@@ -1,18 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  hasPackageDependencyMock,
-  normalizedSharedMock,
-  usedRemotesMapMock,
-  writeSyncSpy,
-  writeTempSpy,
-} = vi.hoisted(() => ({
-  hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
-  normalizedSharedMock: vi.fn(() => ({})),
-  usedRemotesMapMock: vi.fn(() => ({})),
-  writeSyncSpy: vi.fn(),
-  writeTempSpy: vi.fn(),
-}));
+const { hasPackageDependencyMock, normalizedSharedMock, usedRemotesMapMock, writeSyncSpy } =
+  vi.hoisted(() => ({
+    hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
+    normalizedSharedMock: vi.fn(() => ({})),
+    usedRemotesMapMock: vi.fn(() => ({})),
+    writeSyncSpy: vi.fn(),
+  }));
 
 function getLastCallFirstArg<T>(mockFn: { mock: { calls: T[][] } }): T | undefined {
   const calls = mockFn.mock.calls;
@@ -41,16 +35,10 @@ vi.mock('../../utils/VirtualModule', () => {
   };
 });
 
-vi.mock('../../utils/localSharedImportMap_temp', () => {
-  return {
-    getLocalSharedImportMapPath_temp: () => '/virtual/localSharedImportMap.js',
-    writeLocalSharedImportMap_temp: writeTempSpy,
-  };
-});
-
 vi.mock('../../utils/packageUtils', () => {
   return {
     hasPackageDependency: hasPackageDependencyMock,
+    packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
   };
 });
 
@@ -124,7 +112,6 @@ describe('virtualRemoteEntry', () => {
     usedRemotesMapMock.mockReset();
     usedRemotesMapMock.mockReturnValue({});
     writeSyncSpy.mockClear();
-    writeTempSpy.mockClear();
     vi.resetModules();
   });
 
@@ -287,6 +274,50 @@ describe('virtualRemoteEntry', () => {
     expect(shimIndex).toBeLessThan(importIndex);
   });
 
+  it('retries transient shared init module loading failures in serve remoteEntry', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    expect(code).toContain('const shouldRetrySharedInitError = true &&');
+    expect(code).toContain("message.includes('Importing a module script failed')");
+    expect(code).toContain("message.includes('Outdated Optimize Dep')");
+    expect(code).toContain('attempt >= 19');
+    expect(code).toContain('await waitSharedInitRetry(250)');
+  });
+
+  it('does not retry shared init module loading failures in build remoteEntry', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    expect(code).toContain('const shouldRetrySharedInitError = false &&');
+  });
+
   it('loads local shared state and exposes lazily inside remoteEntry', async () => {
     const mod = await import('../virtualRemoteEntry');
 
@@ -305,7 +336,7 @@ describe('virtualRemoteEntry', () => {
     );
 
     expect(code).toContain(
-      'localSharedImportMapPromise ??= import("/virtual/localSharedImportMap.js")'
+      'localSharedImportMapPromise ??= import("virtual:mf-localSharedImportMap:__mfe_internal__host")'
     );
     expect(code).toContain(
       'exposesMapPromise ??= import("virtual:exposes").then((mod) => mod.default ?? mod)'

@@ -10,9 +10,11 @@ export {
   getHostAutoInitImportId,
   getHostAutoInitPath,
   getLocalSharedImportMapPath,
+  getResolvedLocalSharedImportMapId,
   getRemoteEntryId,
   getUsedShares,
   refreshHostAutoInit,
+  setLocalSharedImportMapInvalidator,
   writeHostAutoInit,
   writeLocalSharedImportMap,
 } from './virtualRemoteEntry';
