@@ -101,7 +101,9 @@ vi.mock('../virtualShared_preBuild', () => {
         ? '/workspace/packages/transitive-no-override/dist/index.js'
         : undefined,
     getProjectResolvedImportPath: (pkg: string) =>
-      pkg === 'wildcard-pkg/button' ? '/repo/node_modules/wildcard-pkg/dist/button.js' : undefined,
+      pkg === 'wildcard-pkg/button'
+        ? '/repo/node_modules/wildcard-pkg/dist/button.js'
+        : `/workspace/node_modules/${pkg}/index.js`,
     getSharedImportSource: (
       pkg: string,
       shareItem?: { shareConfig?: { import?: string | false } }
