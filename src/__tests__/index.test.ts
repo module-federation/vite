@@ -724,7 +724,7 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).not.toContain('/repo/node_modules/scheduler/index.js');
   });
 
-  it('only resolves React JSX runtime shared imports for Rolldown optimizeDeps', () => {
+  it('skips require calls in Rolldown optimizeDeps shared resolver', () => {
     const plugin = getEarlyInitPluginWithReactShared();
     const config: any = {
       root: process.cwd(),
@@ -743,14 +743,13 @@ describe('vite:module-federation-early-init', () => {
     );
     if (!resolver) throw new Error('optimize shared resolver not found');
 
+    expect(
+      resolver.resolveId('react/jsx-runtime', '/repo/src/App.cjs', { kind: 'require-call' })
+    ).toBeUndefined();
     expect(resolver.resolveId('react/jsx-runtime', '/repo/src/App.tsx')).toEqual({
       id: getLoadShareModulePath('react/jsx-runtime', true),
       external: true,
     });
-    expect(resolver.resolveId('react', '/repo/src/App.tsx')).toBeUndefined();
-    expect(
-      resolver.resolveId('react/jsx-runtime', '/repo/src/App.cjs', { kind: 'require-call' })
-    ).toBeUndefined();
   });
 
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
