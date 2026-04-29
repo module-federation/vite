@@ -186,7 +186,7 @@ function getOrderedUsedShares() {
   const shares = new Set(getUsedShares());
   try {
     Object.keys(getNormalizeModuleFederationOptions().shared).forEach((pkg) => {
-      shares.add(pkg.endsWith('/') ? pkg.slice(0, -1) : pkg);
+      if (!pkg.endsWith('/')) shares.add(pkg);
     });
   } catch {
     // Some isolated unit tests call generators before normalized options exist.
