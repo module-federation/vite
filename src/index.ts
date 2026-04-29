@@ -325,12 +325,12 @@ export default __mfShared.default ?? __mfShared;`,
             const optimizeDeps = (config.optimizeDeps ??= {});
             optimizeDeps.include ??= [];
             optimizeDeps.exclude ??= [];
-            // Vite 8/Rolldown must keep shared packages outside dependency
-            // optimization, otherwise optimized third-party deps can bypass
-            // the shared loadShare proxy. Vite < 8 still uses esbuild and can
-            // fail when an optimizer entry is also external.
+            // Some packages must stay outside dependency optimization because
+            // their submodules rely on parent initialization order. Other
+            // shared deps should remain optimizable so Vite can apply CJS
+            // interop for transitive dependencies used by prebuild fallbacks.
             const shouldBypassOptimizeDep = isLitShare(key);
-            if (isRolldown || shouldBypassOptimizeDep) {
+            if (shouldBypassOptimizeDep) {
               optimizeDeps.exclude.push(key);
             }
             if (!isRolldown && !shouldBypassOptimizeDep) {
