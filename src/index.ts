@@ -5,7 +5,7 @@ import path from 'pathe';
 import type { ConfigEnv, Plugin, ResolvedConfig, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
-import pluginDevRemoteHmr from './plugins/pluginDevRemoteHmr';
+import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
 import pluginDts from './plugins/pluginDts';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
@@ -31,6 +31,7 @@ import type {
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import { getCommonSharedSubpaths } from './utils/pathNormalization';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -55,10 +56,32 @@ import {
 } from './virtualModules/virtualShared_preBuild';
 
 const patchedManualChunks = new WeakSet<Function>();
-const COMMON_PREFIX_SHARED_PREBUILDS: Record<string, string[]> = {
-  'react/': ['react/jsx-runtime', 'react/jsx-dev-runtime'],
-  'react-dom/': ['react-dom/client', 'react-dom/server', 'react-dom/server.browser'],
-};
+
+function normalizeVinextRscPreloadHints(code: string): string {
+  return code
+    .replace(/(:HL\[[^\]\n]*?,)"stylesheet"/g, '$1"style"')
+    .replace(/(:HL\[[^\]\n]*?,)\\"stylesheet\\"/g, '$1\\"style\\"');
+}
+
+function ignoreFederationGeneratedFiles(
+  config: UserConfig,
+  options: NormalizedModuleFederationOptions
+): void {
+  config.server ??= {};
+  config.server.watch ??= {};
+
+  const federationIgnore = (file: string) => shouldIgnoreFile(file, options);
+  const ignored = config.server.watch.ignored;
+  if (!ignored) {
+    config.server.watch.ignored = federationIgnore;
+    return;
+  }
+  if (Array.isArray(ignored)) {
+    ignored.push(federationIgnore);
+    return;
+  }
+  config.server.watch.ignored = [ignored, federationIgnore];
+}
 
 function isSharedResolverInternalImporter(importer: string | undefined): boolean {
   return !!importer && (importer.includes(LOAD_SHARE_TAG) || importer.includes('__prebuild__'));
@@ -166,6 +189,8 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
     name: 'vite:module-federation-early-init',
     enforce: 'pre',
     config(config: UserConfig, { command: _command }) {
+      if (_command === 'serve') ignoreFederationGeneratedFiles(config, options);
+
       const root = config.root || process.cwd();
       setPackageDetectionCwd(root);
       const isVinext = hasPackageDependency('vinext');
@@ -276,7 +301,7 @@ export default __mfShared.default ?? __mfShared;`,
             if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
               const optimizeDeps = (config.optimizeDeps ??= {});
               optimizeDeps.include ??= [];
-              for (const subpath of COMMON_PREFIX_SHARED_PREBUILDS[key] || []) {
+              for (const subpath of getCommonSharedSubpaths(key)) {
                 writePreBuildLibPath(subpath, shareItem);
                 optimizeDeps.include.push(subpath);
                 optimizeDeps.include.push(getPreBuildLibImportId(subpath));
@@ -300,12 +325,12 @@ export default __mfShared.default ?? __mfShared;`,
             const optimizeDeps = (config.optimizeDeps ??= {});
             optimizeDeps.include ??= [];
             optimizeDeps.exclude ??= [];
-            // Vite 8/Rolldown must keep shared packages outside dependency
-            // optimization, otherwise optimized third-party deps can bypass
-            // the shared loadShare proxy. Vite < 8 still uses esbuild and can
-            // fail when an optimizer entry is also external.
+            // Some packages must stay outside dependency optimization because
+            // their submodules rely on parent initialization order. Other
+            // shared deps should remain optimizable so Vite can apply CJS
+            // interop for transitive dependencies used by prebuild fallbacks.
             const shouldBypassOptimizeDep = isLitShare(key);
-            if (isRolldown || shouldBypassOptimizeDep) {
+            if (shouldBypassOptimizeDep) {
               optimizeDeps.exclude.push(key);
             }
             if (!isRolldown && !shouldBypassOptimizeDep) {
@@ -314,6 +339,11 @@ export default __mfShared.default ?? __mfShared;`,
               optimizeDeps.include.push(getLoadShareImportId(key, isRolldown));
             }
             optimizeDeps.include.push(getPreBuildLibImportId(key));
+            for (const subpath of getCommonSharedSubpaths(key)) {
+              writePreBuildLibPath(subpath, shareItem);
+              optimizeDeps.include.push(subpath);
+              optimizeDeps.include.push(getPreBuildLibImportId(subpath));
+            }
           }
         }
         writeLocalSharedImportMap();
@@ -322,7 +352,7 @@ export default __mfShared.default ?? __mfShared;`,
   };
 }
 
-function federation(mfUserOptions: ModuleFederationOptions) {
+function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
   const isVinext = hasPackageDependency('vinext');
@@ -390,6 +420,7 @@ function federation(mfUserOptions: ModuleFederationOptions) {
       entryName: 'hostInit',
       entryPath: () => getHostAutoInitPath(),
       inject: hostInitInjectLocation,
+      forceClientInjected: Object.keys(options.exposes).length > 0,
     }),
     ...addEntry({
       entryName: 'virtualExposes',
@@ -463,8 +494,11 @@ function federation(mfUserOptions: ModuleFederationOptions) {
               const hasFederationHtmlDeps =
                 context.hostType === 'html' &&
                 resolvedDeps.some((dep) => isFederationHtmlPreloadDependency(dep));
+              const hasFederationJsDeps =
+                context.hostType === 'js' &&
+                resolvedDeps.some((dep) => isFederationHtmlPreloadDependency(dep));
 
-              return hasFederationHtmlDeps
+              return hasFederationHtmlDeps || hasFederationJsDeps
                 ? resolvedDeps.filter((dep) => !isFederationHtmlPreloadDependency(dep, true))
                 : resolvedDeps;
             },
@@ -945,7 +979,32 @@ function federation(mfUserOptions: ModuleFederationOptions) {
     {
       name: 'module-federation-vinext-fix-rsc-preload-as',
       enforce: 'post' as const,
-      apply: 'build' as const,
+      configureServer(server) {
+        if (!hasPackageDependency('vinext')) return;
+
+        server.middlewares.use((req, res, next) => {
+          if (!req.headers.accept?.includes('text/html')) {
+            next();
+            return;
+          }
+
+          const chunks: Buffer[] = [];
+          const end = res.end.bind(res);
+
+          res.write = (chunk: any) => {
+            if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            return true;
+          };
+
+          res.end = (chunk: any, ...args: any[]) => {
+            if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            const body = normalizeVinextRscPreloadHints(Buffer.concat(chunks).toString());
+            return end(body, ...args);
+          };
+
+          next();
+        });
+      },
       generateBundle(_: NormalizedOutputOptionsLike, bundle: BundleLike, _isWrite: boolean) {
         if (!hasPackageDependency('vinext')) return;
 

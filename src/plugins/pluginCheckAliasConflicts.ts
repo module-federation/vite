@@ -1,6 +1,7 @@
 import type { Alias, Plugin } from 'vite';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { mfWarn } from '../utils/logger';
+import { getPackageNameFromNodeModulePath } from '../utils/packageUtils';
 
 /**
  * Check if user-defined alias conflicts with shared modules
@@ -41,6 +42,10 @@ export function checkAliasConflicts(options: { shared?: NormalizedShared }): Plu
           if (replacement === '$1') break;
 
           if (typeof replacement === 'string') {
+            const packageName = getPackageNameFromNodeModulePath(replacement);
+            const sharedPackageName = sharedKey.endsWith('/') ? sharedKey.slice(0, -1) : sharedKey;
+            if (packageName === sharedPackageName) continue;
+
             conflicts.push({
               sharedModule: sharedKey,
               alias: String(aliasEntry.find),

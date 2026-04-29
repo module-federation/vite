@@ -257,6 +257,28 @@ describe('module-federation-esm-shims', () => {
     expect(deps).toEqual(['assets/index.js']);
   });
 
+  it('filters federation control chunks from js dynamic modulepreload deps', () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = {
+      build: {},
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+
+    const deps = config.build.modulePreload.resolveDependencies(
+      'assets/index.js',
+      [
+        'assets/feature.js',
+        'assets/__mfe_internal__host__loadRemote__remote_app__loadRemote__-abc.js',
+        'assets/hostInit-abc.js',
+        'assets/preload-helper-abc.js',
+      ],
+      { hostId: 'assets/index.js', hostType: 'js' }
+    );
+
+    expect(deps).toEqual(['assets/feature.js']);
+  });
+
   it('keeps non-federation html modulepreload deps', () => {
     const plugin = getEsmShimsPlugin();
     const existingResolveDependencies = vi.fn((_filename, deps) => [...deps, 'assets/extra.js']);
@@ -529,6 +551,34 @@ describe('module-federation-esm-shims', () => {
 });
 
 describe('vite:module-federation-early-init', () => {
+  it('adds federation generated files to dev server watch ignores in serve', () => {
+    const plugin = getEarlyInitPlugin();
+    const customIgnored = '**/custom/**';
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      server: {
+        watch: {
+          ignored: [customIgnored],
+        },
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.server.watch.ignored[0]).toBe(customIgnored);
+    const federationIgnored = config.server.watch.ignored[1] as (file: string) => boolean;
+    expect(federationIgnored('/repo/node_modules/vue/index.js')).toBe(true);
+    expect(federationIgnored('/repo/src/__mf__virtual/loadShare.js')).toBe(true);
+    expect(federationIgnored('/repo/.vite/deps/vue.js')).toBe(true);
+    expect(federationIgnored('/repo/src/App.vue')).toBe(false);
+  });
+
   it('skips loadShare optimizeDeps include in Rolldown serve, but keeps prebuild include', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {

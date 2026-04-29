@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { MinimalPluginContextWithoutEnvironment } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import pluginDevRemoteHmr from '../pluginDevRemoteHmr';
+import pluginDevRemoteHmr, { shouldIgnoreFile } from '../pluginDevRemoteHmr';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 const { mfWarn } = vi.hoisted(() => ({
@@ -161,6 +161,22 @@ describe('pluginDevRemoteHmr', () => {
     MockWebSocket.instances = [];
   });
 
+  it('identifies generated and dependency files that should not trigger remote HMR', () => {
+    const options = normalizeModuleFederationOptions({
+      name: 'remote-app',
+      exposes: {},
+      remotes: {},
+      virtualModuleDir: '__mf__virtual',
+    });
+
+    expect(shouldIgnoreFile('/repo/node_modules/react/index.js', options)).toBe(true);
+    expect(shouldIgnoreFile('/repo/src/__mf__virtual/loadShare.js', options)).toBe(true);
+    expect(shouldIgnoreFile('/repo/.vite/deps/react.js', options)).toBe(true);
+    expect(shouldIgnoreFile('/repo/.__mf__temp/chunk.js', options)).toBe(true);
+    expect(shouldIgnoreFile('/repo/dist/mf-manifest.json', options)).toBe(true);
+    expect(shouldIgnoreFile('/repo/src/Button.tsx', options)).toBe(false);
+  });
+
   it('serves remote metadata and broadcasts non-ignored file changes', () => {
     const { server, middlewares, emit, close } = createServer({
       config: {
@@ -233,7 +249,10 @@ describe('pluginDevRemoteHmr', () => {
   });
 
   describe('react-refresh proxy middleware', () => {
-    function makeRemotePlugin(opts: { exposes?: Record<string, unknown>; remoteHmr?: boolean }) {
+    function makeRemotePlugin(opts: {
+      exposes?: Record<string, string | { import: string }>;
+      remoteHmr?: boolean;
+    }) {
       return pluginDevRemoteHmr(
         normalizeModuleFederationOptions({
           name: 'test-app',

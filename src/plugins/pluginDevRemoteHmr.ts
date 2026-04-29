@@ -52,7 +52,7 @@ function getHmrWsPath(base: string, hmrPath?: string) {
   return `${trimmedBase}/${trimmedPath}`;
 }
 
-function shouldIgnoreFile(file: string, options: NormalizedModuleFederationOptions) {
+export function shouldIgnoreFile(file: string, options: NormalizedModuleFederationOptions) {
   return (
     file.includes('/node_modules/') ||
     file.includes('\\node_modules\\') ||

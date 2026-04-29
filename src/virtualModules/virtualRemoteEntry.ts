@@ -5,6 +5,7 @@ import {
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  isExplicitSharedKey,
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
@@ -185,7 +186,7 @@ function getOrderedUsedShares() {
   const shares = new Set(getUsedShares());
   try {
     Object.keys(getNormalizeModuleFederationOptions().shared).forEach((pkg) => {
-      shares.add(pkg.endsWith('/') ? pkg.slice(0, -1) : pkg);
+      if (!pkg.endsWith('/')) shares.add(pkg);
     });
   } catch {
     // Some isolated unit tests call generators before normalized options exist.
@@ -198,7 +199,29 @@ function getOrderedUsedShares() {
 }
 
 function getShareItemForPreload(pkg: string) {
-  return getNormalizeShareItem(pkg) || getNormalizeShareItem(`${pkg}/`);
+  const shared = getNormalizeModuleFederationOptions().shared;
+  const packageName = pkg.startsWith('@')
+    ? pkg.split('/').slice(0, 2).join('/')
+    : pkg.split('/')[0];
+  const wildcardKey = `${packageName}/`;
+
+  if (isExplicitSharedKey(pkg)) return shared[pkg];
+  if (isExplicitSharedKey(wildcardKey)) return shared[wildcardKey];
+  return undefined;
+}
+
+function generateSharedCacheSeedItem(pkg: string, importPath: string) {
+  return `if (__mfModuleCache.share[${JSON.stringify(pkg)}] === undefined) {
+        const mod = await import(${JSON.stringify(importPath)});
+        const exportModule = ${JSON.stringify(shouldUseDirectReactImport())} && ${JSON.stringify(pkg)} === "react"
+          ? (mod?.default ?? mod)
+          : {...mod};
+        Object.defineProperty(exportModule, "__esModule", {
+          value: true,
+          enumerable: false
+        });
+        __mfModuleCache.share[${JSON.stringify(pkg)}] = exportModule;
+      }`;
 }
 
 export function generateDirectSharedCacheSeedCode(command = 'build') {
@@ -210,17 +233,41 @@ export function generateDirectSharedCacheSeedCode(command = 'build') {
         command === 'serve'
           ? getLocalSharedPackagePath(pkg, shareItem)
           : getDirectSharedCacheSeedImportPath(pkg, shareItem);
-      return `if (__mfModuleCache.share[${JSON.stringify(pkg)}] === undefined) {
-        const mod = await import(${JSON.stringify(importPath)});
-        const exportModule = ${JSON.stringify(shouldUseDirectReactImport())} && ${JSON.stringify(pkg)} === "react"
-          ? (mod?.default ?? mod)
-          : {...mod};
-        Object.defineProperty(exportModule, "__esModule", {
-          value: true,
-          enumerable: false
-        });
-        __mfModuleCache.share[${JSON.stringify(pkg)}] = exportModule;
-      }`;
+      return generateSharedCacheSeedItem(pkg, importPath);
+    })
+    .filter((item) => item !== null)
+    .join('\n');
+}
+
+function getBrowserImportPath(importPath: string) {
+  if (/^(?:[a-zA-Z]:[\\/]|\/)/.test(importPath) && !importPath.startsWith('/@')) {
+    return `/@fs/${importPath}`;
+  }
+  return importPath;
+}
+
+function getHostAutoInitSharedSeedItems() {
+  return getOrderedUsedShares()
+    .map((pkg) => ({ pkg, shareItem: getShareItemForPreload(pkg) }))
+    .filter(({ shareItem }) => shareItem?.shareConfig.import === false)
+    .sort((a, b) => {
+      const priority = (pkg: string) => (pkg === 'vue' ? 0 : pkg === 'pinia' ? 1 : 2);
+      const aIsLocal = !!getLocalProviderImportPath(a.pkg);
+      const bIsLocal = !!getLocalProviderImportPath(b.pkg);
+      return (
+        priority(a.pkg) - priority(b.pkg) ||
+        Number(aIsLocal) - Number(bIsLocal) ||
+        a.pkg.localeCompare(b.pkg)
+      );
+    });
+}
+
+function generateHostAutoInitSharedCacheSeedCode() {
+  return getHostAutoInitSharedSeedItems()
+    .map(({ pkg, shareItem }) => {
+      if (!shareItem) return null;
+      const importPath = getBrowserImportPath(getDirectSharedCacheSeedImportPath(pkg, shareItem));
+      return generateSharedCacheSeedItem(pkg, importPath);
     })
     .filter((item) => item !== null)
     .join('\n');
@@ -260,7 +307,7 @@ export function generateRemoteEntry(
   if (typeof __VUE_HMR_RUNTIME__ === 'undefined') {
     globalThis.__VUE_HMR_RUNTIME__ = { createRecord() {}, rerender() {}, reload() {} };
   }
-  import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
+  import {createInstance, loadRemote} from "@module-federation/runtime";
   ${pluginImportNames.map((item) => item[1]).join('\n')}
   ${
     command === 'build'
@@ -271,6 +318,7 @@ export function generateRemoteEntry(
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
   const mfName = ${JSON.stringify(options.internalName)}
+  let runtimeInstance
   let localSharedImportMapPromise
   let exposesMapPromise
 
@@ -287,13 +335,19 @@ export function generateRemoteEntry(
   async function init(shared = {}, initScope = []) {
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
     ${generateDirectSharedCacheSeedCode(command)}
-    const initRes = runtimeInit({
+    const runtimeOptions = {
       name: mfName,
       remotes: usedRemotes,
       shared: usedShared,
       plugins: [${pluginImportNames.map((item) => `${item[0]}(${item[2]})`).join(', ')}],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
-    });
+    };
+    if (!runtimeInstance) {
+      runtimeInstance = createInstance(runtimeOptions);
+    } else {
+      runtimeInstance.initOptions(runtimeOptions);
+    }
+    const initRes = runtimeInstance;
     // handling circular init calls
     var initToken = initTokens[shareScopeName];
     if (!initToken)
@@ -341,6 +395,7 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
     async function initHost() {
       if (!hostInitPromise) {
         hostInitPromise = (async () => {
+          ${generateHostAutoInitSharedCacheSeedCode()}
           const remoteEntry = await import(${remoteEntryImport});
           const runtime = await remoteEntry.init();
           const usedShared = ${generateUsedSharedPreloadConfig()};
