@@ -53,9 +53,6 @@ function getHmrWsPath(base: string, hmrPath?: string) {
 }
 
 export function shouldIgnoreFile(file: string, options: NormalizedModuleFederationOptions) {
-  const tempDirForward = options.tempDir.replace(/\\/g, '/');
-  const tempDirBack = options.tempDir.replace(/\//g, '\\');
-
   return (
     file.includes('/node_modules/') ||
     file.includes('\\node_modules\\') ||
@@ -63,8 +60,8 @@ export function shouldIgnoreFile(file: string, options: NormalizedModuleFederati
     file.includes(`\\${options.virtualModuleDir}\\`) ||
     file.includes('/.vite/') ||
     file.includes('\\.vite\\') ||
-    file.includes(`/${tempDirForward}/`) ||
-    file.includes(`\\${tempDirBack}\\`) ||
+    file.includes('/.__mf__temp/') ||
+    file.includes('\\.__mf__temp\\') ||
     file.includes('/.mf/') ||
     file.includes('\\.mf\\') ||
     file.includes('/mf-manifest.json') ||

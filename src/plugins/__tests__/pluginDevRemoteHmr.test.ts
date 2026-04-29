@@ -175,23 +175,6 @@ describe('pluginDevRemoteHmr', () => {
     expect(shouldIgnoreFile('/repo/src/Button.tsx', options)).toBe(false);
   });
 
-  it('honors a configured tempDir when ignoring HMR file changes', () => {
-    const options = normalizeModuleFederationOptions({
-      name: 'remote-app',
-      exposes: {},
-      remotes: {},
-      virtualModuleDir: '__mf__virtual',
-      tempDir: 'node_modules/.cache/mf-temp',
-    });
-
-    expect(shouldIgnoreFile('/repo/node_modules/.cache/mf-temp/chunk.js', options)).toBe(true);
-    expect(shouldIgnoreFile('C:\\repo\\node_modules\\.cache\\mf-temp\\chunk.js', options)).toBe(
-      true
-    );
-    // Default temp dir name should no longer match when a custom one is configured.
-    expect(shouldIgnoreFile('/repo/.__mf__temp/chunk.js', options)).toBe(false);
-  });
-
   it('serves remote metadata and broadcasts non-ignored file changes', () => {
     const { server, middlewares, emit, close } = createServer({
       config: {

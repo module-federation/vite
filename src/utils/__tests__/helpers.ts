@@ -18,7 +18,6 @@ export function getDefaultMockOptions(
     manifest: false,
     shareStrategy: 'loaded-first',
     virtualModuleDir: '__mf__virtual',
-    tempDir: '.__mf__temp',
     hostInitInjectLocation: 'html',
     bundleAllCSS: false,
     moduleParseTimeout: 10,

@@ -44,7 +44,6 @@ describe('normalizeModuleFederationOption', () => {
       shareStrategy: 'loaded-first',
       ignoreOrigin: false,
       virtualModuleDir: '__mf__virtual',
-      tempDir: '.__mf__temp',
       hostInitInjectLocation: 'html',
       bundleAllCSS: false,
       getPublicPath: undefined,
@@ -545,43 +544,6 @@ describe('normalizeModuleFederationOption', () => {
           virtualModuleDir: undefined,
         }).virtualModuleDir
       ).toEqual('__mf__virtual');
-    });
-  });
-
-  describe('tempDir', () => {
-    it('should use default value when not specified', () => {
-      expect(
-        normalizeModuleFederationOptions({
-          ...minimalOptions,
-        }).tempDir
-      ).toEqual('.__mf__temp');
-    });
-
-    it('should use custom value when specified', () => {
-      expect(
-        normalizeModuleFederationOptions({
-          ...minimalOptions,
-          tempDir: 'node_modules/.cache/mf-temp',
-        }).tempDir
-      ).toEqual('node_modules/.cache/mf-temp');
-    });
-
-    it('should handle empty string by falling back to default', () => {
-      expect(
-        normalizeModuleFederationOptions({
-          ...minimalOptions,
-          tempDir: '',
-        }).tempDir
-      ).toEqual('.__mf__temp');
-    });
-
-    it('should handle undefined by falling back to default', () => {
-      expect(
-        normalizeModuleFederationOptions({
-          ...minimalOptions,
-          tempDir: undefined,
-        }).tempDir
-      ).toEqual('.__mf__temp');
     });
   });
 });
