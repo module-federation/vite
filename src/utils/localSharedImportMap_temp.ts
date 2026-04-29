@@ -7,8 +7,8 @@ import { getNormalizeModuleFederationOptions } from './normalizeModuleFederation
 import { packageNameEncode } from './packageUtils';
 
 export function getLocalSharedImportMapPath_temp() {
-  const { name } = getNormalizeModuleFederationOptions();
-  return path.resolve('.__mf__temp', packageNameEncode(name), 'localSharedImportMap');
+  const { name, tempDir } = getNormalizeModuleFederationOptions();
+  return path.resolve(tempDir, packageNameEncode(name), 'localSharedImportMap');
 }
 export function writeLocalSharedImportMap_temp(content: string) {
   const localSharedImportMapId = getLocalSharedImportMapPath_temp();

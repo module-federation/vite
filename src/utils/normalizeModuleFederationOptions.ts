@@ -430,6 +430,14 @@ export type ModuleFederationOptions = {
   shareStrategy?: ShareStrategy;
   ignoreOrigin?: boolean;
   virtualModuleDir?: string;
+  /**
+   * Directory where the federation runtime writes its temporary
+   * `localSharedImportMap` file (see https://github.com/module-federation/vite/issues/68).
+   * Resolved relative to `process.cwd()` when a relative path is provided.
+   *
+   * @default '.__mf__temp'
+   */
+  tempDir?: string;
   hostInitInjectLocation?: HostInitInjectLocationOptions;
   /**
    * Timeout for parsing modules in seconds.
@@ -473,6 +481,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
   manifest?: PluginManifestOptions | boolean;
   shareStrategy: ShareStrategy;
   virtualModuleDir: string;
+  tempDir: string;
   hostInitInjectLocation: HostInitInjectLocationOptions;
   bundleAllCSS: boolean;
   moduleParseTimeout: number;
@@ -594,6 +603,7 @@ export function normalizeModuleFederationOptions(
     shareStrategy: options.shareStrategy || 'version-first',
     ignoreOrigin: options.ignoreOrigin || false,
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
+    tempDir: options.tempDir || '.__mf__temp',
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
     bundleAllCSS: options.bundleAllCSS || false,
     moduleParseTimeout: options.moduleParseTimeout || 10,
