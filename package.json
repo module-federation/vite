@@ -50,6 +50,7 @@
   },
   "keywords": [
     "vite",
+    "vite-plugin",
     "module federation",
     "microfrontend"
   ],
