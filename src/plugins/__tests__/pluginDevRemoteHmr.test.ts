@@ -24,6 +24,7 @@ type MockServer = {
   config: {
     base: string;
     webSocketToken: string;
+    plugins: Array<{ name: string }>;
     server: {
       host: string;
       port: number;
@@ -101,6 +102,7 @@ function createServer(overrides: DeepPartial<MockServer> = {}) {
     config: {
       base: overrides.config?.base ?? '/',
       webSocketToken: overrides.config?.webSocketToken ?? 'dev-token',
+      plugins: overrides.config?.plugins ?? [],
       server: {
         host: overrides.config?.server?.host ?? 'localhost',
         port: overrides.config?.server?.port ?? 5173,
@@ -477,5 +479,57 @@ describe('pluginDevRemoteHmr', () => {
     emit('change', 'C:\\project\\mf-stats.json');
 
     expect(server.ws.send).not.toHaveBeenCalled();
+  });
+
+  describe('remoteHmr strategy', () => {
+    const remoteOpts = {
+      name: 'remote-app',
+      exposes: { './Button': { import: './src/Button.tsx' } },
+      remotes: {},
+      virtualModuleDir: '__mf__virtual',
+    } as const;
+
+    it('suppresses broadcast when React plugin is detected', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'vite:react-refresh' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({ ...remoteOpts, dev: { remoteHmr: true } })
+        ),
+        server
+      );
+      emit('change', '/src/Button.tsx');
+      expect(server.ws.send).not.toHaveBeenCalled();
+    });
+
+    it('broadcasts when no React plugin is detected', () => {
+      const { server, emit } = createServer();
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({ ...remoteOpts, dev: { remoteHmr: true } })
+        ),
+        server
+      );
+      emit('change', '/src/Button.tsx');
+      expect(server.ws.send).toHaveBeenCalled();
+    });
+
+    it('explicit full-reload overrides auto-detection', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'vite:react-refresh' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...remoteOpts,
+            dev: { remoteHmr: 'full-reload' },
+          })
+        ),
+        server
+      );
+      emit('change', '/src/Button.tsx');
+      expect(server.ws.send).toHaveBeenCalled();
+    });
   });
 });
