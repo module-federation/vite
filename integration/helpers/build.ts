@@ -21,10 +21,10 @@ function isPlainObject(value: unknown): value is PlainObject {
   return Object.prototype.toString.call(value) === '[object Object]';
 }
 
-function mergeDefaults<T extends PlainObject>(overrides: Partial<T> | undefined, defaults: T): T {
-  const merged: PlainObject = { ...defaults };
+function mergeDefaults<T extends object>(overrides: Partial<T> | undefined, defaults: T): T {
+  const merged: PlainObject = { ...(defaults as PlainObject) };
 
-  for (const [key, value] of Object.entries(overrides ?? {})) {
+  for (const [key, value] of Object.entries((overrides ?? {}) as PlainObject)) {
     if (value === undefined || value === null) {
       continue;
     }
