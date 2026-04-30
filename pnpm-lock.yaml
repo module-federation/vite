@@ -42,9 +42,6 @@ importers:
       '@types/node':
         specifier: ^25.3.3
         version: 25.3.3
-      defu:
-        specifier: ^6.1.4
-        version: 6.1.4
       husky:
         specifier: ^9.1.7
         version: 9.1.7

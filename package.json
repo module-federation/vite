@@ -81,7 +81,6 @@
     "@changesets/cli": "^2.30.0",
     "@playwright/test": "^1.58.2",
     "@types/node": "^25.3.3",
-    "defu": "^6.1.4",
     "husky": "^9.1.7",
     "oxfmt": "^0.36.0",
     "rollup": "^4.47.1",

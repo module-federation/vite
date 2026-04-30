@@ -1,4 +1,3 @@
-import defu from 'defu';
 import { resolve } from 'path';
 import { build, Rollup, UserConfig as ViteUserConfig } from 'vite';
 import { expect } from 'vitest';
@@ -16,6 +15,30 @@ export interface BuildFixtureOptions {
   viteConfig?: Partial<ViteUserConfig>;
 }
 
+type PlainObject = Record<string, unknown>;
+
+function isPlainObject(value: unknown): value is PlainObject {
+  return Object.prototype.toString.call(value) === '[object Object]';
+}
+
+function mergeDefaults<T extends PlainObject>(overrides: Partial<T> | undefined, defaults: T): T {
+  const merged: PlainObject = { ...defaults };
+
+  for (const [key, value] of Object.entries(overrides ?? {})) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    const defaultValue = merged[key];
+    merged[key] =
+      isPlainObject(value) && isPlainObject(defaultValue)
+        ? mergeDefaults(value, defaultValue)
+        : value;
+  }
+
+  return merged as T;
+}
+
 export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.RollupOutput> {
   const { fixture = 'basic-remote', mfOptions, viteConfig } = opts ?? {};
 
@@ -27,8 +50,7 @@ export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.R
     dts: false,
   } satisfies Parameters<typeof federation>[0];
 
-  // defu(overrides, defaults) — first arg wins for any key it provides
-  const mergedMfOptions = defu(mfOptions, defaultMfOptions);
+  const mergedMfOptions = mergeDefaults(mfOptions, defaultMfOptions);
 
   const defaultViteConfig: ViteUserConfig = {
     root: resolve(FIXTURES, fixture),
@@ -40,7 +62,7 @@ export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.R
     },
   };
 
-  const mergedViteConfig = defu(viteConfig, defaultViteConfig);
+  const mergedViteConfig = mergeDefaults(viteConfig, defaultViteConfig);
 
   const result = await build({
     ...mergedViteConfig,

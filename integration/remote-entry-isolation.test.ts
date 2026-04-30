@@ -11,7 +11,7 @@ const ISOLATION_MF_OPTIONS = {
     './shared': resolve(FIXTURES, 'shared-remote', 'exposed-module.js'),
   },
   shared: {
-    defu: {},
+    pathe: {},
   },
   dts: false,
 } satisfies Partial<ModuleFederationOptions>;
