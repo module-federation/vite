@@ -17,17 +17,17 @@ describe('shared dependencies', () => {
   it('routes shared dep through loadShare()', async () => {
     const output = await buildFixture({
       fixture: 'shared-remote',
-      mfOptions: { ...SHARED_BASE_MF_OPTIONS, shared: { defu: {} } },
+      mfOptions: { ...SHARED_BASE_MF_OPTIONS, shared: { pathe: {} } },
     });
     const allCode = getAllChunkCode(output);
     expect(allCode).toContain('loadShare');
-    expect(allCode).toContain('defu');
+    expect(allCode).toContain('pathe');
   });
 
   it('keeps remoteEntry free of eager loadShare imports', async () => {
     const output = await buildFixture({
       fixture: 'shared-remote',
-      mfOptions: { ...SHARED_BASE_MF_OPTIONS, shared: { defu: {} } },
+      mfOptions: { ...SHARED_BASE_MF_OPTIONS, shared: { pathe: {} } },
     });
     const remoteEntry = findChunk(output, 'remoteEntry');
     expect(remoteEntry).toBeDefined();
@@ -41,7 +41,7 @@ describe('shared dependencies', () => {
       fixture: 'shared-remote',
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
-        shared: { defu: { singleton: true } },
+        shared: { pathe: { singleton: true } },
       },
     });
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
@@ -55,12 +55,12 @@ describe('shared dependencies', () => {
       fixture: 'shared-remote',
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
-        shared: { defu: { requiredVersion: '^6.0.0' } },
+        shared: { pathe: { requiredVersion: '^2.0.0' } },
       },
     });
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
     expect(localSharedImportMap).toBeDefined();
-    expect(localSharedImportMap!.code).toContain('^6.0.0');
+    expect(localSharedImportMap!.code).toContain('^2.0.0');
   });
 
   it('generates host-must-provide error when import is false', async () => {
@@ -68,7 +68,7 @@ describe('shared dependencies', () => {
       fixture: 'shared-remote',
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
-        shared: { defu: { import: false } },
+        shared: { pathe: { import: false } },
       },
     });
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
@@ -86,7 +86,7 @@ describe('shared dependencies', () => {
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
         manifest: true,
-        shared: { defu: {} },
+        shared: { pathe: {} },
       },
     });
     const manifest = parseManifest(output) as Record<string, unknown>;
@@ -94,9 +94,9 @@ describe('shared dependencies', () => {
     expect(manifest).toHaveProperty('shared');
 
     const shared = manifest.shared as Array<{ name: string; version: string }>;
-    const defuEntry = shared.find((s) => s.name === 'defu');
-    expect(defuEntry).toBeDefined();
-    expect(defuEntry!.version).toBeTruthy();
+    const patheEntry = shared.find((s) => s.name === 'pathe');
+    expect(patheEntry).toBeDefined();
+    expect(patheEntry!.version).toBeTruthy();
   });
 
   it('includes singleton in manifest shared entries', async () => {
@@ -105,15 +105,15 @@ describe('shared dependencies', () => {
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
         manifest: true,
-        shared: { defu: { singleton: true } },
+        shared: { pathe: { singleton: true } },
       },
     });
     const manifest = parseManifest(output) as Record<string, unknown>;
     expect(manifest).toBeDefined();
 
     const shared = manifest.shared as Array<{ name: string; singleton?: boolean }>;
-    const defuEntry = shared.find((s) => s.name === 'defu');
-    expect(defuEntry).toBeDefined();
-    expect(defuEntry?.singleton).toBe(true);
+    const patheEntry = shared.find((s) => s.name === 'pathe');
+    expect(patheEntry).toBeDefined();
+    expect(patheEntry?.singleton).toBe(true);
   });
 });

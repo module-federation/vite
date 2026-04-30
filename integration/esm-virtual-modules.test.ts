@@ -4,7 +4,7 @@ import { buildFixture, FIXTURES } from './helpers/build';
 import { getAllChunkCode } from './helpers/matchers';
 
 const SHARED_REMOTE_MF_OPTIONS = {
-  shared: { defu: {} },
+  shared: { pathe: {} },
   exposes: {
     './exposed': resolve(FIXTURES, 'shared-remote', 'exposed-module.js'),
   },
@@ -17,8 +17,7 @@ describe('ESM virtual modules', () => {
       mfOptions: SHARED_REMOTE_MF_OPTIONS,
     });
     const allCode = getAllChunkCode(output);
-    // createDefu is a named export from defu — it should be present in the output
-    expect(allCode).toContain('createDefu');
+    expect(allCode).toContain('join');
   });
 
   it('emits ESM import/export in build output for shared modules', async () => {
