@@ -1,4 +1,3 @@
-import defu from 'defu';
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
@@ -904,11 +903,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           find: '@module-federation/runtime',
           replacement: implementation,
         });
-        config.build = defu(config.build || {}, {
-          commonjsOptions: {
-            strictRequires: 'auto',
-          },
-        });
+        config.build ||= {};
+        config.build.commonjsOptions ||= {};
+        config.build.commonjsOptions.strictRequires ??= 'auto';
         const virtualDir = options.virtualModuleDir;
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
@@ -943,7 +940,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
         if (isRolldown) {
           // Vite 8+: virtual modules use ESM.
-          config.build = defu(config.build || {}, { target: 'esnext' });
+          config.build ??= {};
+          config.build.target ??= 'esnext';
         } else {
           // Vite 5-7: virtual modules use CJS for dev, need interop
           config.optimizeDeps.needsInterop ||= [];
