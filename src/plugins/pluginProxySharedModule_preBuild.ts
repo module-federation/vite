@@ -1,8 +1,7 @@
 import { createRequire } from 'module';
 import path from 'pathe';
-import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { mfWarn } from '../utils/logger';
-import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getCommonSharedSubpathFromNodeModulePath,
@@ -32,6 +31,8 @@ import {
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
   refreshHostAutoInit,
+  getResolvedLocalSharedImportMapId,
+  setLocalSharedImportMapInvalidator,
   writeLoadShareModule,
   writeLocalSharedImportMap,
   writePreBuildLibPath,
@@ -155,22 +156,32 @@ export function proxySharedModule(options: {
   let useDirectReactImport = false;
   let useRolldown = false;
   const savePrebuild = new PromiseStore<string>();
+  let devServer: ViteDevServer | undefined;
 
   return [
     {
       name: 'generateLocalSharedImportMap',
       enforce: 'post',
+      configureServer(server) {
+        devServer = server;
+        setLocalSharedImportMapInvalidator(() => {
+          const module = server.moduleGraph.getModuleById(getResolvedLocalSharedImportMapId());
+          if (module) server.moduleGraph.invalidateModule(module);
+        });
+      },
+      resolveId(source) {
+        if (source === getLocalSharedImportMapPath()) {
+          return getResolvedLocalSharedImportMapId();
+        }
+      },
       load(id) {
-        if (id.includes(getLocalSharedImportMapPath())) {
+        if (id === getResolvedLocalSharedImportMapId()) {
           return parsePromise.then((_) => generateLocalSharedImportMap());
         }
       },
-      transform(_, id) {
-        if (id.includes(getLocalSharedImportMapPath())) {
-          return mapCodeToCodeWithSourcemap(
-            parsePromise.then((_) => generateLocalSharedImportMap())
-          );
-        }
+      closeBundle() {
+        if (devServer) return;
+        setLocalSharedImportMapInvalidator(undefined);
       },
     },
     {

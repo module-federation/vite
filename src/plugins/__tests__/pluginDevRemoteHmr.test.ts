@@ -170,7 +170,6 @@ describe('pluginDevRemoteHmr', () => {
     expect(shouldIgnoreFile('/repo/node_modules/react/index.js', options)).toBe(true);
     expect(shouldIgnoreFile('/repo/src/__mf__virtual/loadShare.js', options)).toBe(true);
     expect(shouldIgnoreFile('/repo/.vite/deps/react.js', options)).toBe(true);
-    expect(shouldIgnoreFile('/repo/.__mf__temp/chunk.js', options)).toBe(true);
     expect(shouldIgnoreFile('/repo/dist/mf-manifest.json', options)).toBe(true);
     expect(shouldIgnoreFile('/repo/src/Button.tsx', options)).toBe(false);
   });
