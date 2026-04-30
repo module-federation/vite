@@ -337,14 +337,32 @@ export function generateRemoteEntry(
       message.includes('Outdated Optimize Dep');
   });
   const waitSharedInitRetry = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  async function retrySharedInit(fn) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        const canRetry = typeof shouldRetrySharedInitError === 'function' && shouldRetrySharedInitError(e);
+        if (!canRetry || attempt >= 19) throw e;
+        await waitSharedInitRetry(250);
+      }
+    }
+  }
 
   async function getLocalSharedImportMap() {
-    localSharedImportMapPromise ??= import("${getLocalSharedImportMapPath()}")
+    if (!localSharedImportMapPromise) {
+      localSharedImportMapPromise = retrySharedInit(() => import("${getLocalSharedImportMapPath()}"))
+        .catch((e) => { localSharedImportMapPromise = undefined; throw e; });
+    }
     return localSharedImportMapPromise
   }
 
   async function getExposesMap() {
-    exposesMapPromise ??= import("${virtualExposesId}").then((mod) => mod.default ?? mod)
+    if (!exposesMapPromise) {
+      exposesMapPromise = retrySharedInit(() => import("${virtualExposesId}"))
+        .then((mod) => mod.default ?? mod)
+        .catch((e) => { exposesMapPromise = undefined; throw e; });
+    }
     return exposesMapPromise
   }
 
@@ -373,21 +391,13 @@ export function generateRemoteEntry(
     initRes.initShareScopeMap('${options.shareScope}', shared);
     initResolve(initRes)
     try {
-      for (let attempt = 0; ; attempt++) {
-        try {
-          await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
-            strategy: '${options.shareStrategy}',
-            from: "build",
-            initScope
-          }));
-          break;
-        } catch (e) {
-          if (!shouldRetrySharedInitError(e) || attempt >= 19) {
-            throw e;
-          }
-          await waitSharedInitRetry(250);
-        }
-      }
+      await retrySharedInit(async () => {
+        await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
+          strategy: '${options.shareStrategy}',
+          from: "build",
+          initScope
+        }));
+      });
     } catch (e) {
       console.error('[Module Federation]', e)
     }

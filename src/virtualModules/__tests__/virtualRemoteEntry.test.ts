@@ -318,6 +318,27 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('const shouldRetrySharedInitError = false &&');
   });
 
+  it('clears the cached shared init promise in a rethrowing catch handler so a later call retries', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    expect(code).toContain('.catch((e) => { localSharedImportMapPromise = undefined; throw e; })');
+    expect(code).toContain('.catch((e) => { exposesMapPromise = undefined; throw e; })');
+  });
+
   it('loads local shared state and exposes lazily inside remoteEntry', async () => {
     const mod = await import('../virtualRemoteEntry');
 
@@ -336,11 +357,10 @@ describe('virtualRemoteEntry', () => {
     );
 
     expect(code).toContain(
-      'localSharedImportMapPromise ??= import("virtual:mf-localSharedImportMap:__mfe_internal__host")'
+      'localSharedImportMapPromise = retrySharedInit(() => import("virtual:mf-localSharedImportMap:__mfe_internal__host"))'
     );
-    expect(code).toContain(
-      'exposesMapPromise ??= import("virtual:exposes").then((mod) => mod.default ?? mod)'
-    );
+    expect(code).toContain('exposesMapPromise = retrySharedInit(() => import("virtual:exposes"))');
+    expect(code).toContain('.then((mod) => mod.default ?? mod)');
     expect(code).toContain('const {usedShared, usedRemotes} = await getLocalSharedImportMap()');
     expect(code).toContain('const exposesMap = await getExposesMap()');
     expect(code).toContain('const mfName = "__mfe_internal__host"');
