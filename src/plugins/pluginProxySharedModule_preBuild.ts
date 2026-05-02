@@ -127,7 +127,10 @@ function excludeSharedSubDependencies(shared: NormalizedShared): void {
     for (const dep of deps) {
       const depKey = sharedKeyByBase.get(dep);
       if (depKey && depKey !== parentKey) {
-        if (shared[depKey]?.shareConfig.import === false) {
+        if (
+          shared[depKey]?.shareConfig.singleton === true ||
+          shared[depKey]?.shareConfig.import === false
+        ) {
           continue;
         }
 
