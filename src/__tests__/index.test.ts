@@ -671,6 +671,74 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).toContain(getLoadShareImportId('vue', false));
   });
 
+  it('redirects System.register commonjs-proxy consumers to loadShare chunks', () => {
+    const plugin = getEsmShimsPlugin();
+    const proxyFileName = `assets/host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js_commonjs-proxy-abc.js`;
+    const loadShareFileName = `./host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js-def.js`;
+    const consumerFileName = `assets/host${LOAD_SHARE_TAG}react_mf_2_dom${LOAD_SHARE_TAG}.js-ghi.js`;
+    const bundle = {
+      [proxyFileName]: createChunk(
+        proxyFileName,
+        `System.register(["${loadShareFileName}"], (function(exports, module) {
+  "use strict";
+  var React4;
+  return {
+    setters: [(module2) => {
+      React4 = module2.R;
+    }],
+    execute: (function() {
+      exports({
+        a: getDefaultExportFromCjs,
+        g: getAugmentedNamespace
+      });
+      function getDefaultExportFromCjs(x) {
+        return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
+      }
+      function getAugmentedNamespace(n) {
+        return n;
+      }
+      const require$$0 = exports("r", getAugmentedNamespace(React4));
+    })
+  };
+}));`
+      ),
+      [consumerFileName]: createChunk(
+        consumerFileName,
+        `System.register(["./host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js_commonjs-proxy-abc.js"], (function(exports, module) {
+  "use strict";
+  var getAugmentedNamespace, require$$1;
+  return {
+    setters: [(module2) => {
+      getAugmentedNamespace = module2.g;
+      require$$1 = module2.r;
+    }],
+    execute: (function() {
+      const ns = getAugmentedNamespace(require$$1);
+      exports("n", ns);
+    })
+  };
+}));`
+      ),
+    } as unknown as Rollup.OutputBundle;
+
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle
+    );
+
+    const consumer = bundle[consumerFileName];
+    if (consumer.type !== 'chunk') throw new Error('consumer should be a chunk');
+
+    expect(consumer.code).toContain(JSON.stringify(loadShareFileName));
+    expect(consumer.code).not.toContain('commonjs-proxy');
+    expect(consumer.code).toContain('function getAugmentedNamespace(n)');
+    expect(consumer.code).toContain('require$$1 = module2.R;');
+    expect(consumer.code).not.toContain('module2.r');
+    expect(consumer.code).not.toContain('getAugmentedNamespace = module2.g');
+  });
+
   it('excludes bare remote ids from optimizeDeps in Rolldown serve', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {

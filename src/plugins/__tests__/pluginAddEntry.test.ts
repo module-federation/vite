@@ -191,6 +191,7 @@ describe('pluginAddEntry', () => {
     expect(result?.code).toContain('const { initHost } = await import("/virtual/hostInit.js");');
     expect(result?.code).toContain('const runtime = await initHost();');
     expect(result?.code).toContain('})().then(() => import("/src/main.tsx?mf-entry-bootstrap"));');
+    expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
 
   it('preloads scoped remote subpaths but skips the bare scoped remote key', async () => {
@@ -366,6 +367,7 @@ describe('pluginAddEntry', () => {
     expect(code).toContain('const { initHost } = await import("/@id/virtual:mf-host-init");');
     expect(code).toContain('const runtime = await initHost();');
     expect(code).toContain('})().then(() => import("/src/main.tsx"));');
+    expect(code).not.toContain('globalThis.System.import(src)');
     expect(code).not.toContain('/foo/');
   });
 

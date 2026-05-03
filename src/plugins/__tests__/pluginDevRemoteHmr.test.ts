@@ -102,7 +102,9 @@ function createServer(overrides: DeepPartial<MockServer> = {}) {
     config: {
       base: overrides.config?.base ?? '/',
       webSocketToken: overrides.config?.webSocketToken ?? 'dev-token',
-      plugins: overrides.config?.plugins ?? [],
+      plugins:
+        overrides.config?.plugins?.filter((plugin): plugin is { name: string } => !!plugin?.name) ??
+        [],
       server: {
         host: overrides.config?.server?.host ?? 'localhost',
         port: overrides.config?.server?.port ?? 5173,

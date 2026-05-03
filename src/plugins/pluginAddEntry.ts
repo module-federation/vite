@@ -11,8 +11,8 @@ import {
 import { mfWarn } from '../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
-import { getRuntimeModuleCacheBootstrapCode } from '../virtualModules/virtualRuntimeInitStatus';
 import { getUsedRemotesMap } from '../virtualModules/virtualRemotes';
+import { getRuntimeModuleCacheBootstrapCode } from '../virtualModules/virtualRuntimeInitStatus';
 
 interface AddEntryOptions {
   entryName: string;
@@ -128,7 +128,7 @@ const addEntry = ({
     return patched;
   }
 
-  function getBootstrapSource(initSrc: string, entrySrc: string) {
+  function getBootstrapSource(initSrc: string, entrySrc: string, useSystemImportFallback = false) {
     // Keep only sub-path entries (e.g. "remote/App"); skip bare remote keys
     // ("remote" or scoped "@scope/remote") since they refer to the container
     // itself, not an exposed module. The previous `includes('/')` check
@@ -141,14 +141,30 @@ const addEntry = ({
       .map((remote) => `runtime.loadRemote(${JSON.stringify(remote)})`)
       .join(',');
 
+    const importHelper = useSystemImportFallback
+      ? `const __mfImport = (src) =>
+  globalThis.System && typeof globalThis.System.import === 'function'
+    ? globalThis.System.import(src)
+    : import(src);
+`
+      : '';
+    const importExpression = (src: string) =>
+      useSystemImportFallback
+        ? `__mfImport(${JSON.stringify(src)})`
+        : `import(${JSON.stringify(src)})`;
+
     return `${getRuntimeModuleCacheBootstrapCode()}
-(async () => {
-  const { initHost } = await import(${JSON.stringify(initSrc)});
+${importHelper}(async () => {
+  const { initHost } = await ${importExpression(initSrc)};
   const runtime = await initHost();
   const __mfRemotePreloads = [${remotePreloads}];
   await Promise.all(__mfRemotePreloads);
-})().then(() => import(${JSON.stringify(entrySrc)}));
+})().then(() => ${importExpression(entrySrc)});
 `;
+  }
+
+  function getSystemBootstrapSource(initSrc: string, entrySrc: string) {
+    return getBootstrapSource(initSrc, entrySrc, true);
   }
 
   function injectHtml() {
@@ -367,7 +383,7 @@ const addEntry = ({
               const bootstrapRef = this.emitFile({
                 type: 'asset',
                 fileName: bootstrapFileName,
-                source: getBootstrapSource(initPath, entrySrc),
+                source: getSystemBootstrapSource(initPath, entrySrc),
               });
               const bootstrapPath = viteConfig.base + this.getFileName(bootstrapRef);
               return scriptTag.replace(entrySrc, bootstrapPath);

@@ -58,10 +58,11 @@ describe('host build', () => {
     const bootstrapAsset = output.output.find(
       (item) => item.type === 'asset' && item.fileName.includes('mf-entry-bootstrap')
     );
-    expect(bootstrapAsset?.source).toContain('const { initHost } = await import(');
+    expect(bootstrapAsset?.source).toContain('const { initHost } = await __mfImport(');
     expect(bootstrapAsset?.source).toContain('const runtime = await initHost();');
     expect(bootstrapAsset?.source).toContain('runtime.loadRemote("remote1/Module")');
-    expect(bootstrapAsset?.source).toContain('})().then(() => import(');
+    expect(bootstrapAsset?.source).toContain('})().then(() => __mfImport(');
+    expect(bootstrapAsset?.source).toContain('globalThis.System.import(src)');
     expect(bootstrapAsset?.source).toContain('hostInit');
   });
 

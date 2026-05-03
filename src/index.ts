@@ -14,7 +14,12 @@ import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedMod
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
-import { resolveProxyAlias } from './utils/bundleHelpers';
+import {
+  collectLoadShareProxyChunks,
+  collectSystemProxyInfos,
+  rewriteEsmProxyConsumers,
+  rewriteSystemProxyConsumers,
+} from './utils/bundleHelpers';
 import {
   isFederationControlChunk,
   sanitizeFederationControlChunk,
@@ -723,137 +728,25 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         //
         // Fix: extract helper functions from commonjs-proxy chunks and
         // inline them in consuming chunks, then remove the proxy imports.
-        const proxyChunks = new Map<string, { code: string; fileName: string }>();
-        for (const [fileName, chunk] of Object.entries(bundle)) {
-          if (!isOutputChunk(chunk)) continue;
-          if (fileName.includes(LOAD_SHARE_TAG) && fileName.includes('commonjs-proxy')) {
-            proxyChunks.set(fileName, { code: chunk.code, fileName });
-          }
-        }
+        const proxyChunks = collectLoadShareProxyChunks(bundle, LOAD_SHARE_TAG);
         if (proxyChunks.size > 0) {
+          const systemProxyInfo = collectSystemProxyInfos(proxyChunks, LOAD_SHARE_TAG);
+
           // Extract helper functions from each proxy chunk.
           // Proxy chunks export: standalone helpers + wrapped loadShare namespace.
           // We only inline the standalone helpers; namespace deps are redirected.
           for (const [fileName, chunk] of Object.entries(bundle)) {
             if (!isOutputChunk(chunk)) continue;
-            if (fileName.includes(LOAD_SHARE_TAG)) continue;
+            if (proxyChunks.has(fileName)) continue;
 
             let code = chunk.code;
-            let modified = false;
-            const claimedLocals = new Set<string>();
-
-            for (const [proxyFileName, proxyInfo] of Array.from(proxyChunks.entries())) {
-              // Match import from this specific proxy chunk
-              // Strip directory prefix (bundle keys use "assets/" but imports use "./")
-              const proxyBaseName = proxyFileName
-                .replace(/^.*\//, '')
-                .replace(/\.js$/, '')
-                .replace(/-[A-Za-z0-9_-]+$/, '');
-              const importRe = new RegExp(
-                `import\\s*\\{([^}]+)\\}\\s*from\\s*["']([^"']*${proxyBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"']*)["']\\s*;?`
-              );
-              const importMatch = importRe.exec(code);
-              if (!importMatch) continue;
-
-              const fullImport = importMatch[0];
-              const bindings = importMatch[1].split(',').map((s) => {
-                const parts = s.trim().split(/\s+as\s+/);
-                return {
-                  imported: parts[0].trim(),
-                  local: (parts[1] || parts[0]).trim(),
-                };
-              });
-
-              // Parse the proxy chunk's export map: export{s as a, u as g, f as r}
-              const proxyCode = proxyInfo.code;
-              const exportMapMatch = proxyCode.match(/export\s*\{([^}]+)\}/);
-              if (!exportMapMatch) continue;
-              const exportMap: Record<string, string> = {};
-              for (const entry of exportMapMatch[1].split(',')) {
-                const parts = entry.trim().split(/\s+as\s+/);
-                if (parts.length === 2) {
-                  exportMap[parts[1].trim()] = parts[0].trim();
-                }
-              }
-
-              // Classify each imported binding as a standalone function or a
-              // loadShare-dependent value.
-              const inlineable: Array<{ local: string; funcBody: string }> = [];
-              const nonInlineable: Array<{ imported: string; local: string }> = [];
-              const pendingLocals = new Set(bindings.map((binding) => binding.local));
-
-              for (const b of bindings) {
-                pendingLocals.delete(b.local);
-                const proxyLocal = exportMap[b.imported];
-                if (!proxyLocal) {
-                  claimedLocals.add(b.local);
-                  nonInlineable.push(b);
-                  continue;
-                }
-                // Check if this is a function definition (standalone helper)
-                const funcRe = new RegExp(`function\\s+${proxyLocal}\\s*\\([^)]*\\)\\s*\\{`);
-                if (funcRe.test(proxyCode)) {
-                  // Extract function body with balanced braces
-                  const funcStart = proxyCode.search(funcRe);
-                  let depth = 0;
-                  let funcEnd = funcStart;
-                  for (let i = proxyCode.indexOf('{', funcStart); i < proxyCode.length; i++) {
-                    if (proxyCode[i] === '{') depth++;
-                    else if (proxyCode[i] === '}') {
-                      depth--;
-                      if (depth === 0) {
-                        funcEnd = i + 1;
-                        break;
-                      }
-                    }
-                  }
-                  const funcBody = proxyCode.slice(funcStart, funcEnd);
-                  // Rename function to match local binding name
-                  const renamedFunc = funcBody.replace(
-                    new RegExp(`function\\s+${proxyLocal}\\s*\\(`),
-                    `function ${b.local}(`
-                  );
-                  inlineable.push({ local: b.local, funcBody: renamedFunc });
-                  claimedLocals.add(b.local);
-                } else {
-                  const unavailableLocals = new Set(claimedLocals);
-                  pendingLocals.forEach((local) => unavailableLocals.add(local));
-                  const resolvedBinding = resolveProxyAlias(
-                    b,
-                    proxyLocal,
-                    code,
-                    fullImport,
-                    unavailableLocals
-                  );
-                  claimedLocals.add(resolvedBinding.local);
-                  nonInlineable.push(resolvedBinding);
-                }
-              }
-
-              // Also rewrite the import when only an alias was corrected.
-              const hasRenamedAlias = nonInlineable.some(
-                (b) => bindings.find((ob) => ob.imported === b.imported)?.local !== b.local
-              );
-              if (inlineable.length === 0 && !hasRenamedAlias) continue;
-
-              // Build the replacement
-              let replacement = '';
-              if (nonInlineable.length > 0) {
-                // Keep import for non-inlineable bindings only
-                const kept = nonInlineable
-                  .map((b) => (b.imported === b.local ? b.imported : `${b.imported} as ${b.local}`))
-                  .join(',');
-                replacement = `import{${kept}}from"${importMatch[2]}";`;
-              }
-              // Add inlined function definitions
-              replacement += inlineable.map((f) => f.funcBody).join('');
-
-              // Use a function to avoid '$' special handling in replacement strings ('$$' → '$').
-              code = code.replace(fullImport, () => replacement);
-              modified = true;
+            if (!fileName.includes(LOAD_SHARE_TAG)) {
+              code = rewriteEsmProxyConsumers(code, proxyChunks);
             }
 
-            if (modified) {
+            code = rewriteSystemProxyConsumers(code, systemProxyInfo);
+
+            if (code !== chunk.code) {
               chunk.code = code;
             }
           }
