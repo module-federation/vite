@@ -20,9 +20,6 @@ importers:
       '@rollup/pluginutils':
         specifier: ^5.3.0
         version: 5.3.0(rollup@4.47.1)
-      defu:
-        specifier: ^6.1.4
-        version: 6.1.4
       es-module-lexer:
         specifier: ^2.0.0
         version: 2.0.0

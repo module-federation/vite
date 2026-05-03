@@ -60,8 +60,6 @@ export function shouldIgnoreFile(file: string, options: NormalizedModuleFederati
     file.includes(`\\${options.virtualModuleDir}\\`) ||
     file.includes('/.vite/') ||
     file.includes('\\.vite\\') ||
-    file.includes('/.__mf__temp/') ||
-    file.includes('\\.__mf__temp\\') ||
     file.includes('/.mf/') ||
     file.includes('\\.mf\\') ||
     file.includes('/mf-manifest.json') ||

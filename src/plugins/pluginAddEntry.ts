@@ -129,9 +129,14 @@ const addEntry = ({
   }
 
   function getBootstrapSource(initSrc: string, entrySrc: string) {
-    const remotePreloads = Object.values(getUsedRemotesMap())
-      .flatMap((remotes) => Array.from(remotes))
-      .filter((remote) => remote.includes('/'))
+    // Keep only sub-path entries (e.g. "remote/App"); skip bare remote keys
+    // ("remote" or scoped "@scope/remote") since they refer to the container
+    // itself, not an exposed module. The previous `includes('/')` check
+    // incorrectly matched scoped names like "@scope/remote".
+    const remotePreloads = Object.entries(getUsedRemotesMap())
+      .flatMap(([remoteKey, remotes]) =>
+        Array.from(remotes).filter((remote) => remote !== remoteKey)
+      )
       .sort()
       .map((remote) => `runtime.loadRemote(${JSON.stringify(remote)})`)
       .join(',');

@@ -118,6 +118,14 @@ async function runGenerateBundleWithManifest(
     usedShares?: Set<string>;
     usedRemotes?: Map<string, Set<string>>;
     exposePaths?: Record<string, { import: string }>;
+    shareItems?: Record<
+      string,
+      | {
+          version: string;
+          shareConfig: { requiredVersion: string; singleton?: boolean };
+        }
+      | undefined
+    >;
   } = {},
   command: 'serve' | 'build' = 'build'
 ): Promise<Record<string, string>> {
@@ -141,9 +149,14 @@ async function runGenerateBundleWithManifest(
   });
   getUsedRemotesMap.mockReturnValue(runtime.usedRemotes || new Map());
   getUsedShares.mockReturnValue(runtime.usedShares || new Set());
-  getNormalizeShareItem.mockReturnValue({
-    version: '1.0.0',
-    shareConfig: { requiredVersion: '*' },
+  getNormalizeShareItem.mockImplementation((shareKey: string) => {
+    if (runtime.shareItems && Object.hasOwn(runtime.shareItems, shareKey)) {
+      return runtime.shareItems[shareKey];
+    }
+    return {
+      version: '1.0.0',
+      shareConfig: { requiredVersion: '*' },
+    };
   });
 
   const [, buildPlugin] = manifestPlugin();
@@ -273,6 +286,29 @@ describe('pluginMFManifest', () => {
     expect(manifest).not.toHaveProperty('shared');
     expect(manifest).not.toHaveProperty('exposes');
     expect(stats).not.toHaveProperty('assetAnalysis');
+  });
+
+  it('skips used shared keys missing from normalized shared config', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      usedShares: new Set(['react', '@scope/utils']),
+      shareItems: {
+        react: {
+          version: '18.0.0',
+          shareConfig: { requiredVersion: '^18.0.0', singleton: true },
+        },
+        '@scope/utils': undefined,
+      },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.shared).toHaveLength(1);
+    expect(manifest.shared[0]).toMatchObject({
+      name: 'react',
+      version: '18.0.0',
+      singleton: true,
+      requiredVersion: '^18.0.0',
+    });
   });
 
   it('preserves publicPath "auto" in manifest metaData', async () => {

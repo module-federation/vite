@@ -1,4 +1,3 @@
-import defu from 'defu';
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
@@ -85,6 +84,10 @@ function ignoreFederationGeneratedFiles(
 
 function isSharedResolverInternalImporter(importer: string | undefined): boolean {
   return !!importer && (importer.includes(LOAD_SHARE_TAG) || importer.includes('__prebuild__'));
+}
+
+function isCommonJsImporter(importer: string | undefined): boolean {
+  return !!importer && (importer.endsWith('.cjs') || importer.includes('/cjs/'));
 }
 
 type OutputNameOption = string | ((...args: unknown[]) => string);
@@ -241,9 +244,10 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             optimizeDeps.rolldownOptions.plugins ??= [];
             optimizeDeps.rolldownOptions.plugins.push({
               name: 'module-federation:optimize-shared-resolver',
-              resolveId(source: string, importer?: string) {
+              resolveId(source: string, importer?: string, options?: { kind?: string }) {
+                if (options?.kind?.startsWith('require')) return;
                 if (isSharedResolverInternalImporter(importer)) return;
-                if (source !== 'react/jsx-runtime' && source !== 'react/jsx-dev-runtime') return;
+                if (isCommonJsImporter(importer)) return;
                 const key = findSharedKey(source, shared);
                 if (!key) return;
                 if (source.endsWith('.css')) return;
@@ -904,16 +908,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           find: '@module-federation/runtime',
           replacement: implementation,
         });
-        config.build = defu(config.build || {}, {
-          commonjsOptions: {
-            strictRequires: 'auto',
-          },
-        });
+        config.build ||= {};
+        config.build.commonjsOptions ||= {};
+        config.build.commonjsOptions.strictRequires ??= 'auto';
         const virtualDir = options.virtualModuleDir;
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
-        config.optimizeDeps.include.push(virtualDir);
+        if (!isRolldown) {
+          config.optimizeDeps.include.push(virtualDir);
+        }
 
         // Prevent Vite from externalizing virtual modules during SSR.
         // Files in node_modules/__mf__virtual/ contain `import("virtual:...")`
@@ -943,12 +947,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
         if (isRolldown) {
           // Vite 8+: virtual modules use ESM.
-          config.build = defu(config.build || {}, { target: 'esnext' });
+          config.build ??= {};
+          config.build.target ??= 'esnext';
         } else {
           // Vite 5-7: virtual modules use CJS for dev, need interop
           config.optimizeDeps.needsInterop ||= [];
           config.optimizeDeps.needsInterop.push(virtualDir);
-          config.optimizeDeps.needsInterop.push(getLocalSharedImportMapPath());
         }
 
         const isAstro = hasPackageDependency('astro');

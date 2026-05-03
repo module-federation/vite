@@ -280,27 +280,32 @@ const Manifest = (): Plugin[] => {
     );
 
     // Process shared dependencies
-    const shared = Array.from(getUsedShares()).map((shareKey) => {
+    const shared = Array.from(getUsedShares()).flatMap((shareKey) => {
       const shareItem = getNormalizeShareItem(shareKey);
+      // shareItem can be undefined when a key was added to usedShares before
+      // excludeSharedSubDependencies removed it from options.shared in dev mode.
+      if (!shareItem) return [];
       const assets = preloadMap[shareKey] || createEmptyAssetMap();
 
-      return {
-        id: `${name}:${shareKey}`,
-        name: shareKey,
-        version: shareItem.version,
-        singleton: shareItem.shareConfig.singleton,
-        requiredVersion: shareItem.shareConfig.requiredVersion,
-        assets: {
-          js: {
-            async: assets.js.async,
-            sync: assets.js.sync,
-          },
-          css: {
-            async: assets.css.async,
-            sync: assets.css.sync,
+      return [
+        {
+          id: `${name}:${shareKey}`,
+          name: shareKey,
+          version: shareItem.version,
+          singleton: shareItem.shareConfig.singleton,
+          requiredVersion: shareItem.shareConfig.requiredVersion,
+          assets: {
+            js: {
+              async: assets.js.async,
+              sync: assets.js.sync,
+            },
+            css: {
+              async: assets.css.async,
+              sync: assets.css.sync,
+            },
           },
         },
-      };
+      ];
     });
 
     // Process exposed modules

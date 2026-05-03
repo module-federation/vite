@@ -40,6 +40,7 @@ vi.mock('../../utils/packageUtils', () => ({
   setPackageDetectionCwd: vi.fn(),
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   getIsRolldown: () => false,
+  packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
   getPackageName: (pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     return match ? match[0] : pkg;
@@ -76,7 +77,10 @@ vi.mock('../../utils/VirtualModule', () => ({
 }));
 
 import { proxySharedModule } from '../pluginProxySharedModule_preBuild';
-import { NormalizedShared } from '../../utils/normalizeModuleFederationOptions';
+import {
+  NormalizedShared,
+  normalizeModuleFederationOptions,
+} from '../../utils/normalizeModuleFederationOptions';
 
 type AliasEntry = {
   find: RegExp;
@@ -102,6 +106,10 @@ function getSharedResolvePlugin(plugins: ReturnType<typeof proxySharedModule>) {
 
 function getPrebuildResolvePlugin(plugins: ReturnType<typeof proxySharedModule>) {
   return plugins[3];
+}
+
+function getLocalSharedImportMapPlugin(plugins: ReturnType<typeof proxySharedModule>) {
+  return plugins[0];
 }
 
 type TestPluginMeta = {
@@ -209,6 +217,31 @@ describe('pluginProxySharedModule_preBuild', () => {
 
   afterEach(() => {
     consoleWarnSpy.mockRestore();
+  });
+
+  it('serves localSharedImportMap as a pure Vite virtual module', async () => {
+    normalizeModuleFederationOptions({
+      name: 'host',
+      exposes: {},
+      remotes: {},
+      shared: {
+        react: {
+          singleton: true,
+        },
+      },
+    });
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugin = getLocalSharedImportMapPlugin(plugins);
+    const importId = 'virtual:mf-localSharedImportMap:__mfe_internal__host';
+    const resolvedId = '\0virtual:mf-localSharedImportMap:__mfe_internal__host';
+
+    expect(callHook(plugin.resolveId, {} as any, importId, undefined, {} as any)).toBe(resolvedId);
+
+    const code = await callHook(plugin.load, {} as any, resolvedId, {} as any);
+    expect(code).toContain('export {');
+    expect(code).toContain('usedShared');
+    expect(code).toContain('@module-federation/runtime');
   });
 
   for (const testCase of [
@@ -655,21 +688,21 @@ describe('pluginProxySharedModule_preBuild', () => {
         from: '',
         version: '3.3.2',
         scope: 'default',
-        shareConfig: { singleton: true, requiredVersion: '^3.3.2', strictVersion: false },
+        shareConfig: { singleton: false, requiredVersion: '^3.3.2', strictVersion: false },
       },
       'lit-element': {
         name: 'lit-element',
         from: '',
         version: '4.2.2',
         scope: 'default',
-        shareConfig: { singleton: true, requiredVersion: '^4.2.2', strictVersion: false },
+        shareConfig: { singleton: false, requiredVersion: '^4.2.2', strictVersion: false },
       },
       '@lit/reactive-element': {
         name: '@lit/reactive-element',
         from: '',
         version: '2.1.0',
         scope: 'default',
-        shareConfig: { singleton: true, requiredVersion: '^2.1.0', strictVersion: false },
+        shareConfig: { singleton: false, requiredVersion: '^2.1.0', strictVersion: false },
       },
     };
 
@@ -822,6 +855,130 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(shared).toHaveProperty('pinia');
     expect(consoleWarnSpy).not.toHaveBeenCalled();
 
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+  });
+
+  it('preserves singleton: true shared sub-dependencies in dev mode without warning', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    existsSyncMock.mockImplementation(
+      (p: string) => p === '/repo/apps/remote/node_modules/my-react-lib/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p === '/repo/apps/remote/node_modules/my-react-lib/package.json') {
+        return JSON.stringify({
+          name: 'my-react-lib',
+          dependencies: { react: '^18.0.0', 'react-dom': '^18.0.0' },
+        });
+      }
+      return '{}';
+    });
+
+    const shared: NormalizedShared = {
+      'my-react-lib': {
+        name: 'my-react-lib',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { singleton: false, requiredVersion: '^1.0.0', strictVersion: false },
+      },
+      react: {
+        name: 'react',
+        from: '',
+        version: '18.3.0',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^18.0.0', strictVersion: false },
+      },
+      'react-dom': {
+        name: 'react-dom',
+        from: '',
+        version: '18.3.0',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^18.0.0', strictVersion: false },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'development' } as ConfigEnv
+    );
+
+    expect(shared).toHaveProperty('my-react-lib');
+    expect(shared).toHaveProperty('react');
+    expect(shared).toHaveProperty('react-dom');
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
+
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+  });
+
+  it('still removes non-singleton sub-dependencies when sibling singletons are preserved', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    existsSyncMock.mockImplementation(
+      (p: string) => p === '/repo/apps/remote/node_modules/my-react-lib/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p === '/repo/apps/remote/node_modules/my-react-lib/package.json') {
+        return JSON.stringify({
+          name: 'my-react-lib',
+          dependencies: { react: '^18.0.0', 'some-util': '^1.0.0' },
+        });
+      }
+      return '{}';
+    });
+
+    const shared: NormalizedShared = {
+      'my-react-lib': {
+        name: 'my-react-lib',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { singleton: false, requiredVersion: '^1.0.0', strictVersion: false },
+      },
+      react: {
+        name: 'react',
+        from: '',
+        version: '18.3.0',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '^18.0.0', strictVersion: false },
+      },
+      'some-util': {
+        name: 'some-util',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { singleton: false, requiredVersion: '^1.0.0', strictVersion: false },
+      },
+    };
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'development' } as ConfigEnv
+    );
+
+    expect(shared).toHaveProperty('react');
+    expect(shared).not.toHaveProperty('some-util');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"some-util" is a dependency of shared package "my-react-lib"')
+    );
+
+    warnSpy.mockRestore();
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
   });

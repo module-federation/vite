@@ -19,6 +19,7 @@ vi.mock('../../utils/packageUtils', () => ({
 
 import addEntry from '../pluginAddEntry';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
+import { addUsedRemote } from '../../virtualModules/virtualRemotes';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
 
@@ -190,6 +191,57 @@ describe('pluginAddEntry', () => {
     expect(result?.code).toContain('const { initHost } = await import("/virtual/hostInit.js");');
     expect(result?.code).toContain('const runtime = await initHost();');
     expect(result?.code).toContain('})().then(() => import("/src/main.tsx?mf-entry-bootstrap"));');
+  });
+
+  it('preloads scoped remote subpaths but skips the bare scoped remote key', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-scoped-'));
+    const htmlFile = path.join(tempDir, 'index.html');
+    fs.writeFileSync(
+      htmlFile,
+      [
+        '<!doctype html>',
+        '<html>',
+        '  <body>',
+        '    <script type="module" src="/src/main.ts"></script>',
+        '  </body>',
+        '</html>',
+      ].join('\n')
+    );
+    addUsedRemote('@scope/remote', '@scope/remote');
+    addUsedRemote('@scope/remote', '@scope/remote/Button');
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(buildPlugin, 'export const app = true;', '/src/main.ts')) as
+      | { code: string }
+      | undefined;
+
+    expect(result?.code).toContain('runtime.loadRemote("@scope/remote/Button")');
+    expect(result?.code).not.toContain('runtime.loadRemote("@scope/remote")');
   });
 
   it('rewrites dev html entry scripts to external proxy modules instead of inline scripts', async () => {
