@@ -1,6 +1,8 @@
+import { mkdir, rm, symlink } from 'fs/promises';
+import { dirname, resolve } from 'path';
 import { describe, expect, it } from 'vitest';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
-import { buildFixture } from './helpers/build';
+import { buildFixture, FIXTURES } from './helpers/build';
 import { findChunk, getAllChunkCode, getChunkNames, getHtmlAsset } from './helpers/matchers';
 
 const HOST_BASE_MF_OPTIONS = {
@@ -18,6 +20,17 @@ const HOST_BASE_MF_OPTIONS = {
 
 const hostInitChunkRegex = /<script\s+type="module"\s+src="[^"]*hostInit[^"]*">/;
 const bootstrapScriptRegex = /<script\s+type="module"[^>]+src="[^"]*mf-entry-bootstrap[^"]*">/;
+
+async function createWorkspaceFixture() {
+  const root = resolve(FIXTURES, 'workspace-source-remote');
+  const remotePackage = resolve(root, 'packages/remote-ui');
+  const remotePackageLink = resolve(root, 'packages/host/node_modules/@repro/remote-ui');
+  await rm(resolve(root, 'packages/host/node_modules'), { recursive: true, force: true });
+  await mkdir(dirname(remotePackageLink), { recursive: true });
+  await symlink(remotePackage, remotePackageLink, 'dir');
+
+  return root;
+}
 
 describe('host build', () => {
   it('transforms remote module imports into federation loadRemote() calls', async () => {
@@ -78,5 +91,31 @@ describe('host build', () => {
     expect(remoteEntry).toBeDefined();
     // virtualRemoteEntry.ts writes the federation name into the remoteEntry
     expect(remoteEntry!.code).toContain('hostApp');
+  });
+
+  it('builds named imports from workspace remote subpath exported to TSX source', async () => {
+    const root = await createWorkspaceFixture();
+
+    try {
+      const output = await buildFixture({
+        viteConfig: {
+          root: resolve(root, 'packages/host'),
+        },
+        mfOptions: {
+          name: 'host',
+          remotes: {
+            '@repro/remote-ui': {
+              name: '@repro/remote-ui',
+              entry: 'http://localhost:4173/assets/remoteEntry.js',
+              type: 'module',
+            },
+          },
+        },
+      });
+
+      expect(getAllChunkCode(output)).toContain('@repro/remote-ui/Foo');
+    } finally {
+      await rm(resolve(root, 'packages/host/node_modules'), { recursive: true, force: true });
+    }
   });
 });

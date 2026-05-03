@@ -116,6 +116,22 @@ describe('pluginProxyRemotes', () => {
     expect(alias.find.test('scheduler/SchedulePanel')).toBe(true);
   });
 
+  it('runs before Vite package exports resolution', () => {
+    const { plugin } = getSchedulerPluginAndConfig();
+
+    expect(plugin.enforce).toBe('pre');
+  });
+
+  it('proxies remote subpaths from app importers via resolveId', () => {
+    const { plugin } = getSchedulerPluginAndConfig();
+
+    const result = runResolveId(plugin, 'scheduler/SchedulePanel', '/repo/src/App.tsx');
+
+    expect(result).toBe(remoteModulePath);
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler/SchedulePanel', 'serve');
+    expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
+  });
+
   it('still proxies bare remote ids from app importers via resolveId', () => {
     const plugin = pluginProxyRemotes(
       normalizeModuleFederationOptions({
