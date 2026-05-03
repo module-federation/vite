@@ -1,0 +1,11 @@
+{
+  "name": "@repro/remote-ui",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    "./Foo": {
+      "import": "./src/Foo.tsx"
+    }
+  }
+}
