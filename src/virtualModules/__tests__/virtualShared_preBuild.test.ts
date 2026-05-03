@@ -73,6 +73,9 @@ vi.mock('../../utils/packageUtils', () => ({
     ) {
       return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/browser.js';
     }
+    if (pkg === 'mock-cjs-origin-singleton') {
+      return '/repo/apps/remote/node_modules/mock-cjs-origin-singleton/index.js';
+    }
     if (pkg === 'workspace-shared-lib') {
       return '/repo/packages/workspace-shared-lib/src/index.tsx';
     }
@@ -383,6 +386,12 @@ vi.mock('module', async (importOriginal) => {
           (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
           throw error;
         }
+        if (pkg === 'mock-cjs-origin-singleton') {
+          return {
+            CacheProvider: 1,
+            ThemeContext: 2,
+          };
+        }
         return {};
       }) as MockRequire;
 
@@ -438,6 +447,9 @@ vi.mock('module', async (importOriginal) => {
             pkg.startsWith('mock-package-browser-conditional/')
           ) {
             return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/server.js';
+          }
+          if (pkg === 'mock-cjs-origin-singleton') {
+            return '/repo/apps/remote/node_modules/mock-cjs-origin-singleton/index.js';
           }
           return `/resolved/${pkg}`;
         },
@@ -1016,6 +1028,29 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import("transitive-pkg")');
   });
 
+  it('does not eagerly import prebuild fallback for non-workspace singletons in serve mode', () => {
+    const pkg = 'mock-cjs-origin-singleton';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('import * as __mfLocalShare from "mock-import-id";');
+    expect(generatedCode).toContain('await import("mock-cjs-origin-singleton")');
+    expect(generatedCode).not.toContain('exportModule = __mfLocalShare;');
+  });
+
   it('generates ESM loadShare wrappers for lit subpath shares in serve mode', () => {
     const pkg = 'lit/directives/class-map.js';
     const mockShareItem: ShareItem = {
@@ -1094,9 +1129,9 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).toContain('const __mfCacheGlobalKey =');
     expect(generatedCode).toContain('export default exportModule.default ?? exportModule');
-    expect(generatedCode).toContain('export * from');
+    expect(generatedCode).toContain('export * from "vue"');
     expect(generatedCode).not.toContain('module.exports = exportModule');
-    expect(generatedCode).not.toContain('await ');
+    expect(generatedCode).toContain('await import("vue")');
   });
 });
 

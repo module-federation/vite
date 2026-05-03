@@ -411,20 +411,29 @@ export function writeLoadShareModule(
   const isWorkspacePackage =
     isWorkspacePackageEntry(pkg, localProviderPath) ||
     isWorkspacePackageEntry(pkg, concreteSharedImportSource);
-  const lazyLocalFallbackSource =
-    concreteSharedImportSource || localProviderPath || sharedImportSource;
   const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
+  const usesLazyLocalFallback =
+    shareItem.shareConfig.singleton === true &&
+    (isWorkspacePackage || (command !== 'build' && !skipServePrebuildWarmup));
+  const lazyLocalFallbackSource = isWorkspacePackage
+    ? concreteSharedImportSource || localProviderPath || sharedImportSource
+    : command !== 'build' && shareItem.shareConfig.singleton === true
+      ? devImportSource
+      : concreteSharedImportSource || localProviderPath || sharedImportSource;
   const namedExports = getPackageNamedExports(pkg);
+  const exportStarSource =
+    usesLazyLocalFallback && command !== 'build' && !isWorkspacePackage
+      ? devImportSource
+      : sharedImportSource;
   let exportLine: string;
   if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
     const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
     exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
   } else {
-    exportLine = `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`;
+    exportLine = `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(exportStarSource)}`;
   }
 
-  const usesLazyLocalFallback = isWorkspacePackage && shareItem.shareConfig.singleton === true;
   const staticLocalShareSource = skipServePrebuildWarmup ? devImportSource : sharedImportSource;
   const prebuildImportLine =
     usesLazyLocalFallback || (isWorkspacePackage && command !== 'build')
