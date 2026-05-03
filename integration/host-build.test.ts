@@ -21,8 +21,8 @@ const HOST_BASE_MF_OPTIONS = {
 const hostInitChunkRegex = /<script\s+type="module"\s+src="[^"]*hostInit[^"]*">/;
 const bootstrapScriptRegex = /<script\s+type="module"[^>]+src="[^"]*mf-entry-bootstrap[^"]*">/;
 
-async function createIssue674WorkspaceFixture() {
-  const root = resolve(FIXTURES, 'issue-674-workspace-source-remote');
+async function createWorkspaceFixture() {
+  const root = resolve(FIXTURES, 'workspace-source-remote');
   const remotePackage = resolve(root, 'packages/remote-ui');
   const remotePackageLink = resolve(root, 'packages/host/node_modules/@repro/remote-ui');
   await rm(resolve(root, 'packages/host/node_modules'), { recursive: true, force: true });
@@ -94,7 +94,7 @@ describe('host build', () => {
   });
 
   it('builds named imports from workspace remote subpath exported to TSX source', async () => {
-    const root = await createIssue674WorkspaceFixture();
+    const root = await createWorkspaceFixture();
 
     try {
       const output = await buildFixture({
