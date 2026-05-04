@@ -118,7 +118,7 @@ export default function ({
             const publicPath = JSON.stringify(
               resolvePublicPath(options, viteConfig.base) + options.filename
             );
-            const fallbackOrigin = `http://${host}:${viteConfig.server?.port}`;
+            const fallbackOrigin = `//${host}:${viteConfig.server?.port}`;
             const ssrRemoteEntry =
               'data:text/javascript,' +
               encodeURIComponent(

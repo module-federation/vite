@@ -5,14 +5,14 @@ import type {
   Rollup,
 } from 'vite';
 import { describe, expect, it } from 'vitest';
-import pluginProxyRemoteEntry from '../pluginProxyRemoteEntry';
-import { getHostAutoInitPath } from '../../virtualModules';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
-import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
+import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
+import { getHostAutoInitPath } from '../../virtualModules';
+import pluginProxyRemoteEntry from '../pluginProxyRemoteEntry';
 
 describe('pluginProxyRemoteEntry', () => {
-  it('uses an absolute fallback origin for dev host init in SSR/module-runner contexts', async () => {
+  it('uses an inlined data-URL origin for dev host init in SSR/module-runner contexts, protocol relative fallback origin otherwise', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const plugin = pluginProxyRemoteEntry({
       options: getDefaultMockOptions({ filename: 'remoteEntry.js' }),
@@ -45,7 +45,11 @@ describe('pluginProxyRemoteEntry', () => {
       code: string;
     };
 
-    expect(result.code).toContain('window.origin : "http://localhost:4173"');
-    expect(result.code).not.toContain('window.origin : "//localhost:4173"');
+    expect(result.code).toContain(
+      `const origin = typeof window !== 'undefined' && (true) ? window.origin : "//localhost:4173"`
+    );
+    expect(result.code).toContain(
+      `const remoteEntryImport = typeof window !== 'undefined' ? origin + "/remoteEntry.js" : "data:text/javascript,export%20async%20function%20init()%7Breturn%20%7BloadRemote%3Aasync()%3D%3E(%7B%7D)%2CloadShare%3Aasync()%3D%3E(%7B%7D)%7D%7D"`
+    );
   });
 });
