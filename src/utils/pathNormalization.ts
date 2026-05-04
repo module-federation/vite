@@ -22,6 +22,10 @@ export function isNodeModulePath(source: string): boolean {
   return source.includes('/node_modules/') || source.includes('\\node_modules\\');
 }
 
+export function filterId(id: unknown): id is string {
+  return typeof id === 'string' && !id.includes('\0');
+}
+
 export function getMatchingNodeModuleSubpath(
   source: string,
   candidates: Iterable<string>

@@ -1,4 +1,3 @@
-import { createFilter } from '@rollup/pluginutils';
 import * as path from 'pathe';
 import { fileURLToPath } from 'url';
 import type { Plugin } from 'vite';
@@ -10,7 +9,7 @@ import {
 } from '../utils/cssModuleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { resolvePublicPath } from '../utils/pathNormalization';
+import { filterId, resolvePublicPath } from '../utils/pathNormalization';
 import {
   generateExposes,
   generateHostAutoInitCode,
@@ -19,8 +18,6 @@ import {
   getHostAutoInitPath,
 } from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
-
-const filter: (id: string) => boolean = createFilter();
 
 interface ProxyRemoteEntryParams {
   options: NormalizedModuleFederationOptions;
@@ -102,7 +99,7 @@ export default function ({
     },
     transform(code: string, id: string) {
       const transformedCode = (() => {
-        if (!filter(id)) return;
+        if (!filterId(id)) return;
         if (id.includes(remoteEntryId)) {
           return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
         }

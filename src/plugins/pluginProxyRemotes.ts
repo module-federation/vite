@@ -1,9 +1,8 @@
-import { createFilter } from '@rollup/pluginutils';
 import type { Plugin } from 'vite';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getInstalledPackageEntry } from '../utils/packageUtils';
+import { filterId } from '../utils/pathNormalization';
 import { addUsedRemote, getRemoteVirtualModule, refreshHostAutoInit } from '../virtualModules';
-const filter: (id: string) => boolean = createFilter();
 
 function isNodeModulesImporter(importer?: string) {
   return importer?.includes('/node_modules/') || importer?.includes('\\node_modules\\');
@@ -59,7 +58,7 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
       });
     },
     resolveId(source, importer) {
-      if (!filter(source)) return;
+      if (!filterId(source)) return;
       for (const remote of Object.values(remotes)) {
         if (source !== remote.name && !source.startsWith(`${remote.name}/`)) continue;
         return resolveRemoteId(source, importer, remote.name);
