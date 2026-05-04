@@ -334,6 +334,7 @@ ${importHelper}(async () => {
       generateBundle(_options, bundle) {
         if (skipSvelteKitSsrBuild()) return;
         if (!injectHtml()) return;
+        if (!emitFileId) return;
         const file = this.getFileName(emitFileId);
         emittedFileName = file;
         // Helper to resolve path with proper renderBuiltUrl handling
