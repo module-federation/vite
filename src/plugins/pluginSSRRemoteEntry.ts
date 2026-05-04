@@ -26,15 +26,6 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let isRolldown = false;
   let ssrOutputFilename = '';
 
-  // User-configured shared packages (react, react-dom, etc.) are marked as
-  // global externals in the remote entry browser build — this is intentional
-  // MF behaviour: the host's share scope provides them at runtime via init().
-  // User-provided ssrExternals extend this list for the SSR entry only.
-  const sharedPackages = Object.keys(options.shared);
-  const sharedPattern = new RegExp(
-    `^(${sharedPackages.map((e) => e.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|')})(\\/.*)?$`
-  );
-
   // MF internal packages must be external for the SSR entry (Node resolves
   // them via its module cache) but must NOT be global externals — they need
   // to be bundled inline in the browser remote entry to avoid bare-specifier
@@ -101,7 +92,9 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         }
 
         // Track other SSR imports so their transitive deps are also scoped.
-        if (!sharedPattern.test(id)) {
+        // Skip bare specifiers — they're either SSR externals (handled above)
+        // or shared packages that should not be followed into the SSR graph.
+        if (id.startsWith('.') || id.startsWith('/') || id.startsWith('file:')) {
           return this.resolve(id, importer, { skipSelf: true }).then((resolved) => {
             if (resolved) ssrModuleIds.add(resolved.id);
             return resolved;
@@ -112,29 +105,6 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
     {
       name: 'mf:ssr-remote-entry',
       apply: 'build',
-
-      config(config) {
-        // Only remotes (apps with exposes) mark shared packages as external in
-        // the browser build. The host provides them via the MF share scope at
-        // runtime when the remote container's init() is called. Consumer-only
-        // hosts must bundle react etc. inline — they have no remote container
-        // to hand off shared packages to.
-        if (Object.keys(options.exposes).length === 0) return;
-
-        // Mark user-configured shared packages as external globally so that
-        // CJS transitive deps (e.g. use-sync-external-store) can safely
-        // require() them without hitting a TLA loadShare virtual module.
-        config.build ??= {};
-        const buildWithRolldown = config.build as typeof config.build & {
-          rolldownOptions?: { external?: (string | RegExp)[] };
-        };
-        buildWithRolldown.rolldownOptions ??= {};
-        buildWithRolldown.rolldownOptions.external ??= [];
-        buildWithRolldown.rolldownOptions.external = [
-          ...buildWithRolldown.rolldownOptions.external,
-          sharedPattern,
-        ];
-      },
 
       resolveId(id) {
         // Register virtual SSR module IDs so they resolve to themselves.
