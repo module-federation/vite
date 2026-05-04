@@ -1,4 +1,4 @@
-import MagicString from 'magic-string';
+import { createSourceMap } from './codeRewriter';
 
 export async function mapCodeToCodeWithSourcemap(code?: string | Promise<string>) {
   const resolvedCode = await code;
@@ -7,10 +7,8 @@ export async function mapCodeToCodeWithSourcemap(code?: string | Promise<string>
     return;
   }
 
-  const s = new MagicString(resolvedCode);
-
   return {
-    code: s.toString(),
-    map: s.generateMap({ hires: true }),
+    code: resolvedCode,
+    map: createSourceMap(resolvedCode),
   };
 }

@@ -19,8 +19,8 @@
  * build time.  Use explicit named re-exports instead.
  */
 import { init as initEsLexer, parse as parseEsImports } from 'es-module-lexer';
-import MagicString from 'magic-string';
 import type { Plugin } from 'vite';
+import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
 import { loadWalk } from '../utils/loadWalk';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
@@ -123,10 +123,10 @@ function applyRewrites(
   code: string,
   imports: ImportInfo[],
   id: string
-): { code: string; map: ReturnType<MagicString['generateMap']> } | undefined {
+): { code: string; map: SourceMapLike } | undefined {
   if (imports.length === 0) return;
 
-  const ms = new MagicString(code);
+  const ms = new CodeRewriter(code);
   let changed = false;
   // Per-file counter — deterministic regardless of file processing order.
   let counter = 0;
@@ -203,7 +203,7 @@ function applyRewrites(
   if (!changed) return;
   return {
     code: ms.toString(),
-    map: ms.generateMap({ hires: true }),
+    map: ms.generateMap(id),
   };
 }
 
