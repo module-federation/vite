@@ -10,11 +10,6 @@ export default defineConfig({
     open: false,
     port: 5176,
     origin: 'http://localhost:5176',
-    watch: isMixed2
-      ? {
-          ignored: ['**/.__mf__temp/**'],
-        }
-      : undefined,
   },
   preview: {
     port: 5176,

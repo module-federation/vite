@@ -3,6 +3,7 @@ import { NormalizedModuleFederationOptions } from './normalizeModuleFederationOp
 export const COMMON_SHARED_SUBPATHS: Record<string, string[]> = {
   react: ['react/jsx-runtime', 'react/jsx-dev-runtime'],
   'react-dom': ['react-dom/client', 'react-dom/server', 'react-dom/server.browser'],
+  'solid-js': ['solid-js/web', 'solid-js/store', 'solid-js/html', 'solid-js/h'],
 };
 
 export function removeTrailingSlash(value: string): string {

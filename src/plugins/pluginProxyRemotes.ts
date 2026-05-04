@@ -9,6 +9,23 @@ function isNodeModulesImporter(importer?: string) {
   return importer?.includes('/node_modules/') || importer?.includes('\\node_modules\\');
 }
 
+function appendAlias(config: Record<string, any>, alias: { find: RegExp; replacement: string }) {
+  config.resolve ??= {};
+  const existingAlias = config.resolve.alias;
+  if (!existingAlias) {
+    config.resolve.alias = [alias];
+    return;
+  }
+  if (Array.isArray(existingAlias)) {
+    existingAlias.push(alias);
+    return;
+  }
+  config.resolve.alias = [
+    ...Object.entries(existingAlias).map(([find, replacement]) => ({ find, replacement })),
+    alias,
+  ];
+}
+
 export default function (options: NormalizedModuleFederationOptions): Plugin {
   let command: string;
   let root = process.cwd();
@@ -29,12 +46,13 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
 
   return {
     name: 'proxyRemotes',
+    enforce: 'pre',
     config(config, { command: _command }) {
       command = _command;
       root = config.root || process.cwd();
       Object.keys(remotes).forEach((key) => {
         const remote = remotes[key];
-        (config.resolve as any).alias.push({
+        appendAlias(config as Record<string, any>, {
           find: new RegExp(`^(${remote.name}(\/.*|$))`),
           replacement: '$1',
         });

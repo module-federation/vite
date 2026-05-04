@@ -9,7 +9,7 @@
  * 2. __loadShare__: load shareModule (mfRuntime.loadShare('vue'))
  */
 
-import { existsSync, readFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
 import { mfWarn } from '../utils/logger';
@@ -214,7 +214,11 @@ export function getLocalProviderImportPath(pkg: string): string | undefined {
     const resolved = projectRequire.resolve(pkg);
     return isWorkspaceFilePath(resolved) ? resolved : undefined;
   } catch {
-    return undefined;
+    const resolved = getInstalledPackageEntry(pkg, {
+      conditions: ['browser', 'import', 'module', 'default'],
+      resolveSubpathWithRequire: false,
+    });
+    return isWorkspaceFilePath(resolved) ? resolved : undefined;
   }
 }
 
@@ -235,9 +239,12 @@ export function getProjectResolvedImportPath(pkg: string): string | undefined {
 }
 
 function isWorkspaceFilePath(resolved: string | undefined): resolved is string {
-  return (
-    !!resolved && !resolved.includes('/node_modules/') && !resolved.includes('\\node_modules\\')
-  );
+  if (!resolved) return false;
+  let realResolved = resolved;
+  try {
+    realResolved = realpathSync.native(resolved);
+  } catch {}
+  return !realResolved.includes('/node_modules/') && !realResolved.includes('\\node_modules\\');
 }
 
 function isWorkspacePackageEntry(pkg: string, resolved: string | undefined): resolved is string {
@@ -414,17 +421,19 @@ export function writeLoadShareModule(
   const lazyLocalFallbackSource =
     concreteSharedImportSource || localProviderPath || sharedImportSource;
   const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
+  const usesLazyLocalFallback = isWorkspacePackage && shareItem.shareConfig.singleton === true;
   const namedExports = getPackageNamedExports(pkg);
   let exportLine: string;
   if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
     const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
     exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
+  } else if (usesLazyLocalFallback) {
+    exportLine = `export default exportModule.default ?? exportModule`;
   } else {
     exportLine = `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`;
   }
 
-  const usesLazyLocalFallback = isWorkspacePackage && shareItem.shareConfig.singleton === true;
   const staticLocalShareSource = skipServePrebuildWarmup ? devImportSource : sharedImportSource;
   const prebuildImportLine =
     usesLazyLocalFallback || (isWorkspacePackage && command !== 'build')

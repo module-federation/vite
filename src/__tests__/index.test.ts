@@ -8,7 +8,10 @@ import type {
   ViteBuilder,
 } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getLoadShareImportId } from '../virtualModules/virtualShared_preBuild';
+import {
+  getLoadShareImportId,
+  getLoadShareModulePath,
+} from '../virtualModules/virtualShared_preBuild';
 import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
@@ -130,6 +133,23 @@ function getEarlyInitPlugin(): FederationPlugin {
       shared: {
         vue: {
           singleton: false,
+        },
+      },
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'vite:module-federation-early-init');
+
+  if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+  return plugin;
+}
+
+function getEarlyInitPluginWithReactShared(): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      shared: {
+        react: {
+          singleton: true,
         },
       },
     }) as Plugin[]
@@ -602,6 +622,37 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('vue', true));
   });
 
+  it('proxies shared deps during Rolldown optimizeDeps resolution', () => {
+    const plugin = getEarlyInitPlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    runConfig(
+      plugin,
+      {
+        meta: { rolldownVersion: '1.0.0' },
+      } as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'test' }
+    );
+
+    const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-resolver'
+    );
+
+    expect(resolver.resolveId('vue', '/repo/node_modules/some-lib/index.js')).toEqual({
+      id: expect.stringContaining(LOAD_SHARE_TAG),
+      external: true,
+    });
+    expect(resolver.resolveId('react', '/repo/node_modules/react-dom/cjs/react-dom.js')).toBe(
+      undefined
+    );
+  });
+
   it('keeps loadShare optimizeDeps include in non-Rolldown serve', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {
@@ -618,6 +669,74 @@ describe('vite:module-federation-early-init', () => {
 
     expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
     expect(config.optimizeDeps.include).toContain(getLoadShareImportId('vue', false));
+  });
+
+  it('redirects System.register commonjs-proxy consumers to loadShare chunks', () => {
+    const plugin = getEsmShimsPlugin();
+    const proxyFileName = `assets/host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js_commonjs-proxy-abc.js`;
+    const loadShareFileName = `./host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js-def.js`;
+    const consumerFileName = `assets/host${LOAD_SHARE_TAG}react_mf_2_dom${LOAD_SHARE_TAG}.js-ghi.js`;
+    const bundle = {
+      [proxyFileName]: createChunk(
+        proxyFileName,
+        `System.register(["${loadShareFileName}"], (function(exports, module) {
+  "use strict";
+  var React4;
+  return {
+    setters: [(module2) => {
+      React4 = module2.R;
+    }],
+    execute: (function() {
+      exports({
+        a: getDefaultExportFromCjs,
+        g: getAugmentedNamespace
+      });
+      function getDefaultExportFromCjs(x) {
+        return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
+      }
+      function getAugmentedNamespace(n) {
+        return n;
+      }
+      const require$$0 = exports("r", getAugmentedNamespace(React4));
+    })
+  };
+}));`
+      ),
+      [consumerFileName]: createChunk(
+        consumerFileName,
+        `System.register(["./host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js_commonjs-proxy-abc.js"], (function(exports, module) {
+  "use strict";
+  var getAugmentedNamespace, require$$1;
+  return {
+    setters: [(module2) => {
+      getAugmentedNamespace = module2.g;
+      require$$1 = module2.r;
+    }],
+    execute: (function() {
+      const ns = getAugmentedNamespace(require$$1);
+      exports("n", ns);
+    })
+  };
+}));`
+      ),
+    } as unknown as Rollup.OutputBundle;
+
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle
+    );
+
+    const consumer = bundle[consumerFileName];
+    if (consumer.type !== 'chunk') throw new Error('consumer should be a chunk');
+
+    expect(consumer.code).toContain(JSON.stringify(loadShareFileName));
+    expect(consumer.code).not.toContain('commonjs-proxy');
+    expect(consumer.code).toContain('function getAugmentedNamespace(n)');
+    expect(consumer.code).toContain('require$$1 = module2.R;');
+    expect(consumer.code).not.toContain('module2.r');
+    expect(consumer.code).not.toContain('getAugmentedNamespace = module2.g');
   });
 
   it('excludes bare remote ids from optimizeDeps in Rolldown serve', () => {
@@ -673,6 +792,34 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).not.toContain('/repo/node_modules/scheduler/index.js');
   });
 
+  it('skips require calls in Rolldown optimizeDeps shared resolver', () => {
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
+      (entry: { name: string }) => entry.name === 'module-federation:optimize-shared-resolver'
+    );
+    if (!resolver) throw new Error('optimize shared resolver not found');
+
+    expect(
+      resolver.resolveId('react/jsx-runtime', '/repo/src/App.cjs', { kind: 'require-call' })
+    ).toBeUndefined();
+    expect(resolver.resolveId('react/jsx-runtime', '/repo/src/App.tsx')).toEqual({
+      id: getLoadShareModulePath('react/jsx-runtime', true),
+      external: true,
+    });
+  });
+
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'astro'
@@ -717,6 +864,28 @@ describe('vite:module-federation-early-init', () => {
     });
 
     expect(config.define.ENV_TARGET).toBe('"node"');
+  });
+
+  it('does not include virtual module dir or needsInterop for Rolldown optimizeDeps', () => {
+    const plugin = getModuleFederationVitePlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      resolve: {
+        alias: [],
+      },
+    };
+
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.include).toContain('@module-federation/runtime');
+    expect(config.optimizeDeps.include).not.toContain('__mf__virtual');
+    expect(config.optimizeDeps.needsInterop).toBeUndefined();
   });
 });
 

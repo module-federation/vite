@@ -485,7 +485,19 @@ interface PluginDevOptions {
   disableLiveReload?: boolean;
   disableHotTypesReload?: boolean;
   disableDynamicRemoteTypeHints?: boolean;
-  remoteHmr?: boolean;
+  /**
+   * Controls cross-federation HMR for remote modules.
+   *
+   * - `false` / `undefined` — HMR disabled (default).
+   * - `true` — HMR enabled with auto-detected strategy: when a React plugin
+   *   is detected (`@vitejs/plugin-react` or `@vitejs/plugin-react-swc`),
+   *   broadcast/relay is suppressed and React Fast Refresh handles updates
+   *   via the shared `/@react-refresh` proxy. Other frameworks fall back to
+   *   full page reloads.
+   * - `'full-reload'` — HMR enabled, always use full page reloads even when
+   *   a framework with native cross-federation HMR is detected.
+   */
+  remoteHmr?: boolean | 'full-reload';
 }
 
 interface RemoteTypeUrl {

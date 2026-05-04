@@ -76,6 +76,9 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'workspace-shared-lib') {
       return '/repo/packages/workspace-shared-lib/src/index.tsx';
     }
+    if (pkg === 'workspace-esm-symlink') {
+      return '/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts';
+    }
   }),
   getInstalledPackageJson: vi.fn((pkg: string, opts?: { fromResolvedEntry?: string }) => {
     if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-shared-lib/')) {
@@ -83,6 +86,15 @@ vi.mock('../../utils/packageUtils', () => ({
         path: '/repo/packages/workspace-shared-lib/package.json',
         dir: '/repo/packages/workspace-shared-lib',
         packageJson: { name: 'workspace-shared-lib' },
+      };
+    }
+    if (
+      opts?.fromResolvedEntry?.includes('/repo/apps/remote/node_modules/workspace-esm-symlink/')
+    ) {
+      return {
+        path: '/repo/packages/workspace-esm-symlink/package.json',
+        dir: '/repo/packages/workspace-esm-symlink',
+        packageJson: { name: 'workspace-esm-symlink' },
       };
     }
     if (pkg === 'mock-package-browser-conditional') {
@@ -292,6 +304,22 @@ export { type, other } from './foo';`;
     }
     throw new Error(`Unexpected readFileSync path: ${filePath}`);
   }),
+  realpathSync: Object.assign(
+    vi.fn((filePath: string) =>
+      filePath.replace(
+        '/repo/apps/remote/node_modules/workspace-esm-symlink',
+        '/repo/packages/workspace-esm-symlink'
+      )
+    ),
+    {
+      native: vi.fn((filePath: string) =>
+        filePath.replace(
+          '/repo/apps/remote/node_modules/workspace-esm-symlink',
+          '/repo/packages/workspace-esm-symlink'
+        )
+      ),
+    }
+  ),
 }));
 
 // Mock module/createRequire to return specific named exports
@@ -417,6 +445,11 @@ vi.mock('module', async (importOriginal) => {
           }
           if (pkg === 'workspace-shared-lib') {
             return '/repo/packages/workspace-shared-lib/src/index.tsx';
+          }
+          if (pkg === 'workspace-esm-symlink') {
+            const error = new Error('ERR_PACKAGE_PATH_NOT_EXPORTED');
+            (error as Error & { code?: string }).code = 'ERR_PACKAGE_PATH_NOT_EXPORTED';
+            throw error;
           }
           if (pkg === 'workspace-name-mismatch') {
             return '/repo/packages/workspace-name-mismatch/src/index.ts';
@@ -965,6 +998,32 @@ describe('writeLoadShareModule', () => {
     );
     expect(generatedCode).toContain(
       'exportModule = await import("/repo/packages/workspace-shared-lib/src/index.tsx");'
+    );
+    expect(generatedCode).not.toContain('__mfLocalShare');
+  });
+
+  it('detects symlinked ESM-only workspace singleton fallbacks without eager prebuild imports', () => {
+    const pkg = 'workspace-esm-symlink';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
+    expect(generatedCode).not.toContain('export * from');
+    expect(generatedCode).toContain(
+      'exportModule = await import("/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts");'
     );
     expect(generatedCode).not.toContain('__mfLocalShare');
   });

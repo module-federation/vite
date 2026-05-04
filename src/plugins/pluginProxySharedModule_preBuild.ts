@@ -1,8 +1,7 @@
 import { createRequire } from 'module';
 import path from 'pathe';
-import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { mfWarn } from '../utils/logger';
-import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getCommonSharedSubpathFromNodeModulePath,
@@ -32,6 +31,8 @@ import {
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
   refreshHostAutoInit,
+  getResolvedLocalSharedImportMapId,
+  setLocalSharedImportMapInvalidator,
   writeLoadShareModule,
   writeLocalSharedImportMap,
   writePreBuildLibPath,
@@ -126,6 +127,13 @@ function excludeSharedSubDependencies(shared: NormalizedShared): void {
     for (const dep of deps) {
       const depKey = sharedKeyByBase.get(dep);
       if (depKey && depKey !== parentKey) {
+        if (
+          shared[depKey]?.shareConfig.singleton === true ||
+          shared[depKey]?.shareConfig.import === false
+        ) {
+          continue;
+        }
+
         mfWarn(
           `"${dep}" is a dependency of shared package "${parentKey}" and is also shared separately. ` +
             `This may cause initialization order issues in dev mode. ` +
@@ -151,22 +159,32 @@ export function proxySharedModule(options: {
   let useDirectReactImport = false;
   let useRolldown = false;
   const savePrebuild = new PromiseStore<string>();
+  let devServer: ViteDevServer | undefined;
 
   return [
     {
       name: 'generateLocalSharedImportMap',
       enforce: 'post',
+      configureServer(server) {
+        devServer = server;
+        setLocalSharedImportMapInvalidator(() => {
+          const module = server.moduleGraph.getModuleById(getResolvedLocalSharedImportMapId());
+          if (module) server.moduleGraph.invalidateModule(module);
+        });
+      },
+      resolveId(source) {
+        if (source === getLocalSharedImportMapPath()) {
+          return getResolvedLocalSharedImportMapId();
+        }
+      },
       load(id) {
-        if (id.includes(getLocalSharedImportMapPath())) {
+        if (id === getResolvedLocalSharedImportMapId()) {
           return parsePromise.then((_) => generateLocalSharedImportMap());
         }
       },
-      transform(_, id) {
-        if (id.includes(getLocalSharedImportMapPath())) {
-          return mapCodeToCodeWithSourcemap(
-            parsePromise.then((_) => generateLocalSharedImportMap())
-          );
-        }
+      closeBundle() {
+        if (devServer) return;
+        setLocalSharedImportMapInvalidator(undefined);
       },
     },
     {
@@ -233,9 +251,6 @@ export function proxySharedModule(options: {
         }
         if (importer && importer.includes(LOAD_SHARE_TAG)) return;
         if (importer && importer.includes(PREBUILD_TAG)) return;
-        // Prefix shares match subpaths, but only base package is proxied.
-        if (key.endsWith('/') && source !== key.slice(0, -1)) return;
-
         const shareSource = isNodeModulePath(source)
           ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
           : source;
