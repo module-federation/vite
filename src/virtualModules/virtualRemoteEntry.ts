@@ -289,6 +289,13 @@ export function getRemoteEntryId(
   const scopedKey = `${options.internalName}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
   return `${REMOTE_ENTRY_ID}:${scopedKey}`;
 }
+// SSR-only plugins import Node.js modules and must not be statically imported
+// in the browser remote entry — doing so causes fileURLToPath / bare-specifier
+// errors in the browser bundle.
+const SSR_ONLY_PLUGIN_SPECIFIERS = new Set(['@module-federation/vite/ssrEntryLoader']);
+const isSsrOnlyPlugin = (importStatement: string) =>
+  [...SSR_ONLY_PLUGIN_SPECIFIERS].some((s) => importStatement.includes(s));
+
 export function generateRemoteEntry(
   options: NormalizedModuleFederationOptions,
   virtualExposesId = getVirtualExposesId(options),
@@ -316,7 +323,10 @@ export function generateRemoteEntry(
     globalThis.__VUE_HMR_RUNTIME__ = { createRecord() {}, rerender() {}, reload() {} };
   }
   import {createInstance, loadRemote} from "@module-federation/runtime";
-  ${pluginImportNames.map((item) => item[1]).join('\n')}
+  ${pluginImportNames
+    .filter((item) => !isSsrOnlyPlugin(item[1]))
+    .map((item) => item[1])
+    .join('\n')}
   ${
     command === 'build'
       ? getRuntimeInitResolveBootstrapCode()
@@ -373,7 +383,10 @@ export function generateRemoteEntry(
       name: mfName,
       remotes: usedRemotes,
       shared: usedShared,
-      plugins: [${pluginImportNames.map((item) => `${item[0]}(${item[2]})`).join(', ')}],
+      plugins: [${pluginImportNames
+        .filter((item) => !isSsrOnlyPlugin(item[1]))
+        .map((item) => `${item[0]}(${item[2]})`)
+        .join(', ')}],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     };
     if (!runtimeInstance) {

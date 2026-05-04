@@ -15,6 +15,14 @@
       "import": "./lib/index.mjs",
       "require": "./lib/index.cjs"
     },
+    "./ssrEntryLoader": {
+      "types": {
+        "import": "./lib/utils/ssrEntryLoader.d.mts",
+        "require": "./lib/utils/ssrEntryLoader.d.cts"
+      },
+      "import": "./lib/utils/ssrEntryLoader.mjs",
+      "require": "./lib/utils/ssrEntryLoader.cjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -84,6 +92,7 @@
     "oxfmt": "^0.36.0",
     "rollup": "^4.47.1",
     "tsdown": "^0.21.0",
+    "typescript": "^6.0.3",
     "vite": "^8.0.10",
     "vitest": "^4.0.18"
   }

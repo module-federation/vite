@@ -454,6 +454,12 @@ export type ModuleFederationOptions = {
    * @default 'web' (or 'node' if build.ssr is enabled)
    */
   target?: 'web' | 'node';
+  /**
+   * Additional packages to mark as external in the SSR remote entry build.
+   * Shared packages and MF runtime packages are always external. Use this to
+   * add any other Node-only packages that should not be bundled into the SSR entry.
+   */
+  ssrExternals?: string[];
 };
 
 export interface NormalizedModuleFederationOptions extends Omit<

@@ -13,6 +13,7 @@ import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
+import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import {
   collectLoadShareProxyChunks,
@@ -361,9 +362,24 @@ export default __mfShared.default ?? __mfShared;`,
   };
 }
 
+const SSR_ONLY_PLUGINS = new Set(['@module-federation/vite/ssrEntryLoader']);
+
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
+
+  // Auto-inject ssrEntryLoader for apps that expose modules so the MF runtime
+  // can fetch and evaluate the dedicated SSR remote entry on the server.
+  if (
+    Object.keys(options.exposes).length > 0 &&
+    !options.runtimePlugins.some((p) => {
+      const specifier = typeof p === 'string' ? p : p[0];
+      return specifier === '@module-federation/vite/ssrEntryLoader';
+    })
+  ) {
+    options.runtimePlugins.push('@module-federation/vite/ssrEntryLoader');
+  }
+
   const isVinext = hasPackageDependency('vinext');
   const { name, shared, filename, hostInitInjectLocation } = options;
   if (!name) throw createModuleFederationError('name is required');
@@ -823,9 +839,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           config.ssr.noExternal.push(virtualDir);
         }
 
-        // Add all runtime plugins to optimizeDeps to prevent 504 re-optimization
+        // Add all runtime plugins to optimizeDeps to prevent 504 re-optimization.
+        // SSR-only plugins import Node modules — exclude them from browser optimisation.
         options.runtimePlugins.forEach((p) => {
           const pluginPath = typeof p === 'string' ? p : p[0];
+          if (SSR_ONLY_PLUGINS.has(pluginPath)) return;
           // Only add bare imports to optimizeDeps
           if (
             pluginPath &&
@@ -872,6 +890,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       },
     },
     ...pluginManifest(),
+    ...pluginSSRRemoteEntry(options),
     ...pluginVarRemoteEntry(),
     {
       name: 'module-federation-vinext-fix-rsc-preload-as',
