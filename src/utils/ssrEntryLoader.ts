@@ -22,8 +22,7 @@
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
 // away when the caller is guarded by typeof window checks.
 const importCache = new Map<string, Promise<unknown>>();
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function nodeImport(id: string): Promise<any> {
+async function nodeImport(id: string): Promise<unknown> {
   if (!importCache.has(id)) importCache.set(id, import(/* @vite-ignore */ id));
   return importCache.get(id);
 }
@@ -337,7 +336,7 @@ export default function ssrEntryLoaderPlugin() {
     name: 'mf-vite:ssr-entry-loader',
     async loadEntry({ remoteInfo }: { remoteInfo: RemoteInfo }) {
       // Only intercept on the server — browser should use the normal path.
-      if (typeof (globalThis as any).window !== 'undefined') return;
+      if (typeof (globalThis as Record<string, unknown>).window !== 'undefined') return;
 
       const ssrEntry = await getSSREntry(remoteInfo.entry);
       if (!ssrEntry) return;

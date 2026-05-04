@@ -128,7 +128,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         isRolldown = getIsRolldown(this);
         ssrOutputFilename = getSSRFilename(options.filename, /* isCJS */ !isRolldown);
 
-        const environmentName = (this as any)?.environment?.name;
+        const environmentName = (this as { environment?: { name?: string } }).environment?.name;
         // Only emit in the client environment — the SSR module runner shouldn't
         // produce a second SSR entry.
         if (environmentName && environmentName !== 'client') return;
@@ -192,7 +192,11 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
             })
             .replace(/^export\s+default\s+/gm, 'module.exports = ');
 
-          (chunk as any).code = code.includes("'use strict'") ? code : `'use strict';\n${code}`;
+          // chunk.code is writable at this stage of the pipeline — Rollup exposes
+          // it as readonly in the type but allows writes during generateBundle.
+          (chunk as { code: string }).code = code.includes("'use strict'")
+            ? code
+            : `'use strict';\n${code}`;
         }
       },
     },
