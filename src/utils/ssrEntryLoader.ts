@@ -32,7 +32,6 @@ const _path = () => nodeImport('path') as Promise<typeof import('path')>;
 const _fs = () => nodeImport('fs') as Promise<typeof import('fs')>;
 const _crypto = () => nodeImport('crypto') as Promise<typeof import('crypto')>;
 const _module = () => nodeImport('module') as Promise<typeof import('module')>;
-const _url = () => nodeImport('url') as Promise<typeof import('url')>;
 
 // RemoteInfo mirrors the shape from @module-federation/runtime-core so the
 // loadEntry hook is compatible with the runtime's lifecycle signature.
@@ -140,10 +139,14 @@ let ssrCacheDirPromise: Promise<string> | undefined;
 async function getSSRCacheDir(): Promise<string> {
   if (!ssrCacheDirPromise) {
     ssrCacheDirPromise = (async () => {
-      const { join, dirname } = await _path();
-      const { fileURLToPath } = await _url();
+      const { join } = await _path();
       const { rmSync } = await _fs();
-      const dir = join(dirname(fileURLToPath(import.meta.url)), '.ssr-cache');
+      // Use process.cwd() (the running app's root) rather than the plugin
+      // file's directory. This ensures bare specifier resolution in temp files
+      // walks up from the app root and finds the correct node_modules — the
+      // plugin may be bundled deep in .output/server/_libs/ which can resolve
+      // to a different (hoisted) version of shared packages like react.
+      const dir = join(process.cwd(), 'node_modules', '.ssr-cache');
       // Clean up temp files on process exit to avoid accumulation.
       process.once('exit', () => {
         try {
@@ -158,7 +161,7 @@ async function getSSRCacheDir(): Promise<string> {
   return ssrCacheDirPromise;
 }
 
-function transformSsrCode(code: string, base: string): string {
+function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string, string>): string {
   // Rewrite relative specifiers to absolute HTTP URLs.
   code = code.replace(
     /((?:from|export\s*\*\s*from)\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`]/g,
@@ -168,6 +171,19 @@ function transformSsrCode(code: string, base: string): string {
     /(import\s*\(\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`](\s*\))/g,
     (_m, prefix, _q, specifier, suffix) => `${prefix}"${new URL(specifier, base).href}"${suffix}`
   );
+  // Rewrite bare shared package specifiers to absolute file:// paths so all
+  // temp-file modules use the same physical module instance as the host app.
+  // Without this, Node resolves bare "react" from the workspace root which
+  // may be a different version than the one bundled into the host's server.
+  if (sharedPkgMap && sharedPkgMap.size > 0) {
+    code = code.replace(
+      /(?:from|import\s*\()\s*(["'`])([^"'`./][^"'`]*)["'`]/g,
+      (m, _q, specifier) => {
+        const resolved = sharedPkgMap.get(specifier);
+        return resolved ? m.replace(specifier, `file://${resolved}`) : m;
+      }
+    );
+  }
   // Replace Vite's preload-helper (uses document) with a server no-op,
   // preserving the local binding name so call-sites still work.
   code = code.replace(
@@ -195,7 +211,8 @@ function transformSsrCode(code: string, base: string): string {
 async function fetchEsmToTempFile(
   url: string,
   tmpDir: string,
-  visited: Map<string, string>
+  visited: Map<string, string>,
+  sharedPkgMap?: Map<string, string>
 ): Promise<string> {
   if (visited.has(url)) return visited.get(url)!;
   if (tempFileCache.has(url)) return tempFileCache.get(url)!;
@@ -220,13 +237,14 @@ async function fetchEsmToTempFile(
       [...new Set(relImports)]
         .filter((u) => u.startsWith('http://') || u.startsWith('https://'))
         .map(async (u) => {
-          const tmpPath = await fetchEsmToTempFile(u, tmpDir, visited);
+          const tmpPath = await fetchEsmToTempFile(u, tmpDir, visited, sharedPkgMap);
           subMap.set(u, `file://${tmpPath}`);
         })
     );
 
-    // Transform code: absolute HTTP URLs → file:// paths for temp files.
-    code = transformSsrCode(code, base);
+    // Transform code: absolute HTTP URLs → file:// paths for temp files,
+    // and bare shared package specifiers → absolute file:// paths.
+    code = transformSsrCode(code, base, sharedPkgMap);
     for (const [httpUrl, fileUrl] of subMap) {
       code = code.split(httpUrl).join(fileUrl);
     }
@@ -269,11 +287,28 @@ async function loadSSRRemoteEntry(ssrEntry: {
   // rewrite relative imports to absolute URLs, then load via data: URL.
   if (url.startsWith('http://') || url.startsWith('https://')) {
     const { mkdirSync } = await _fs();
+    const { createRequire } = await _module();
     const cacheDir = await getSSRCacheDir();
     mkdirSync(cacheDir, { recursive: true });
 
+    // Build a map of bare package specifier → absolute file path anchored to
+    // the MF plugin's own location. Since the plugin lives in the host app's
+    // node_modules (via the `ssrEntryLoader` subpath export), resolving from
+    // import.meta.url walks up through the host's node_modules tree and finds
+    // the same React version that the host's SSR runtime uses.
+    const pluginRequire = createRequire(import.meta.url);
+    const sharedPkgMap = new Map<string, string>();
+    const commonShared = ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'];
+    for (const pkg of commonShared) {
+      try {
+        sharedPkgMap.set(pkg, pluginRequire.resolve(pkg));
+      } catch {
+        // Package not installed in the host app — skip.
+      }
+    }
+
     try {
-      const tmpFile = await fetchEsmToTempFile(url, cacheDir, new Map());
+      const tmpFile = await fetchEsmToTempFile(url, cacheDir, new Map(), sharedPkgMap);
       return (await import(tmpFile)) as { init: unknown; get: unknown };
     } catch {
       return null;

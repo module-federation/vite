@@ -303,6 +303,13 @@ ${importHelper}(async () => {
       buildStart() {
         if (_command === 'serve') return;
         if (skipSvelteKitSsrBuild()) return;
+        // Only emit entry chunks into the client environment. SSR frameworks
+        // (e.g. Nitro) detect the SSR entry by reading all emitted entry chunks
+        // from the SSR Rollup environment. If we emit hostInit or remoteEntry
+        // there, Nitro picks them up as the SSR request handler instead of the
+        // real framework SSR entry, causing "mod.fetch is not a function".
+        const environmentName = (this as any)?.environment?.name;
+        if (environmentName && environmentName !== 'client') return;
         const hasHash = fileName?.includes?.('[hash');
         const emitFileOptions: any = {
           name: entryName,

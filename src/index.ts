@@ -368,10 +368,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
 
-  // Auto-inject ssrEntryLoader for apps that expose modules so the MF runtime
-  // can fetch and evaluate the dedicated SSR remote entry on the server.
+  // Auto-inject ssrEntryLoader for any app that either exposes modules or
+  // consumes remotes. On the server the loader intercepts the MF runtime's
+  // loadEntry hook to swap in the dedicated SSR remote entry — this is needed
+  // both on remotes (to serve their own server entry) and on hosts (to load
+  // remote SSR entries when server-rendering federated components).
+  const hasRemotesOrExposes =
+    Object.keys(options.exposes).length > 0 || Object.keys(options.remotes).length > 0;
   if (
-    Object.keys(options.exposes).length > 0 &&
+    hasRemotesOrExposes &&
     !options.runtimePlugins.some((p) => {
       const specifier = typeof p === 'string' ? p : p[0];
       return specifier === '@module-federation/vite/ssrEntryLoader';

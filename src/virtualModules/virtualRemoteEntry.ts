@@ -291,10 +291,12 @@ export function getRemoteEntryId(
 }
 // SSR-only plugins import Node.js modules and must not be statically imported
 // in the browser remote entry — doing so causes fileURLToPath / bare-specifier
-// errors in the browser bundle.
+// errors in the browser bundle. They are dynamically imported on the server only.
 const SSR_ONLY_PLUGIN_SPECIFIERS = new Set(['@module-federation/vite/ssrEntryLoader']);
 const isSsrOnlyPlugin = (importStatement: string) =>
   [...SSR_ONLY_PLUGIN_SPECIFIERS].some((s) => importStatement.includes(s));
+const getSsrOnlyPluginSpecifier = (importStatement: string): string | undefined =>
+  [...SSR_ONLY_PLUGIN_SPECIFIERS].find((s) => importStatement.includes(s));
 
 export function generateRemoteEntry(
   options: NormalizedModuleFederationOptions,
@@ -379,14 +381,25 @@ export function generateRemoteEntry(
   async function init(shared = {}, initScope = []) {
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
     ${generateDirectSharedCacheSeedCode(command)}
+    const __browserPlugins = [${pluginImportNames
+      .filter((item) => !isSsrOnlyPlugin(item[1]))
+      .map((item) => `${item[0]}(${item[2]})`)
+      .join(', ')}];
+    const __ssrPlugins = typeof globalThis.window === 'undefined'
+      ? await Promise.all([${pluginImportNames
+        .filter((item) => isSsrOnlyPlugin(item[1]))
+        .map((item) => {
+          const specifier = getSsrOnlyPluginSpecifier(item[1])!;
+          const opts = item[2];
+          return `import(${JSON.stringify(specifier)}).then(m => (m.default ?? m)(${opts}))`;
+        })
+        .join(', ')}])
+      : [];
     const runtimeOptions = {
       name: mfName,
       remotes: usedRemotes,
       shared: usedShared,
-      plugins: [${pluginImportNames
-        .filter((item) => !isSsrOnlyPlugin(item[1]))
-        .map((item) => `${item[0]}(${item[2]})`)
-        .join(', ')}],
+      plugins: [...__browserPlugins, ...__ssrPlugins],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     };
     if (!runtimeInstance) {
