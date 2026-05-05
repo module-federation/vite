@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   getInstalledPackageEntry,
   getInstalledPackageJson,
+  getIsYarnPnp,
   getPackageNameFromNodeModulePath,
 } from '../packageUtils';
 
@@ -94,5 +95,27 @@ describe('getPackageNameFromNodeModulePath', () => {
 
   it('returns undefined for non-node_modules paths', () => {
     expect(getPackageNameFromNodeModulePath('/repo/vendor/vue.js')).toBeUndefined();
+  });
+});
+
+describe('getIsYarnPnp', () => {
+  const originalPnp = (process.versions as { pnp?: string }).pnp;
+
+  afterEach(() => {
+    if (originalPnp === undefined) {
+      delete (process.versions as { pnp?: string }).pnp;
+    } else {
+      (process.versions as { pnp?: string }).pnp = originalPnp;
+    }
+  });
+
+  it('returns false when process.versions.pnp is unset', () => {
+    delete (process.versions as { pnp?: string }).pnp;
+    expect(getIsYarnPnp()).toBe(false);
+  });
+
+  it('returns true when process.versions.pnp is set', () => {
+    (process.versions as { pnp?: string }).pnp = '3.0.0';
+    expect(getIsYarnPnp()).toBe(true);
   });
 });

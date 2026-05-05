@@ -7,15 +7,16 @@ import type {
   UserConfig,
   ViteBuilder,
 } from 'vite';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getLoadShareImportId,
   getLoadShareModulePath,
 } from '../virtualModules/virtualShared_preBuild';
 import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
 
-const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
+const { hasPackageDependencyMock, getIsYarnPnpMock, mfWarn } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>((_dependency: string) => false),
+  getIsYarnPnpMock: vi.fn<() => boolean>(() => false),
   mfWarn: vi.fn(),
 }));
 
@@ -25,6 +26,7 @@ vi.mock('../utils/packageUtils', async () => {
   return {
     ...actual,
     hasPackageDependency: hasPackageDependencyMock,
+    getIsYarnPnp: getIsYarnPnpMock,
     setPackageDetectionCwd: vi.fn(),
   };
 });
@@ -886,6 +888,81 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).toContain('@module-federation/runtime');
     expect(config.optimizeDeps.include).not.toContain('__mf__virtual');
     expect(config.optimizeDeps.needsInterop).toBeUndefined();
+  });
+
+  describe('under Yarn PnP', () => {
+    beforeEach(() => {
+      getIsYarnPnpMock.mockReturnValue(true);
+    });
+
+    afterEach(() => {
+      getIsYarnPnpMock.mockReturnValue(false);
+    });
+
+    it('skips bare and virtual entries from optimizeDeps.include but keeps real packages', () => {
+      const plugin = getEarlyInitPlugin();
+      const config: any = {
+        root: process.cwd(),
+        optimizeDeps: {
+          include: [],
+        },
+      };
+
+      runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      // Real packages (host's declared deps) still get included.
+      const include: string[] = config.optimizeDeps.include;
+      expect(include).not.toContain(virtualRuntimeInitStatus.getImportId());
+      expect(include).not.toContain(getPreBuildLibImportId('vue'));
+      expect(include).not.toContain(getLoadShareImportId('vue', false));
+      // No include entry should be a bare reference to the synthetic
+      // __mf__virtual package — Yarn PnP would reject it.
+      expect(include.some((entry) => entry === '__mf__virtual')).toBe(false);
+      expect(include.some((entry) => entry.startsWith('__mf__virtual/'))).toBe(false);
+    });
+
+    it('skips virtualDir bare include and needsInterop in non-Rolldown', () => {
+      const plugin = getModuleFederationVitePlugin();
+      const config: any = {
+        root: process.cwd(),
+        optimizeDeps: {
+          include: [],
+        },
+        resolve: {
+          alias: [],
+        },
+      };
+
+      runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      expect(config.optimizeDeps.include).toContain('@module-federation/runtime');
+      expect(config.optimizeDeps.include).not.toContain('__mf__virtual');
+      expect(config.optimizeDeps.needsInterop).toBeUndefined();
+    });
+
+    it('still excludes bare remote ids from optimizeDeps under PnP', () => {
+      const plugin = getEarlyInitPlugin();
+      const config: any = {
+        root: process.cwd(),
+        optimizeDeps: {
+          include: [],
+          exclude: [],
+        },
+      };
+
+      runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      expect(config.optimizeDeps.exclude).toContain('remoteApp');
+    });
   });
 });
 

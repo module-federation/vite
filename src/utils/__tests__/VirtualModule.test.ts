@@ -55,6 +55,54 @@ describe('assertModuleFound', () => {
   });
 });
 
+describe('VirtualModule.findModule', () => {
+  beforeEach(() => {
+    normalizeModuleFederationOptions({ name: 'host' });
+  });
+
+  it('resolves a module from a bare specifier', () => {
+    const vm = new VirtualModule('react', '__loadShare__', '.mjs');
+    const id = vm.getImportId();
+    expect(VirtualModule.findModule('__loadShare__', id)).toBe(vm);
+  });
+
+  it('resolves a module from an absolute path', () => {
+    const vm = new VirtualModule('react', '__loadShare__', '.mjs');
+    expect(VirtualModule.findModule('__loadShare__', vm.getPath())).toBe(vm);
+  });
+
+  it('strips Vite-style query strings before lookup', () => {
+    const vm = new VirtualModule('react', '__loadShare__', '.mjs');
+    const idWithQuery = `${vm.getImportId()}?import&v=abc`;
+    expect(VirtualModule.findModule('__loadShare__', idWithQuery)).toBe(vm);
+  });
+
+  it('returns undefined when the tag does not match the registered module', () => {
+    new VirtualModule('react', '__loadShare__', '.mjs');
+    const vmPrebuild = new VirtualModule('react', '__prebuild__', '.js');
+    // Looking up the prebuild file under the loadShare tag must fail.
+    expect(VirtualModule.findModule('__loadShare__', vmPrebuild.getImportId())).toBeUndefined();
+  });
+
+  it('returns undefined when the input does not encode a known module', () => {
+    expect(VirtualModule.findModule('__loadShare__', 'totally-unrelated-string')).toBeUndefined();
+  });
+
+  it('decodes encoded subpath names like react/jsx-runtime', () => {
+    const vm = new VirtualModule('react/jsx-runtime', '__prebuild__', '.js');
+    expect(VirtualModule.findModule('__prebuild__', vm.getImportId())).toBe(vm);
+  });
+
+  it('round-trips package names that themselves contain the tag substring', () => {
+    // Names like `pkg-with__prebuild__inside` are technically valid npm names.
+    // The old regex-based parser would have mis-captured these; structural
+    // prefix matching anchors on the known mfName/tag and recovers the full
+    // suffix as the package name.
+    const vm = new VirtualModule('pkg-with__prebuild__inside', '__prebuild__', '.js');
+    expect(VirtualModule.findModule('__prebuild__', vm.getImportId())).toBe(vm);
+  });
+});
+
 describe('VirtualModule writeSync', () => {
   it('creates missing virtual module directories before writing', () => {
     const root = mkdtempSync(join(tmpdir(), 'mf-vm-'));
@@ -70,6 +118,77 @@ describe('VirtualModule writeSync', () => {
 
       expect(existsSync(vm.getPath())).toBe(true);
       expect(readFileSync(vm.getPath(), 'utf8')).toBe('export default 1;');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('VirtualModule getImportId', () => {
+  const originalPnp = (process.versions as { pnp?: string }).pnp;
+
+  afterEach(() => {
+    if (originalPnp === undefined) {
+      delete (process.versions as { pnp?: string }).pnp;
+    } else {
+      (process.versions as { pnp?: string }).pnp = originalPnp;
+    }
+  });
+
+  it('returns the bare specifier outside Yarn PnP', () => {
+    delete (process.versions as { pnp?: string }).pnp;
+
+    const root = mkdtempSync(join(tmpdir(), 'mf-vm-'));
+    try {
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      normalizeModuleFederationOptions({ name: 'host' });
+      VirtualModule.setRoot(root);
+
+      const vm = new VirtualModule('react', '__loadShare__', '.mjs');
+      const id = vm.getImportId();
+
+      expect(id.startsWith('__mf__virtual/')).toBe(true);
+      expect(id.endsWith('.mjs')).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns the absolute path under Yarn PnP so PnP cannot reject the bare specifier', () => {
+    (process.versions as { pnp?: string }).pnp = '3.0.0';
+
+    const root = mkdtempSync(join(tmpdir(), 'mf-vm-'));
+    try {
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      normalizeModuleFederationOptions({ name: 'host' });
+      VirtualModule.setRoot(root);
+
+      const vm = new VirtualModule('react', '__loadShare__', '.mjs');
+      const id = vm.getImportId();
+
+      expect(id).toBe(vm.getPath());
+      expect(id.startsWith('__mf__virtual/')).toBe(false);
+      // The encoded module name is still embedded in the absolute path so
+      // VirtualModule.findModule's tag-based regex still matches it.
+      expect(id).toContain('__loadShare__');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('still resolves the encoded module via findModule when the id is an absolute path', () => {
+    (process.versions as { pnp?: string }).pnp = '3.0.0';
+
+    const root = mkdtempSync(join(tmpdir(), 'mf-vm-'));
+    try {
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      normalizeModuleFederationOptions({ name: 'host' });
+      VirtualModule.setRoot(root);
+
+      const vm = new VirtualModule('react', '__loadShare__', '.mjs');
+      const id = vm.getImportId();
+
+      expect(VirtualModule.findModule('__loadShare__', id)).toBe(vm);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

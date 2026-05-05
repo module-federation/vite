@@ -277,6 +277,17 @@ export function getExtFromNpmPackage(packageString: string) {
 }
 
 /**
+ * Detect Yarn Plug'n'Play. Under PnP, bare specifier resolution is governed by
+ * `.pnp.cjs` and rejects packages that aren't declared dependencies — so the
+ * synthetic `node_modules/__mf__virtual/` package can't be imported by name.
+ * Callers reference virtual files by absolute path under PnP and skip pushing
+ * their bare specifiers into `optimizeDeps.include`.
+ */
+export function getIsYarnPnp(): boolean {
+  return !!(process.versions as { pnp?: string }).pnp;
+}
+
+/**
  * Detect whether the current runtime is Vite 8+ by checking for a Vite version flag
  * on the plugin hook context, with Rolldown metadata kept as a compatibility fallback.
  */

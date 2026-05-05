@@ -34,7 +34,12 @@ import type {
 } from './utils/normalizeModuleFederationOptions';
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import {
+  getIsRolldown,
+  getIsYarnPnp,
+  hasPackageDependency,
+  setPackageDetectionCwd,
+} from './utils/packageUtils';
 import { getCommonSharedSubpaths } from './utils/pathNormalization';
 import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
 import {
@@ -214,6 +219,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       initVirtualModules(_command, getRemoteEntryId(options));
 
       const isRolldown = getIsRolldown(this);
+      const isYarnPnp = getIsYarnPnp();
 
       // Eagerly register configured remotes before localSharedImportMap is
       // first written. In build, remoteEntry can be traced before app modules
@@ -302,7 +308,9 @@ export default __mfShared.default ?? __mfShared;`,
           }
           // Include the runtimeInit virtual module so Vite pre-bundles it
           // upfront instead of discovering it at runtime via loadShare imports.
-          config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
+          if (!isYarnPnp) {
+            config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
+          }
         }
         for (const key of Object.keys(shared)) {
           const shareItem: ShareItem = shared[key];
@@ -313,7 +321,9 @@ export default __mfShared.default ?? __mfShared;`,
               for (const subpath of getCommonSharedSubpaths(key)) {
                 writePreBuildLibPath(subpath, shareItem);
                 optimizeDeps.include.push(subpath);
-                optimizeDeps.include.push(getPreBuildLibImportId(subpath));
+                if (!isYarnPnp) {
+                  optimizeDeps.include.push(getPreBuildLibImportId(subpath));
+                }
               }
             }
             continue;
@@ -342,16 +352,20 @@ export default __mfShared.default ?? __mfShared;`,
             if (shouldBypassOptimizeDep) {
               optimizeDeps.exclude.push(key);
             }
-            if (!isRolldown && !shouldBypassOptimizeDep) {
+            if (!isRolldown && !shouldBypassOptimizeDep && !isYarnPnp) {
               // In non-Rolldown Vite (< 8), loadShare modules are CJS, so the
               // dep optimizer handles them fine.
               optimizeDeps.include.push(getLoadShareImportId(key, isRolldown));
             }
-            optimizeDeps.include.push(getPreBuildLibImportId(key));
+            if (!isYarnPnp) {
+              optimizeDeps.include.push(getPreBuildLibImportId(key));
+            }
             for (const subpath of getCommonSharedSubpaths(key)) {
               writePreBuildLibPath(subpath, shareItem);
               optimizeDeps.include.push(subpath);
-              optimizeDeps.include.push(getPreBuildLibImportId(subpath));
+              if (!isYarnPnp) {
+                optimizeDeps.include.push(getPreBuildLibImportId(subpath));
+              }
             }
           }
         }
@@ -789,6 +803,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       _options: options,
       config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
+        const isYarnPnp = getIsYarnPnp();
 
         // For Vite 8+, resolve to ESM entry
         // because Vite 8's internal bundler cannot parse dynamic import() in .cjs files
@@ -808,7 +823,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
-        if (!isRolldown) {
+        if (!isRolldown && !isYarnPnp) {
           config.optimizeDeps.include.push(virtualDir);
         }
 
@@ -842,8 +857,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           // Vite 8+: virtual modules use ESM.
           config.build ??= {};
           config.build.target ??= 'esnext';
-        } else {
-          // Vite 5-7: virtual modules use CJS for dev, need interop
+        } else if (!isYarnPnp) {
+          // Vite 5-7: virtual modules use CJS for dev, need interop. Skip
+          // under Yarn PnP — virtuals aren't pre-bundled there, and the
+          // bare-name pattern wouldn't match the absolute paths we emit.
           config.optimizeDeps.needsInterop ||= [];
           config.optimizeDeps.needsInterop.push(virtualDir);
         }

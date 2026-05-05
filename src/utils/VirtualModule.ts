@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFile, writeFileSync } from 'fs';
 import { dirname, join, parse, resolve, basename } from 'pathe';
-import { packageNameDecode, packageNameEncode } from '../utils/packageUtils';
+import { getIsYarnPnp, packageNameDecode, packageNameEncode } from '../utils/packageUtils';
 import { createModuleFederationError } from './logger';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 
@@ -65,10 +65,6 @@ export function getSuffix(name: string): string {
   return '.js';
 }
 
-const patternMap: {
-  [tag: string]: RegExp;
-} = {};
-
 const cacheMap: {
   [tag: string]: {
     [name: string]: VirtualModule;
@@ -124,12 +120,26 @@ export default class VirtualModule {
   }
 
   static findModule(tag: string, str: string = ''): VirtualModule | undefined {
-    if (!patternMap[tag])
-      patternMap[tag] = new RegExp(`(.*${packageNameEncode(tag)}(.+?)${packageNameEncode(tag)}.*)`);
-    const moduleName = (str.match(patternMap[tag]) || [])[2];
-    if (moduleName)
-      return cacheMap[tag][packageNameDecode(moduleName)] as VirtualModule | undefined;
-    return undefined;
+    const tagModules = cacheMap[tag];
+    if (!tagModules) return undefined;
+
+    // Filenames have shape `<encode(mfName)><tag><encode(name)><suffix>`,
+    // possibly prefixed by a directory and possibly suffixed by a Vite query
+    // string. Reduce the input to the encoded core, then peel off the known
+    // `<encode(mfName)><tag>` prefix to recover the package name. No regex;
+    // encoding is char-wise and tags don't contain `@/-.`, so prefix matching
+    // is unambiguous.
+    const cleaned = str.split('?')[0];
+    const filename = basename(cleaned);
+    const lastDot = filename.lastIndexOf('.');
+    const core = lastDot > 0 ? filename.slice(0, lastDot) : filename;
+
+    const { internalName: mfName } = getNormalizeModuleFederationOptions();
+    const prefix = packageNameEncode(mfName) + tag;
+    if (!core.startsWith(prefix)) return undefined;
+
+    const encodedName = core.slice(prefix.length);
+    return tagModules[packageNameDecode(encodedName)] as VirtualModule | undefined;
   }
 
   constructor(name: string, tag: string = '__mf_v__', suffix = '') {
@@ -140,13 +150,21 @@ export default class VirtualModule {
     cacheMap[this.tag][this.name] = this;
   }
 
+  private getRelativeId() {
+    const { internalName: mfName, virtualModuleDir } = getNormalizeModuleFederationOptions();
+    return `${virtualModuleDir}/${packageNameEncode(mfName)}${this.tag}${packageNameEncode(this.name)}${this.suffix}`;
+  }
+
   getPath() {
-    return resolve(getNodeModulesDir(), this.getImportId());
+    return resolve(getNodeModulesDir(), this.getRelativeId());
   }
 
   getImportId() {
-    const { internalName: mfName, virtualModuleDir } = getNormalizeModuleFederationOptions();
-    return `${virtualModuleDir}/${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`;
+    // Under Yarn PnP, bare specifiers must be declared dependencies — the
+    // synthetic `__mf__virtual` package isn't, so referencing it by name fails.
+    // Use the absolute on-disk path instead, which bypasses PnP's manifest.
+    if (getIsYarnPnp()) return this.getPath();
+    return this.getRelativeId();
   }
 
   writeSync(code: string, force?: boolean) {

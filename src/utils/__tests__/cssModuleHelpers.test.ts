@@ -275,11 +275,13 @@ describe('cssModuleHelpers', () => {
       vi.mock('../normalizeModuleFederationOptions', () => ({
         getNormalizeModuleFederationOptions: vi.fn(() => ({
           name: 'test-app',
+          internalName: '__mfe_internal__test_mf_2_app',
           virtualModuleDir: '__mf_virtual_test',
           bundleAllCSS: false,
         })),
         normalizeModuleFederationOptions: vi.fn((options) => ({
           name: 'test-app',
+          internalName: '__mfe_internal__test_mf_2_app',
           virtualModuleDir: '__mf_virtual_test',
           bundleAllCSS: options.bundleAllCSS || false,
         })),
