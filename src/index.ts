@@ -441,6 +441,34 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     normalizeOptimizeDepsPlugin,
     ...pluginDts(options),
     pluginDevRemoteHmr(options),
+    {
+      // Some frameworks (e.g. TanStack Start) assume the bundle has exactly one
+      // isEntry chunk and throw when they see extras. MF emits additional entry
+      // chunks (hostInit, remoteEntry, virtualExposes) that are not the real app
+      // entry. Mark them as non-entry before any framework scanner runs.
+      name: 'mf:normalize-entry-chunks',
+      enforce: 'pre',
+      apply: 'build',
+      generateBundle(_options: unknown, bundle: Record<string, unknown>) {
+        for (const chunk of Object.values(bundle)) {
+          if (
+            typeof chunk !== 'object' ||
+            chunk === null ||
+            (chunk as { type: string }).type !== 'chunk' ||
+            !(chunk as { isEntry: boolean }).isEntry
+          )
+            continue;
+          const facadeId = (chunk as { facadeModuleId?: string }).facadeModuleId ?? '';
+          if (
+            facadeId.includes('__mf__virtual') ||
+            facadeId.startsWith('virtual:mf-') ||
+            facadeId.startsWith('\0virtual:mf-')
+          ) {
+            (chunk as { isEntry: boolean }).isEntry = false;
+          }
+        }
+      },
+    },
     ...addEntry({
       entryName: 'remoteEntry',
       entryPath: remoteEntryId,
