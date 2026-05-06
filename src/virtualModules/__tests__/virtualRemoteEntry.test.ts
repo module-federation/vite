@@ -441,4 +441,75 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('await import("/repo/node_modules/wildcard-pkg/dist/button.js")');
     expect(code).not.toContain('__mfModuleCache.share["wildcard-pkg"]');
   });
+
+  it('does not seed import:false shared modules in hostAutoInit during build', async () => {
+    normalizedSharedMock.mockReturnValue({
+      vue: {
+        name: 'vue',
+        from: '',
+        version: '3.5.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          import: false,
+          requiredVersion: '^3.5.0',
+          strictVersion: false,
+        },
+      },
+      'some-dep': {
+        name: 'some-dep',
+        from: '',
+        version: '4.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          import: false,
+          requiredVersion: '^4.0.0',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('vue');
+    mod.addUsedShares('some-dep');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+
+    // Build mode must NOT generate static imports for import:false modules
+    // to avoid bundler resolution failures on transitive dependencies.
+    expect(code).not.toContain('__mfModuleCache.share["some-dep"] === undefined');
+    expect(code).not.toContain('__mfModuleCache.share["vue"] === undefined');
+    expect(code).not.toContain('some-dep/dist');
+    // The runtime.loadShare loop should still be present
+    expect(code).toContain('runtime.loadShare(pkg');
+  });
+
+  it('seeds import:false shared modules in hostAutoInit during serve', async () => {
+    normalizedSharedMock.mockReturnValue({
+      'some-dep': {
+        name: 'some-dep',
+        from: '',
+        version: '4.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          import: false,
+          requiredVersion: '^4.0.0',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('some-dep');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+
+    // Serve mode should still pre-seed the cache (dev server resolves on-demand)
+    expect(code).toContain('__mfModuleCache.share["some-dep"]');
+    expect(code).toContain('await import');
+  });
 });

@@ -270,7 +270,13 @@ function getHostAutoInitSharedSeedItems() {
     });
 }
 
-function generateHostAutoInitSharedCacheSeedCode() {
+function generateHostAutoInitSharedCacheSeedCode(command = 'build') {
+  // In build mode, skip seeding for import:false modules. The bundler would
+  // attempt to resolve their transitive dependencies which may not be
+  // accessible (e.g. under pnpm strict mode). The runtime.loadShare() loop
+  // that follows will handle acquiring these modules at runtime instead.
+  if (command === 'build') return '';
+
   return getHostAutoInitSharedSeedItems()
     .map(({ pkg, shareItem }) => {
       if (!shareItem) return null;
@@ -424,7 +430,7 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
     async function initHost() {
       if (!hostInitPromise) {
         hostInitPromise = (async () => {
-          ${generateHostAutoInitSharedCacheSeedCode()}
+          ${generateHostAutoInitSharedCacheSeedCode(_command)}
           const remoteEntry = await import(${remoteEntryImport});
           const runtime = await remoteEntry.init();
           const usedShared = ${generateUsedSharedPreloadConfig()};
