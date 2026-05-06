@@ -270,7 +270,7 @@ describe('virtualRemoteEntry', () => {
     );
     // Shim must appear before any imports so it's defined when component code executes
     const shimIndex = code.indexOf('__VUE_HMR_RUNTIME__');
-    const importIndex = code.indexOf('import {createInstance');
+    const importIndex = code.indexOf('import {init as runtimeInit');
     expect(shimIndex).toBeLessThan(importIndex);
   });
 
