@@ -400,6 +400,15 @@ export function generateRemoteEntry(
     } catch (e) {
       console.error('[Module Federation]', e)
     }
+    for (const [pkg, share] of Object.entries(usedShared)) {
+      if (share.shareConfig?.import !== false || __mfModuleCache.share[pkg] !== undefined) continue;
+      const versions = shared?.[pkg];
+      const provider = versions && versions[Object.keys(versions)[0]];
+      if (!provider) continue;
+      const factory = provider.lib || (provider.loading ? await provider.loading : await provider.get?.());
+      const mod = typeof factory === "function" ? factory() : factory;
+      __mfModuleCache.share[pkg] = await Promise.resolve(mod);
+    }
     return initRes
   }
 

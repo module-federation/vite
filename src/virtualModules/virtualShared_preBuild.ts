@@ -21,7 +21,10 @@ import {
   getPackageName,
 } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
-import { getRuntimeModuleCacheBootstrapCode } from './virtualRuntimeInitStatus';
+import {
+  getRuntimeInitPromiseBootstrapCode,
+  getRuntimeModuleCacheBootstrapCode,
+} from './virtualRuntimeInitStatus';
 
 const JS_IDENTIFIER_REGEX = new RegExp(
   '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
@@ -364,6 +367,31 @@ export function getLoadShareModulePath(pkg: string, isRolldown: boolean): string
   const filepath = loadShareCacheMap[pkg].getPath();
   return filepath;
 }
+
+function generateDeferredHostProvidedExports(namedExports: string[]) {
+  const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+  const declarations = ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join(
+    '\n    '
+  );
+  const assignments = [
+    ...namedExports.map(
+      (name, i) => `${namedExportVars[i]} = exportModule[${escapeGeneratedStringLiteral(name)}];`
+    ),
+    '__mf_default = exportModule.default ?? exportModule;',
+  ].join('\n      ');
+  const namedExportLine =
+    namedExports.length > 0
+      ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+      : '';
+
+  return `${declarations}
+    const __mf_assign_exports = () => {
+      ${assignments}
+    };
+    __mf_init_export_module.then(__mf_assign_exports);
+    export { __mf_default as default };${namedExportLine}`;
+}
+
 export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
@@ -385,24 +413,27 @@ export function writeLoadShareModule(
     const namedExports = getPackageNamedExports(pkg);
     let exportLine: string;
     if (namedExports.length > 0) {
-      const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
-      const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
-      exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
+      exportLine = generateDeferredHostProvidedExports(namedExports);
     } else {
       mfWarn(
         `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
           `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +
           `  Install it as a devDependency to enable named export detection.`
       );
-      exportLine = 'export default exportModule.default ?? exportModule';
+      exportLine = generateDeferredHostProvidedExports([]);
     }
     loadShareCacheMap[pkg].writeSync(
       `
     ${importLine}
-    const exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
-    if (exportModule === undefined) {
-      throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.")
-    }
+    ${getRuntimeInitPromiseBootstrapCode()}
+    let exportModule;
+    const __mf_init_export_module = initPromise.then(() => {
+      exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
+      if (exportModule === undefined) {
+        throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.")
+      }
+      return exportModule
+    });
     ${exportLine}
   `,
       true
