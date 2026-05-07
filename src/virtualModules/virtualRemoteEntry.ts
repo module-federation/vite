@@ -190,6 +190,25 @@ function generateUsedSharedPreloadConfig() {
     }`;
 }
 
+function generateImportFalseSharedPreloadConfig() {
+  return `{
+      ${getOrderedUsedShares()
+        .map((pkg) => {
+          const shareItem = getShareItemForPreload(pkg);
+          if (!shareItem || shareItem.shareConfig.import !== false) return null;
+          return `${JSON.stringify(pkg)}: {
+            shareConfig: {
+              singleton: ${shareItem.shareConfig.singleton},
+              requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
+              import: false,
+            }
+          }`;
+        })
+        .filter((item) => item !== null)
+        .join(',\n')}
+    }`;
+}
+
 function getOrderedUsedShares() {
   const shares = new Set(getUsedShares());
   try {
@@ -399,6 +418,20 @@ export function generateRemoteEntry(
       });
     } catch (e) {
       console.error('[Module Federation]', e)
+    }
+    const importFalseShared = ${generateImportFalseSharedPreloadConfig()};
+    for (const [pkg, share] of Object.entries(importFalseShared)) {
+      if (__mfModuleCache.share[pkg] !== undefined) {
+        continue;
+      }
+      await initRes.loadShare(pkg, {
+        customShareInfo: { shareConfig: share.shareConfig }
+      }).then((factory) => {
+        const mod = typeof factory === "function" ? factory() : factory;
+        return Promise.resolve(mod).then((resolved) => {
+          __mfModuleCache.share[pkg] = resolved;
+        });
+      });
     }
     return initRes
   }

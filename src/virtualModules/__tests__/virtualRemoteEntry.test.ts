@@ -368,6 +368,64 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('import {usedShared, usedRemotes} from');
   });
 
+  it('loads import:false shared modules during remoteEntry init', async () => {
+    normalizedSharedMock.mockReturnValue({
+      'host-only-dep': {
+        name: 'host-only-dep',
+        from: '',
+        version: '4.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          import: false,
+          requiredVersion: '^4.0.0',
+          strictVersion: false,
+        },
+      },
+      'local-dep': {
+        name: 'local-dep',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^1.0.0',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('host-only-dep');
+    mod.addUsedShares('local-dep');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    const importFalseSection = code.slice(
+      code.indexOf('const importFalseShared ='),
+      code.indexOf('for (const [pkg, share] of Object.entries(importFalseShared))')
+    );
+
+    expect(code).toContain('const importFalseShared =');
+    expect(importFalseSection).toContain('"host-only-dep"');
+    expect(importFalseSection).not.toContain('"local-dep"');
+    expect(code).toContain('await initRes.loadShare(pkg');
+    expect(code).toContain('__mfModuleCache.share[pkg] = resolved');
+  });
+
   it('does not eagerly preload remotes during host auto init', async () => {
     usedRemotesMapMock.mockReturnValue({
       remote: new Set(['remote', 'remote/remote-app']),
