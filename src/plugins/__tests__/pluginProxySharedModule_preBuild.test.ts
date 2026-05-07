@@ -57,9 +57,6 @@ vi.mock('../../utils/packageUtils', () => ({
 
 vi.mock('../../utils/VirtualModule', () => ({
   default: class MockVirtualModule {
-    getPath() {
-      return '/mock/path.js';
-    }
     getImportId() {
       return 'mock-import-id';
     }

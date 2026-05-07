@@ -7,12 +7,12 @@ const {
   addUsedRemoteMock,
   getInstalledPackageEntryMock,
   getRemoteVirtualModuleMock,
-  remoteModulePath,
+  remoteModuleId,
 } = vi.hoisted(() => ({
   addUsedRemoteMock: vi.fn(),
   getInstalledPackageEntryMock: vi.fn<(pkg: string) => string | undefined>(() => undefined),
   getRemoteVirtualModuleMock: vi.fn(),
-  remoteModulePath: '/virtual/scheduler.js',
+  remoteModuleId: 'virtual:mf:scheduler.js',
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
@@ -81,7 +81,7 @@ describe('pluginProxyRemotes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getRemoteVirtualModuleMock.mockReturnValue({
-      getPath: () => remoteModulePath,
+      getImportId: () => remoteModuleId,
     });
   });
 
@@ -127,7 +127,7 @@ describe('pluginProxyRemotes', () => {
 
     const result = runResolveId(plugin, 'scheduler/SchedulePanel', '/repo/src/App.tsx');
 
-    expect(result).toBe(remoteModulePath);
+    expect(result).toBe(remoteModuleId);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler/SchedulePanel', 'serve');
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
   });
@@ -150,7 +150,7 @@ describe('pluginProxyRemotes', () => {
     runConfig(plugin, config);
     const result = runResolveId(plugin, 'scheduler', '/repo/src/App.tsx');
 
-    expect(result).toBe(remoteModulePath);
+    expect(result).toBe(remoteModuleId);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve');
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
   });
@@ -160,7 +160,7 @@ describe('pluginProxyRemotes', () => {
 
     const result = runResolveId(plugin, 'scheduler', '/repo/node_modules/.vite/deps/react-dom.js');
 
-    expect(result).toBe(remoteModulePath);
+    expect(result).toBe(remoteModuleId);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve');
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
   });
@@ -184,7 +184,7 @@ describe('pluginProxyRemotes', () => {
       '/repo/node_modules/some-package/index.js'
     );
 
-    expect(result).toBe(remoteModulePath);
+    expect(result).toBe(remoteModuleId);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler/SchedulePanel', 'serve');
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
   });

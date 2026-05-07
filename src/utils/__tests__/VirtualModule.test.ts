@@ -1,6 +1,3 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'fs';
-import { join } from 'pathe';
-import { tmpdir } from 'os';
 import VirtualModule, { getSuffix, assertModuleFound } from '../VirtualModule';
 import { normalizeModuleFederationOptions } from '../normalizeModuleFederationOptions';
 
@@ -56,22 +53,18 @@ describe('assertModuleFound', () => {
 });
 
 describe('VirtualModule writeSync', () => {
-  it('creates missing virtual module directories before writing', () => {
-    const root = mkdtempSync(join(tmpdir(), 'mf-vm-'));
-    try {
-      mkdirSync(join(root, 'node_modules'), { recursive: true });
-      normalizeModuleFederationOptions({
-        name: 'analytics',
-      });
-      VirtualModule.setRoot(root);
+  it('stores generated code in memory behind a virtual id', () => {
+    normalizeModuleFederationOptions({
+      name: 'analytics',
+    });
 
-      const vm = new VirtualModule('mui/styles', '__loadShare__', '.js');
-      vm.writeSync('export default 1;');
+    const vm = new VirtualModule('mui/styles', '__loadShare__', '.js');
+    vm.writeSync('export default 1;');
 
-      expect(existsSync(vm.getPath())).toBe(true);
-      expect(readFileSync(vm.getPath(), 'utf8')).toBe('export default 1;');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(vm.getImportId()).toMatch(/^virtual:mf:/);
+    expect(vm.getResolvedId()).toBe(`\0${vm.getImportId()}`);
+    expect(vm.code).toBe('export default 1;');
+    expect(VirtualModule.findById(vm.getResolvedId())).toBe(vm);
+    expect(assertModuleFound('__loadShare__', vm.getImportId())).toBe(vm);
   });
 });

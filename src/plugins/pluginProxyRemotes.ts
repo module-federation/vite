@@ -40,7 +40,7 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     const remoteModule = getRemoteVirtualModule(source, command);
     addUsedRemote(remoteName, source);
     refreshHostAutoInit();
-    return remoteModule.getPath();
+    return remoteModule.getImportId();
   }
 
   return {

@@ -37,7 +37,7 @@ describe('generateRemotes', () => {
     expect(code).toContain('const mod = await __mfRemotePending;');
     expect(code).toContain('export const __moduleExports = exportModule;');
     expect(code).toContain(
-      'export default exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule'
+      'export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule'
     );
   });
 
