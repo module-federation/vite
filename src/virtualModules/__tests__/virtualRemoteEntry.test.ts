@@ -22,10 +22,6 @@ vi.mock('../../utils/VirtualModule', () => {
         this.name = name;
       }
 
-      getPath() {
-        return `/virtual/${this.name}.js`;
-      }
-
       getImportId() {
         return `virtual:${this.name}`;
       }

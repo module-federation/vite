@@ -30,7 +30,11 @@ export function getUsedRemotesMap() {
 }
 export function generateRemotes(id: string, command: string) {
   const useReactProxy = command === 'serve' && hasPackageDependency('react');
-  const reactImportLine = useReactProxy ? `import * as __mfReact from "react";` : '';
+  const reactImportLine = useReactProxy
+    ? `import __mfReactDefault from "react";
+    import * as __mfReactNamespace from "react";
+    const __mfReact = __mfReactDefault ?? __mfReactNamespace.default ?? __mfReactNamespace;`
+    : '';
   const importLine =
     command === 'build'
       ? `${getRuntimeModuleCacheBootstrapCode()}
@@ -53,7 +57,7 @@ export function generateRemotes(id: string, command: string) {
 }
 export const __moduleExports = exportModule;
 export const __mf_remote_pending = Promise.resolve(exportModule);
-export default exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule`
+export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule`
       : command === 'build'
         ? `if (__mfRemotePending) {
   const mod = await __mfRemotePending;
@@ -61,7 +65,7 @@ export default exportModule?.__esModule ? exportModule.default : exportModule.de
 }
 export const __moduleExports = exportModule;
 export const __mf_remote_pending = Promise.resolve(exportModule);
-export default exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule`
+export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule`
         : 'export default exportModule';
   const devProxyCode =
     command !== 'build'

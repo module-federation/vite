@@ -221,9 +221,9 @@ function getShareItemForPreload(pkg: string) {
 function generateSharedCacheSeedItem(pkg: string, importPath: string) {
   return `if (__mfModuleCache.share[${JSON.stringify(pkg)}] === undefined) {
         const mod = await import(${JSON.stringify(importPath)});
-        const exportModule = ${JSON.stringify(shouldUseDirectReactImport())} && ${JSON.stringify(pkg)} === "react"
-          ? (mod?.default ?? mod)
-          : {...mod};
+        ${normalizeRuntimeShareCode}
+        const normalizedModule = __mfNormalizeRuntimeShare(mod);
+        const exportModule = normalizedModule === mod ? {...mod} : normalizedModule;
         Object.defineProperty(exportModule, "__esModule", {
           value: true,
           enumerable: false
@@ -231,6 +231,18 @@ function generateSharedCacheSeedItem(pkg: string, importPath: string) {
         __mfModuleCache.share[${JSON.stringify(pkg)}] = exportModule;
       }`;
 }
+
+const normalizeRuntimeShareCode = `const __mfNormalizeRuntimeShare = (mod) => {
+            let current = mod;
+            for (let i = 0; i < 5; i++) {
+              const defaultExport = current?.default;
+              if (!defaultExport || typeof defaultExport !== "object") break;
+              const namedValues = Object.keys(current).filter((key) => key !== "default").map((key) => current[key]);
+              if (namedValues.length > 0 && namedValues.some((value) => value !== undefined)) break;
+              current = defaultExport;
+            }
+            return current;
+          };`;
 
 export function generateDirectSharedCacheSeedCode(command = 'build') {
   return getOrderedUsedShares()
@@ -402,12 +414,14 @@ export function generateRemoteEntry(
     }
     for (const [pkg, share] of Object.entries(usedShared)) {
       if (share.shareConfig?.import !== false || __mfModuleCache.share[pkg] !== undefined) continue;
+      ${normalizeRuntimeShareCode}
       const versions = shared?.[pkg];
       const provider = versions && versions[Object.keys(versions)[0]];
       if (!provider) continue;
       const factory = provider.lib || (provider.loading ? await provider.loading : await provider.get?.());
       const mod = typeof factory === "function" ? factory() : factory;
-      __mfModuleCache.share[pkg] = await Promise.resolve(mod);
+      const resolved = await Promise.resolve(mod);
+      __mfModuleCache.share[pkg] = __mfNormalizeRuntimeShare(resolved);
     }
     return initRes
   }
@@ -443,6 +457,7 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
           const remoteEntry = await import(${remoteEntryImport});
           const runtime = await remoteEntry.init();
           const usedShared = ${generateUsedSharedPreloadConfig()};
+          ${normalizeRuntimeShareCode}
           for (const [pkg, share] of Object.entries(usedShared)) {
             if (__mfModuleCache.share[pkg] !== undefined) {
               continue;
@@ -452,7 +467,7 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
             }).then((factory) => {
               const mod = typeof factory === "function" ? factory() : factory;
               return Promise.resolve(mod).then((resolved) => {
-                __mfModuleCache.share[pkg] = resolved;
+                __mfModuleCache.share[pkg] = __mfNormalizeRuntimeShare(resolved);
               });
             });
           }
@@ -487,5 +502,5 @@ export function getHostAutoInitImportId() {
   return hostAutoInitModule.getImportId();
 }
 export function getHostAutoInitPath() {
-  return hostAutoInitModule.getPath();
+  return hostAutoInitModule.getImportId();
 }

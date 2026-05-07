@@ -599,7 +599,7 @@ describe('vite:module-federation-early-init', () => {
     expect(federationIgnored('/repo/src/App.vue')).toBe(false);
   });
 
-  it('skips loadShare optimizeDeps include in Rolldown serve, but keeps prebuild include', () => {
+  it('skips pure virtual optimizeDeps includes in Rolldown serve', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {
       root: process.cwd(),
@@ -617,9 +617,10 @@ describe('vite:module-federation-early-init', () => {
       { command: 'serve', mode: 'test' }
     );
 
-    expect(config.optimizeDeps.include).toContain(virtualRuntimeInitStatus.getImportId());
-    expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
+    expect(config.optimizeDeps.include).not.toContain(virtualRuntimeInitStatus.getImportId());
+    expect(config.optimizeDeps.include).not.toContain(getPreBuildLibImportId('vue'));
     expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('vue', true));
+    expect(config.optimizeDeps.include.join(',')).not.toContain('virtual:mf:');
   });
 
   it('proxies shared deps during Rolldown optimizeDeps resolution', () => {
@@ -653,7 +654,7 @@ describe('vite:module-federation-early-init', () => {
     );
   });
 
-  it('keeps loadShare optimizeDeps include in non-Rolldown serve', () => {
+  it('skips pure virtual optimizeDeps includes in non-Rolldown serve', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {
       root: process.cwd(),
@@ -667,8 +668,9 @@ describe('vite:module-federation-early-init', () => {
       mode: 'test',
     });
 
-    expect(config.optimizeDeps.include).toContain(getPreBuildLibImportId('vue'));
-    expect(config.optimizeDeps.include).toContain(getLoadShareImportId('vue', false));
+    expect(config.optimizeDeps.include).not.toContain(getPreBuildLibImportId('vue'));
+    expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('vue', false));
+    expect(config.optimizeDeps.include.join(',')).not.toContain('virtual:mf:');
   });
 
   it('redirects System.register commonjs-proxy consumers to loadShare chunks', () => {
@@ -885,6 +887,7 @@ describe('vite:module-federation-early-init', () => {
 
     expect(config.optimizeDeps.include).toContain('@module-federation/runtime');
     expect(config.optimizeDeps.include).not.toContain('__mf__virtual');
+    expect(config.optimizeDeps.include.join(',')).not.toContain('virtual:mf:');
     expect(config.optimizeDeps.needsInterop).toBeUndefined();
   });
 });
@@ -924,8 +927,7 @@ describe('vite:module-federation-early-init with import: false', () => {
     const includeStr = config.optimizeDeps.include.join(',');
     expect(includeStr).not.toContain('vue');
     expect(includeStr).not.toContain('pinia');
-    // Should still include runtimeInit
-    expect(config.optimizeDeps.include).toContain(virtualRuntimeInitStatus.getImportId());
+    expect(config.optimizeDeps.include).not.toContain(virtualRuntimeInitStatus.getImportId());
   });
 });
 

@@ -295,7 +295,7 @@ describe('pluginAddEntry', () => {
     if (typeof result !== 'string') throw new Error('transformIndexHtml should return html string');
 
     expect(result).toContain('src="/@vite/client"');
-    expect(result).toContain('src="/@id/virtual:mf-html-entry-proxy?');
+    expect(result).toContain('src="/@id/__x00__virtual:mf-html-entry-proxy?');
     expect(result).not.toContain('await import(');
     expect(result).not.toContain('<script type="module">');
   });
@@ -352,10 +352,10 @@ describe('pluginAddEntry', () => {
     // Vite client must not be rewritten
     expect(result).toContain('src="/foo/@vite/client"');
     // Entry script must be rewritten to use the proxy module
-    expect(result).toContain('src="/@id/virtual:mf-html-entry-proxy?');
+    expect(result).toContain('src="/@id/__x00__virtual:mf-html-entry-proxy?');
 
     // Extract the proxy module ID from the rewritten HTML and load it
-    const proxyIdMatch = result.match(/src="\/@id\/(virtual:mf-html-entry-proxy\?[^"]+)"/);
+    const proxyIdMatch = result.match(/src="\/@id\/(__x00__virtual:mf-html-entry-proxy\?[^"]+)"/);
     expect(proxyIdMatch).not.toBeNull();
     const proxyId = decodeURIComponent(proxyIdMatch![1]).replace(/&amp;/g, '&');
     const code = await runLoad(servePlugin, proxyId);

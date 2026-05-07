@@ -1,58 +1,7 @@
-import { existsSync, mkdirSync, writeFile, writeFileSync } from 'fs';
-import { dirname, join, parse, resolve, basename } from 'pathe';
+import { basename } from 'pathe';
 import { packageNameDecode, packageNameEncode } from '../utils/packageUtils';
 import { createModuleFederationError } from './logger';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
-
-/**
- * Initialize virtual module infrastructure BEFORE VirtualModule class is used.
- * This must be called in the config hook to ensure the directory exists
- * before Vite's optimization phase.
- */
-export function initVirtualModuleInfrastructure(
-  root: string,
-  virtualModuleDir = '__mf__virtual'
-): void {
-  const nodeModulesPath = join(root, 'node_modules');
-  const virtualPackagePath = join(nodeModulesPath, virtualModuleDir);
-
-  mkdirSync(virtualPackagePath, { recursive: true });
-  writeFileSync(join(virtualPackagePath, 'empty.js'), '');
-  writeFileSync(
-    join(virtualPackagePath, 'package.json'),
-    JSON.stringify({
-      name: virtualModuleDir,
-      main: 'empty.js',
-    })
-  );
-}
-
-// Cache root path
-let rootDir: string | undefined;
-
-function findNodeModulesDir(root: string = process.cwd()) {
-  let currentDir = root;
-
-  while (currentDir !== parse(currentDir).root) {
-    const nodeModulesPath = join(currentDir, 'node_modules');
-    if (existsSync(nodeModulesPath)) {
-      return nodeModulesPath;
-    }
-    currentDir = dirname(currentDir);
-  }
-
-  return '';
-}
-
-// Cache nodeModulesDir result to avoid repeated calculations
-let cachedNodeModulesDir: string | undefined;
-
-function getNodeModulesDir() {
-  if (!cachedNodeModulesDir) {
-    cachedNodeModulesDir = findNodeModulesDir(rootDir);
-  }
-  return cachedNodeModulesDir;
-}
 
 export function getSuffix(name: string): string {
   const base = basename(name);
@@ -75,9 +24,6 @@ const cacheMap: {
   };
 } = {};
 
-/**
- * Physically generate files as virtual modules under node_modules/__mf__virtual/*
- */
 export function assertModuleFound(tag: string, str: string = ''): VirtualModule {
   const module = VirtualModule.findModule(tag, str);
   if (!module) {
@@ -93,35 +39,7 @@ export default class VirtualModule {
   tag: string;
   suffix: string;
   inited: boolean = false;
-
-  /**
-   * Set the root path for finding node_modules
-   * @param root - Root path
-   */
-  static setRoot(root: string) {
-    rootDir = root;
-    // Reset cache to ensure using the new root path
-    cachedNodeModulesDir = undefined;
-  }
-
-  /**
-   * Ensure virtual package directory exists
-   */
-  static ensureVirtualPackageExists() {
-    const nodeModulesDir = getNodeModulesDir();
-    const { virtualModuleDir } = getNormalizeModuleFederationOptions();
-    const virtualPackagePath = resolve(nodeModulesDir, virtualModuleDir);
-
-    mkdirSync(virtualPackagePath, { recursive: true });
-    writeFileSync(resolve(virtualPackagePath, 'empty.js'), '');
-    writeFileSync(
-      resolve(virtualPackagePath, 'package.json'),
-      JSON.stringify({
-        name: virtualModuleDir,
-        main: 'empty.js',
-      })
-    );
-  }
+  code: string | undefined;
 
   static findModule(tag: string, str: string = ''): VirtualModule | undefined {
     if (!patternMap[tag])
@@ -129,6 +47,19 @@ export default class VirtualModule {
     const moduleName = (str.match(patternMap[tag]) || [])[2];
     if (moduleName)
       return cacheMap[tag][packageNameDecode(moduleName)] as VirtualModule | undefined;
+    return undefined;
+  }
+
+  static findById(id: string): VirtualModule | undefined {
+    const normalized = id
+      .replace(/^\0/, '')
+      .replace(/^\/@id\//, '')
+      .replace(/^__x00__/, '');
+    for (const modules of Object.values(cacheMap)) {
+      for (const module of Object.values(modules)) {
+        if (module.getImportId() === normalized) return module;
+      }
+    }
     return undefined;
   }
 
@@ -140,13 +71,13 @@ export default class VirtualModule {
     cacheMap[this.tag][this.name] = this;
   }
 
-  getPath() {
-    return resolve(getNodeModulesDir(), this.getImportId());
+  getImportId() {
+    const { internalName: mfName } = getNormalizeModuleFederationOptions();
+    return `virtual:mf:${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`;
   }
 
-  getImportId() {
-    const { internalName: mfName, virtualModuleDir } = getNormalizeModuleFederationOptions();
-    return `${virtualModuleDir}/${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`;
+  getResolvedId() {
+    return `\0${this.getImportId()}`;
   }
 
   writeSync(code: string, force?: boolean) {
@@ -154,14 +85,10 @@ export default class VirtualModule {
     if (!this.inited) {
       this.inited = true;
     }
-    const path = this.getPath();
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, code);
+    this.code = code;
   }
 
   write(code: string) {
-    const path = this.getPath();
-    mkdirSync(dirname(path), { recursive: true });
-    writeFile(path, code, function () {});
+    this.writeSync(code, true);
   }
 }

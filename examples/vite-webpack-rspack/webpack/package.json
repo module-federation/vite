@@ -5,8 +5,8 @@
     "build": "webpack --mode production",
     "build:dev": "webpack --mode development",
     "build:start": "cd dist && PORT=8080 npx serve",
-    "start": "webpack serve --mode development",
-    "start:live": "webpack serve --mode development --live-reload --hot"
+    "start": "BROWSERSLIST_IGNORE_OLD_DATA=1 webpack serve --mode development",
+    "start:live": "BROWSERSLIST_IGNORE_OLD_DATA=1 webpack serve --mode development --live-reload --hot"
   },
   "license": "MIT",
   "devDependencies": {
