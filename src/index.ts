@@ -412,7 +412,22 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       }
     }
 
-    options.runtimePlugins.push(['@module-federation/vite/ssrEntryLoader', { resolvedShared }]);
+    // Only auto-inject when the built subpath export is available. In source-
+    // only environments (e.g. integration tests that run against src/ without
+    // a prior build step) the lib/ directory doesn't exist yet. Skip injection
+    // silently — users can still inject manually via runtimePlugins.
+    const ssrEntryLoaderSpecifier = '@module-federation/vite/ssrEntryLoader';
+    let ssrEntryLoaderAvailable = false;
+    try {
+      pluginRequire.resolve(ssrEntryLoaderSpecifier);
+      ssrEntryLoaderAvailable = true;
+    } catch {
+      // lib/ not built yet
+    }
+
+    if (ssrEntryLoaderAvailable) {
+      options.runtimePlugins.push([ssrEntryLoaderSpecifier, { resolvedShared }]);
+    }
   }
 
   const isVinext = hasPackageDependency('vinext');
