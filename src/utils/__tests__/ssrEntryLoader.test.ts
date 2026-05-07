@@ -390,10 +390,6 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
         written += code as string;
       }
     );
-    const moduleMock = await import('module');
-    (moduleMock.createRequire as ReturnType<typeof vi.fn>).mockReturnValue({
-      resolve: vi.fn((pkg: string) => `/abs/node_modules/${pkg}/index.js`),
-    });
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
       'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
@@ -405,7 +401,8 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     });
     global.fetch = fetch as unknown as typeof globalThis.fetch;
     const factory = await freshLoader();
-    await factory().loadEntry!({
+    // resolvedShared is pre-populated at build time by index.ts — simulate that here.
+    await factory({ resolvedShared: { react: '/abs/node_modules/react/index.js' } }).loadEntry!({
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
     });
     expect(written).toContain('file:///abs/node_modules/react/index.js');

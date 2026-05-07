@@ -382,7 +382,37 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       return specifier === '@module-federation/vite/ssrEntryLoader';
     })
   ) {
-    options.runtimePlugins.push('@module-federation/vite/ssrEntryLoader');
+    const sharedKeys = Object.keys(options.shared ?? {});
+
+    // Resolve common shared packages at build time from the Vite plugin's own
+    // location. This is package-manager-agnostic: because @module-federation/vite
+    // directly depends on @module-federation/runtime (and react is always
+    // available from the host app), resolution is guaranteed regardless of how
+    // the host project is structured (npm hoisting, pnpm, Yarn v4, etc.).
+    // The resolved absolute paths are embedded in the plugin options so
+    // ssrEntryLoader can rewrite bare specifiers in temp files without needing
+    // any runtime createRequire walk-up logic.
+    const pluginRequire = createRequire(import.meta.url);
+    const commonSharedPkgs = [
+      'react',
+      'react-dom',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      '@module-federation/runtime',
+      '@module-federation/runtime-core',
+      '@module-federation/sdk',
+    ];
+    const resolvedShared: Record<string, string> = {};
+    for (const pkg of [...commonSharedPkgs, ...sharedKeys]) {
+      try {
+        resolvedShared[pkg] = pluginRequire.resolve(pkg);
+      } catch {
+        // Package not installed at this location — ssrEntryLoader will
+        // try to resolve it from the host app at runtime as a fallback.
+      }
+    }
+
+    options.runtimePlugins.push(['@module-federation/vite/ssrEntryLoader', { resolvedShared }]);
   }
 
   const isVinext = hasPackageDependency('vinext');

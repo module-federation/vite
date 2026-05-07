@@ -262,10 +262,10 @@ async function fetchEsmToTempFile(
   return promise;
 }
 
-async function loadSSRRemoteEntry(ssrEntry: {
-  url: string;
-  type: string;
-}): Promise<{ init: unknown; get: unknown } | null> {
+async function loadSSRRemoteEntry(
+  ssrEntry: { url: string; type: string },
+  resolvedShared: Record<string, string> = {}
+): Promise<{ init: unknown; get: unknown } | null> {
   const { url, type } = ssrEntry;
 
   if (type === 'commonjs-module' || type === 'commonjs') {
@@ -286,25 +286,14 @@ async function loadSSRRemoteEntry(ssrEntry: {
   // rewrite relative imports to absolute URLs, then load via data: URL.
   if (url.startsWith('http://') || url.startsWith('https://')) {
     const { mkdirSync } = await _fs();
-    const { createRequire } = await _module();
     const cacheDir = await getSSRCacheDir();
     mkdirSync(cacheDir, { recursive: true });
 
-    // Build a map of bare package specifier → absolute file path anchored to
-    // the MF plugin's own location. Since the plugin lives in the host app's
-    // node_modules (via the `ssrEntryLoader` subpath export), resolving from
-    // import.meta.url walks up through the host's node_modules tree and finds
-    // the same React version that the host's SSR runtime uses.
-    const pluginRequire = createRequire(import.meta.url);
-    const sharedPkgMap = new Map<string, string>();
-    const commonShared = ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'];
-    for (const pkg of commonShared) {
-      try {
-        sharedPkgMap.set(pkg, pluginRequire.resolve(pkg));
-      } catch {
-        // Package not installed in the host app — skip.
-      }
-    }
+    // resolvedShared is pre-populated at build time by the Vite plugin from
+    // the MF plugin's own installed location, making resolution package-
+    // manager-agnostic. We use it directly here — no runtime createRequire
+    // walk-up needed.
+    const sharedPkgMap = new Map(Object.entries(resolvedShared));
 
     try {
       const tmpFile = await fetchEsmToTempFile(url, cacheDir, new Map(), sharedPkgMap);
@@ -330,8 +319,20 @@ async function loadSSRRemoteEntry(ssrEntry: {
  *
  * The plugin is also injected automatically for SSR contexts by the vite plugin.
  */
+interface SsrEntryLoaderOptions {
+  /**
+   * Pre-resolved absolute file paths for common shared packages, keyed by
+   * bare specifier. Populated at build time by the Vite plugin from the MF
+   * plugin's own installed location so the resolution is package-manager-
+   * agnostic. ssrEntryLoader uses these directly when rewriting bare specifiers
+   * in remote SSR entry temp files — no runtime createRequire walk-up needed.
+   */
+  resolvedShared?: Record<string, string>;
+}
+
 // Default export so the module can be referenced as a runtimePlugin path string.
-export default function ssrEntryLoaderPlugin() {
+export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}) {
+  const resolvedShared = options.resolvedShared ?? {};
   return {
     name: 'mf-vite:ssr-entry-loader',
     async loadEntry({ remoteInfo }: { remoteInfo: RemoteInfo }) {
@@ -341,7 +342,7 @@ export default function ssrEntryLoaderPlugin() {
       const ssrEntry = await getSSREntry(remoteInfo.entry);
       if (!ssrEntry) return;
 
-      const mod = await loadSSRRemoteEntry(ssrEntry);
+      const mod = await loadSSRRemoteEntry(ssrEntry, resolvedShared);
       if (!mod) return;
 
       return mod;
