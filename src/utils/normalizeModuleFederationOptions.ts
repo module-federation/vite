@@ -251,7 +251,8 @@ function normalizeShareItem(
     shareConfig: {
       import: shareItem.import,
       singleton: shareItem.singleton || false,
-      requiredVersion: shareItem.requiredVersion || (version ? `^${version}` : '*'),
+      requiredVersion:
+        shareItem.requiredVersion || (isImportFalse ? '*' : version ? `^${version}` : '*'),
       strictVersion: !!shareItem.strictVersion,
     },
   };

@@ -310,7 +310,7 @@ describe('normalizeModuleFederationOption', () => {
       // Should resolve version from react's package.json
       expect(result['react'].version).toBeDefined();
       expect(result['react'].version).not.toBe('0');
-      expect(result['react'].shareConfig.requiredVersion).toMatch(/^\^/);
+      expect(result['react'].shareConfig.requiredVersion).toBe('*');
       expect(result['react'].shareConfig.import).toBe(false);
       expect(result['react'].shareConfig.singleton).toBe(true);
     });
