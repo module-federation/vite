@@ -21,10 +21,7 @@ import {
   getPackageName,
 } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
-import {
-  getRuntimeModuleCacheBootstrapCode,
-  getRuntimeInitPromiseBootstrapCode,
-} from './virtualRuntimeInitStatus';
+import { getRuntimeModuleCacheBootstrapCode } from './virtualRuntimeInitStatus';
 
 const JS_IDENTIFIER_REGEX = new RegExp(
   '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
@@ -402,30 +399,7 @@ export function writeLoadShareModule(
     loadShareCacheMap[pkg].writeSync(
       `
     ${importLine}
-    ${getRuntimeInitPromiseBootstrapCode()}
-    let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
-    if (exportModule === undefined) {
-      const runtime = await initPromise;
-      const scope = runtime.shareScopeMap?.["default"]?.[${escapeGeneratedStringLiteral(pkg)}];
-      if (scope) {
-        for (const entry of Object.values(scope)) {
-          if (entry.lib) {
-            exportModule = typeof entry.lib === "function" ? entry.lib() : entry.lib;
-            break;
-          }
-          if (entry.get) {
-            try {
-              const factory = await entry.get();
-              exportModule = typeof factory === "function" ? factory() : factory;
-              break;
-            } catch {}
-          }
-        }
-      }
-      if (exportModule !== undefined) {
-        __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}] = exportModule;
-      }
-    }
+    const exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
     if (exportModule === undefined) {
       throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.")
     }
