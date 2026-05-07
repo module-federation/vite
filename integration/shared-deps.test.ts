@@ -96,7 +96,8 @@ describe('shared dependencies', () => {
     expect(remoteEntry).toBeDefined();
     expect(loadShare).toBeDefined();
     expect(remoteEntry!.code).toContain('const versions =');
-    expect(remoteEntry!.code).toContain('shared[pkg]');
+    expect(remoteEntry!.code).toContain('[pkg]');
+    expect(remoteEntry!.code).toContain('const provider = versions && versions[Object.keys(versions)[0]]');
     expect(remoteEntry!.code).toContain('__mfModuleCache.share[pkg]');
     expect(remoteEntry!.code).not.toContain('initRes.loadShare(pkg');
     expect(loadShare!.code).toContain('initPromise.then');
