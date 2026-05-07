@@ -176,6 +176,13 @@ ${importHelper}(async () => {
     return inject === 'entry' || !htmlFilePath;
   }
 
+  function normalizeDevHtmlProxyId(id: string) {
+    return id
+      .replace(/^\0/, '')
+      .replace(/^\/@id\//, '')
+      .replace(/^__x00__/, '');
+  }
+
   return [
     {
       name: 'add-entry',
@@ -202,7 +209,21 @@ ${importHelper}(async () => {
         }
       },
       configureServer(server) {
-        server.middlewares.use((req, _res, next) => {
+        server.middlewares.use((req, res, next) => {
+          const rawUrl = req.url?.split('#')[0] ?? '';
+          const proxyId = normalizeDevHtmlProxyId(rawUrl.split('?')[0]);
+          if (proxyId === DEV_HTML_PROXY_PREFIX.slice(0, -1)) {
+            const query = rawUrl.slice(rawUrl.indexOf('?') + 1);
+            const params = new URLSearchParams(query);
+            const initSrc = params.get('init');
+            const entrySrc = params.get('entry');
+            if (initSrc && entrySrc) {
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/javascript');
+              res.end(getBootstrapSource(initSrc, entrySrc));
+              return;
+            }
+          }
           if (!fileName) {
             next();
             return;
@@ -236,19 +257,21 @@ ${importHelper}(async () => {
               init: sanitizeDevEntryPath(stripBase(devEntryPath)),
               entry: sanitizeDevEntryPath(stripBase(originalSrc)),
             }).toString();
-            return `/@id/${DEV_HTML_PROXY_PREFIX}${query}`;
+            return `/@id/__x00__${DEV_HTML_PROXY_PREFIX}${query}`;
           });
           return html === c ? injectEntryScript(c, stripBase(devEntryPath)) : html;
         },
       },
       resolveId(id) {
-        if (id.startsWith(DEV_HTML_PROXY_PREFIX)) {
+        const normalizedId = normalizeDevHtmlProxyId(id);
+        if (normalizedId.startsWith(DEV_HTML_PROXY_PREFIX)) {
           return id;
         }
       },
       load(id) {
-        if (!id.startsWith(DEV_HTML_PROXY_PREFIX)) return;
-        const params = new URLSearchParams(id.slice(DEV_HTML_PROXY_PREFIX.length));
+        const normalizedId = normalizeDevHtmlProxyId(id);
+        if (!normalizedId.startsWith(DEV_HTML_PROXY_PREFIX)) return;
+        const params = new URLSearchParams(normalizedId.slice(DEV_HTML_PROXY_PREFIX.length));
         const initSrc = params.get('init');
         const entrySrc = params.get('entry');
         if (!initSrc || !entrySrc) return;

@@ -21,7 +21,10 @@ import {
   getPackageName,
 } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
-import { getRuntimeModuleCacheBootstrapCode } from './virtualRuntimeInitStatus';
+import {
+  getRuntimeInitPromiseBootstrapCode,
+  getRuntimeModuleCacheBootstrapCode,
+} from './virtualRuntimeInitStatus';
 
 const JS_IDENTIFIER_REGEX = new RegExp(
   '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
@@ -323,6 +326,19 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
     );
     return;
   }
+  const namedExports = getPackageNamedExports(pkg);
+  if (namedExports.length > 0) {
+    preBuildCacheMap[pkg].writeSync(
+      `
+    import * as __mfPrebuildNamespace from ${escapeGeneratedStringLiteral(importSource)};
+    const __mfPrebuildExports = __mfPrebuildNamespace;
+    ${namedExports.map((name) => `export const ${name} = __mfPrebuildExports[${escapeGeneratedStringLiteral(name)}];`).join('\n    ')}
+    export default __mfPrebuildExports;
+  `,
+      true
+    );
+    return;
+  }
   preBuildCacheMap[pkg].writeSync(
     `
     import * as __mfPrebuildExports from ${escapeGeneratedStringLiteral(importSource)};
@@ -339,7 +355,7 @@ export function getPreBuildLibImportId(pkg: string): string {
 }
 export function getPreBuildLibPath(pkg: string): string {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
-  return preBuildCacheMap[pkg].getPath();
+  return preBuildCacheMap[pkg].getImportId();
 }
 export function getPreBuildShareItem(pkg: string): ShareItem | undefined {
   return preBuildShareItemMap[pkg];
@@ -361,9 +377,65 @@ export function getLoadShareImportId(pkg: string, _isRolldown: boolean): string 
 }
 export function getLoadShareModulePath(pkg: string, isRolldown: boolean): string {
   if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown);
-  const filepath = loadShareCacheMap[pkg].getPath();
+  const filepath = loadShareCacheMap[pkg].getImportId();
   return filepath;
 }
+
+function generateDeferredHostProvidedExports(namedExports: string[]) {
+  const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+  const declarations = ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join(
+    '\n    '
+  );
+  const assignments = [
+    ...namedExports.map(
+      (name, i) => `${namedExportVars[i]} = exportModule[${escapeGeneratedStringLiteral(name)}];`
+    ),
+    '__mf_default = exportModule.default ?? exportModule;',
+  ].join('\n      ');
+  const namedExportLine =
+    namedExports.length > 0
+      ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+      : '';
+
+  return `${declarations}
+    const __mf_assign_exports = () => {
+      ${assignments}
+    };
+    __mf_init_export_module.then(__mf_assign_exports);
+    export { __mf_default as default };${namedExportLine}`;
+}
+
+function generateShareModuleUnwrapCode({
+  source,
+  preserveNamedExports,
+  stopWithReturn,
+}: {
+  source: string;
+  preserveNamedExports: boolean;
+  stopWithReturn?: string;
+}) {
+  const stopLine = stopWithReturn
+    ? `if (!defaultExport || typeof defaultExport !== "object") return ${stopWithReturn};`
+    : `if (!defaultExport || typeof defaultExport !== "object") break;`;
+  const namedExportGuard = preserveNamedExports
+    ? `
+        const namedValues = Object.keys(current).filter((key) => key !== "default").map((key) => current[key]);
+        if (namedValues.length > 0 && namedValues.some((value) => value !== undefined)) break;`
+    : '';
+
+  return `let current = ${source};
+      for (let i = 0; i < 5; i++) {
+        const defaultExport = current?.default;
+        ${stopLine}${namedExportGuard}
+        current = defaultExport;
+      }
+      return current;`;
+}
+
+const normalizeLocalShareModuleCode = `const __mfNormalizeShareModule = (mod) => {
+      ${generateShareModuleUnwrapCode({ source: 'mod', preserveNamedExports: true })}
+    };`;
+
 export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
@@ -385,24 +457,27 @@ export function writeLoadShareModule(
     const namedExports = getPackageNamedExports(pkg);
     let exportLine: string;
     if (namedExports.length > 0) {
-      const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
-      const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
-      exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
+      exportLine = generateDeferredHostProvidedExports(namedExports);
     } else {
       mfWarn(
         `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
           `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +
           `  Install it as a devDependency to enable named export detection.`
       );
-      exportLine = 'export default exportModule.default ?? exportModule';
+      exportLine = generateDeferredHostProvidedExports([]);
     }
     loadShareCacheMap[pkg].writeSync(
       `
     ${importLine}
-    const exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
-    if (exportModule === undefined) {
-      throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.")
-    }
+    ${getRuntimeInitPromiseBootstrapCode()}
+    let exportModule;
+    const __mf_init_export_module = initPromise.then(() => {
+      exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
+      if (exportModule === undefined) {
+        throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.")
+      }
+      return exportModule
+    });
     ${exportLine}
   `,
       true
@@ -427,7 +502,16 @@ export function writeLoadShareModule(
   if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
     const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
-    exportLine = `export default exportModule.default ?? exportModule;\n    ${destructure}\n    ${namedExportLine}`;
+    exportLine = `const __mfDefaultExport = (() => {
+      ${generateShareModuleUnwrapCode({
+        source: 'exportModule',
+        preserveNamedExports: false,
+        stopWithReturn: 'defaultExport ?? current',
+      })}
+    })();
+    export default __mfDefaultExport;
+    ${destructure}
+    ${namedExportLine}`;
   } else if (usesLazyLocalFallback) {
     exportLine = `export default exportModule.default ?? exportModule`;
   } else {
@@ -450,13 +534,14 @@ export function writeLoadShareModule(
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
+    ${normalizeLocalShareModuleCode}
     let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
     if (exportModule === undefined) {
       ${
         usesLazyLocalFallback
-          ? `exportModule = await import(${escapeGeneratedStringLiteral(lazyLocalFallbackSource)});
+          ? `exportModule = __mfNormalizeShareModule(await import(${escapeGeneratedStringLiteral(lazyLocalFallbackSource)}));
       __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}] = exportModule;`
-          : `exportModule = __mfLocalShare;
+          : `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}] = exportModule;`
       }
     }

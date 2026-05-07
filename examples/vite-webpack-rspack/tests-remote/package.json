@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start": "vite",
+    "start": "BROWSERSLIST_IGNORE_OLD_DATA=1 vite",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"

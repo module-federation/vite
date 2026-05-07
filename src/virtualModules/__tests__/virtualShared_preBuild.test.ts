@@ -567,7 +567,8 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
+    expect(generatedCode).toContain('const __mfDefaultExport = (() => {');
+    expect(generatedCode).toContain('export default __mfDefaultExport;');
   });
 
   it('uses shareConfig.import as the concrete import source when provided', () => {
@@ -691,7 +692,7 @@ describe('writeLoadShareModule', () => {
     // Should not have export * (no local source to re-export from)
     expect(generatedCode).not.toContain('export *');
     expect(generatedCode).toContain('__mfModuleCache.share["host-only-dep"]');
-    expect(generatedCode).toContain('export default exportModule.default ?? exportModule');
+    expect(generatedCode).toContain('export { __mf_default as default }');
   });
 
   it('does not reference prebuild modules when import: false in build mode', () => {
@@ -718,7 +719,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('export *');
     expect(generatedCode).toContain('__mfModuleCache.share["host-only-dep"]');
     expect(generatedCode).not.toContain('await ');
-    expect(generatedCode).toContain('export default exportModule');
+    expect(generatedCode).toContain('export { __mf_default as default }');
   });
 
   it('generates named re-exports for import: false when package is installed as devDependency', () => {
@@ -749,7 +750,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('__mf_0 as delete');
     expect(generatedCode).toContain('__mf_1 as get');
     expect(generatedCode).toContain('__mf_2 as request');
-    expect(generatedCode).toContain('export default exportModule');
+    expect(generatedCode).toContain('export { __mf_default as default }');
   });
 
   it('prefers browser conditional exports when detecting shared ESM named exports', () => {
@@ -820,9 +821,9 @@ describe('writeLoadShareModule', () => {
 
     // No named export destructuring — package not installed, can't detect exports
     expect(generatedCode).not.toMatch(/const\s*\{.*__mf_\d+/);
-    expect(generatedCode).not.toContain('export {');
+    expect(generatedCode).not.toContain('__mf_0 as');
     // Only default export
-    expect(generatedCode).toContain('export default exportModule');
+    expect(generatedCode).toContain('export { __mf_default as default }');
     // Should warn about missing named exports in ESM build
     expect(mfWarnSpy).toHaveBeenCalledWith(expect.stringContaining('not installed locally'));
     expect(mfWarnSpy).toHaveBeenCalledWith(
@@ -878,7 +879,7 @@ describe('writeLoadShareModule', () => {
       expect.stringContaining('__TYPE_ONLY_EXPORT__'),
       expect.anything()
     );
-    expect(generatedCode).toContain('const { SharedCounter2: __mf_0 } = exportModule;');
+    expect(generatedCode).toContain('__mf_0 = exportModule["SharedCounter2"];');
     expect(generatedCode).toContain('export { __mf_0 as SharedCounter2 };');
     expect(generatedCode).not.toContain('as type');
     expect(mfWarnSpy).not.toHaveBeenCalled();
@@ -903,7 +904,8 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const { type: __mf_0, other: __mf_1 } = exportModule;');
+    expect(generatedCode).toContain('__mf_0 = exportModule["type"];');
+    expect(generatedCode).toContain('__mf_1 = exportModule["other"];');
     expect(generatedCode).toContain('export { __mf_0 as type, __mf_1 as other };');
   });
 
@@ -926,7 +928,8 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const { type: __mf_0, other: __mf_1 } = exportModule;');
+    expect(generatedCode).toContain('__mf_0 = exportModule["type"];');
+    expect(generatedCode).toContain('__mf_1 = exportModule["other"];');
     expect(generatedCode).toContain('export { __mf_0 as type, __mf_1 as other };');
   });
 
@@ -949,7 +952,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const { loader: __mf_0 } = exportModule;');
+    expect(generatedCode).toContain('__mf_0 = exportModule["loader"];');
     expect(generatedCode).toContain('export { __mf_0 as loader };');
   });
 
@@ -997,7 +1000,7 @@ describe('writeLoadShareModule', () => {
       'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
     );
     expect(generatedCode).toContain(
-      'exportModule = await import("/repo/packages/workspace-shared-lib/src/index.tsx");'
+      'exportModule = __mfNormalizeShareModule(await import("/repo/packages/workspace-shared-lib/src/index.tsx"));'
     );
     expect(generatedCode).not.toContain('__mfLocalShare');
   });
@@ -1023,7 +1026,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
     expect(generatedCode).not.toContain('export * from');
     expect(generatedCode).toContain(
-      'exportModule = await import("/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts");'
+      'exportModule = __mfNormalizeShareModule(await import("/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts"));'
     );
     expect(generatedCode).not.toContain('__mfLocalShare');
   });
@@ -1047,7 +1050,7 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).toContain('import * as __mfLocalShare from "mock-import-id";');
-    expect(generatedCode).toContain('exportModule = __mfLocalShare;');
+    expect(generatedCode).toContain('exportModule = __mfNormalizeShareModule(__mfLocalShare);');
     expect(generatedCode).not.toContain(
       'await import("/repo/packages/workspace-name-mismatch/src/index.ts")'
     );
@@ -1097,7 +1100,8 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'import * as __mfLocalShare from "lit/directives/class-map.js";'
     );
-    expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
+    expect(generatedCode).toContain('const __mfDefaultExport = (() => {');
+    expect(generatedCode).toContain('export default __mfDefaultExport;');
     expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('import("lit/directives/class-map.js")');
@@ -1125,7 +1129,8 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).toContain('const __mfCacheGlobalKey =');
     expect(generatedCode).toContain('import * as __mfLocalShare from "lit";');
-    expect(generatedCode).toContain('export default exportModule.default ?? exportModule;');
+    expect(generatedCode).toContain('const __mfDefaultExport = (() => {');
+    expect(generatedCode).toContain('export default __mfDefaultExport;');
     expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('import("lit")');

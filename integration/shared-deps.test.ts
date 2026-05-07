@@ -80,6 +80,34 @@ describe('shared dependencies', () => {
     expect(localSharedImportMap!.code).toContain('import: false');
   });
 
+  it('supports import:false named imports with runtime-registered host shares', async () => {
+    const output = await buildFixture({
+      fixture: 'shared-remote',
+      mfOptions: {
+        ...SHARED_BASE_MF_OPTIONS,
+        shared: { pathe: { import: false, singleton: true } },
+      },
+    });
+
+    const allCode = getAllChunkCode(output);
+    const remoteEntry = findChunk(output, 'remoteEntry');
+    const loadShare = findChunk(output, /loadShare.*pathe/);
+
+    expect(remoteEntry).toBeDefined();
+    expect(loadShare).toBeDefined();
+    expect(remoteEntry!.code).toContain('const versions =');
+    expect(remoteEntry!.code).toContain('[pkg]');
+    expect(remoteEntry!.code).toContain('const provider = versions && versions[Object.keys(versions)[0]]');
+    expect(remoteEntry!.code).toContain('__mfModuleCache.share[pkg]');
+    expect(remoteEntry!.code).not.toContain('initRes.loadShare(pkg');
+    expect(loadShare!.code).toContain('initPromise.then');
+    expect(loadShare!.code).toContain('__mfModuleCache.share["pathe"]');
+    expect(loadShare!.code).toContain('join');
+    expect(loadShare!.code).not.toContain('await initPromise');
+    expect(allCode).not.toContain('from"pathe"');
+    expect(allCode).not.toContain('from "pathe"');
+  });
+
   it('includes shared deps in manifest', async () => {
     const output = await buildFixture({
       fixture: 'shared-remote',

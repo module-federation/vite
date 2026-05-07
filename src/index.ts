@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
-import type { ConfigEnv, Plugin, ResolvedConfig, UserConfig } from 'vite';
+import type { ConfigEnv, Plugin, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
@@ -37,7 +37,7 @@ import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederat
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
 import { getCommonSharedSubpaths } from './utils/pathNormalization';
-import VirtualModule, { initVirtualModuleInfrastructure } from './utils/VirtualModule';
+import VirtualModule from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
   getHostAutoInitPath,
@@ -53,9 +53,7 @@ import { addUsedShares } from './virtualModules/virtualRemoteEntry';
 import { addUsedRemote } from './virtualModules/virtualRemotes';
 import { virtualRuntimeInitStatus } from './virtualModules/virtualRuntimeInitStatus';
 import {
-  getLoadShareImportId,
   getLoadShareModulePath,
-  getPreBuildLibImportId,
   writeLoadShareModule,
   writePreBuildLibPath,
 } from './virtualModules/virtualShared_preBuild';
@@ -186,12 +184,12 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
 }
 
 /**
- * Plugin that runs FIRST to create virtual module files in the config hook.
- * This prevents 504 "Outdated Optimize Dep" errors by ensuring files exist
+ * Plugin that runs FIRST to register generated virtual modules in the config hook.
+ * This prevents 504 "Outdated Optimize Dep" errors by ensuring ids are known
  * before Vite's optimization phase.
  */
 function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOptions): Plugin {
-  const { shared, remotes, virtualModuleDir } = options;
+  const { shared, remotes } = options;
   const isLitShare = (pkg: string) => pkg === 'lit' || pkg.startsWith('lit/');
 
   return {
@@ -203,13 +201,6 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       const root = config.root || process.cwd();
       setPackageDetectionCwd(root);
       const isVinext = hasPackageDependency('vinext');
-
-      // Create the virtual module directory structure EARLY
-      initVirtualModuleInfrastructure(root, virtualModuleDir);
-
-      // Set root for VirtualModule class
-      VirtualModule.setRoot(root);
-      VirtualModule.ensureVirtualPackageExists();
 
       // Create core virtual modules
       initVirtualModules(_command, getRemoteEntryId(options));
@@ -273,6 +264,10 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             optimizeDeps.esbuildOptions.plugins.push({
               name: 'module-federation:optimize-shared-proxy',
               setup(build: any) {
+                build.onResolve({ filter: /^virtual:mf:/ }, (args: any) => ({
+                  path: args.path,
+                  external: true,
+                }));
                 build.onResolve({ filter: /.*/ }, (args: any) => {
                   if (!args.importer || args.namespace === 'mf-shared') return;
                   if (isSharedResolverInternalImporter(args.importer)) return;
@@ -301,9 +296,6 @@ export default __mfShared.default ?? __mfShared;`,
               },
             });
           }
-          // Include the runtimeInit virtual module so Vite pre-bundles it
-          // upfront instead of discovering it at runtime via loadShare imports.
-          config.optimizeDeps.include.push(virtualRuntimeInitStatus.getImportId());
         }
         for (const key of Object.keys(shared)) {
           const shareItem: ShareItem = shared[key];
@@ -314,7 +306,6 @@ export default __mfShared.default ?? __mfShared;`,
               for (const subpath of getCommonSharedSubpaths(key)) {
                 writePreBuildLibPath(subpath, shareItem);
                 optimizeDeps.include.push(subpath);
-                optimizeDeps.include.push(getPreBuildLibImportId(subpath));
               }
             }
             continue;
@@ -342,17 +333,12 @@ export default __mfShared.default ?? __mfShared;`,
             const shouldBypassOptimizeDep = isLitShare(key);
             if (shouldBypassOptimizeDep) {
               optimizeDeps.exclude.push(key);
+            } else {
+              optimizeDeps.include.push(key);
             }
-            if (!isRolldown && !shouldBypassOptimizeDep) {
-              // In non-Rolldown Vite (< 8), loadShare modules are CJS, so the
-              // dep optimizer handles them fine.
-              optimizeDeps.include.push(getLoadShareImportId(key, isRolldown));
-            }
-            optimizeDeps.include.push(getPreBuildLibImportId(key));
             for (const subpath of getCommonSharedSubpaths(key)) {
               writePreBuildLibPath(subpath, shareItem);
               optimizeDeps.include.push(subpath);
-              optimizeDeps.include.push(getPreBuildLibImportId(subpath));
             }
           }
         }
@@ -441,7 +427,24 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   let desiredRolldownOutput: OutputNameOptions[] | undefined;
 
   return [
-    // This plugin runs FIRST to create virtual module files before optimization
+    {
+      name: 'vite:module-federation-virtual-modules',
+      enforce: 'pre',
+      resolveId(id: string) {
+        const virtualModule = VirtualModule.findById(id);
+        if (!virtualModule) return;
+        return virtualModule.getResolvedId();
+      },
+      load(id: string) {
+        const virtualModule = VirtualModule.findById(id);
+        if (!virtualModule) return;
+        if (command === 'build' && (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG))) {
+          return;
+        }
+        return virtualModule.code;
+      },
+    },
+    // This plugin runs FIRST to register virtual modules before optimization
     createEarlyVirtualModulesPlugin(options),
     ...(isVinext
       ? [
@@ -473,11 +476,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(_config: UserConfig, env: ConfigEnv) {
         command = env.command;
       },
-      configResolved(config: ResolvedConfig) {
-        // Set root path
-        VirtualModule.setRoot(config.root);
-        // Ensure virtual package directory exists
-        VirtualModule.ensureVirtualPackageExists();
+      configResolved() {
         initVirtualModules(command, remoteEntryId);
       },
     },
@@ -750,9 +749,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
       },
       load(id: string) {
-        if (id.startsWith('\0')) return;
         if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
-          let code = readFileSync(id, 'utf-8');
+          const virtualModule = VirtualModule.findById(id);
+          let code = virtualModule?.code ?? readFileSync(id, 'utf-8');
 
           // Remove static imports/re-exports of prebuild modules to prevent
           // Rollup from merging them into the loadShare chunk.  Without this,
@@ -781,12 +780,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
            *
            * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
            */
-          if (!code.includes('__moduleExports')) {
-            code = code.replace(
+          if (!/\bexport\s+const\s+__moduleExports\b/.test(code)) {
+            const nextCode = code.replace(
               'export default exportModule',
               'export const __moduleExports = exportModule;\n' +
                 'export default exportModule.__esModule ? exportModule.default : exportModule'
             );
+            code =
+              nextCode === code
+                ? `${code}\nexport const __moduleExports = exportModule;\n`
+                : nextCode;
           }
           // Rollup supports syntheticNamedExports to resolve named imports
           // from the __moduleExports namespace.  Rolldown (Vite 8+) does not
@@ -898,24 +901,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.build ||= {};
         config.build.commonjsOptions ||= {};
         config.build.commonjsOptions.strictRequires ??= 'auto';
-        const virtualDir = options.virtualModuleDir;
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
-        if (!isRolldown) {
-          config.optimizeDeps.include.push(virtualDir);
-        }
-
-        // Prevent Vite from externalizing virtual modules during SSR.
-        // Files in node_modules/__mf__virtual/ contain `import("virtual:...")`
-        // which Node's native ESM loader cannot resolve. By marking them as
-        // non-external, Vite processes them through its plugin pipeline
-        // (resolveId/load hooks) so `virtual:` imports are handled correctly.
-        config.ssr ||= {};
-        config.ssr.noExternal ||= [];
-        if (Array.isArray(config.ssr.noExternal)) {
-          config.ssr.noExternal.push(virtualDir);
-        }
 
         // Add all runtime plugins to optimizeDeps to prevent 504 re-optimization.
         // SSR-only plugins import Node modules — exclude them from browser optimisation.
@@ -938,10 +926,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           // Vite 8+: virtual modules use ESM.
           config.build ??= {};
           config.build.target ??= 'esnext';
-        } else {
-          // Vite 5-7: virtual modules use CJS for dev, need interop
-          config.optimizeDeps.needsInterop ||= [];
-          config.optimizeDeps.needsInterop.push(virtualDir);
         }
 
         const isAstro = hasPackageDependency('astro');
