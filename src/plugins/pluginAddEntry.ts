@@ -295,6 +295,15 @@ ${importHelper}(async () => {
     {
       name: 'add-entry',
       enforce: 'post',
+      // In Vite 8 multi-environment setups (e.g. TanStack Start via Vinxi),
+      // each environment has its own plugin pipeline. Without applyToEnvironment,
+      // this plugin only runs in the default environment and the transform hook
+      // never fires for modules in the client or ssr environments. Returning
+      // true makes this plugin active in all environments so the transform (and
+      // therefore bootstrap injection) fires wherever the client entry is processed.
+      applyToEnvironment() {
+        return true;
+      },
       configResolved(config) {
         viteConfig = config;
         const inputOptions = config.build.rollupOptions.input;
