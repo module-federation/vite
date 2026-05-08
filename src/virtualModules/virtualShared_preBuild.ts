@@ -381,7 +381,7 @@ export function getLoadShareModulePath(pkg: string, isRolldown: boolean): string
   return filepath;
 }
 
-function generateDeferredHostProvidedExports(namedExports: string[]) {
+function generateDeferredHostProvidedExports(namedExports: string[], pkg: string) {
   const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
   const declarations = ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join(
     '\n    '
@@ -398,10 +398,21 @@ function generateDeferredHostProvidedExports(namedExports: string[]) {
       : '';
 
   return `${declarations}
-    const __mf_assign_exports = () => {
+    const __mfApplyHostProvidedExports = (exportModule) => {
       ${assignments}
     };
-    __mf_init_export_module.then(__mf_assign_exports);
+    let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}];
+    if (exportModule === undefined) {
+      initPromise.then(() => {
+        exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}];
+        if (exportModule === undefined) {
+          throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.");
+        }
+        __mfApplyHostProvidedExports(exportModule);
+      });
+    } else {
+      __mfApplyHostProvidedExports(exportModule);
+    }
     export { __mf_default as default };${namedExportLine}`;
 }
 
@@ -457,27 +468,19 @@ export function writeLoadShareModule(
     const namedExports = getPackageNamedExports(pkg);
     let exportLine: string;
     if (namedExports.length > 0) {
-      exportLine = generateDeferredHostProvidedExports(namedExports);
+      exportLine = generateDeferredHostProvidedExports(namedExports, pkg);
     } else {
       mfWarn(
         `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
           `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +
           `  Install it as a devDependency to enable named export detection.`
       );
-      exportLine = generateDeferredHostProvidedExports([]);
+      exportLine = generateDeferredHostProvidedExports([], pkg);
     }
     loadShareCacheMap[pkg].writeSync(
       `
-    ${importLine}
     ${getRuntimeInitPromiseBootstrapCode()}
-    let exportModule;
-    const __mf_init_export_module = initPromise.then(() => {
-      exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
-      if (exportModule === undefined) {
-        throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.")
-      }
-      return exportModule
-    });
+    ${importLine}
     ${exportLine}
   `,
       true
