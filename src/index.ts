@@ -506,7 +506,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           if (
             facadeId.includes('__mf__virtual') ||
             facadeId.startsWith('virtual:mf-') ||
-            facadeId.startsWith('\0virtual:mf-')
+            facadeId.startsWith('virtual:mf:') ||
+            facadeId.startsWith('\0virtual:mf-') ||
+            facadeId.startsWith('\0virtual:mf:')
           ) {
             (chunk as { isEntry: boolean }).isEntry = false;
           }
@@ -780,7 +782,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
            *
            * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
            */
-          if (!/\bexport\s+const\s+__moduleExports\b/.test(code)) {
+          if (
+            !/\bexport\s+const\s+__moduleExports\b/.test(code) &&
+            !/\bexport\s*\{[^}]*__moduleExports/.test(code)
+          ) {
             const nextCode = code.replace(
               'export default exportModule',
               'export const __moduleExports = exportModule;\n' +

@@ -492,20 +492,33 @@ ${importHelper}(async () => {
             !id.includes('node_modules') &&
             /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) ||
           // Fallback for frameworks (e.g. TanStack Start) that manage their own
-          // client entry and never populate rollupOptions.input in dev. When no
-          // entryFiles are known and no index.html exists, inject into the first
-          // non-virtual source file that is transformed.
+          // client entry and never populate rollupOptions.input in dev. Inject
+          // into the module that mounts/hydrates the React app — identified by
+          // the presence of hydrateRoot, createRoot, or ReactDOM.render calls.
+          // TanStack Start inlines client.tsx into a virtual entry module, so
+          // we also match virtual IDs (id.startsWith('\0')) that contain the
+          // hydration call.
           (_command === 'serve' &&
             inject === 'entry' &&
             entryFiles.length === 0 &&
             (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
             !clientInjected &&
-            !id.startsWith('\0') &&
             !id.includes('node_modules') &&
-            /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id));
+            (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
+            /hydrateRoot|createRoot|ReactDOM\.render/.test(code));
         if (shouldInject) {
           clientInjected = true;
-          if (!waitsForInit) {
+          // For the dev-mode entry fallback (inject:'entry' with no known entry
+          // files), always use a simple import injection. The getBootstrapSource
+          // wrapper is incompatible with SSR module evaluation — the async IIFE
+          // it generates prevents the module from exporting synchronously.
+          const usesDevEntryFallback =
+            _command === 'serve' &&
+            inject === 'entry' &&
+            entryFiles.length === 0 &&
+            (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
+            /hydrateRoot|createRoot|ReactDOM\.render/.test(code);
+          if (!waitsForInit || usesDevEntryFallback) {
             const injection = `import ${JSON.stringify(getEntryPath())};\n`;
             return mapCodeToCodeWithSourcemap(injection + code);
           }
