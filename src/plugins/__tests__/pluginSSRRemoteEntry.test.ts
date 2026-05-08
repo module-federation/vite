@@ -75,9 +75,11 @@ describe('pluginSSRRemoteEntry', () => {
     expect(plugins).toHaveLength(2);
     expect(plugins[0].name).toBe('mf:ssr-remote-entry:pre');
     expect(plugins[0].enforce).toBe('pre');
-    expect(plugins[0].apply).toBe('build');
+    // apply is intentionally absent — resolveId/load must run in both serve and build
+    // so the Vite dev server can respond to virtual SSR module requests.
+    expect(plugins[0].apply).toBeUndefined();
     expect(plugins[1].name).toBe('mf:ssr-remote-entry');
-    expect(plugins[1].apply).toBe('build');
+    expect(plugins[1].apply).toBeUndefined();
   });
 
   describe('pre-plugin — configResolved', () => {

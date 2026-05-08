@@ -92,9 +92,17 @@ async function getSSREntryByConvention(
   remoteEntryUrl: string
 ): Promise<{ url: string; type: string } | null> {
   const base = remoteEntryUrl.replace(/\.[^.]+$/, '');
+  // Also check the dev-mode SSR entry served by pluginSSRRemoteEntry's middleware.
+  const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
+  const filename =
+    remoteEntryUrl
+      .split('/')
+      .pop()
+      ?.replace(/\.[^.]+$/, '') ?? 'remoteEntry';
   const candidates = [
     { url: `${base}.server.cjs`, type: 'commonjs-module' },
     { url: `${base}.server.js`, type: 'module' },
+    { url: `${remoteOrigin}/__mf_ssr__/${filename}.server.js`, type: 'module' },
   ];
   for (const candidate of candidates) {
     try {

@@ -50,14 +50,18 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   // and re-externalise using the original bare package name (so Node can
   // resolve it from its own module cache at runtime).
   const resolvedAbsToPackage = new Map<string, string>();
+  let isServe = false;
 
   return [
     {
       name: 'mf:ssr-remote-entry:pre',
       enforce: 'pre',
-      apply: 'build',
+      // Intentionally no `apply: 'build'` — resolveId/load must also run in
+      // serve so Vite's dev server can respond to virtual SSR module requests
+      // from ssrEntryLoader.
 
       configResolved(config) {
+        isServe = config.command === 'serve';
         // Build a map of alias target abs-path → bare package name for each
         // SSR-only external. This lets resolveId intercept the post-alias path.
         for (const pkg of ssrOnlyExternals) {
@@ -104,7 +108,86 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
     },
     {
       name: 'mf:ssr-remote-entry',
-      apply: 'build',
+      // No `apply: 'build'` — resolveId/load must run in serve too.
+      // buildStart and generateBundle are guarded internally.
+
+      configureServer(server) {
+        const base = '/__mf_ssr__';
+        const fileBase = `${base}/module`;
+
+        // Middleware that serves SSR-transformed versions of source files.
+        // ssrLoadModule runs Vite's server-side transform pipeline — the output
+        // is Node-compatible ESM (no browser globals, HMR, or /@react-refresh).
+        // ssrEntryLoader fetches these URLs, writes temp .mjs files, and imports
+        // them via Node's native ESM loader.
+        server.middlewares.use(fileBase, async (req, res) => {
+          const filePath = decodeURIComponent(req.url?.slice(1) ?? '');
+          if (!filePath) {
+            res.statusCode = 400;
+            res.end('Missing file path');
+            return;
+          }
+          try {
+            const mod = await server.ssrLoadModule(filePath);
+            // Serialise the evaluated module as ESM — re-export all keys.
+            const exports = Object.keys(mod);
+            const lines = exports.map((key) => {
+              const val = mod[key];
+              const serialised = typeof val === 'function' ? val.toString() : JSON.stringify(val);
+              return `export const ${key === 'default' ? '_default' : key} = ${serialised};`;
+            });
+            if ('default' in mod) lines.push(`export default _default;`);
+            res.setHeader('Content-Type', 'application/javascript');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.end(lines.join('\n'));
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(`// ssrLoadModule error: ${String(e)}\nexport default null;`);
+          }
+        });
+
+        // Serve the SSR remote entry at a predictable URL.
+        const ssrPath = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.server.js`;
+        server.middlewares.use(ssrPath, (_req, res) => {
+          const exposesUrl = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
+          const code = generateRemoteEntrySSR(options).replace(
+            JSON.stringify(virtualExposesSSRId),
+            JSON.stringify(exposesUrl)
+          );
+          res.setHeader('Content-Type', 'application/javascript');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.end(code);
+        });
+
+        // Serve the exposes map with URLs pointing to the SSR module endpoint.
+        const exposesPath = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
+        server.middlewares.use(exposesPath, (_req, res) => {
+          const exposesCode = `
+    export default {
+    ${Object.entries(options.exposes)
+      .map(([key, config]) => {
+        const encodedPath = encodeURIComponent(config.import);
+        return `
+        ${JSON.stringify(key)}: async () => {
+          const importModule = await import("${fileBase}/${encodedPath}")
+          const exportModule = {}
+          Object.assign(exportModule, importModule)
+          Object.defineProperty(exportModule, "__esModule", {
+            value: true,
+            enumerable: false
+          })
+          return exportModule
+        }
+      `;
+      })
+      .join(',')}
+  }
+  `;
+          res.setHeader('Content-Type', 'application/javascript');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.end(exposesCode);
+        });
+      },
 
       resolveId(id) {
         // Register virtual SSR module IDs so they resolve to themselves.
@@ -122,6 +205,8 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       },
 
       buildStart() {
+        // Only emit the SSR entry chunk during vite build — not vite serve.
+        if (isServe) return;
         // `this.meta` is available in Rollup/Rolldown hooks — use it to detect
         // whether we're running under Rolldown (Vite 8+) so we can choose the
         // right output format and file extension.

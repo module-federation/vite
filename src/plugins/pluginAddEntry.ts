@@ -490,6 +490,18 @@ ${importHelper}(async () => {
             !clientInjected &&
             !id.startsWith('\0') &&
             !id.includes('node_modules') &&
+            /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) ||
+          // Fallback for frameworks (e.g. TanStack Start) that manage their own
+          // client entry and never populate rollupOptions.input in dev. When no
+          // entryFiles are known and no index.html exists, inject into the first
+          // non-virtual source file that is transformed.
+          (_command === 'serve' &&
+            inject === 'entry' &&
+            entryFiles.length === 0 &&
+            (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
+            !clientInjected &&
+            !id.startsWith('\0') &&
+            !id.includes('node_modules') &&
             /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id));
         if (shouldInject) {
           clientInjected = true;
