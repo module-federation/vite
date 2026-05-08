@@ -719,6 +719,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('export *');
     expect(generatedCode).toContain('__mfModuleCache.share["host-only-dep"]');
     expect(generatedCode).not.toContain('await ');
+    expect(generatedCode).toContain('initPromise.then');
     expect(generatedCode).toContain('export { __mf_default as default }');
   });
 
