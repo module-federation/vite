@@ -52,9 +52,10 @@ export default class VirtualModule {
 
   static findById(id: string): VirtualModule | undefined {
     const normalized = id
-      .replace(/^\0/, '')
+      .replace(/^\0+/, '')
       .replace(/^\/@id\//, '')
-      .replace(/^__x00__/, '');
+      .replace(/^__x00__/, '')
+      .replace(/[?#].*$/, '');
     for (const modules of Object.values(cacheMap)) {
       for (const module of Object.values(modules)) {
         if (module.getImportId() === normalized) return module;

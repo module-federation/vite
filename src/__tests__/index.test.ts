@@ -741,6 +741,60 @@ describe('vite:module-federation-early-init', () => {
     expect(consumer.code).not.toContain('getAugmentedNamespace = module2.g');
   });
 
+  it('redirects System.register proxy exports to wrapped namespaces, not helpers', () => {
+    const plugin = getEsmShimsPlugin();
+    const proxyFileName = `assets/host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js_commonjs-proxy-abc.js`;
+    const loadShareFileName = `./host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js-def.js`;
+    const consumerFileName = `assets/host${LOAD_SHARE_TAG}react_mf_2_dom_mf_1_client${LOAD_SHARE_TAG}.js-ghi.js`;
+    const bundle = {
+      [proxyFileName]: createChunk(
+        proxyFileName,
+        `System.register(["${loadShareFileName}"], (function(exports, module) {
+  "use strict";
+  var getAugmentedNamespace, React4;
+  return {
+    setters: [(module2) => {
+      getAugmentedNamespace = module2.g;
+      React4 = module2.R;
+    }],
+    execute: (function() {
+      const require$$1 = exports("r", getAugmentedNamespace(React4));
+    })
+  };
+}));`
+      ),
+      [consumerFileName]: createChunk(
+        consumerFileName,
+        `System.register(["./host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js_commonjs-proxy-abc.js"], (function(exports, module) {
+  "use strict";
+  var require$$1;
+  return {
+    setters: [(module2) => {
+      require$$1 = module2.r;
+    }],
+    execute: (function() {
+      exports("r", require$$1);
+    })
+  };
+}));`
+      ),
+    } as unknown as Rollup.OutputBundle;
+
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle
+    );
+
+    const consumer = bundle[consumerFileName];
+    if (consumer.type !== 'chunk') throw new Error('consumer should be a chunk');
+
+    expect(consumer.code).toContain(JSON.stringify(loadShareFileName));
+    expect(consumer.code).toContain('require$$1 = module2.R;');
+    expect(consumer.code).not.toContain('require$$1 = module2.g;');
+  });
+
   it('excludes bare remote ids from optimizeDeps in Rolldown serve', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {

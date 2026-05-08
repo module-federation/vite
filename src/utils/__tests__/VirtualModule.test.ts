@@ -65,6 +65,7 @@ describe('VirtualModule writeSync', () => {
     expect(vm.getResolvedId()).toBe(`\0${vm.getImportId()}`);
     expect(vm.code).toBe('export default 1;');
     expect(VirtualModule.findById(vm.getResolvedId())).toBe(vm);
+    expect(VirtualModule.findById(`\0\0${vm.getImportId()}?commonjs-proxy`)).toBe(vm);
     expect(assertModuleFound('__loadShare__', vm.getImportId())).toBe(vm);
   });
 });
