@@ -332,7 +332,7 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
       `
     import * as __mfPrebuildNamespace from ${escapeGeneratedStringLiteral(importSource)};
     const __mfPrebuildExports = __mfPrebuildNamespace;
-    ${namedExports.map((name) => `export const ${name} = __mfPrebuildExports[${escapeGeneratedStringLiteral(name)}];`).join('\n    ')}
+    ${namedExports.flatMap((name) => [`const __${name} = __mfPrebuildExports[${escapeGeneratedStringLiteral(name)}];`, `export { __${name} as ${name} };`]).join('\n    ')}
     export default __mfPrebuildExports;
   `,
       true
