@@ -328,11 +328,21 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
   }
   const namedExports = getPackageNamedExports(pkg);
   if (namedExports.length > 0) {
+    const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+    const declarations = namedExports
+      .map(
+        (name, i) =>
+          `const ${namedExportVars[i]} = __mfPrebuildExports[${escapeGeneratedStringLiteral(name)}];`
+      )
+      .join('\n    ');
+    const namedExportLine = `export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`;
+
     preBuildCacheMap[pkg].writeSync(
       `
     import * as __mfPrebuildNamespace from ${escapeGeneratedStringLiteral(importSource)};
     const __mfPrebuildExports = __mfPrebuildNamespace;
-    ${namedExports.map((name) => `export const ${name} = __mfPrebuildExports[${escapeGeneratedStringLiteral(name)}];`).join('\n    ')}
+    ${declarations}
+    ${namedExportLine}
     export default __mfPrebuildExports;
   `,
       true
