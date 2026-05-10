@@ -359,6 +359,15 @@ vi.mock('module', async (importOriginal) => {
             __esModule: true,
           };
         }
+        if (pkg === 'mock-package-js-keywords') {
+          return {
+            class: 1,
+            function: 2,
+            await: 3,
+            default: 4,
+            __esModule: true,
+          };
+        }
         if (pkg === 'mock-package-unicode') {
           return {
             ångstrom: 1,
@@ -518,6 +527,66 @@ describe('writeLoadShareModule', () => {
 
     // Export uses aliased keys AS the original keys
     // export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };
+    expect(generatedCode).toContain(
+      'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
+    );
+  });
+
+  it('aliases reserved named exports in prebuild wrappers instead of declaring them', () => {
+    writePreBuildLibPath('mock-package-with-reserved');
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('export const delete');
+    expect(generatedCode).toContain('const __mf_0 = __mfPrebuildExports["delete"];');
+    expect(generatedCode).toContain('const __mf_1 = __mfPrebuildExports["get"];');
+    expect(generatedCode).toContain('const __mf_2 = __mfPrebuildExports["request"];');
+    expect(generatedCode).toContain(
+      'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
+    );
+  });
+
+  it('aliases JavaScript keyword named exports in prebuild wrappers', () => {
+    writePreBuildLibPath('mock-package-js-keywords');
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('export const class');
+    expect(generatedCode).not.toContain('export const function');
+    expect(generatedCode).not.toContain('export const await');
+    expect(generatedCode).toContain('const __mf_0 = __mfPrebuildExports["class"];');
+    expect(generatedCode).toContain('const __mf_1 = __mfPrebuildExports["function"];');
+    expect(generatedCode).toContain('const __mf_2 = __mfPrebuildExports["await"];');
+    expect(generatedCode).toContain(
+      'export { __mf_0 as class, __mf_1 as function, __mf_2 as await };'
+    );
+  });
+
+  it('uses prebuild aliases with configured import sources', () => {
+    const mockShareItem: ShareItem = {
+      name: 'mock-package-with-reserved',
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/abs/mock-package-with-reserved/index.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writePreBuildLibPath('mock-package-with-reserved', mockShareItem);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'import * as __mfPrebuildNamespace from "/abs/mock-package-with-reserved/index.js";'
+    );
+    expect(generatedCode).not.toContain('export const delete');
     expect(generatedCode).toContain(
       'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
     );
@@ -719,6 +788,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('export *');
     expect(generatedCode).toContain('__mfModuleCache.share["host-only-dep"]');
     expect(generatedCode).not.toContain('await ');
+    expect(generatedCode).toContain('initPromise.then');
     expect(generatedCode).toContain('export { __mf_default as default }');
   });
 

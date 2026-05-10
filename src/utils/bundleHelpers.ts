@@ -128,7 +128,10 @@ export function collectSystemProxyInfos(
     for (const m of proxyInfo.code.matchAll(/exports\(\s*["']([^"']+)["']\s*,([\s\S]*?)\);/g)) {
       const exported = m[1];
       const expression = m[2];
-      for (const [local, exportName] of Object.entries(loadShareBindings)) {
+      // Rollup commonjs-proxy expressions often wrap the namespace with a helper,
+      // e.g. getAugmentedNamespace(React4). Prefer the wrapped namespace binding
+      // over the helper when both come from the same loadShare chunk.
+      for (const [local, exportName] of Object.entries(loadShareBindings).reverse()) {
         if (new RegExp(`\\b${local}\\b`).test(expression)) {
           exportMap[exported] = { type: 'reexport', exportName };
           break;
