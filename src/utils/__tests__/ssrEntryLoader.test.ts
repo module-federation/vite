@@ -409,3 +409,169 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).not.toMatch(/from\s*["']react["']/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Vite 8+ ModuleRunner dev-mode path
+// ---------------------------------------------------------------------------
+
+/**
+ * freshLoaderWithRunner — like freshLoader but also configures vite/module-runner
+ * via vi.doMock (not hoisted) so per-test ModuleRunner behaviour can be injected.
+ */
+async function freshLoaderWithRunner(
+  runnerFactory: () => { import: (id: string) => Promise<unknown> } | null
+) {
+  vi.resetModules();
+  vi.doMock('vite/module-runner', () => {
+    const impl = runnerFactory();
+    if (impl === null) throw new Error('module not found');
+    // Must use regular functions (not arrow functions) so they're newable.
+    return {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ModuleRunner: vi.fn(function (this: any) {
+        return impl;
+      }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ESModulesEvaluator: vi.fn(function (this: any) {
+        return {};
+      }),
+    };
+  });
+  vi.doMock('path', () => ({
+    default: {
+      join: (...p: string[]) => p.join('/'),
+      dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+    },
+    join: (...p: string[]) => p.join('/'),
+    dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+  }));
+  vi.doMock('fs', () => ({
+    default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    rmSync: vi.fn(),
+  }));
+  vi.doMock('crypto', () => {
+    const hash = { update: vi.fn().mockReturnThis(), digest: vi.fn(() => 'abc123def456789') };
+    return { default: { createHash: vi.fn(() => hash) }, createHash: vi.fn(() => hash) };
+  });
+  vi.doMock('module', () => ({
+    default: { createRequire: vi.fn() },
+    createRequire: vi.fn(),
+  }));
+  const { default: factory } = await import('../ssrEntryLoader');
+  return factory;
+}
+
+describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
+  it('uses ModuleRunner when URL contains /__mf_ssr__/ and vite/module-runner is available', async () => {
+    const mockMod = { init: vi.fn(), get: vi.fn() };
+    const mockImport = vi.fn().mockResolvedValue(mockMod);
+
+    const factory = await freshLoaderWithRunner(() => ({ import: mockImport }));
+
+    const fetch = makeFetchMock({
+      'http://localhost:4175/mf-manifest.json': { ok: false },
+      'http://localhost:4175/remoteEntry.server.cjs': { ok: false },
+      'http://localhost:4175/__mf_ssr__/remoteEntry.server.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    const result = await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    expect(mockImport).toHaveBeenCalledWith('/__mf_ssr__/remoteEntry.server.js');
+    expect(result).toBe(mockMod);
+  });
+
+  it('returns null when ModuleRunner import throws (no silent fallback)', async () => {
+    vi.resetModules();
+    const failingRunner = { import: vi.fn().mockRejectedValue(new Error('runner failed')) };
+    vi.doMock('vite/module-runner', () => ({
+      ModuleRunner: vi.fn(function (this: unknown) {
+        return failingRunner;
+      }),
+      ESModulesEvaluator: vi.fn(function (this: unknown) {
+        return {};
+      }),
+    }));
+    vi.doMock('path', () => ({
+      default: {
+        join: (...p: string[]) => p.join('/'),
+        dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+      },
+      join: (...p: string[]) => p.join('/'),
+      dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+    }));
+    vi.doMock('fs', () => ({
+      default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(),
+      rmSync: vi.fn(),
+    }));
+    vi.doMock('module', () => ({ default: { createRequire: vi.fn() }, createRequire: vi.fn() }));
+
+    const { default: factory } = await import('../ssrEntryLoader');
+
+    const fetch = makeFetchMock({
+      'http://localhost:4175/mf-manifest.json': { ok: false },
+      'http://localhost:4175/remoteEntry.server.cjs': { ok: false },
+      'http://localhost:4175/__mf_ssr__/remoteEntry.server.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    const result = await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined when vite/module-runner is unavailable (Vite < 8)', async () => {
+    vi.resetModules();
+    // Simulate Vite < 8 — dev-mode SSR is not supported on older Vite versions.
+    vi.doMock('vite/module-runner', () => {
+      throw new Error('module not found');
+    });
+    vi.doMock('path', () => ({
+      default: {
+        join: (...p: string[]) => p.join('/'),
+        dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+      },
+      join: (...p: string[]) => p.join('/'),
+      dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+    }));
+    vi.doMock('fs', () => ({
+      default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(),
+      rmSync: vi.fn(),
+    }));
+    vi.doMock('module', () => ({ default: { createRequire: vi.fn() }, createRequire: vi.fn() }));
+
+    const { default: factory } = await import('../ssrEntryLoader');
+
+    const fetch = makeFetchMock({
+      'http://localhost:4175/mf-manifest.json': { ok: false },
+      'http://localhost:4175/remoteEntry.server.cjs': { ok: false },
+      'http://localhost:4175/__mf_ssr__/remoteEntry.server.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    const result = await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    expect(result).toBeUndefined();
+  });
+});

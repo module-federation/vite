@@ -9,10 +9,19 @@
  * Strategy:
  *  - In Node (typeof window === 'undefined'), fetch the remote's mf-manifest.json
  *    to discover the ssrRemoteEntry URL and its type.
- *  - CJS entry (Vite 5–7 remotes): use `createRequire` to load it synchronously.
- *  - ESM entry (Vite 8+ remotes): use a dynamic `import()` — the SSR entry has
- *    no browser globals and all shared packages are external, so Node handles it
- *    natively without any experimental flags.
+ *  - CJS entry (Vite 5–7 build output): use `createRequire` to load synchronously.
+ *  - ESM entry (Vite 8+ build output): use a dynamic `import()` — the SSR entry
+ *    has no browser globals and all shared packages are external.
+ *  - Dev mode (Vite 8+ only): use `ModuleRunner` with an HTTP transport backed
+ *    by the remote's `/__mf_runner__` endpoint. This fetches fully-transformed
+ *    module source through Vite's plugin pipeline, avoiding serialisation which
+ *    cannot faithfully represent React components or closures.
+ *
+ *    Dev mode on Vite < 8 is NOT supported — `ModuleRunner` and
+ *    `FetchableDevEnvironment` are Vite 8+ APIs. If you need dev-mode SSR on
+ *    an older Vite version, implement an alternative loader in `loadSSRRemoteEntry`
+ *    for the `isDevSsrEntry` branch and expose a corresponding server endpoint
+ *    from `pluginSSRRemoteEntry.configureServer`.
  *
  * Exported as a plain factory function so it can be serialised into the
  * generated runtimePlugins list in virtualRemotes.ts.
@@ -25,6 +34,83 @@ const importCache = new Map<string, Promise<unknown>>();
 async function nodeImport(id: string): Promise<unknown> {
   if (!importCache.has(id)) importCache.set(id, import(/* @vite-ignore */ id));
   return importCache.get(id);
+}
+
+// ---------------------------------------------------------------------------
+// Vite 8+ ModuleRunner path (dev mode only)
+// ---------------------------------------------------------------------------
+
+// Per-origin ModuleRunner instances — one per remote dev server.
+// We cache them so repeated loadEntry calls reuse the same runner and its
+// module evaluation cache, avoiding redundant HTTP round-trips.
+const runnerCache = new Map<string, Promise<unknown>>();
+
+/**
+ * Import `vite/module-runner` dynamically. Returns null on Vite < 8 where the
+ * subpath doesn't exist. Uses a plain dynamic import (not nodeImport) so that
+ * Vitest can intercept it with vi.mock in tests.
+ */
+async function getModuleRunnerModule(): Promise<{
+  ModuleRunner: new (
+    opts: {
+      transport: {
+        invoke: (payload: {
+          type: string;
+          event: string;
+          data: { name: string; data: unknown[] };
+        }) => Promise<{ result: unknown } | { error: { message: string } }>;
+      };
+    },
+    evaluator?: unknown
+  ) => { import: (id: string) => Promise<unknown> };
+  ESModulesEvaluator: new () => unknown;
+} | null> {
+  try {
+    // Dynamic import without @vite-ignore so Vitest can intercept via vi.mock.
+    // This module is server-side only (guarded by window check in loadEntry)
+    // so it's safe to import here without worrying about browser bundles.
+    return (await import('vite/module-runner')) as Awaited<
+      ReturnType<typeof getModuleRunnerModule>
+    >;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Create a ModuleRunner that fetches modules from a remote Vite dev server's
+ * `/__mf_runner__` endpoint. Each HTTP POST carries a `fetchModule` invoke
+ * payload; the remote responds with the transformed module source as JSON.
+ *
+ * This is Vite 8+ only — older versions don't expose `vite/module-runner` or
+ * the `/__mf_runner__` proxy endpoint.
+ */
+async function getOrCreateRunner(remoteOrigin: string): Promise<unknown> {
+  if (runnerCache.has(remoteOrigin)) return runnerCache.get(remoteOrigin)!;
+  const promise = (async () => {
+    const viteRunner = await getModuleRunnerModule();
+    if (!viteRunner) return null;
+    const { ModuleRunner, ESModulesEvaluator } = viteRunner;
+    const runnerEndpoint = `${remoteOrigin}/__mf_runner__`;
+    const runner = new ModuleRunner(
+      {
+        transport: {
+          async invoke(payload) {
+            const res = await fetch(runnerEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: payload.data.name, data: payload.data.data }),
+            });
+            return (await res.json()) as { result: unknown } | { error: { message: string } };
+          },
+        },
+      },
+      new ESModulesEvaluator()
+    );
+    return runner;
+  })();
+  runnerCache.set(remoteOrigin, promise);
+  return promise;
 }
 
 const _path = () => nodeImport('path') as Promise<typeof import('path')>;
@@ -289,10 +375,40 @@ async function loadSSRRemoteEntry(
     }
   }
 
-  // ESM: if the URL is an http:// address, Node's native ESM loader can't
-  // handle it without --experimental-network-imports. Fetch the source and
-  // rewrite relative imports to absolute URLs, then load via data: URL.
+  // Vite 8+ dev-mode path: when the URL points to the dev server's
+  // `/__mf_ssr__/` endpoint, use a ModuleRunner backed by an HTTP transport
+  // that fetches fully-transformed module source from `/__mf_runner__`.
+  // This is the correct mechanism for dev mode — it avoids serialisation
+  // (which breaks React components) and gives us real Vite-transformed modules.
   if (url.startsWith('http://') || url.startsWith('https://')) {
+    const urlObj = new URL(url);
+    const isDevSsrEntry = urlObj.pathname.includes('/__mf_ssr__/');
+    if (isDevSsrEntry) {
+      // Dev-mode SSR is Vite 8+ only. `pluginSSRRemoteEntry` registers a
+      // `resolveId` hook that maps `/__mf_ssr__/<filename>.server.js` to the
+      // virtual SSR entry ID, so `runner.import()` traverses the full Vite
+      // plugin pipeline and returns real, fully-transformed module source.
+      //
+      // Vite < 8 falls through here with runner === null. Rather than attempting
+      // a broken fallback (fetchEsmToTempFile can't serialise React components),
+      // we return null so the MF runtime falls back to client-only rendering.
+      // To add Vite < 8 dev-mode support, implement an alternative loader here
+      // and expose a corresponding endpoint from pluginSSRRemoteEntry.configureServer.
+      const remoteOrigin = urlObj.origin;
+      const runner = await getOrCreateRunner(remoteOrigin);
+      if (!runner) return null;
+      try {
+        const mod = await (runner as { import: (id: string) => Promise<unknown> }).import(
+          urlObj.pathname
+        );
+        return mod as { init: unknown; get: unknown };
+      } catch {
+        return null;
+      }
+    }
+
+    // Production build HTTP entries: fetch source and write to temp file so
+    // Node can import it via file:// URL (avoids --experimental-network-imports).
     const { mkdirSync } = await _fs();
     const cacheDir = await getSSRCacheDir();
     mkdirSync(cacheDir, { recursive: true });

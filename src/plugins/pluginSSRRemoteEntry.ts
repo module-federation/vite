@@ -113,38 +113,85 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
       configureServer(server) {
         const base = '/__mf_ssr__';
-        const fileBase = `${base}/module`;
 
-        // Middleware that serves SSR-transformed versions of source files.
-        // ssrLoadModule runs Vite's server-side transform pipeline — the output
-        // is Node-compatible ESM (no browser globals, HMR, or /@react-refresh).
-        // ssrEntryLoader fetches these URLs, writes temp .mjs files, and imports
-        // them via Node's native ESM loader.
-        server.middlewares.use(fileBase, async (req, res) => {
-          const filePath = decodeURIComponent(req.url?.slice(1) ?? '');
-          if (!filePath) {
-            res.statusCode = 400;
-            res.end('Missing file path');
-            return;
-          }
-          try {
-            const mod = await server.ssrLoadModule(filePath);
-            // Serialise the evaluated module as ESM — re-export all keys.
-            const exports = Object.keys(mod);
-            const lines = exports.map((key) => {
-              const val = mod[key];
-              const serialised = typeof val === 'function' ? val.toString() : JSON.stringify(val);
-              return `export const ${key === 'default' ? '_default' : key} = ${serialised};`;
-            });
-            if ('default' in mod) lines.push(`export default _default;`);
-            res.setHeader('Content-Type', 'application/javascript');
+        // Vite 8+ fetchModule proxy — allows ssrEntryLoader to create a
+        // ModuleRunner on the remote host that fetches module source via HTTP
+        // instead of through Vite's internal channels (which aren't available
+        // across process boundaries). Each remote's Vite dev server exposes
+        // this endpoint so the host's ssrEntryLoader can import remote modules
+        // as fully-transformed, Node-compatible ESM at runtime.
+        //
+        // Only wired up when Vite exposes `fetchModule` (Vite 8+). Older
+        // Vite versions fall back to the build-mode SSR entry path.
+        if (typeof (server as unknown as Record<string, unknown>).fetchModule === 'function') {
+          const runnerBase = '/__mf_runner__';
+          server.middlewares.use(runnerBase, async (req, res) => {
             res.setHeader('Access-Control-Allow-Origin', '*');
-            res.end(lines.join('\n'));
-          } catch (e) {
-            res.statusCode = 500;
-            res.end(`// ssrLoadModule error: ${String(e)}\nexport default null;`);
-          }
-        });
+            if (req.method === 'OPTIONS') {
+              res.setHeader('Access-Control-Allow-Methods', 'POST');
+              res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+              res.statusCode = 204;
+              res.end();
+              return;
+            }
+            if (req.method !== 'POST') {
+              res.statusCode = 405;
+              res.end('Method not allowed');
+              return;
+            }
+            try {
+              const chunks: Buffer[] = [];
+              await new Promise<void>((resolve, reject) => {
+                req.on('data', (chunk: Buffer) => chunks.push(chunk));
+                req.on('end', resolve);
+                req.on('error', reject);
+              });
+              const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+                name: string;
+                data: [string, string?, { cached?: boolean; startOffset?: number }?];
+              };
+              if (body.name !== 'fetchModule') {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: { message: `Unsupported invoke: ${body.name}` } }));
+                return;
+              }
+              const [id, importer, opts] = body.data;
+              // Prefer the 'ssr' environment — it applies server-compatible
+              // transforms (no browser globals, correct externals). Fall back
+              // to the server instance itself (which wraps the client env) for
+              // remotes that don't define a custom ssr environment.
+              type ServerWithEnvs = {
+                environments?: Record<
+                  string,
+                  {
+                    fetchModule: (
+                      id: string,
+                      importer?: string,
+                      opts?: Record<string, unknown>
+                    ) => Promise<unknown>;
+                  }
+                >;
+                fetchModule: (
+                  id: string,
+                  importer?: string,
+                  opts?: Record<string, unknown>
+                ) => Promise<unknown>;
+              };
+              const srv = server as unknown as ServerWithEnvs;
+              const fetchFn = srv.environments?.ssr?.fetchModule
+                ? srv.environments.ssr.fetchModule.bind(srv.environments.ssr)
+                : srv.fetchModule.bind(srv);
+              const result = await fetchFn(id, importer, opts);
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ result }));
+            } catch (e) {
+              res.setHeader('Content-Type', 'application/json');
+              res.end(
+                JSON.stringify({ error: { message: String(e instanceof Error ? e.message : e) } })
+              );
+            }
+          });
+        }
 
         // Serve the SSR remote entry at a predictable URL.
         const ssrPath = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.server.js`;
@@ -159,40 +206,24 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           res.end(code);
         });
 
-        // Serve the exposes map with URLs pointing to the SSR module endpoint.
-        const exposesPath = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
-        server.middlewares.use(exposesPath, (_req, res) => {
-          const exposesCode = `
-    export default {
-    ${Object.entries(options.exposes)
-      .map(([key, config]) => {
-        const encodedPath = encodeURIComponent(config.import);
-        return `
-        ${JSON.stringify(key)}: async () => {
-          const importModule = await import("${fileBase}/${encodedPath}")
-          const exportModule = {}
-          Object.assign(exportModule, importModule)
-          Object.defineProperty(exportModule, "__esModule", {
-            value: true,
-            enumerable: false
-          })
-          return exportModule
-        }
-      `;
-      })
-      .join(',')}
-  }
-  `;
-          res.setHeader('Content-Type', 'application/javascript');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.end(exposesCode);
-        });
+        // Note: no exposes-map middleware here. The /__mf_ssr__/ path is only
+        // consumed by ModuleRunner (Vite 8+), which resolves the exposes virtual
+        // module through the plugin pipeline (resolveId → load → generateExposesSSR)
+        // rather than via HTTP. Vite < 8 dev mode is not supported.
       },
 
       resolveId(id) {
         // Register virtual SSR module IDs so they resolve to themselves.
         if (id === remoteEntrySSRId || id.startsWith(remoteEntrySSRId)) return id;
         if (id === virtualExposesSSRId || id.startsWith(virtualExposesSSRId)) return id;
+
+        // Vite 8+ dev path: allow server.fetchModule() to resolve the
+        // /__mf_ssr__/*.server.js URL as the virtual SSR entry. ModuleRunner
+        // imports this path and Vite resolves it here so load() can serve it.
+        const ssrDevPath = `/__mf_ssr__/${options.filename.replace(/\.[^.]+$/, '')}.server.js`;
+        if (id === ssrDevPath) return remoteEntrySSRId;
+        const exposesDevPath = `/__mf_ssr__/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
+        if (id === exposesDevPath) return virtualExposesSSRId;
       },
 
       load(id) {
