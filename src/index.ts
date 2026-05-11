@@ -336,7 +336,10 @@ export default __mfShared.default ?? __mfShared;`,
               optimizeDeps.include.push(key);
             }
             for (const subpath of getCommonSharedSubpaths(key)) {
+              getLoadShareModulePath(subpath, isRolldown);
+              writeLoadShareModule(subpath, shareItem, _command, isRolldown);
               writePreBuildLibPath(subpath, shareItem);
+              addUsedShares(subpath);
               optimizeDeps.include.push(subpath);
             }
           }
