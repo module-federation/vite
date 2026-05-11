@@ -312,7 +312,9 @@ ${importHelper}(async () => {
         // 'ssr' would overwrite entryFiles with the server input (e.g. Nitro's
         // SSR entry) and break client injection detection for frameworks like
         // TanStack Start that set rollupOptions.input per-environment.
-        const envName = (this as { environment?: { name?: string } }).environment?.name;
+        // `this.environment` is Vite 8+ only — Vite 5–7 hook contexts don't have it.
+        const ctx = this as unknown as Record<string, unknown>;
+        const envName = (ctx['environment'] as { name?: string } | undefined)?.name;
         if (envName && envName !== 'client') return;
         const inputOptions = config.build.rollupOptions.input;
 
@@ -471,7 +473,9 @@ ${importHelper}(async () => {
         // Only inject into client-side modules. In Vite 8 multi-environment mode
         // this transform also runs for ssr/server environments — injecting there
         // would set clientInjected=true and prevent the real client injection.
-        const transformEnvName = (this as { environment?: { name?: string } }).environment?.name;
+        const transformCtx = this as unknown as Record<string, unknown>;
+        const transformEnvName = (transformCtx['environment'] as { name?: string } | undefined)
+          ?.name;
         if (transformEnvName && transformEnvName !== 'client') return;
         const isVinext = hasPackageDependency('vinext');
         if (
