@@ -123,7 +123,15 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         //
         // Only wired up when Vite exposes `fetchModule` (Vite 8+). Older
         // Vite versions fall back to the build-mode SSR entry path.
-        if (typeof (server as unknown as Record<string, unknown>).fetchModule === 'function') {
+        // `fetchModule` lives on `DevEnvironment`, not on `ViteDevServer` directly.
+        // Check via `environments.client` — present on Vite 8+.
+        const ssrEnv = (
+          server.environments as Record<string, { fetchModule?: unknown } | undefined> | undefined
+        )?.ssr;
+        const clientEnv = (
+          server.environments as Record<string, { fetchModule?: unknown } | undefined> | undefined
+        )?.client;
+        if (typeof (ssrEnv?.fetchModule ?? clientEnv?.fetchModule) === 'function') {
           const runnerBase = '/__mf_runner__';
           server.middlewares.use(runnerBase, async (req, res) => {
             res.setHeader('Access-Control-Allow-Origin', '*');
@@ -150,38 +158,55 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
                 name: string;
                 data: [string, string?, { cached?: boolean; startOffset?: number }?];
               };
+              // getBuiltins: return the resolved builtins list from Vite config.
+              if (body.name === 'getBuiltins') {
+                const env = (clientEnv ?? ssrEnv) as
+                  | { config?: { resolve?: { builtins?: unknown[] } } }
+                  | undefined;
+                const builtins = env?.config?.resolve?.builtins ?? [];
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ result: builtins }));
+                return;
+              }
               if (body.name !== 'fetchModule') {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ error: { message: `Unsupported invoke: ${body.name}` } }));
                 return;
               }
               const [id, importer, opts] = body.data;
-              // Prefer the 'ssr' environment — it applies server-compatible
-              // transforms (no browser globals, correct externals). Fall back
-              // to the server instance itself (which wraps the client env) for
-              // remotes that don't define a custom ssr environment.
-              type ServerWithEnvs = {
-                environments?: Record<
-                  string,
-                  {
-                    fetchModule: (
-                      id: string,
-                      importer?: string,
-                      opts?: Record<string, unknown>
-                    ) => Promise<unknown>;
-                  }
-                >;
+              // Use the SSR environment for transforms. When `fetchModule` fails
+              // (e.g. for bare Node.js package specifiers like @module-federation/runtime
+              // that the SSR env externalises via Node module resolution), fall through
+              // to a manual resolution using the remote project's require.
+              type EnvWithFetch = {
                 fetchModule: (
                   id: string,
                   importer?: string,
                   opts?: Record<string, unknown>
                 ) => Promise<unknown>;
               };
-              const srv = server as unknown as ServerWithEnvs;
-              const fetchFn = srv.environments?.ssr?.fetchModule
-                ? srv.environments.ssr.fetchModule.bind(srv.environments.ssr)
-                : srv.fetchModule.bind(srv);
-              const result = await fetchFn(id, importer, opts);
+              const fetchEnv = (ssrEnv as EnvWithFetch | undefined) ?? (clientEnv as EnvWithFetch);
+              const fetchFn = fetchEnv.fetchModule.bind(fetchEnv);
+              let result: unknown;
+              try {
+                result = await fetchFn(id, importer, opts);
+              } catch (fetchErr) {
+                // SSR env failed to resolve — try externalising via Node require from
+                // the remote project root. This handles bare package specifiers like
+                // @module-federation/runtime that need to run as Node externals.
+                const bareId = id.startsWith('/@id/') ? id.slice(5).replace(/^__x00__/, '\0') : id;
+                try {
+                  const { createRequire } = await import('module');
+                  const req = createRequire(
+                    new URL(`file://${(server.config as { root: string }).root}/package.json`)
+                  );
+                  const resolved = req.resolve(bareId.replace(/^\0/, ''));
+                  const { pathToFileURL } = await import('url');
+                  result = { externalize: pathToFileURL(resolved).href, type: 'module' };
+                } catch {
+                  throw fetchErr;
+                }
+              }
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ result }));
             } catch (e) {

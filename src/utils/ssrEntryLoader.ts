@@ -53,6 +53,7 @@ const runnerCache = new Map<string, Promise<unknown>>();
 async function getModuleRunnerModule(): Promise<{
   ModuleRunner: new (
     opts: {
+      hmr?: boolean;
       transport: {
         invoke: (payload: {
           type: string;
@@ -92,22 +93,29 @@ async function getOrCreateRunner(remoteOrigin: string): Promise<unknown> {
     if (!viteRunner) return null;
     const { ModuleRunner, ESModulesEvaluator } = viteRunner;
     const runnerEndpoint = `${remoteOrigin}/__mf_runner__`;
-    const runner = new ModuleRunner(
-      {
-        transport: {
-          async invoke(payload) {
-            const res = await fetch(runnerEndpoint, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: payload.data.name, data: payload.data.data }),
-            });
-            return (await res.json()) as { result: unknown } | { error: { message: string } };
+    try {
+      const runner = new ModuleRunner(
+        {
+          // HMR requires a persistent connection (WebSocket); our HTTP transport
+          // is request/response only so HMR must be disabled.
+          hmr: false,
+          transport: {
+            async invoke(payload) {
+              const res = await fetch(runnerEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: payload.data.name, data: payload.data.data }),
+              });
+              return (await res.json()) as { result: unknown } | { error: { message: string } };
+            },
           },
         },
-      },
-      new ESModulesEvaluator()
-    );
-    return runner;
+        new ESModulesEvaluator()
+      );
+      return runner;
+    } catch {
+      return null;
+    }
   })();
   runnerCache.set(remoteOrigin, promise);
   return promise;

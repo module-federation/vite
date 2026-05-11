@@ -46,6 +46,7 @@ import {
   initVirtualModules,
   LOAD_REMOTE_TAG,
   LOAD_SHARE_TAG,
+  setSsrRemotes,
   writeLocalSharedImportMap,
 } from './virtualModules';
 import { getVirtualExposesId } from './virtualModules/virtualExposes';
@@ -201,6 +202,18 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       const root = config.root || process.cwd();
       setPackageDetectionCwd(root);
       const isVinext = hasPackageDependency('vinext');
+
+      // Configure SSR runtime with the host's remotes so server-side loadRemote
+      // knows the entry URL for each remote when ssrEntryLoader intercepts it.
+      if (_command === 'serve') {
+        setSsrRemotes(
+          Object.entries(options.remotes).map(([key, r]) => ({
+            name: key,
+            entry: r.entry,
+            type: r.type ?? 'module',
+          }))
+        );
+      }
 
       // Create core virtual modules
       initVirtualModules(_command, getRemoteEntryId(options));

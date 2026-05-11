@@ -15,11 +15,37 @@ function getDeferredInitPromiseCode() {
   });`;
 }
 
+// Serialised remotes config for the SSR runtime — populated by writeRuntimeInitStatus
+// from the host's remotes option so loadRemote knows where to find each remote.
+let _ssrRemotes: Array<{ name: string; entry: string; type: string }> = [];
+
+export function setSsrRemotes(remotes: Array<{ name: string; entry: string; type: string }>) {
+  _ssrRemotes = remotes;
+}
+
 function getSsrNoopResolveCode() {
+  // On the server, initialise a real MF runtime with ssrEntryLoader so that
+  // loadRemote triggers loadEntry and ssrEntryLoader can fetch the SSR remote
+  // entry via ModuleRunner (Vite 8+). The runtime is configured with the same
+  // remotes as the host so loadRemote resolves the correct entry URLs.
+  //
+  // @vite-ignore comments prevent Vite from scanning these dynamic imports for
+  // dep optimization or client-bundle inclusion — they only run server-side.
+  //
+  // Falls back to noops if the runtime is unavailable.
+  const remotesJson = JSON.stringify(_ssrRemotes);
   return `if (typeof window === 'undefined') {
-    initResolve({
-      loadRemote: function() { return Promise.resolve(undefined); },
-      loadShare: function() { return Promise.resolve(undefined); },
+    var _noop = { loadRemote: function() { return Promise.resolve(undefined); }, loadShare: function() { return Promise.resolve(undefined); } };
+    import(/* @vite-ignore */ '@module-federation/runtime').then(function(runtimeMod) {
+      return import(/* @vite-ignore */ '@module-federation/vite/ssrEntryLoader').then(
+        function(loaderMod) { return [runtimeMod, [loaderMod.default()]]; },
+        function() { return [runtimeMod, []]; }
+      );
+    }).then(function(pair) {
+      var runtime = pair[0].init({ name: '__mf_ssr_host__', remotes: ${remotesJson}, shared: {}, plugins: pair[1] });
+      initResolve(runtime);
+    }, function() {
+      initResolve(_noop);
     });
   }`;
 }
