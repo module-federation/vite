@@ -38,6 +38,7 @@ vi.mock('../utils/logger', async () => {
 });
 
 import { federation } from '../index';
+import VirtualModule from '../utils/VirtualModule';
 import { getPreBuildLibImportId, LOAD_SHARE_TAG } from '../virtualModules';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
@@ -874,6 +875,28 @@ describe('vite:module-federation-early-init', () => {
       id: getLoadShareModulePath('react/jsx-runtime', true),
       external: true,
     });
+  });
+
+  it('registers common shared subpath loadShare modules during early init', () => {
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const importId = getLoadShareModulePath('react/jsx-runtime', false);
+    const virtualModule = VirtualModule.findById(importId);
+
+    expect(config.optimizeDeps.include).toContain('react/jsx-runtime');
+    expect(virtualModule?.code).toContain('jsx');
   });
 
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {

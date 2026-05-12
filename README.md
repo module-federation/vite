@@ -19,11 +19,13 @@ Examples live in [`gioboa/module-federation-vite-examples`](https://github.com/g
 | [Angular](https://github.com/gioboa/module-federation-vite-examples/tree/main/angular)   | `angular-host`  | `angular-remote`  | Angular                     |
 | [Lit](https://github.com/gioboa/module-federation-vite-examples/tree/main/lit)           | `lit-host`      | `lit-remote`      | Lit                         |
 | [Nuxt](https://github.com/gioboa/module-federation-vite-examples/tree/main/nuxt)         | `nuxt-host`     | `nuxt-remote`     | Nuxt 4                      |
+| [Nx](https://github.com/gioboa/react-nx-microfrontend-demo)                              | `host`          | `remote`          | React + Nx                  |
 | [Preact](https://github.com/gioboa/module-federation-vite-examples/tree/main/preact)     | `preact-host`   | `preact-remote`   | Preact 10                   |
 | [React](https://github.com/gioboa/module-federation-vite-examples/tree/main/react)       | `react-host`    | `react-remote`    | React 19                    |
 | [Solid](https://github.com/gioboa/module-federation-vite-examples/tree/main/solid)       | `solid-host`    | `solid-remote`    | Solid                       |
 | [Svelte](https://github.com/gioboa/module-federation-vite-examples/tree/main/svelte)     | `svelte-host`   | `svelte-remote`   | Svelte 5                    |
 | [TanStack](https://github.com/gioboa/module-federation-vite-examples/tree/main/tanstack) | `tanstack-host` | `tanstack-remote` | TanStack Router + React 19  |
+| [Turborepo](https://github.com/gioboa/react-turborepo-microfrontend-demo)                | `host`          | `remote`          | React + Turborepo           |
 | [Vinext](https://github.com/gioboa/module-federation-vite-examples/tree/main/vinext)     | `vinext-host`   | `vinext-remote`   | Vinext + Next 16 + React 19 |
 | [Vue](https://github.com/gioboa/module-federation-vite-examples/tree/main/vue)           | `vue-host`      | `vue-remote`      | Vue 3                       |
 
