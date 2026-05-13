@@ -46,11 +46,11 @@ describe('virtualRuntimeInitStatus', () => {
     expect(cache.remote).toBe(remote);
   });
 
-  it('promise bootstrap exposes only initPromise and resolves to SSR no-op runtime', async () => {
+  it('promise bootstrap with enableSsrInit resolves to SSR no-op runtime', async () => {
     const { getRuntimeInitPromiseBootstrapCode } = await import('../virtualRuntimeInitStatus');
 
     const result = runCode<{ initPromise: Promise<{ loadRemote: Function; loadShare: Function }> }>(
-      getRuntimeInitPromiseBootstrapCode(),
+      getRuntimeInitPromiseBootstrapCode(true),
       'return { initPromise, hasInitResolve: typeof initResolve !== "undefined" };'
     );
 
@@ -61,6 +61,23 @@ describe('virtualRuntimeInitStatus', () => {
       result.initPromise.then((runtime) => runtime.loadShare())
     ).resolves.toBeUndefined();
     expect((result as any).hasInitResolve).toBe(false);
+  });
+
+  it('promise bootstrap without enableSsrInit leaves initPromise pending', async () => {
+    const { getRuntimeInitPromiseBootstrapCode } = await import('../virtualRuntimeInitStatus');
+
+    const result = runCode<{ initPromise: Promise<unknown> }>(
+      getRuntimeInitPromiseBootstrapCode(),
+      'return { initPromise };'
+    );
+
+    // No SSR init code emitted — initPromise should remain pending (never resolve).
+    let resolved = false;
+    result.initPromise.then(() => {
+      resolved = true;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(resolved).toBe(false);
   });
 
   it('resolve bootstrap reuses promise state and exposes only initResolve', async () => {

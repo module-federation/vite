@@ -484,8 +484,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(_config: UserConfig, env: ConfigEnv) {
         command = env.command;
       },
-      configResolved() {
-        initVirtualModules(command, remoteEntryId);
+      configResolved(config: { version?: string }) {
+        const viteMajor = parseInt(String(config.version ?? '0'), 10);
+        initVirtualModules(command, remoteEntryId, viteMajor >= 8);
       },
     },
     aliasToArrayPlugin,

@@ -23,7 +23,19 @@ export function setSsrRemotes(remotes: Array<{ name: string; entry: string; type
   _ssrRemotes = remotes;
 }
 
-function getSsrNoopResolveCode() {
+// enableSsrInit controls whether the server-side MF runtime initialisation block
+// is emitted. Currently only Vite 8+ is supported — it requires ModuleRunner and
+// FetchableDevEnvironment APIs that don't exist in Vite 5–7. On older versions
+// the dynamic import of '@module-federation/vite/ssrEntryLoader' would cause
+// Rollup to fail at build time when resolving the subpath export.
+//
+// To add Vite 5–7 SSR support: implement a replacement for ssrEntryLoader that
+// works without ModuleRunner, export it as a separate subpath, and pass
+// enableSsrInit: true from configResolved when your implementation is available.
+// No changes to this function are needed — just wire up the correct loader.
+function getSsrNoopResolveCode(enableSsrInit: boolean) {
+  if (!enableSsrInit) return '';
+
   // On the server, initialise a real MF runtime with ssrEntryLoader so that
   // loadRemote triggers loadEntry and ssrEntryLoader can fetch the SSR remote
   // entry via ModuleRunner (Vite 8+). The runtime is configured with the same
@@ -55,6 +67,7 @@ function getRuntimeInitStateBootstrapCode(options: {
   stateVar: string;
   exposedConst: string;
   exposedProperty: 'initPromise' | 'initResolve';
+  enableSsrInit: boolean;
 }) {
   return `
 const ${options.globalKeyVar} = ${JSON.stringify(getRuntimeInitGlobalKey())};
@@ -66,13 +79,13 @@ if (!${options.stateVar}) {
     initResolve,
     initReject,
   };
-  ${getSsrNoopResolveCode()}
+  ${getSsrNoopResolveCode(options.enableSsrInit)}
 }
 const ${options.exposedConst} = ${options.stateVar}.${options.exposedProperty};
 `;
 }
 
-export function getRuntimeInitBootstrapCode() {
+export function getRuntimeInitBootstrapCode(enableSsrInit = false) {
   return `
 const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey())};
 const moduleCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
@@ -87,7 +100,7 @@ if (!globalThis[globalKey]) {
     initReject,
     moduleCache: globalThis[moduleCacheGlobalKey],
   };
-  ${getSsrNoopResolveCode()}
+  ${getSsrNoopResolveCode(enableSsrInit)}
 }
 globalThis[globalKey].moduleCache ||= globalThis[moduleCacheGlobalKey];
 globalThis[globalKey].moduleCache.share ||= {};
@@ -108,28 +121,30 @@ const __mfModuleCache = globalThis[__mfCacheGlobalKey];
 // Build-time shared/remotes shims only need initPromise.
 // Keep this bootstrap text distinct from remoteEntry's initResolve bootstrap,
 // otherwise Rolldown can dedupe them and recreate the loadShare deadlock.
-export function getRuntimeInitPromiseBootstrapCode() {
+export function getRuntimeInitPromiseBootstrapCode(enableSsrInit = false) {
   return getRuntimeInitStateBootstrapCode({
     globalKeyVar: '__mfPromiseGlobalKey',
     stateVar: '__mfPromiseState',
     exposedConst: 'initPromise',
     exposedProperty: 'initPromise',
+    enableSsrInit,
   });
 }
 
 // Build-time remoteEntry only needs initResolve.
 // It intentionally differs from the initPromise bootstrap so bundlers don't
 // merge remoteEntry and loadShare onto the same shared runtime snippet.
-export function getRuntimeInitResolveBootstrapCode() {
+export function getRuntimeInitResolveBootstrapCode(enableSsrInit = false) {
   return getRuntimeInitStateBootstrapCode({
     globalKeyVar: '__mfResolveGlobalKey',
     stateVar: '__mfResolveState',
     exposedConst: 'initResolve',
     exposedProperty: 'initResolve',
+    enableSsrInit,
   });
 }
 
-export function writeRuntimeInitStatus(command: string) {
+export function writeRuntimeInitStatus(command: string, enableSsrInit = false) {
   const exportStatement =
     command === 'build'
       ? `const { initPromise, initResolve, initReject, moduleCache } = globalThis[globalKey];
@@ -137,7 +152,7 @@ export { initPromise, initResolve, initReject, moduleCache };`
       : `module.exports = globalThis[globalKey];`;
 
   virtualRuntimeInitStatus.writeSync(`
-${getRuntimeInitBootstrapCode()}
+${getRuntimeInitBootstrapCode(enableSsrInit)}
 ${exportStatement}
 `);
 }
