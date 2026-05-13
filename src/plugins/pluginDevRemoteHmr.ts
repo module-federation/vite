@@ -1,31 +1,77 @@
 import type { Plugin, ViteDevServer } from 'vite';
 import { mfWarn } from '../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { reactAdapter } from './hmr-adapters/react';
+import { vueAdapter } from './hmr-adapters/vue';
 
 const REMOTE_HMR_ENDPOINT = '__mf_hmr';
 const REMOTE_HMR_EVENT = 'mf:remote-update';
 const REMOTE_HMR_CONNECT_RETRY_DELAY_MS = 1000;
 const REMOTE_HMR_CONNECT_MAX_RETRIES = 10;
 
+export type HmrStrategy = 'full-reload' | 'native';
+
+export interface VitePluginLike {
+  name: string;
+}
+
+export interface AdapterContext {
+  server: ViteDevServer;
+  options: NormalizedModuleFederationOptions;
+  strategy: HmrStrategy;
+}
+
 /**
- * Proxy module served for `/@react-refresh` on MF remote dev servers.
- * Delegates to the host page's RefreshRuntime instance via
- * `window.location.origin`, ensuring a single shared component registry
- * across federation boundaries. A `configureServer` middleware is used
- * instead of `resolveId` because `@vitejs/plugin-react`'s
- * `vite:react-refresh` sub-plugin uses `enforce: 'pre'` and typically
- * wins the `resolveId` race.
+ * Framework-specific cross-federation HMR adapter.
+ *
+ * Each adapter declares which Vite plugin names indicate its framework is
+ * present and may install side effects on the remote dev server (extra
+ * middleware, validation warnings, etc.) once activated.
+ *
+ * Lifecycle:
+ *   1. Built-in `HMR_ADAPTERS` registry is matched against `server.config.plugins`.
+ *   2. For every matched adapter, `configureRemote(ctx)` runs when the current
+ *      process is exposing modules (`isRemote === true`).
+ *   3. `validate(ctx)` runs when strategy resolved to `native` — use it to
+ *      surface configuration warnings that would silently break HMR.
+ *
+ * Adapters are stateless; all per-server state belongs in the closures they
+ * create inside the hooks. New frameworks plug in by implementing this
+ * interface and adding the instance to `HMR_ADAPTERS` below.
  */
-const REACT_REFRESH_PROXY_MODULE = [
-  `const __rt = await import(window.location.origin + '/@react-refresh');`,
-  `export const injectIntoGlobalHook = __rt.injectIntoGlobalHook;`,
-  `export const register = __rt.register;`,
-  `export const createSignatureFunctionForTransform = __rt.createSignatureFunctionForTransform;`,
-  `export const registerExportsForReactRefresh = __rt.registerExportsForReactRefresh;`,
-  `export const validateRefreshBoundaryAndEnqueueUpdate = __rt.validateRefreshBoundaryAndEnqueueUpdate;`,
-  `export const __hmr_import = __rt.__hmr_import;`,
-  `export default __rt.default || __rt;`,
-].join('\n');
+export interface HmrAdapter {
+  readonly name: string;
+  readonly pluginNames: readonly string[];
+  configureRemote?(ctx: AdapterContext): void;
+  validate?(ctx: AdapterContext): void;
+}
+
+export const HMR_ADAPTERS: readonly HmrAdapter[] = [reactAdapter, vueAdapter];
+
+export function resolveAdapters(plugins: readonly VitePluginLike[]): HmrAdapter[] {
+  const pluginNames = new Set(plugins.map((p) => p.name));
+  return HMR_ADAPTERS.filter((adapter) =>
+    adapter.pluginNames.some((name) => pluginNames.has(name))
+  );
+}
+
+export function hasCrossFederationHmr(plugins: readonly VitePluginLike[]): boolean {
+  return resolveAdapters(plugins).length > 0;
+}
+
+function isRemoteHmrEnabled(dev: NormalizedModuleFederationOptions['dev']) {
+  return typeof dev === 'object' && dev !== null && !!dev.remoteHmr;
+}
+
+function resolveHmrStrategy(
+  dev: NormalizedModuleFederationOptions['dev'],
+  plugins: readonly VitePluginLike[]
+): HmrStrategy {
+  if (typeof dev === 'object' && dev !== null && dev.remoteHmr === 'full-reload') {
+    return 'full-reload';
+  }
+  return hasCrossFederationHmr(plugins) ? 'native' : 'full-reload';
+}
 
 function getBasePath(base: string) {
   if (!base) return '/';
@@ -141,69 +187,176 @@ function getStringPreview(value: unknown, max = 180) {
   return rawValue.slice(0, max);
 }
 
-function isRemoteHmrEnabled(dev: NormalizedModuleFederationOptions['dev']) {
-  return typeof dev === 'object' && dev !== null && !!dev.remoteHmr;
-}
-
-/**
- * Detects whether the Vite plugin pipeline includes a framework with
- * cross-federation HMR support (a shared runtime that works across
- * module federation boundaries).
- *
- * - React (`vite:react-refresh`, `vite:react-swc:refresh`) — relies on
- *   the shared `/@react-refresh` proxy served by this plugin.
- * - Vue (`vite:vue`, `vite:vue-jsx`) — relies on `__VUE_HMR_RUNTIME__`
- *   from `@vue/runtime-core`, which is naturally shared when `vue` is
- *   configured as a singleton in `shared`.
- */
-function hasCrossFederationHmr(plugins: readonly { name: string }[]): boolean {
-  return plugins.some((p) => CROSS_FEDERATION_HMR_PLUGINS.has(p.name));
-}
-
-const CROSS_FEDERATION_HMR_PLUGINS = new Set([
-  'vite:react-refresh', // @vitejs/plugin-react
-  'vite:react-swc:refresh', // @vitejs/plugin-react-swc
-  'vite:vue', // @vitejs/plugin-vue
-  'vite:vue-jsx', // @vitejs/plugin-vue-jsx
-]);
-
-const VUE_HMR_PLUGINS = new Set(['vite:vue', 'vite:vue-jsx']);
-const REACT_HMR_PLUGINS = new Set(['vite:react-refresh', 'vite:react-swc:refresh']);
-
-function hasPlugin(plugins: readonly { name: string }[], names: Set<string>): boolean {
-  return plugins.some((p) => names.has(p.name));
-}
-
-/**
- * Vue's `__VUE_HMR_RUNTIME__` lives inside `@vue/runtime-core` and is attached
- * to `globalThis` on module load. Cross-federation HMR works only when host
- * and remote share the same Vue copy — otherwise `createRecord`/`reload` writes
- * to one map and reads from another. Warn when this is misconfigured so users
- * don't silently lose hot updates.
- */
-function warnIfVueRuntimeNotSingleton(options: NormalizedModuleFederationOptions) {
-  const candidates = ['vue', '@vue/runtime-core', '@vue/runtime-dom'];
-  const hasSingletonVue = candidates.some(
-    (name) => options.shared[name]?.shareConfig.singleton === true
-  );
-  if (hasSingletonVue) return;
-
-  mfWarn(
-    'remoteHmr is enabled and a Vue plugin (vite:vue / vite:vue-jsx) was detected, ' +
-      'but "vue" is not configured as a singleton in `shared`. ' +
-      'Cross-federation Vue HMR requires a single shared `@vue/runtime-core` instance — ' +
-      'add `shared: { vue: { singleton: true } }` (or set `remoteHmr: "full-reload"`).'
-  );
-}
-
-function resolveHmrStrategy(
-  dev: NormalizedModuleFederationOptions['dev'],
-  plugins: readonly { name: string }[]
-): 'full-reload' | 'native' {
-  if (typeof dev === 'object' && dev !== null && dev.remoteHmr === 'full-reload') {
-    return 'full-reload';
+function configureRemote(
+  server: ViteDevServer,
+  options: NormalizedModuleFederationOptions,
+  strategy: HmrStrategy
+) {
+  for (const adapter of resolveAdapters(server.config.plugins)) {
+    adapter.configureRemote?.({ server, options, strategy });
+    if (strategy === 'native') adapter.validate?.({ server, options, strategy });
   }
-  return hasCrossFederationHmr(plugins) ? 'native' : 'full-reload';
+
+  const endpointPath = getRemoteHmrPath(server.config.base);
+  const wsUrl = getRemoteHmrWsUrl(server);
+
+  server.middlewares.use((req, res, next) => {
+    if (req.url?.replace(/\?.*/, '') !== endpointPath) {
+      next();
+      return;
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.end(
+      JSON.stringify({
+        remote: options.name,
+        event: REMOTE_HMR_EVENT,
+        wsUrl,
+      })
+    );
+  });
+
+  const broadcast = (file: string) => {
+    if (strategy === 'native') return;
+    if (shouldIgnoreFile(file, options)) return;
+
+    server.ws.send({
+      type: 'custom',
+      event: REMOTE_HMR_EVENT,
+      data: {
+        remote: options.name,
+        file,
+        ts: Date.now(),
+      },
+    });
+  };
+
+  server.watcher.on('change', broadcast);
+  server.watcher.on('add', broadcast);
+  server.watcher.on('unlink', broadcast);
+
+  server.httpServer?.once('close', () => {
+    server.watcher.off('change', broadcast);
+    server.watcher.off('add', broadcast);
+    server.watcher.off('unlink', broadcast);
+  });
+}
+
+function configureHost(
+  server: ViteDevServer,
+  options: NormalizedModuleFederationOptions,
+  strategy: HmrStrategy
+) {
+  const connections: WebSocket[] = [];
+  const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let isTearingDown = false;
+
+  const clearReconnectTimer = (remoteName: string) => {
+    const timer = reconnectTimers.get(remoteName);
+    if (!timer) return;
+    clearTimeout(timer);
+    reconnectTimers.delete(remoteName);
+  };
+
+  const scheduleReconnect = (
+    remoteName: string,
+    remote: { entry: string },
+    attempt: number,
+    reason: string
+  ) => {
+    if (isTearingDown) return;
+    if (attempt >= REMOTE_HMR_CONNECT_MAX_RETRIES) {
+      mfWarn(
+        `Remote "${remoteName}" full HMR reconnect skipped after ${REMOTE_HMR_CONNECT_MAX_RETRIES} attempts: ${reason}`
+      );
+      return;
+    }
+    clearReconnectTimer(remoteName);
+    const timer = setTimeout(() => {
+      reconnectTimers.delete(remoteName);
+      void connectRemote(remoteName, remote, attempt + 1);
+    }, REMOTE_HMR_CONNECT_RETRY_DELAY_MS);
+    reconnectTimers.set(remoteName, timer);
+  };
+
+  const connectRemote = async (remoteName: string, remote: { entry: string }, attempt = 0) => {
+    if (isTearingDown) return;
+    const endpoint = getRemoteHmrEndpoint(remote.entry, server);
+    if (!endpoint) {
+      mfWarn(`Failed to build HMR endpoint URL for remote "${remoteName}"`);
+      return;
+    }
+
+    try {
+      const metadataResponse = await fetch(endpoint);
+      if (!metadataResponse.ok) {
+        mfWarn(
+          `Failed to fetch remote HMR metadata from "${remoteName}": ${metadataResponse.status}`
+        );
+        scheduleReconnect(remoteName, remote, attempt, `HTTP ${metadataResponse.status}`);
+        return;
+      }
+
+      const metadata = (await metadataResponse.json()) as {
+        remote?: string;
+        event?: string;
+        wsUrl?: string;
+      };
+      if (metadata.event !== REMOTE_HMR_EVENT || !metadata.wsUrl) {
+        mfWarn(`Remote "${remoteName}" returned unexpected HMR metadata shape`);
+        return;
+      }
+
+      const ws = new WebSocket(metadata.wsUrl, 'vite-hmr');
+      ws.onmessage = (rawEvent: { data: unknown }) => {
+        if (strategy === 'native') return;
+        const message = parseRemoteHmrMessage(rawEvent.data);
+        if (!message || message.event !== REMOTE_HMR_EVENT) return;
+        server.ws.send({ type: 'full-reload' });
+      };
+      ws.onopen = () => clearReconnectTimer(remoteName);
+      ws.onerror = (error) => mfWarn(`Remote HMR socket error for "${remoteName}":`, error);
+      ws.onclose = () => scheduleReconnect(remoteName, remote, attempt, 'socket closed');
+
+      connections.push(ws);
+    } catch (error) {
+      mfWarn(
+        `Failed to connect remote HMR for "${remoteName}" on attempt ${attempt + 1}: ${getStringPreview(error)}`
+      );
+      scheduleReconnect(remoteName, remote, attempt, getStringPreview(error));
+    }
+  };
+
+  const teardown = () => {
+    isTearingDown = true;
+    reconnectTimers.forEach((timer) => clearTimeout(timer));
+    reconnectTimers.clear();
+    connections.forEach((connection) => {
+      if (
+        connection.readyState !== connection.CLOSING &&
+        connection.readyState !== connection.CLOSED
+      )
+        connection.close();
+    });
+    connections.length = 0;
+  };
+
+  for (const [remoteName, remote] of Object.entries(options.remotes)) {
+    void connectRemote(remoteName, remote);
+  }
+
+  const triggerHostReload = (file: string) => {
+    if (strategy === 'native') return;
+    if (shouldIgnoreFile(file, options)) return;
+    server.ws.send({ type: 'full-reload' });
+  };
+
+  server.watcher.on('change', triggerHostReload);
+  server.watcher.on('add', triggerHostReload);
+  server.watcher.on('unlink', triggerHostReload);
+
+  server.httpServer?.once('close', teardown);
 }
 
 export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOptions): Plugin {
@@ -217,188 +370,8 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
       const isHost = Object.keys(options.remotes).length > 0;
       const strategy = resolveHmrStrategy(options.dev, server.config.plugins);
 
-      if (isRemote) {
-        const endpointPath = getRemoteHmrPath(server.config.base);
-        const wsUrl = getRemoteHmrWsUrl(server);
-        const hasReactPlugin = hasPlugin(server.config.plugins, REACT_HMR_PLUGINS);
-        const hasVuePlugin = hasPlugin(server.config.plugins, VUE_HMR_PLUGINS);
-
-        if (hasVuePlugin && strategy === 'native') {
-          warnIfVueRuntimeNotSingleton(options);
-        }
-
-        // Intercept /@react-refresh to serve a proxy that delegates to the
-        // host's RefreshRuntime, unifying the component registry across
-        // federation boundaries for React Fast Refresh support.
-        if (hasReactPlugin) {
-          server.middlewares.use((req, res, next) => {
-            const url = req.url?.replace(/\?.*$/, '');
-            if (url !== '/@react-refresh') return next();
-
-            res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            res.end(REACT_REFRESH_PROXY_MODULE);
-          });
-        }
-
-        server.middlewares.use((req, res, next) => {
-          if (req.url?.replace(/\?.*/, '') !== endpointPath) {
-            next();
-            return;
-          }
-
-          res.setHeader('Content-Type', 'application/json');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.end(
-            JSON.stringify({
-              remote: options.name,
-              event: REMOTE_HMR_EVENT,
-              wsUrl,
-            })
-          );
-        });
-
-        const broadcast = (file: string) => {
-          if (strategy === 'native') return;
-          if (shouldIgnoreFile(file, options)) return;
-
-          server.ws.send({
-            type: 'custom',
-            event: REMOTE_HMR_EVENT,
-            data: {
-              remote: options.name,
-              file,
-              ts: Date.now(),
-            },
-          });
-        };
-
-        server.watcher.on('change', broadcast);
-        server.watcher.on('add', broadcast);
-        server.watcher.on('unlink', broadcast);
-
-        server.httpServer?.once('close', () => {
-          server.watcher.off('change', broadcast);
-          server.watcher.off('add', broadcast);
-          server.watcher.off('unlink', broadcast);
-        });
-      }
-
-      if (isHost) {
-        const connections: WebSocket[] = [];
-        const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-        let isTearingDown = false;
-
-        const clearReconnectTimer = (remoteName: string) => {
-          const timer = reconnectTimers.get(remoteName);
-          if (!timer) return;
-          clearTimeout(timer);
-          reconnectTimers.delete(remoteName);
-        };
-
-        const scheduleReconnect = (
-          remoteName: string,
-          remote: { entry: string },
-          attempt: number,
-          reason: string
-        ) => {
-          if (isTearingDown) return;
-          if (attempt >= REMOTE_HMR_CONNECT_MAX_RETRIES) {
-            mfWarn(
-              `Remote "${remoteName}" full HMR reconnect skipped after ${REMOTE_HMR_CONNECT_MAX_RETRIES} attempts: ${reason}`
-            );
-            return;
-          }
-          clearReconnectTimer(remoteName);
-          const timer = setTimeout(() => {
-            reconnectTimers.delete(remoteName);
-            void connectRemote(remoteName, remote, attempt + 1);
-          }, REMOTE_HMR_CONNECT_RETRY_DELAY_MS);
-          reconnectTimers.set(remoteName, timer);
-        };
-
-        const connectRemote = async (
-          remoteName: string,
-          remote: { entry: string },
-          attempt = 0
-        ) => {
-          if (isTearingDown) return;
-          const endpoint = getRemoteHmrEndpoint(remote.entry, server);
-          if (!endpoint) {
-            mfWarn(`Failed to build HMR endpoint URL for remote "${remoteName}"`);
-            return;
-          }
-
-          try {
-            const metadataResponse = await fetch(endpoint);
-            if (!metadataResponse.ok) {
-              mfWarn(
-                `Failed to fetch remote HMR metadata from "${remoteName}": ${metadataResponse.status}`
-              );
-              scheduleReconnect(remoteName, remote, attempt, `HTTP ${metadataResponse.status}`);
-              return;
-            }
-
-            const metadata = (await metadataResponse.json()) as {
-              remote?: string;
-              event?: string;
-              wsUrl?: string;
-            };
-            if (metadata.event !== REMOTE_HMR_EVENT || !metadata.wsUrl) {
-              mfWarn(`Remote "${remoteName}" returned unexpected HMR metadata shape`);
-              return;
-            }
-
-            const ws = new WebSocket(metadata.wsUrl, 'vite-hmr');
-            ws.onmessage = (rawEvent: { data: unknown }) => {
-              if (strategy === 'native') return;
-              const message = parseRemoteHmrMessage(rawEvent.data);
-              if (!message || message.event !== REMOTE_HMR_EVENT) return;
-              server.ws.send({ type: 'full-reload' });
-            };
-            ws.onopen = () => clearReconnectTimer(remoteName);
-            ws.onerror = (error) => mfWarn(`Remote HMR socket error for "${remoteName}":`, error);
-            ws.onclose = () => scheduleReconnect(remoteName, remote, attempt, 'socket closed');
-
-            connections.push(ws);
-          } catch (error) {
-            mfWarn(
-              `Failed to connect remote HMR for "${remoteName}" on attempt ${attempt + 1}: ${getStringPreview(error)}`
-            );
-            scheduleReconnect(remoteName, remote, attempt, getStringPreview(error));
-          }
-        };
-
-        const teardown = () => {
-          isTearingDown = true;
-          reconnectTimers.forEach((timer) => clearTimeout(timer));
-          reconnectTimers.clear();
-          connections.forEach((connection) => {
-            if (
-              connection.readyState !== connection.CLOSING &&
-              connection.readyState !== connection.CLOSED
-            )
-              connection.close();
-          });
-          connections.length = 0;
-        };
-
-        for (const [remoteName, remote] of Object.entries(options.remotes)) {
-          void connectRemote(remoteName, remote);
-        }
-
-        const triggerHostReload = (file: string) => {
-          if (strategy === 'native') return;
-          if (shouldIgnoreFile(file, options)) return;
-          server.ws.send({ type: 'full-reload' });
-        };
-
-        server.watcher.on('change', triggerHostReload);
-        server.watcher.on('add', triggerHostReload);
-        server.watcher.on('unlink', triggerHostReload);
-
-        server.httpServer?.once('close', teardown);
-      }
+      if (isRemote) configureRemote(server, options, strategy);
+      if (isHost) configureHost(server, options, strategy);
     },
   };
 }
