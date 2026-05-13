@@ -147,17 +147,53 @@ function isRemoteHmrEnabled(dev: NormalizedModuleFederationOptions['dev']) {
 
 /**
  * Detects whether the Vite plugin pipeline includes a framework with
- * cross-federation HMR support (a shared runtime proxy that works
- * across module federation boundaries).
+ * cross-federation HMR support (a shared runtime that works across
+ * module federation boundaries).
  *
- * Currently only React is supported via the shared /@react-refresh proxy.
+ * - React (`vite:react-refresh`, `vite:react-swc:refresh`) — relies on
+ *   the shared `/@react-refresh` proxy served by this plugin.
+ * - Vue (`vite:vue`, `vite:vue-jsx`) — relies on `__VUE_HMR_RUNTIME__`
+ *   from `@vue/runtime-core`, which is naturally shared when `vue` is
+ *   configured as a singleton in `shared`.
  */
 function hasCrossFederationHmr(plugins: readonly { name: string }[]): boolean {
-  const supportedPlugins = [
-    'vite:react-refresh', // @vitejs/plugin-react
-    'vite:react-swc:refresh', // @vitejs/plugin-react-swc
-  ];
-  return plugins.some((p) => supportedPlugins.includes(p.name));
+  return plugins.some((p) => CROSS_FEDERATION_HMR_PLUGINS.has(p.name));
+}
+
+const CROSS_FEDERATION_HMR_PLUGINS = new Set([
+  'vite:react-refresh', // @vitejs/plugin-react
+  'vite:react-swc:refresh', // @vitejs/plugin-react-swc
+  'vite:vue', // @vitejs/plugin-vue
+  'vite:vue-jsx', // @vitejs/plugin-vue-jsx
+]);
+
+const VUE_HMR_PLUGINS = new Set(['vite:vue', 'vite:vue-jsx']);
+const REACT_HMR_PLUGINS = new Set(['vite:react-refresh', 'vite:react-swc:refresh']);
+
+function hasPlugin(plugins: readonly { name: string }[], names: Set<string>): boolean {
+  return plugins.some((p) => names.has(p.name));
+}
+
+/**
+ * Vue's `__VUE_HMR_RUNTIME__` lives inside `@vue/runtime-core` and is attached
+ * to `globalThis` on module load. Cross-federation HMR works only when host
+ * and remote share the same Vue copy — otherwise `createRecord`/`reload` writes
+ * to one map and reads from another. Warn when this is misconfigured so users
+ * don't silently lose hot updates.
+ */
+function warnIfVueRuntimeNotSingleton(options: NormalizedModuleFederationOptions) {
+  const candidates = ['vue', '@vue/runtime-core', '@vue/runtime-dom'];
+  const hasSingletonVue = candidates.some(
+    (name) => options.shared[name]?.shareConfig.singleton === true
+  );
+  if (hasSingletonVue) return;
+
+  mfWarn(
+    'remoteHmr is enabled and a Vue plugin (vite:vue / vite:vue-jsx) was detected, ' +
+      'but "vue" is not configured as a singleton in `shared`. ' +
+      'Cross-federation Vue HMR requires a single shared `@vue/runtime-core` instance — ' +
+      'add `shared: { vue: { singleton: true } }` (or set `remoteHmr: "full-reload"`).'
+  );
 }
 
 function resolveHmrStrategy(
@@ -184,18 +220,26 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
       if (isRemote) {
         const endpointPath = getRemoteHmrPath(server.config.base);
         const wsUrl = getRemoteHmrWsUrl(server);
+        const hasReactPlugin = hasPlugin(server.config.plugins, REACT_HMR_PLUGINS);
+        const hasVuePlugin = hasPlugin(server.config.plugins, VUE_HMR_PLUGINS);
+
+        if (hasVuePlugin && strategy === 'native') {
+          warnIfVueRuntimeNotSingleton(options);
+        }
 
         // Intercept /@react-refresh to serve a proxy that delegates to the
         // host's RefreshRuntime, unifying the component registry across
         // federation boundaries for React Fast Refresh support.
-        server.middlewares.use((req, res, next) => {
-          const url = req.url?.replace(/\?.*$/, '');
-          if (url !== '/@react-refresh') return next();
+        if (hasReactPlugin) {
+          server.middlewares.use((req, res, next) => {
+            const url = req.url?.replace(/\?.*$/, '');
+            if (url !== '/@react-refresh') return next();
 
-          res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.end(REACT_REFRESH_PROXY_MODULE);
-        });
+            res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.end(REACT_REFRESH_PROXY_MODULE);
+          });
+        }
 
         server.middlewares.use((req, res, next) => {
           if (req.url?.replace(/\?.*/, '') !== endpointPath) {

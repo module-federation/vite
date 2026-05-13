@@ -208,14 +208,14 @@ describe('pluginDevRemoteHmr', () => {
 
     runConfigureServer(plugin, server);
 
-    expect(middlewares).toHaveLength(2);
+    expect(middlewares).toHaveLength(1);
 
     const res = {
       setHeader: vi.fn(),
       end: vi.fn(),
     };
     const next = vi.fn();
-    middlewares[1](
+    middlewares[0](
       { url: '/app/__mf_hmr?x=1' } as IncomingMessage,
       res as unknown as ServerResponse<IncomingMessage>,
       next
@@ -265,8 +265,14 @@ describe('pluginDevRemoteHmr', () => {
       );
     }
 
+    function createReactRemoteServer() {
+      return createServer({
+        config: { plugins: [{ name: 'vite:react-refresh' }] },
+      });
+    }
+
     it('should intercept /@react-refresh on remote dev servers', () => {
-      const { server, middlewares } = createServer();
+      const { server, middlewares } = createReactRemoteServer();
       const plugin = makeRemotePlugin({
         exposes: { './Foo': { import: './src/Foo.tsx' } },
         remoteHmr: true,
@@ -291,7 +297,7 @@ describe('pluginDevRemoteHmr', () => {
     });
 
     it('should pass through non-/@react-refresh requests', () => {
-      const { server, middlewares } = createServer();
+      const { server, middlewares } = createReactRemoteServer();
       const plugin = makeRemotePlugin({
         exposes: { './Foo': { import: './src/Foo.tsx' } },
         remoteHmr: true,
@@ -311,7 +317,7 @@ describe('pluginDevRemoteHmr', () => {
     });
 
     it('should strip query strings when matching /@react-refresh', () => {
-      const { server, middlewares } = createServer();
+      const { server, middlewares } = createReactRemoteServer();
       const plugin = makeRemotePlugin({
         exposes: { './Foo': { import: './src/Foo.tsx' } },
         remoteHmr: true,
@@ -339,6 +345,26 @@ describe('pluginDevRemoteHmr', () => {
       runConfigureServer(plugin, server);
 
       expect(middlewares).toHaveLength(0);
+    });
+
+    it('should not install /@react-refresh middleware when only Vue plugin is present', () => {
+      const { server, middlewares } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      const plugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'remote-app',
+          dev: { remoteHmr: true },
+          exposes: { './Button': { import: './src/Button.vue' } },
+          remotes: {},
+          shared: { vue: { singleton: true } },
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+      runConfigureServer(plugin, server);
+
+      // Only the __mf_hmr metadata middleware is installed, no react-refresh proxy.
+      expect(middlewares).toHaveLength(1);
     });
   });
 
@@ -531,6 +557,160 @@ describe('pluginDevRemoteHmr', () => {
       );
       emit('change', '/src/Button.tsx');
       expect(server.ws.send).toHaveBeenCalled();
+    });
+
+    it('suppresses broadcast when Vue plugin is detected with singleton vue', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...remoteOpts,
+            dev: { remoteHmr: true },
+            shared: { vue: { singleton: true } },
+          })
+        ),
+        server
+      );
+      emit('change', '/src/Button.vue');
+      expect(server.ws.send).not.toHaveBeenCalled();
+    });
+
+    it('suppresses broadcast when Vue JSX plugin is detected', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'vite:vue-jsx' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...remoteOpts,
+            dev: { remoteHmr: true },
+            shared: { vue: { singleton: true } },
+          })
+        ),
+        server
+      );
+      emit('change', '/src/Button.tsx');
+      expect(server.ws.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Vue singleton warning', () => {
+    const vueRemoteOpts = {
+      name: 'remote-app',
+      exposes: { './Button': { import: './src/Button.vue' } } as Record<
+        string,
+        string | { import: string }
+      >,
+      remotes: {},
+      virtualModuleDir: '__mf__virtual',
+    } as const;
+
+    it('warns when vite:vue is detected but vue is not a singleton shared', () => {
+      const { server } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...vueRemoteOpts,
+            dev: { remoteHmr: true },
+            shared: {},
+          })
+        ),
+        server
+      );
+      expect(mfWarn).toHaveBeenCalledWith(
+        expect.stringContaining('"vue" is not configured as a singleton')
+      );
+    });
+
+    it('warns when vue is shared but singleton is false', () => {
+      const { server } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...vueRemoteOpts,
+            dev: { remoteHmr: true },
+            shared: { vue: { singleton: false } },
+          })
+        ),
+        server
+      );
+      expect(mfWarn).toHaveBeenCalledWith(
+        expect.stringContaining('"vue" is not configured as a singleton')
+      );
+    });
+
+    it('does not warn when vue is a singleton shared', () => {
+      const { server } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...vueRemoteOpts,
+            dev: { remoteHmr: true },
+            shared: { vue: { singleton: true } },
+          })
+        ),
+        server
+      );
+      expect(mfWarn).not.toHaveBeenCalled();
+    });
+
+    it('does not warn when @vue/runtime-core is a singleton shared', () => {
+      const { server } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...vueRemoteOpts,
+            dev: { remoteHmr: true },
+            shared: { '@vue/runtime-core': { singleton: true } },
+          })
+        ),
+        server
+      );
+      expect(mfWarn).not.toHaveBeenCalled();
+    });
+
+    it('does not warn when no Vue plugin is detected', () => {
+      const { server } = createServer({
+        config: { plugins: [{ name: 'vite:react-refresh' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...vueRemoteOpts,
+            dev: { remoteHmr: true },
+            shared: {},
+          })
+        ),
+        server
+      );
+      expect(mfWarn).not.toHaveBeenCalled();
+    });
+
+    it('does not warn when strategy is explicit full-reload', () => {
+      const { server } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...vueRemoteOpts,
+            dev: { remoteHmr: 'full-reload' },
+            shared: {},
+          })
+        ),
+        server
+      );
+      expect(mfWarn).not.toHaveBeenCalled();
     });
   });
 });
