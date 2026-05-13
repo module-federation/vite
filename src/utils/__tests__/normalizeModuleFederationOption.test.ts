@@ -347,6 +347,63 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
+    it('resolves the parent package version for a shared subpath key', () => {
+      // Regression for #XXX: when a shared key is a subpath like
+      // "@scope/foo/bar", searchPackageVersion() used to look up the pnpm
+      // store for a package literally named "@scope/foo/bar", which never
+      // exists. The resolved version stayed undefined, and the consumer's
+      // singleton/requiredVersion matching against the host's registered
+      // share broke at runtime, raising "Shared module '...' must be
+      // provided by host". The fix is to let getInstalledPackageJson
+      // derive the bare package name via getPackageName() so the lookup
+      // finds the parent package.
+      //
+      // The fixture mimics a pnpm strict install where the parent package
+      // is only reachable through node_modules/.pnpm — there's no
+      // node_modules/@scope/foo/package.json, so the earlier
+      // require()-based resolution paths in normalizeShareItem must miss
+      // and the searchPackageVersion fallback must succeed.
+      mfErrorSpy.mockClear();
+
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const fixtureRoot = path.join(require('node:os').tmpdir(), 'mf-vite-subpath-share');
+      fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      const pnpmPkgDir = path.join(
+        fixtureRoot,
+        'node_modules/.pnpm/@scope+web-client@7.0.0/node_modules/@scope/web-client'
+      );
+      fs.mkdirSync(pnpmPkgDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(fixtureRoot, 'package.json'),
+        JSON.stringify({ name: 'consumer-app', dependencies: {} })
+      );
+      fs.writeFileSync(
+        path.join(pnpmPkgDir, 'package.json'),
+        JSON.stringify({
+          name: '@scope/web-client',
+          version: '7.0.0',
+          exports: { '.': './index.js', './graph': './graph.js' },
+        })
+      );
+
+      setPackageDetectionCwd(fixtureRoot);
+
+      const shared = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          '@scope/web-client': { import: false, singleton: true },
+          '@scope/web-client/graph': { import: false, singleton: true },
+        },
+      }).shared;
+
+      expect(shared['@scope/web-client'].version).toBe('7.0.0');
+      // The bug: this used to be undefined for the subpath.
+      expect(shared['@scope/web-client/graph'].version).toBe('7.0.0');
+
+      setPackageDetectionCwd(process.cwd());
+    });
+
     it('skips Nuxt module packages from implicit shared deps', () => {
       const fixtureRoot = require('node:path').join(
         require('node:os').tmpdir(),

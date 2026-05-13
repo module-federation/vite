@@ -147,9 +147,14 @@ export interface ShareItem {
  * @returns {string | undefined}
  */
 function searchPackageVersion(sharedName: string): string | undefined {
-  const installed = getInstalledPackageJson(sharedName, {
-    packageName: sharedName,
-  });
+  // Let getInstalledPackageJson derive the bare package name from the shared
+  // key via its default `getPackageName(pkg)` behavior. Forcing
+  // `packageName: sharedName` here broke version resolution for any shared
+  // subpath like "@scope/foo/bar": the pnpm-store walk looks up a
+  // package.json whose `name` field equals `packageName`, but no real
+  // package is named "@scope/foo/bar", so the walk always misses and
+  // `version` stays undefined. The bare package name "@scope/foo" matches.
+  const installed = getInstalledPackageJson(sharedName);
   const version = installed?.packageJson.version;
   return typeof version === 'string' ? version : undefined;
 }
