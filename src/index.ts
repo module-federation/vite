@@ -361,6 +361,60 @@ export default __mfShared.default ?? __mfShared;`,
         writeLocalSharedImportMap();
       }
     },
+
+    // ssrEntryLoader is only supported on Vite 8+ (requires ModuleRunner /
+    // FetchableDevEnvironment APIs introduced in Vite 8). On Vite 5–7 the
+    // injection is skipped entirely — pluginSSRRemoteEntry still emits
+    // remoteEntry.server.cjs at build time so a future contributor can wire
+    // up their own loadEntry intercept for older Vite versions without
+    // needing to change anything here; they just need to provide an
+    // equivalent ssrEntryLoader that works with the older Vite dev server.
+    configResolved(config) {
+      const viteMajor = parseInt(String((config as { version?: string }).version ?? '0'), 10);
+      if (viteMajor < 8) return;
+
+      const hasRemotesOrExposes =
+        Object.keys(options.exposes).length > 0 || Object.keys(options.remotes).length > 0;
+      if (!hasRemotesOrExposes) return;
+
+      const alreadyInjected = options.runtimePlugins.some((p) => {
+        const specifier = typeof p === 'string' ? p : p[0];
+        return specifier === '@module-federation/vite/ssrEntryLoader';
+      });
+      if (alreadyInjected) return;
+
+      const pluginRequire = createRequire(import.meta.url);
+      const sharedKeys = Object.keys(options.shared ?? {});
+      const commonSharedPkgs = [
+        'react',
+        'react-dom',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
+        '@module-federation/runtime',
+        '@module-federation/runtime-core',
+        '@module-federation/sdk',
+      ];
+      const resolvedShared: Record<string, string> = {};
+      for (const pkg of [...commonSharedPkgs, ...sharedKeys]) {
+        try {
+          resolvedShared[pkg] = pluginRequire.resolve(pkg);
+        } catch {
+          // Not installed at this location — ssrEntryLoader falls back to
+          // runtime resolution from the host app.
+        }
+      }
+
+      // Only inject when the built subpath export exists. Integration tests
+      // run against src/ before a build, so the lib/ export won't be present.
+      // Users can still inject manually via runtimePlugins in that case.
+      const ssrEntryLoaderSpecifier = '@module-federation/vite/ssrEntryLoader';
+      try {
+        pluginRequire.resolve(ssrEntryLoaderSpecifier);
+        options.runtimePlugins.push([ssrEntryLoaderSpecifier, { resolvedShared }]);
+      } catch {
+        // lib/ not built yet — skip silently
+      }
+    },
   };
 }
 
@@ -369,68 +423,6 @@ const SSR_ONLY_PLUGINS = new Set(['@module-federation/vite/ssrEntryLoader']);
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
-
-  // Auto-inject ssrEntryLoader for any app that either exposes modules or
-  // consumes remotes. On the server the loader intercepts the MF runtime's
-  // loadEntry hook to swap in the dedicated SSR remote entry — this is needed
-  // both on remotes (to serve their own server entry) and on hosts (to load
-  // remote SSR entries when server-rendering federated components).
-  const hasRemotesOrExposes =
-    Object.keys(options.exposes).length > 0 || Object.keys(options.remotes).length > 0;
-  if (
-    hasRemotesOrExposes &&
-    !options.runtimePlugins.some((p) => {
-      const specifier = typeof p === 'string' ? p : p[0];
-      return specifier === '@module-federation/vite/ssrEntryLoader';
-    })
-  ) {
-    const sharedKeys = Object.keys(options.shared ?? {});
-
-    // Resolve common shared packages at build time from the Vite plugin's own
-    // location. This is package-manager-agnostic: because @module-federation/vite
-    // directly depends on @module-federation/runtime (and react is always
-    // available from the host app), resolution is guaranteed regardless of how
-    // the host project is structured (npm hoisting, pnpm, Yarn v4, etc.).
-    // The resolved absolute paths are embedded in the plugin options so
-    // ssrEntryLoader can rewrite bare specifiers in temp files without needing
-    // any runtime createRequire walk-up logic.
-    const pluginRequire = createRequire(import.meta.url);
-    const commonSharedPkgs = [
-      'react',
-      'react-dom',
-      'react/jsx-runtime',
-      'react/jsx-dev-runtime',
-      '@module-federation/runtime',
-      '@module-federation/runtime-core',
-      '@module-federation/sdk',
-    ];
-    const resolvedShared: Record<string, string> = {};
-    for (const pkg of [...commonSharedPkgs, ...sharedKeys]) {
-      try {
-        resolvedShared[pkg] = pluginRequire.resolve(pkg);
-      } catch {
-        // Package not installed at this location — ssrEntryLoader will
-        // try to resolve it from the host app at runtime as a fallback.
-      }
-    }
-
-    // Only auto-inject when the built subpath export is available. In source-
-    // only environments (e.g. integration tests that run against src/ without
-    // a prior build step) the lib/ directory doesn't exist yet. Skip injection
-    // silently — users can still inject manually via runtimePlugins.
-    const ssrEntryLoaderSpecifier = '@module-federation/vite/ssrEntryLoader';
-    let ssrEntryLoaderAvailable = false;
-    try {
-      pluginRequire.resolve(ssrEntryLoaderSpecifier);
-      ssrEntryLoaderAvailable = true;
-    } catch {
-      // lib/ not built yet
-    }
-
-    if (ssrEntryLoaderAvailable) {
-      options.runtimePlugins.push([ssrEntryLoaderSpecifier, { resolvedShared }]);
-    }
-  }
 
   const isVinext = hasPackageDependency('vinext');
   const { name, shared, filename, hostInitInjectLocation } = options;
