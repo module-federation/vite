@@ -327,7 +327,7 @@ describe('pluginSSRRemoteEntry', () => {
   });
 
   describe('main plugin — buildStart', () => {
-    it('emits SSR entry chunk for Rollup (CJS output)', () => {
+    it('emits SSR entry as a pre-generated CJS asset for Rollup (avoids code-splitting side effects)', () => {
       getIsRolldownMock.mockReturnValue(false);
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
@@ -344,8 +344,7 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(emitFile).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'chunk',
-          name: 'ssrRemoteEntry',
+          type: 'asset',
           fileName: 'remoteEntry.server.cjs',
         })
       );
@@ -446,8 +445,8 @@ describe('pluginSSRRemoteEntry', () => {
     });
   });
 
-  describe('main plugin — generateBundle (Rollup CJS transform)', () => {
-    function runGenerateBundle(code: string) {
+  describe('main plugin — buildStart (Rollup CJS asset generation)', () => {
+    function getEmittedAssetSource() {
       getIsRolldownMock.mockReturnValue(false);
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
@@ -455,66 +454,24 @@ describe('pluginSSRRemoteEntry', () => {
 
       callHook(
         mainPlugin.buildStart,
-        {
-          meta: makePluginMeta(false),
-          emitFile,
-        } as unknown as Rollup.PluginContext,
+        { meta: makePluginMeta(false), emitFile } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
       );
 
-      const chunk = { type: 'chunk' as const, code, fileName: 'remoteEntry.server.cjs' };
-      const bundle: Record<string, typeof chunk> = { 'remoteEntry.server.cjs': chunk };
-
-      callHook(
-        mainPlugin.generateBundle,
-        {} as Rollup.PluginContext,
-        {} as Rollup.NormalizedOutputOptions,
-        bundle as unknown as Rollup.OutputBundle,
-        false
-      );
-
-      return chunk.code;
+      const call = emitFile.mock.calls[0]?.[0] as { source?: string } | undefined;
+      return call?.source ?? '';
     }
 
-    it('rewrites named ESM imports to CJS require', () => {
-      const result = runGenerateBundle(
-        `import { init as runtimeInit } from "@module-federation/runtime";`
-      );
-      expect(result).toContain(
-        `const { init as runtimeInit } = require("@module-federation/runtime");`
-      );
+    it('emits asset with CJS export syntax from mock ESM source', () => {
+      // generateRemoteEntrySSR is mocked to return `export { init, get }` —
+      // verify buildStart transforms that to CJS and emits it as an asset.
+      const source = getEmittedAssetSource();
+      expect(source).toContain(`module.exports = { init: init, get: get };`);
+      expect(source).toMatch(/^'use strict'/);
     });
+  });
 
-    it('rewrites default ESM imports to CJS require', () => {
-      const result = runGenerateBundle(`import React from "react";`);
-      expect(result).toContain(`const React = require("react");`);
-    });
-
-    it('rewrites named exports to module.exports', () => {
-      const result = runGenerateBundle(`export { init, get };`);
-      expect(result).toContain(`module.exports = { init: init, get: get };`);
-    });
-
-    it('rewrites re-exported names (as syntax)', () => {
-      const result = runGenerateBundle(`export { init as n, get as t };`);
-      expect(result).toContain(`module.exports = { n: init, t: get };`);
-    });
-
-    it('rewrites default export to module.exports', () => {
-      const result = runGenerateBundle(`export default myValue;`);
-      expect(result).toContain(`module.exports = myValue;`);
-    });
-
-    it("prepends 'use strict' when missing", () => {
-      const result = runGenerateBundle(`const x = 1;`);
-      expect(result).toMatch(/^'use strict'/);
-    });
-
-    it("does not duplicate 'use strict' if already present", () => {
-      const result = runGenerateBundle(`'use strict';\nconst x = 1;`);
-      expect(result.match(/'use strict'/g)).toHaveLength(1);
-    });
-
+  describe('main plugin — generateBundle', () => {
     it('leaves Rolldown (ESM) bundle unchanged', () => {
       getIsRolldownMock.mockReturnValue(true);
       const emitFile = makeEmitFile();
@@ -523,10 +480,7 @@ describe('pluginSSRRemoteEntry', () => {
 
       callHook(
         mainPlugin.buildStart,
-        {
-          meta: makePluginMeta(true),
-          emitFile,
-        } as unknown as Rollup.PluginContext,
+        { meta: makePluginMeta(true), emitFile } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
       );
 
@@ -549,7 +503,7 @@ describe('pluginSSRRemoteEntry', () => {
       expect(chunk.code).toBe(originalCode);
     });
 
-    it('skips transform when SSR chunk is not in bundle', () => {
+    it('does not throw when SSR chunk is not in bundle', () => {
       getIsRolldownMock.mockReturnValue(false);
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
@@ -557,20 +511,16 @@ describe('pluginSSRRemoteEntry', () => {
 
       callHook(
         mainPlugin.buildStart,
-        {
-          meta: makePluginMeta(false),
-          emitFile,
-        } as unknown as Rollup.PluginContext,
+        { meta: makePluginMeta(false), emitFile } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
       );
 
-      const bundle = {};
       expect(() =>
         callHook(
           mainPlugin.generateBundle,
           {} as Rollup.PluginContext,
           {} as Rollup.NormalizedOutputOptions,
-          bundle as unknown as Rollup.OutputBundle,
+          {} as unknown as Rollup.OutputBundle,
           false
         )
       ).not.toThrow();

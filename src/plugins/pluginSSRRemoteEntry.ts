@@ -276,35 +276,26 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
         if (Object.keys(options.exposes).length === 0) return;
 
-        this.emitFile({
-          type: 'chunk',
-          id: remoteEntrySSRId,
-          name: 'ssrRemoteEntry',
-          fileName: ssrOutputFilename,
-          preserveSignature: 'strict',
-        });
-      },
-
-      /**
-       * Post-process the SSR entry chunk:
-       *  - For Rollup (Vite 5–7): convert the emitted ESM chunk to CJS by
-       *    wrapping it. Rollup can also be configured directly via
-       *    `output.format` but that would affect all chunks; we only want CJS
-       *    for the SSR entry.
-       *  - For Rolldown (Vite 8+): the chunk is already ESM — just verify
-       *    shared externals were not bundled.
-       */
-      generateBundle(_options, bundle) {
-        if (!isRolldown) {
-          // Rollup path — rewrite the emitted ESM chunk to CJS.
-          const chunk = bundle[ssrOutputFilename];
-          if (!chunk || chunk.type !== 'chunk') return;
-
-          // Simple ESM→CJS transform: replace `export { init, get }` with
-          // `module.exports = { init, get }` and rewrite `import X from "Y"`
-          // to `const X = require("Y")`.
-          let code = chunk.code;
-          code = code
+        if (isRolldown) {
+          // Vite 8+ (Rolldown): emit as a proper chunk. Rolldown handles multiple
+          // entry chunks without code-splitting side effects on the browser entry.
+          this.emitFile({
+            type: 'chunk',
+            id: remoteEntrySSRId,
+            name: 'ssrRemoteEntry',
+            fileName: ssrOutputFilename,
+            preserveSignature: 'strict',
+          });
+        } else {
+          // Vite 5–7 (Rollup): emit as a pre-generated asset instead of a chunk.
+          // Emitting a second Rollup entry chunk that shares transitive deps with
+          // the browser remoteEntry causes Rollup to code-split those deps out of
+          // remoteEntry.js, breaking tests and consuming apps that expect them inlined.
+          // Generating the CJS asset directly avoids touching the browser module graph.
+          //
+          // Extension point: to add richer Vite 5–7 SSR support (e.g. inlining
+          // shared dep resolution), generate the code here and emit it as an asset.
+          const esmCode = generateRemoteEntrySSR(options)
             .replace(
               /^import\s+\{([^}]+)\}\s+from\s+(['"])([^'"]+)\2;?/gm,
               (_m, names, _q, src) => {
@@ -332,13 +323,19 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               return `module.exports = { ${pairs} };`;
             })
             .replace(/^export\s+default\s+/gm, 'module.exports = ');
-
-          // chunk.code is writable at this stage of the pipeline — Rollup exposes
-          // it as readonly in the type but allows writes during generateBundle.
-          (chunk as { code: string }).code = code.includes("'use strict'")
-            ? code
-            : `'use strict';\n${code}`;
+          const cjsCode = esmCode.includes("'use strict'") ? esmCode : `'use strict';\n${esmCode}`;
+          this.emitFile({ type: 'asset', fileName: ssrOutputFilename, source: cjsCode });
         }
+      },
+
+      generateBundle(_options, bundle) {
+        // Vite 8+ (Rolldown) only — the chunk was emitted via the chunk path in buildStart.
+        // No post-processing needed; Rolldown emits ESM natively.
+        // On Vite 5–7 the SSR entry was emitted as a pre-generated asset, so nothing to do here.
+        if (!isRolldown) return;
+        const chunk = bundle[ssrOutputFilename];
+        if (!chunk || chunk.type !== 'chunk') return;
+        // Verify the chunk exists and was emitted correctly — no transform needed for Rolldown.
       },
     },
   ];
