@@ -31,6 +31,13 @@ describe('generateRemotes', () => {
     expect(code).not.toContain('module.exports = exportModule');
   });
 
+  it('can include SSR runtime init in dev wrappers', () => {
+    const code = generateRemotes('remote/Button', 'serve', true);
+
+    expect(code).toContain("import(/* @vite-ignore */ '@module-federation/vite/ssrEntryLoader')");
+    expect(code).toContain('initResolve(runtime)');
+  });
+
   it('awaits build remote loading before exporting the module', () => {
     const code = generateRemotes('remote/App', 'build');
 

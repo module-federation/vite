@@ -15,6 +15,14 @@
       "import": "./lib/index.mjs",
       "require": "./lib/index.cjs"
     },
+    "./ssrEntryLoader": {
+      "types": {
+        "import": "./lib/utils/ssrEntryLoader.d.mts",
+        "require": "./lib/utils/ssrEntryLoader.d.cts"
+      },
+      "import": "./lib/utils/ssrEntryLoader.mjs",
+      "require": "./lib/utils/ssrEntryLoader.cjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [

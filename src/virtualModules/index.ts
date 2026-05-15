@@ -41,8 +41,10 @@ export {
 
 export { generateExposes, getExposesCssMapPlaceholder } from './virtualExposes';
 
-export function initVirtualModules(command: string, remoteEntryId?: string) {
+export { setSsrRemotes } from './virtualRuntimeInitStatus';
+
+export function initVirtualModules(command: string, remoteEntryId?: string, enableSsrInit = false) {
   writeLocalSharedImportMap();
   writeHostAutoInit(remoteEntryId, command);
-  writeRuntimeInitStatus(command);
+  writeRuntimeInitStatus(command, enableSsrInit);
 }
