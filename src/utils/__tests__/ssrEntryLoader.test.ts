@@ -106,8 +106,7 @@ describe('ssrEntryLoaderPlugin — manifest URL derivation', () => {
   it('replaces the entry filename with mf-manifest.json', async () => {
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:5001/remoteEntry.server.js': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': { ok: false },
     });
     global.fetch = fetch as unknown as typeof globalThis.fetch;
     const factory = await freshLoader();
@@ -123,35 +122,13 @@ describe('ssrEntryLoaderPlugin — manifest URL derivation', () => {
 // ---------------------------------------------------------------------------
 
 describe('ssrEntryLoaderPlugin — URL convention fallback', () => {
-  it('tries .server.cjs before .server.js', async () => {
-    const fetch = makeFetchMock({
-      'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': {
-        ok: true,
-        headers: { 'content-type': 'application/javascript' },
-      },
-    });
-    global.fetch = fetch as unknown as typeof globalThis.fetch;
-    const moduleMock = await import('module');
-    (moduleMock.createRequire as ReturnType<typeof vi.fn>).mockReturnValue(
-      vi.fn().mockReturnValue({ init: vi.fn(), get: vi.fn() })
-    );
-    const factory = await freshLoader();
-    await factory().loadEntry!({
-      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
-    });
-    const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
-    expect(heads[0][0]).toBe('http://localhost:5001/remoteEntry.server.cjs');
-  });
-
-  it('falls back to .server.js when .server.cjs is absent', async () => {
+  it('tries only the .ssr.js convention', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:5001/remoteEntry.server.js': {
+      'http://localhost:5001/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
         text: 'export async function init() {} export async function get() {}',
@@ -163,17 +140,13 @@ describe('ssrEntryLoaderPlugin — URL convention fallback', () => {
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
     });
     const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
-    expect(heads.some((c) => c[0] === 'http://localhost:5001/remoteEntry.server.js')).toBe(true);
+    expect(heads.map((c) => c[0])).toEqual(['http://localhost:5001/remoteEntry.ssr.js']);
   });
 
   it('rejects HTML fallback responses', async () => {
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': {
-        ok: true,
-        headers: { 'content-type': 'text/html' },
-      },
-      'http://localhost:5001/remoteEntry.server.js': {
+      'http://localhost:5001/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'text/html' },
       },
@@ -189,8 +162,7 @@ describe('ssrEntryLoaderPlugin — URL convention fallback', () => {
   it('returns undefined when no SSR entry is discoverable', async () => {
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:5001/remoteEntry.server.js': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': { ok: false },
     });
     global.fetch = fetch as unknown as typeof globalThis.fetch;
     const factory = await freshLoader();
@@ -214,10 +186,10 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
       'http://localhost:5001/mf-manifest.json': {
         ok: true,
         json: {
-          metaData: { ssrRemoteEntry: { name: 'remoteEntry.server.js', path: '', type: 'module' } },
+          metaData: { ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' } },
         },
       },
-      'http://localhost:5001/remoteEntry.server.js': {
+      'http://localhost:5001/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
         text: 'export async function init() {} export async function get() {}',
@@ -241,11 +213,11 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
         ok: true,
         json: {
           metaData: {
-            ssrRemoteEntry: { name: 'remoteEntry.server.js', path: 'dist/', type: 'module' },
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: 'dist/', type: 'module' },
           },
         },
       },
-      'http://localhost:5001/dist/remoteEntry.server.js': {
+      'http://localhost:5001/dist/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
         text: 'export async function init() {} export async function get() {}',
@@ -257,7 +229,7 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
     });
     const getCall = fetch.mock.calls.find(
-      (c) => c[0] === 'http://localhost:5001/dist/remoteEntry.server.js' && !c[1]?.method
+      (c) => c[0] === 'http://localhost:5001/dist/remoteEntry.ssr.js' && !c[1]?.method
     );
     expect(getCall).toBeDefined();
   });
@@ -268,8 +240,7 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
         ok: true,
         json: { metaData: { remoteEntry: { name: 'remoteEntry.js', path: '', type: 'module' } } },
       },
-      'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:5001/remoteEntry.server.js': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': { ok: false },
     });
     global.fetch = fetch as unknown as typeof globalThis.fetch;
     const factory = await freshLoader();
@@ -283,8 +254,7 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
   it('falls back to convention when manifest fetch fails', async () => {
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:5001/remoteEntry.server.js': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': { ok: false },
     });
     global.fetch = fetch as unknown as typeof globalThis.fetch;
     const factory = await freshLoader();
@@ -307,8 +277,7 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:5001/remoteEntry.server.js': {
+      'http://localhost:5001/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
         text: `import { t } from "./assets/helper.js";export async function init() {}`,
@@ -338,8 +307,7 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     );
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:5001/remoteEntry.server.js': {
+      'http://localhost:5001/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
         text: `import { t as e } from "./assets/preload-helper-ABC.js";export async function init() {}`,
@@ -365,8 +333,7 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     );
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:5001/remoteEntry.server.js': {
+      'http://localhost:5001/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
         text: `const deps = __vite__mapDeps([0,1]);export async function init() {}`,
@@ -392,8 +359,7 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     );
     const fetch = makeFetchMock({
       'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:5001/remoteEntry.server.js': {
+      'http://localhost:5001/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
         text: `import{useState as e}from"react";export async function init() {}`,
@@ -471,9 +437,15 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     const factory = await freshLoaderWithRunner(() => ({ import: mockImport }));
 
     const fetch = makeFetchMock({
-      'http://localhost:4175/mf-manifest.json': { ok: false },
-      'http://localhost:4175/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:4175/__mf_ssr__/remoteEntry.server.js': {
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
       },
@@ -484,7 +456,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
       remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
     });
 
-    expect(mockImport).toHaveBeenCalledWith('/__mf_ssr__/remoteEntry.server.js');
+    expect(mockImport).toHaveBeenCalledWith('/__mf_ssr__/remoteEntry.ssr.js');
     expect(result).toBe(mockMod);
   });
 
@@ -518,9 +490,15 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     const { default: factory } = await import('../ssrEntryLoader');
 
     const fetch = makeFetchMock({
-      'http://localhost:4175/mf-manifest.json': { ok: false },
-      'http://localhost:4175/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:4175/__mf_ssr__/remoteEntry.server.js': {
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
       },
@@ -559,9 +537,15 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     const { default: factory } = await import('../ssrEntryLoader');
 
     const fetch = makeFetchMock({
-      'http://localhost:4175/mf-manifest.json': { ok: false },
-      'http://localhost:4175/remoteEntry.server.cjs': { ok: false },
-      'http://localhost:4175/__mf_ssr__/remoteEntry.server.js': {
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
       },

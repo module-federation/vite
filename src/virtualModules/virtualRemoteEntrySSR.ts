@@ -10,14 +10,10 @@ export function getRemoteEntrySSRId(
   return `${REMOTE_ENTRY_SSR_ID}:${scopedKey}`;
 }
 
-/**
- * SSR filename — the browser entry is e.g. "remoteEntry.js", the SSR entry
- * is e.g. "remoteEntry.server.js" (or .cjs for CJS output).
- */
-export function getSSRFilename(browserFilename: string, isCJS: boolean): string {
-  const ext = isCJS ? '.cjs' : '.js';
-  const base = browserFilename.replace(/\.[^.]+$/, '');
-  return `${base}.server${ext}`;
+export function getSsrRemoteEntryFileName(browserFilename: string): string {
+  const ext = browserFilename.match(/\.[^.]+$/)?.[0] || '.js';
+  const base = browserFilename.slice(0, browserFilename.length - ext.length);
+  return `${base}.ssr${ext}`;
 }
 
 /**

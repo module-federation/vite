@@ -365,7 +365,7 @@ export default __mfShared.default ?? __mfShared;`,
     // ssrEntryLoader is only supported on Vite 8+ (requires ModuleRunner /
     // FetchableDevEnvironment APIs introduced in Vite 8). On Vite 5–7 the
     // injection is skipped entirely — pluginSSRRemoteEntry still emits
-    // remoteEntry.server.cjs at build time so a future contributor can wire
+    // remoteEntry.ssr.js at build time so a future contributor can wire
     // up their own loadEntry intercept for older Vite versions without
     // needing to change anything here; they just need to provide an
     // equivalent ssrEntryLoader that works with the older Vite dev server.

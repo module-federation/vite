@@ -5,16 +5,16 @@ import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/vi
 import {
   generateRemoteEntrySSR,
   getRemoteEntrySSRId,
-  getSSRFilename,
+  getSsrRemoteEntryFileName,
 } from '../virtualModules/virtualRemoteEntrySSR';
 
 /**
  * Emits a Node-compatible SSR remote entry alongside the browser entry.
  *
  * Format strategy:
- *  - Vite 8+ (Rolldown): ESM output — Rolldown's native format, no CJS interop issues.
- *  - Vite 5–7 (Rollup): CJS output — Rollup has mature CJS support; Node can
- *    require() it directly without any experimental flags.
+ *  - Emit a dedicated ESM SSR entry alongside the browser entry.
+ *  - Keep the SSR entry out of the browser remote graph for Rollup builds by
+ *    emitting it as a generated asset.
  *
  * In both cases shared packages (react, react-dom, etc.) are marked as external
  * so Node resolves them through its own module cache, guaranteeing the singleton
@@ -219,7 +219,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         }
 
         // Serve the SSR remote entry at a predictable URL.
-        const ssrPath = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.server.js`;
+        const ssrPath = `${base}/${getSsrRemoteEntryFileName(options.filename)}`;
         server.middlewares.use(ssrPath, (_req, res) => {
           const exposesUrl = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
           const code = generateRemoteEntrySSR(options).replace(
@@ -243,9 +243,9 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         if (id === virtualExposesSSRId || id.startsWith(virtualExposesSSRId)) return id;
 
         // Vite 8+ dev path: allow server.fetchModule() to resolve the
-        // /__mf_ssr__/*.server.js URL as the virtual SSR entry. ModuleRunner
+        // /__mf_ssr__/*.ssr.js URL as the virtual SSR entry. ModuleRunner
         // imports this path and Vite resolves it here so load() can serve it.
-        const ssrDevPath = `/__mf_ssr__/${options.filename.replace(/\.[^.]+$/, '')}.server.js`;
+        const ssrDevPath = `/__mf_ssr__/${getSsrRemoteEntryFileName(options.filename)}`;
         if (id === ssrDevPath) return remoteEntrySSRId;
         const exposesDevPath = `/__mf_ssr__/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
         if (id === exposesDevPath) return virtualExposesSSRId;
@@ -267,7 +267,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // whether we're running under Rolldown (Vite 8+) so we can choose the
         // right output format and file extension.
         isRolldown = getIsRolldown(this);
-        ssrOutputFilename = getSSRFilename(options.filename, /* isCJS */ !isRolldown);
+        ssrOutputFilename = getSsrRemoteEntryFileName(options.filename);
 
         const environmentName = (this as { environment?: { name?: string } }).environment?.name;
         // Only emit in the client environment — the SSR module runner shouldn't
@@ -287,44 +287,16 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
             preserveSignature: 'strict',
           });
         } else {
-          // Vite 5–7 (Rollup): emit as a pre-generated asset instead of a chunk.
+          // Vite 5–7 (Rollup): emit as a pre-generated ESM asset instead of a chunk.
           // Emitting a second Rollup entry chunk that shares transitive deps with
           // the browser remoteEntry causes Rollup to code-split those deps out of
           // remoteEntry.js, breaking tests and consuming apps that expect them inlined.
-          // Generating the CJS asset directly avoids touching the browser module graph.
-          //
-          // Extension point: to add richer Vite 5–7 SSR support (e.g. inlining
-          // shared dep resolution), generate the code here and emit it as an asset.
-          const esmCode = generateRemoteEntrySSR(options)
-            .replace(
-              /^import\s+\{([^}]+)\}\s+from\s+(['"])([^'"]+)\2;?/gm,
-              (_m, names, _q, src) => {
-                const bindings = names
-                  .split(',')
-                  .map((n: string) => n.trim())
-                  .join(', ');
-                return `const { ${bindings} } = require(${JSON.stringify(src)});`;
-              }
-            )
-            .replace(
-              /^import\s+(\w+)\s+from\s+(['"])([^'"]+)\2;?/gm,
-              (_m, name, _q, src) => `const ${name} = require(${JSON.stringify(src)});`
-            )
-            .replace(/^export\s*\{([^}]+)\};?/gm, (_m, names) => {
-              const pairs = names
-                .split(',')
-                .map((n: string) => {
-                  const parts = n.trim().split(/\s+as\s+/);
-                  const local = parts[0].trim();
-                  const exported = (parts[1] ?? parts[0]).trim();
-                  return `${exported}: ${local}`;
-                })
-                .join(', ');
-              return `module.exports = { ${pairs} };`;
-            })
-            .replace(/^export\s+default\s+/gm, 'module.exports = ');
-          const cjsCode = esmCode.includes("'use strict'") ? esmCode : `'use strict';\n${esmCode}`;
-          this.emitFile({ type: 'asset', fileName: ssrOutputFilename, source: cjsCode });
+          // Generating the ESM asset directly avoids touching the browser module graph.
+          this.emitFile({
+            type: 'asset',
+            fileName: ssrOutputFilename,
+            source: generateRemoteEntrySSR(options),
+          });
         }
       },
 

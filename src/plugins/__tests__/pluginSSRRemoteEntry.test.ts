@@ -34,9 +34,9 @@ vi.mock('../../virtualModules/virtualRemoteEntrySSR', () => ({
     (opts: { internalName: string; filename: string }) =>
       `virtual:mf-REMOTE_ENTRY_SSR_ID:${opts.internalName}__${opts.filename.replace(/[^a-zA-Z0-9_-]/g, '_')}`
   ),
-  getSSRFilename: vi.fn((filename: string, isCJS: boolean) => {
+  getSsrRemoteEntryFileName: vi.fn((filename: string) => {
     const base = filename.replace(/\.[^.]+$/, '');
-    return `${base}.server.${isCJS ? 'cjs' : 'js'}`;
+    return `${base}.ssr.js`;
   }),
 }));
 
@@ -327,7 +327,7 @@ describe('pluginSSRRemoteEntry', () => {
   });
 
   describe('main plugin — buildStart', () => {
-    it('emits SSR entry as a pre-generated CJS asset for Rollup (avoids code-splitting side effects)', () => {
+    it('emits SSR entry as a pre-generated ESM asset for Rollup (avoids code-splitting side effects)', () => {
       getIsRolldownMock.mockReturnValue(false);
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
@@ -345,7 +345,7 @@ describe('pluginSSRRemoteEntry', () => {
       expect(emitFile).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'asset',
-          fileName: 'remoteEntry.server.cjs',
+          fileName: 'remoteEntry.ssr.js',
         })
       );
     });
@@ -369,7 +369,7 @@ describe('pluginSSRRemoteEntry', () => {
         expect.objectContaining({
           type: 'chunk',
           name: 'ssrRemoteEntry',
-          fileName: 'remoteEntry.server.js',
+          fileName: 'remoteEntry.ssr.js',
         })
       );
     });
@@ -445,7 +445,7 @@ describe('pluginSSRRemoteEntry', () => {
     });
   });
 
-  describe('main plugin — buildStart (Rollup CJS asset generation)', () => {
+  describe('main plugin — buildStart (Rollup ESM asset generation)', () => {
     function getEmittedAssetSource() {
       getIsRolldownMock.mockReturnValue(false);
       const emitFile = makeEmitFile();
@@ -462,12 +462,9 @@ describe('pluginSSRRemoteEntry', () => {
       return call?.source ?? '';
     }
 
-    it('emits asset with CJS export syntax from mock ESM source', () => {
-      // generateRemoteEntrySSR is mocked to return `export { init, get }` —
-      // verify buildStart transforms that to CJS and emits it as an asset.
+    it('emits asset with ESM export syntax from mock ESM source', () => {
       const source = getEmittedAssetSource();
-      expect(source).toContain(`module.exports = { init: init, get: get };`);
-      expect(source).toMatch(/^'use strict'/);
+      expect(source).toBe(`export { init, get }`);
     });
   });
 
@@ -488,9 +485,9 @@ describe('pluginSSRRemoteEntry', () => {
       const chunk = {
         type: 'chunk' as const,
         code: originalCode,
-        fileName: 'remoteEntry.server.js',
+        fileName: 'remoteEntry.ssr.js',
       };
-      const bundle = { 'remoteEntry.server.js': chunk };
+      const bundle = { 'remoteEntry.ssr.js': chunk };
 
       callHook(
         mainPlugin.generateBundle,

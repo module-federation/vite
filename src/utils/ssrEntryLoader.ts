@@ -9,9 +9,8 @@
  * Strategy:
  *  - In Node (typeof window === 'undefined'), fetch the remote's mf-manifest.json
  *    to discover the ssrRemoteEntry URL and its type.
- *  - CJS entry (Vite 5–7 build output): use `createRequire` to load synchronously.
- *  - ESM entry (Vite 8+ build output): use a dynamic `import()` — the SSR entry
- *    has no browser globals and all shared packages are external.
+ *  - ESM entry: use a dynamic `import()` — the SSR entry has no browser
+ *    globals and all shared packages are external.
  *  - Dev mode (Vite 8+ only): use `ModuleRunner` with an HTTP transport backed
  *    by the remote's `/__mf_runner__` endpoint. This fetches fully-transformed
  *    module source through Vite's plugin pipeline, avoiding serialisation which
@@ -178,26 +177,14 @@ function resolveSSREntryUrl(
 
 /**
  * Derive the SSR entry URL by convention when no manifest is available.
- * remoteEntry.js → remoteEntry.server.cjs  (Vite 5-7 CJS)
- * remoteEntry.js → remoteEntry.server.js   (Vite 8+ ESM)
+ * remoteEntry.js → remoteEntry.ssr.js
  * Returns the first URL that responds with a 200.
  */
 async function getSSREntryByConvention(
   remoteEntryUrl: string
 ): Promise<{ url: string; type: string } | null> {
   const base = remoteEntryUrl.replace(/\.[^.]+$/, '');
-  // Also check the dev-mode SSR entry served by pluginSSRRemoteEntry's middleware.
-  const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
-  const filename =
-    remoteEntryUrl
-      .split('/')
-      .pop()
-      ?.replace(/\.[^.]+$/, '') ?? 'remoteEntry';
-  const candidates = [
-    { url: `${base}.server.cjs`, type: 'commonjs-module' },
-    { url: `${base}.server.js`, type: 'module' },
-    { url: `${remoteOrigin}/__mf_ssr__/${filename}.server.js`, type: 'module' },
-  ];
+  const candidates = [{ url: `${base}.ssr.js`, type: 'module' }];
   for (const candidate of candidates) {
     try {
       const res = await fetch(candidate.url, { method: 'HEAD' });
@@ -393,7 +380,7 @@ async function loadSSRRemoteEntry(
     const isDevSsrEntry = urlObj.pathname.includes('/__mf_ssr__/');
     if (isDevSsrEntry) {
       // Dev-mode SSR is Vite 8+ only. `pluginSSRRemoteEntry` registers a
-      // `resolveId` hook that maps `/__mf_ssr__/<filename>.server.js` to the
+      // `resolveId` hook that maps `/__mf_ssr__/<filename>.ssr.js` to the
       // virtual SSR entry ID, so `runner.import()` traverses the full Vite
       // plugin pipeline and returns real, fully-transformed module source.
       //
