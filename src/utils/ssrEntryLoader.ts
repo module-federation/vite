@@ -266,6 +266,10 @@ function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string,
     (_m, prefix, _q, specifier) => `${prefix}"${new URL(specifier, base).href}"`
   );
   code = code.replace(
+    /(import\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`]/g,
+    (_m, prefix, _q, specifier) => `${prefix}"${new URL(specifier, base).href}"`
+  );
+  code = code.replace(
     /(import\s*\(\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`](\s*\))/g,
     (_m, prefix, _q, specifier, suffix) => `${prefix}"${new URL(specifier, base).href}"${suffix}`
   );
@@ -298,6 +302,14 @@ function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string,
     }
   );
   code = code.replace(/__vite__mapDeps\([^)]+\)/g, '[]');
+  // Rolldown can inline Vite's preload helper instead of importing
+  // preload-helper. Its error path dispatches `vite:preloadError` on window,
+  // which is invalid while Node imports remote SSR temp files. Replace calls
+  // to helpers that wrap dynamic imports with the wrapped import itself.
+  code = code.replace(
+    /\b([A-Za-z_$][\w$]*)\s*\(\s*\(\s*\)\s*=>\s*import\(([^)]*)\)\s*,\s*\[\]\s*\)/g,
+    'import($2)'
+  );
   return code;
 }
 
@@ -323,7 +335,7 @@ async function fetchEsmToTempFile(
     // Collect relative HTTP imports before transforming.
     const relImports: string[] = [];
     const relRegex =
-      /(?:from|export\s*\*\s*from|import\s*\()\s*["'`](\.\.?\/[^"'`\s][^"'`]*)["'`]/g;
+      /(?:from|export\s*\*\s*from|import\s*\(?\s*)\s*["'`](\.\.?\/[^"'`\s][^"'`]*)["'`]/g;
     let m: RegExpExecArray | null;
     while ((m = relRegex.exec(code)) !== null) {
       relImports.push(new URL(m[1], base).href);

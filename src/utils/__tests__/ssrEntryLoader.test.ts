@@ -318,7 +318,9 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     await factory().loadEntry!({
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
     });
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/assets/helper.js');
+    expect(fetch.mock.calls.some((c) => c[0] === 'http://localhost:5001/assets/helper.js')).toBe(
+      true
+    );
   });
 
   it('replaces Vite preload-helper import with server no-op', async () => {
