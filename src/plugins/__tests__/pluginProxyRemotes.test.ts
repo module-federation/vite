@@ -61,6 +61,14 @@ function runConfig(plugin: ReturnType<typeof pluginProxyRemotes>, config: MockUs
     command: 'serve',
     mode: 'test',
   } as ConfigEnv);
+  callHook(
+    plugin.configResolved,
+    { meta: createPluginMeta() } as any,
+    {
+      ...config,
+      root: config.root ?? '/repo',
+    } as any
+  );
 }
 
 function runResolveId(
@@ -128,7 +136,11 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'scheduler/SchedulePanel', '/repo/src/App.tsx');
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler/SchedulePanel', 'serve');
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
+      'scheduler/SchedulePanel',
+      'serve',
+      true
+    );
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
   });
 
@@ -151,7 +163,7 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'scheduler', '/repo/src/App.tsx');
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve');
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true);
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
   });
 
@@ -161,7 +173,7 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'scheduler', '/repo/node_modules/.vite/deps/react-dom.js');
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve');
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true);
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
   });
 
@@ -185,7 +197,11 @@ describe('pluginProxyRemotes', () => {
     );
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler/SchedulePanel', 'serve');
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
+      'scheduler/SchedulePanel',
+      'serve',
+      true
+    );
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
   });
 });
