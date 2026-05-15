@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
+import { version as viteVersion } from 'vite';
 import type { ConfigEnv, Plugin, UserConfig } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
@@ -370,7 +371,7 @@ export default __mfShared.default ?? __mfShared;`,
     // needing to change anything here; they just need to provide an
     // equivalent ssrEntryLoader that works with the older Vite dev server.
     configResolved(config) {
-      const viteMajor = parseInt(String((config as { version?: string }).version ?? '0'), 10);
+      const viteMajor = parseInt(viteVersion, 10);
       if (viteMajor < 8) return;
 
       const hasRemotesOrExposes =
@@ -384,6 +385,7 @@ export default __mfShared.default ?? __mfShared;`,
       if (alreadyInjected) return;
 
       const pluginRequire = createRequire(import.meta.url);
+      const projectRequire = createRequire(new URL(`file://${config.root}/package.json`));
       const sharedKeys = Object.keys(options.shared ?? {});
       const commonSharedPkgs = [
         'react',
@@ -397,10 +399,14 @@ export default __mfShared.default ?? __mfShared;`,
       const resolvedShared: Record<string, string> = {};
       for (const pkg of [...commonSharedPkgs, ...sharedKeys]) {
         try {
-          resolvedShared[pkg] = pluginRequire.resolve(pkg);
+          resolvedShared[pkg] = projectRequire.resolve(pkg);
         } catch {
-          // Not installed at this location — ssrEntryLoader falls back to
-          // runtime resolution from the host app.
+          try {
+            resolvedShared[pkg] = pluginRequire.resolve(pkg);
+          } catch {
+            // Not installed at either location — ssrEntryLoader falls back to
+            // runtime resolution from the host app.
+          }
         }
       }
 
@@ -484,9 +490,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(_config: UserConfig, env: ConfigEnv) {
         command = env.command;
       },
-      configResolved(config: { version?: string }) {
-        const viteMajor = parseInt(String(config.version ?? '0'), 10);
-        initVirtualModules(command, remoteEntryId, viteMajor >= 8);
+      configResolved() {
+        initVirtualModules(command, remoteEntryId, parseInt(viteVersion, 10) >= 8);
       },
     },
     aliasToArrayPlugin,

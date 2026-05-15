@@ -10,12 +10,13 @@ const cacheRemoteMap: {
   [remote: string]: VirtualModule;
 } = {};
 export const LOAD_REMOTE_TAG = '__loadRemote__';
-export function getRemoteVirtualModule(remote: string, command: string) {
-  if (!cacheRemoteMap[remote]) {
-    cacheRemoteMap[remote] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.mjs');
-    cacheRemoteMap[remote].writeSync(generateRemotes(remote, command));
+export function getRemoteVirtualModule(remote: string, command: string, enableSsrInit = false) {
+  const cacheKey = `${remote}__${command}__${enableSsrInit ? 'ssr' : 'no-ssr'}`;
+  if (!cacheRemoteMap[cacheKey]) {
+    cacheRemoteMap[cacheKey] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.mjs');
+    cacheRemoteMap[cacheKey].writeSync(generateRemotes(remote, command, enableSsrInit));
   }
-  const virtual = cacheRemoteMap[remote];
+  const virtual = cacheRemoteMap[cacheKey];
   return virtual;
 }
 const usedRemotesMap: Record<string, Set<string>> = {
@@ -28,7 +29,7 @@ export function addUsedRemote(remoteKey: string, remoteModule: string) {
 export function getUsedRemotesMap() {
   return usedRemotesMap;
 }
-export function generateRemotes(id: string, command: string) {
+export function generateRemotes(id: string, command: string, enableSsrInit = false) {
   const useReactProxy = command === 'serve' && hasPackageDependency('react');
   const reactImportLine = useReactProxy
     ? `import __mfReactDefault from "react";
@@ -39,7 +40,7 @@ export function generateRemotes(id: string, command: string) {
     command === 'build'
       ? `${getRuntimeModuleCacheBootstrapCode()}
     import { hostInitPromise as __mfHostInitPromise } from ${JSON.stringify(getHostAutoInitPath())};`
-      : `${getRuntimeInitBootstrapCode()}
+      : `${getRuntimeInitBootstrapCode(enableSsrInit)}
     const { initPromise, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
   // In dev+ESM mode (Vite 8+), unwrap the module namespace to avoid
   // double-wrapping: loadRemote returns {default: Component}, and

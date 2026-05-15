@@ -1,4 +1,5 @@
 import type { Plugin } from 'vite';
+import { version as viteVersion } from 'vite';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getInstalledPackageEntry } from '../utils/packageUtils';
 import { filterId } from '../utils/pathNormalization';
@@ -28,6 +29,7 @@ function appendAlias(config: Record<string, any>, alias: { find: RegExp; replace
 export default function (options: NormalizedModuleFederationOptions): Plugin {
   let command: string;
   let root = process.cwd();
+  let enableSsrInit = false;
   const { remotes } = options;
 
   function resolveRemoteId(source: string, importer: string | undefined, remoteName: string) {
@@ -37,7 +39,7 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
         return installedPackageEntry;
       }
     }
-    const remoteModule = getRemoteVirtualModule(source, command);
+    const remoteModule = getRemoteVirtualModule(source, command, enableSsrInit);
     addUsedRemote(remoteName, source);
     refreshHostAutoInit();
     return remoteModule.getImportId();
@@ -56,6 +58,9 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
           replacement: '$1',
         });
       });
+    },
+    configResolved() {
+      enableSsrInit = command === 'serve' && parseInt(viteVersion, 10) >= 8;
     },
     resolveId(source, importer) {
       if (!filterId(source)) return;

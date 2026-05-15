@@ -178,13 +178,23 @@ function resolveSSREntryUrl(
 /**
  * Derive the SSR entry URL by convention when no manifest is available.
  * remoteEntry.js → remoteEntry.ssr.js
+ * remoteEntry.js → /__mf_ssr__/remoteEntry.ssr.js (dev middleware)
  * Returns the first URL that responds with a 200.
  */
 async function getSSREntryByConvention(
   remoteEntryUrl: string
 ): Promise<{ url: string; type: string } | null> {
   const base = remoteEntryUrl.replace(/\.[^.]+$/, '');
-  const candidates = [{ url: `${base}.ssr.js`, type: 'module' }];
+  const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
+  const filename =
+    remoteEntryUrl
+      .split('/')
+      .pop()
+      ?.replace(/\.[^.]+$/, '') ?? 'remoteEntry';
+  const candidates = [
+    { url: `${base}.ssr.js`, type: 'module' },
+    { url: `${remoteOrigin}/__mf_ssr__/${filename}.ssr.js`, type: 'module' },
+  ];
   for (const candidate of candidates) {
     try {
       const res = await fetch(candidate.url, { method: 'HEAD' });

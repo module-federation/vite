@@ -122,7 +122,7 @@ describe('ssrEntryLoaderPlugin — manifest URL derivation', () => {
 // ---------------------------------------------------------------------------
 
 describe('ssrEntryLoaderPlugin — URL convention fallback', () => {
-  it('tries only the .ssr.js convention', async () => {
+  it('tries the .ssr.js convention first', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
@@ -141,6 +141,31 @@ describe('ssrEntryLoaderPlugin — URL convention fallback', () => {
     });
     const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
     expect(heads.map((c) => c[0])).toEqual(['http://localhost:5001/remoteEntry.ssr.js']);
+  });
+
+  it('falls back to the dev SSR middleware when root .ssr.js is HTML', async () => {
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'text/html' },
+      },
+      'http://localhost:5001/__mf_ssr__/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export async function init() {} export async function get() {}',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+    const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
+    expect(heads.map((c) => c[0])).toEqual([
+      'http://localhost:5001/remoteEntry.ssr.js',
+      'http://localhost:5001/__mf_ssr__/remoteEntry.ssr.js',
+    ]);
   });
 
   it('rejects HTML fallback responses', async () => {
