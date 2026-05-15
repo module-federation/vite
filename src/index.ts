@@ -13,6 +13,7 @@ import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
+import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import {
   collectLoadShareProxyChunks,
@@ -45,6 +46,7 @@ import {
   initVirtualModules,
   LOAD_REMOTE_TAG,
   LOAD_SHARE_TAG,
+  setSsrRemotes,
   writeLocalSharedImportMap,
 } from './virtualModules';
 import { getVirtualExposesId } from './virtualModules/virtualExposes';
@@ -201,6 +203,18 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       setPackageDetectionCwd(root);
       const isVinext = hasPackageDependency('vinext');
 
+      // Configure SSR runtime with the host's remotes so server-side loadRemote
+      // knows the entry URL for each remote when ssrEntryLoader intercepts it.
+      if (_command === 'serve') {
+        setSsrRemotes(
+          Object.entries(options.remotes).map(([key, r]) => ({
+            name: key,
+            entry: r.entry,
+            type: r.type ?? 'module',
+          }))
+        );
+      }
+
       // Create core virtual modules
       initVirtualModules(_command, getRemoteEntryId(options));
 
@@ -347,12 +361,69 @@ export default __mfShared.default ?? __mfShared;`,
         writeLocalSharedImportMap();
       }
     },
+
+    // ssrEntryLoader is only supported on Vite 8+ (requires ModuleRunner /
+    // FetchableDevEnvironment APIs introduced in Vite 8). On Vite 5–7 the
+    // injection is skipped entirely — pluginSSRRemoteEntry still emits
+    // remoteEntry.server.cjs at build time so a future contributor can wire
+    // up their own loadEntry intercept for older Vite versions without
+    // needing to change anything here; they just need to provide an
+    // equivalent ssrEntryLoader that works with the older Vite dev server.
+    configResolved(config) {
+      const viteMajor = parseInt(String((config as { version?: string }).version ?? '0'), 10);
+      if (viteMajor < 8) return;
+
+      const hasRemotesOrExposes =
+        Object.keys(options.exposes).length > 0 || Object.keys(options.remotes).length > 0;
+      if (!hasRemotesOrExposes) return;
+
+      const alreadyInjected = options.runtimePlugins.some((p) => {
+        const specifier = typeof p === 'string' ? p : p[0];
+        return specifier === '@module-federation/vite/ssrEntryLoader';
+      });
+      if (alreadyInjected) return;
+
+      const pluginRequire = createRequire(import.meta.url);
+      const sharedKeys = Object.keys(options.shared ?? {});
+      const commonSharedPkgs = [
+        'react',
+        'react-dom',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
+        '@module-federation/runtime',
+        '@module-federation/runtime-core',
+        '@module-federation/sdk',
+      ];
+      const resolvedShared: Record<string, string> = {};
+      for (const pkg of [...commonSharedPkgs, ...sharedKeys]) {
+        try {
+          resolvedShared[pkg] = pluginRequire.resolve(pkg);
+        } catch {
+          // Not installed at this location — ssrEntryLoader falls back to
+          // runtime resolution from the host app.
+        }
+      }
+
+      // Only inject when the built subpath export exists. Integration tests
+      // run against src/ before a build, so the lib/ export won't be present.
+      // Users can still inject manually via runtimePlugins in that case.
+      const ssrEntryLoaderSpecifier = '@module-federation/vite/ssrEntryLoader';
+      try {
+        pluginRequire.resolve(ssrEntryLoaderSpecifier);
+        options.runtimePlugins.push([ssrEntryLoaderSpecifier, { resolvedShared }]);
+      } catch {
+        // lib/ not built yet — skip silently
+      }
+    },
   };
 }
+
+const SSR_ONLY_PLUGINS = new Set(['@module-federation/vite/ssrEntryLoader']);
 
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
+
   const isVinext = hasPackageDependency('vinext');
   const { name, shared, filename, hostInitInjectLocation } = options;
   if (!name) throw createModuleFederationError('name is required');
@@ -413,8 +484,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(_config: UserConfig, env: ConfigEnv) {
         command = env.command;
       },
-      configResolved() {
-        initVirtualModules(command, remoteEntryId);
+      configResolved(config: { version?: string }) {
+        const viteMajor = parseInt(String(config.version ?? '0'), 10);
+        initVirtualModules(command, remoteEntryId, viteMajor >= 8);
       },
     },
     aliasToArrayPlugin,
@@ -422,6 +494,36 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     normalizeOptimizeDepsPlugin,
     ...pluginDts(options),
     pluginDevRemoteHmr(options),
+    {
+      // Some frameworks (e.g. TanStack Start) assume the bundle has exactly one
+      // isEntry chunk and throw when they see extras. MF emits additional entry
+      // chunks (hostInit, remoteEntry, virtualExposes) that are not the real app
+      // entry. Mark them as non-entry before any framework scanner runs.
+      name: 'mf:normalize-entry-chunks',
+      enforce: 'pre',
+      apply: 'build',
+      generateBundle(_options: unknown, bundle: Record<string, unknown>) {
+        for (const chunk of Object.values(bundle)) {
+          if (
+            typeof chunk !== 'object' ||
+            chunk === null ||
+            (chunk as { type: string }).type !== 'chunk' ||
+            !(chunk as { isEntry: boolean }).isEntry
+          )
+            continue;
+          const facadeId = (chunk as { facadeModuleId?: string }).facadeModuleId ?? '';
+          if (
+            facadeId.includes('__mf__virtual') ||
+            facadeId.startsWith('virtual:mf-') ||
+            facadeId.startsWith('virtual:mf:') ||
+            facadeId.startsWith('\0virtual:mf-') ||
+            facadeId.startsWith('\0virtual:mf:')
+          ) {
+            (chunk as { isEntry: boolean }).isEntry = false;
+          }
+        }
+      },
+    },
     ...addEntry({
       entryName: 'remoteEntry',
       entryPath: remoteEntryId,
@@ -689,7 +791,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
            *
            * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
            */
-          if (!/\bexport\s+const\s+__moduleExports\b/.test(code)) {
+          if (
+            !/\bexport\s+const\s+__moduleExports\b/.test(code) &&
+            !/\bexport\s*\{[^}]*__moduleExports/.test(code)
+          ) {
             const nextCode = code.replace(
               'export default exportModule',
               'export const __moduleExports = exportModule;\n' +
@@ -814,9 +919,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
 
-        // Add all runtime plugins to optimizeDeps to prevent 504 re-optimization
+        // Add all runtime plugins to optimizeDeps to prevent 504 re-optimization.
+        // SSR-only plugins import Node modules — exclude them from browser optimisation.
         options.runtimePlugins.forEach((p) => {
           const pluginPath = typeof p === 'string' ? p : p[0];
+          if (SSR_ONLY_PLUGINS.has(pluginPath)) return;
           // Only add bare imports to optimizeDeps
           if (
             pluginPath &&
@@ -859,6 +966,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       },
     },
     ...pluginManifest(),
+    ...pluginSSRRemoteEntry(options),
     ...pluginVarRemoteEntry(),
     {
       name: 'module-federation-vinext-fix-rsc-preload-as',

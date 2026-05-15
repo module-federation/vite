@@ -295,8 +295,32 @@ ${importHelper}(async () => {
     {
       name: 'add-entry',
       enforce: 'post',
+      // In Vite 8 multi-environment setups (e.g. TanStack Start via Vinxi),
+      // each environment has its own plugin pipeline. Without applyToEnvironment,
+      // this plugin only runs in the default environment and the transform hook
+      // never fires for modules in the client or ssr environments. Returning
+      // true makes this plugin active in all environments so the transform (and
+      // therefore bootstrap injection) fires wherever the client entry is processed.
+      applyToEnvironment() {
+        return true;
+      },
       configResolved(config) {
         viteConfig = config;
+
+        // In Vite 8 multi-environment mode this hook fires once per environment.
+        // Only populate entryFiles from the 'client' environment — reading it from
+        // 'ssr' would overwrite entryFiles with the server input (e.g. Nitro's
+        // SSR entry) and break client injection detection for frameworks like
+        // TanStack Start that set rollupOptions.input per-environment.
+        // `this.environment` is Vite 8+ only. In Vite 5–7, `this` may be
+        // undefined/null in strict mode, so guard before property access.
+        const ctx = this as unknown;
+        const envName = (
+          ctx != null && typeof ctx === 'object'
+            ? (ctx as Record<string, unknown>)['environment']
+            : undefined
+        ) as { name?: string } | undefined;
+        if (envName?.name && envName.name !== 'client') return;
         const inputOptions = config.build.rollupOptions.input;
 
         if (!inputOptions) {
@@ -326,6 +350,13 @@ ${importHelper}(async () => {
       buildStart() {
         if (_command === 'serve') return;
         if (skipSvelteKitSsrBuild()) return;
+        // Skip Nitro's "ssr" environment — it reads all emitted entry chunks to
+        // detect the SSR request handler, and picks up hostInit / remoteEntry
+        // instead of the real framework SSR entry, causing
+        // "mod.fetch is not a function". Other SSR environments (e.g. Vinext's
+        // RSC environments) must still emit their entry chunks normally.
+        const environmentName = (this as { environment?: { name?: string } }).environment?.name;
+        if (environmentName === 'ssr') return;
         const hasHash = fileName?.includes?.('[hash');
         const emitFileOptions: any = {
           name: entryName,
@@ -350,6 +381,7 @@ ${importHelper}(async () => {
       generateBundle(_options, bundle) {
         if (skipSvelteKitSsrBuild()) return;
         if (!injectHtml()) return;
+        if (!emitFileId) return;
         const file = this.getFileName(emitFileId);
         emittedFileName = file;
         // Helper to resolve path with proper renderBuiltUrl handling
@@ -443,6 +475,16 @@ ${importHelper}(async () => {
         if (skipSvelteKitSsrBuild()) return;
         if (isSvelteKitServerModule(id)) return;
         if (id.includes(ENTRY_BOOTSTRAP_QUERY)) return;
+        // Only inject into client-side modules. In Vite 8 multi-environment mode
+        // this transform also runs for ssr/server environments — injecting there
+        // would set clientInjected=true and prevent the real client injection.
+        const transformCtx = this as unknown;
+        const transformEnv = (
+          transformCtx != null && typeof transformCtx === 'object'
+            ? (transformCtx as Record<string, unknown>)['environment']
+            : undefined
+        ) as { name?: string } | undefined;
+        if (transformEnv?.name && transformEnv.name !== 'client') return;
         const isVinext = hasPackageDependency('vinext');
         if (
           isVinext &&
@@ -482,10 +524,35 @@ ${importHelper}(async () => {
             !clientInjected &&
             !id.startsWith('\0') &&
             !id.includes('node_modules') &&
-            /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id));
+            /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) ||
+          // Fallback for frameworks (e.g. TanStack Start) that manage their own
+          // client entry and never populate rollupOptions.input in dev. Inject
+          // into the module that mounts/hydrates the React app — identified by
+          // the presence of hydrateRoot, createRoot, or ReactDOM.render calls.
+          // TanStack Start inlines client.tsx into a virtual entry module, so
+          // we also match virtual IDs (id.startsWith('\0')) that contain the
+          // hydration call.
+          (_command === 'serve' &&
+            inject === 'entry' &&
+            entryFiles.length === 0 &&
+            (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
+            !clientInjected &&
+            !id.includes('node_modules') &&
+            (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
+            /hydrateRoot|createRoot|ReactDOM\.render/.test(code));
         if (shouldInject) {
           clientInjected = true;
-          if (!waitsForInit) {
+          // For the dev-mode entry fallback (inject:'entry' with no known entry
+          // files), always use a simple import injection. The getBootstrapSource
+          // wrapper is incompatible with SSR module evaluation — the async IIFE
+          // it generates prevents the module from exporting synchronously.
+          const usesDevEntryFallback =
+            _command === 'serve' &&
+            inject === 'entry' &&
+            entryFiles.length === 0 &&
+            (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
+            /hydrateRoot|createRoot|ReactDOM\.render/.test(code);
+          if (!waitsForInit || usesDevEntryFallback) {
             const injection = `import ${JSON.stringify(getEntryPath())};\n`;
             return mapCodeToCodeWithSourcemap(injection + code);
           }
