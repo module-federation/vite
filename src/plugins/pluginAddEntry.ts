@@ -382,6 +382,8 @@ ${importHelper}(async () => {
         if (skipSvelteKitSsrBuild()) return;
         if (!injectHtml()) return;
         if (!emitFileId) return;
+        const htmlFileNames = Object.keys(bundle).filter((fileName) => fileName.endsWith('.html'));
+        if (htmlFileNames.length === 0) return;
         const file = this.getFileName(emitFileId);
         emittedFileName = file;
         // Helper to resolve path with proper renderBuiltUrl handling
@@ -422,41 +424,39 @@ ${importHelper}(async () => {
 
         let bootstrapIndex = 0;
         // Process each HTML file
-        for (const fileName in bundle) {
-          if (fileName.endsWith('.html')) {
-            let htmlAsset = bundle[fileName];
-            if (htmlAsset.type === 'chunk') return;
+        for (const fileName of htmlFileNames) {
+          let htmlAsset = bundle[fileName];
+          if (htmlAsset.type === 'chunk') return;
 
-            let htmlContent = htmlAsset.source.toString() || '';
-            const initPath = resolvePath(fileName);
-            const scriptRegex =
-              /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=["']([^"']+)["'])[^>]*>\s*<\/script>/gi;
-            let rewritten = false;
-            htmlContent = htmlContent.replace(scriptRegex, (scriptTag, entrySrc) => {
-              rewritten = true;
-              const bootstrapFileName = `mf-entry-bootstrap-${bootstrapIndex++}.js`;
-              const bootstrapRef = this.emitFile({
-                type: 'asset',
-                fileName: bootstrapFileName,
-                source: getSystemBootstrapSource(initPath, entrySrc),
-              });
-              const bootstrapPath = viteConfig.base + this.getFileName(bootstrapRef);
-              return scriptTag.replace(entrySrc, bootstrapPath);
+          let htmlContent = htmlAsset.source.toString() || '';
+          const initPath = resolvePath(fileName);
+          const scriptRegex =
+            /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=["']([^"']+)["'])[^>]*>\s*<\/script>/gi;
+          let rewritten = false;
+          htmlContent = htmlContent.replace(scriptRegex, (scriptTag, entrySrc) => {
+            rewritten = true;
+            const bootstrapFileName = `mf-entry-bootstrap-${bootstrapIndex++}.js`;
+            const bootstrapRef = this.emitFile({
+              type: 'asset',
+              fileName: bootstrapFileName,
+              source: getSystemBootstrapSource(initPath, entrySrc),
             });
+            const bootstrapPath = viteConfig.base + this.getFileName(bootstrapRef);
+            return scriptTag.replace(entrySrc, bootstrapPath);
+          });
 
-            if (!rewritten) {
-              const svelteKitHtml = rewriteSvelteKitInlineStart(htmlContent, initPath);
-              if (svelteKitHtml !== htmlContent) {
-                htmlAsset.source = svelteKitHtml;
-                continue;
-              }
-              const scriptContent = `
+          if (!rewritten) {
+            const svelteKitHtml = rewriteSvelteKitInlineStart(htmlContent, initPath);
+            if (svelteKitHtml !== htmlContent) {
+              htmlAsset.source = svelteKitHtml;
+              continue;
+            }
+            const scriptContent = `
           <script type="module" src="${initPath}"></script>
         `;
-              htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
-            }
-            htmlAsset.source = htmlContent;
+            htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
           }
+          htmlAsset.source = htmlContent;
         }
       },
       closeBundle() {
