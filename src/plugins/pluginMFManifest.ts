@@ -119,7 +119,7 @@ const Manifest = (): Plugin[] => {
                   },
                   ssrRemoteEntry: {
                     name: getSsrRemoteEntryFileName(filename),
-                    path: '',
+                    path: '/__mf_ssr__/',
                     type: 'module',
                   },
                   varRemoteEntry: varFilename

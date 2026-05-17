@@ -375,6 +375,42 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).not.toContain('__vite__mapDeps');
   });
 
+  it('unwraps Vite preload helper calls that use __vite__mapDeps', async () => {
+    let written = '';
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (_p: unknown, code: unknown) => {
+        written += code as string;
+      }
+    );
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: `import{_ as p}from"./preload.js";const mod=p(()=>import("./chunk.js"),__vite__mapDeps([0,1]),import.meta.url);export async function init() {}`,
+      },
+      'http://localhost:5001/preload.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export const _ = () => document.head;',
+      },
+      'http://localhost:5001/chunk.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export default {};',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+    expect(written).toContain('const mod=import("file://');
+    expect(written).not.toContain('__vite__mapDeps');
+  });
+
   it('rewrites shared bare package specifiers to file:// paths', async () => {
     let written = '';
     const fsMock = await import('fs');
@@ -485,6 +521,40 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
 
     expect(mockImport).toHaveBeenCalledWith('/__mf_ssr__/remoteEntry.ssr.js');
     expect(result).toBe(mockMod);
+  });
+
+  it('loads direct dev SSR entries without rediscovering the manifest', async () => {
+    const mockMod = { init: vi.fn(), get: vi.fn() };
+    const mockImport = vi.fn().mockResolvedValue(mockMod);
+    const factory = await freshLoaderWithRunner(() => ({ import: mockImport }));
+    const fetch = vi.fn();
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    const result = await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js' },
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockImport).toHaveBeenCalledWith('/__mf_ssr__/remoteEntry.ssr.js');
+    expect(result).toBe(mockMod);
+  });
+
+  it('loads direct build SSR entries without rediscovering the manifest', async () => {
+    const fetch = makeFetchMock({
+      'http://localhost:4175/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'export const init = () => {}; export const get = () => {};',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    const factory = await freshLoader();
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.ssr.js' },
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith('http://localhost:4175/remoteEntry.ssr.js');
   });
 
   it('returns null when ModuleRunner import throws (no silent fallback)', async () => {

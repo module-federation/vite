@@ -230,6 +230,84 @@ describe('pluginMFManifest', () => {
     });
   });
 
+  it('serves dev manifest with SSR entry pointing at the dev SSR middleware', () => {
+    getNormalizeModuleFederationOptions.mockReturnValue({
+      name: 'remote',
+      filename: 'remoteEntry.js',
+      getPublicPath: undefined,
+      varFilename: undefined,
+      manifest: true,
+      exposes: { './remote-card': { import: './RemoteCard.vue' } },
+      remotes: {},
+      shared: {},
+      bundleAllCSS: false,
+      shareStrategy: 'version-first',
+      implementation: 'module-federation-runtime',
+      runtimePlugins: [],
+      virtualModuleDir: '__mf__virtual',
+      hostInitInjectLocation: 'html',
+      moduleParseTimeout: 10,
+      ignoreOrigin: false,
+    });
+    getUsedRemotesMap.mockReturnValue(new Map());
+    getUsedShares.mockReturnValue(new Set());
+
+    const [servePlugin] = manifestPlugin();
+    let middleware:
+      | ((
+          req: { url?: string },
+          res: { setHeader: Function; end: Function },
+          next: Function
+        ) => void)
+      | undefined;
+    const headers: Record<string, string> = {};
+    let body = '';
+
+    callHook(servePlugin.config, {} as ConfigPluginContext, {}, { command: 'serve', mode: 'test' });
+    callHook(
+      servePlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        root: '/',
+        base: '/_nuxt/',
+        build: {},
+        server: { origin: 'http://localhost' },
+      } as unknown as ResolvedConfig
+    );
+    callHook(
+      servePlugin.configureServer,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        middlewares: {
+          use(fn: NonNullable<typeof middleware>) {
+            middleware = fn;
+          },
+        },
+      } as never
+    );
+
+    middleware?.(
+      { url: '/_nuxt/mf-manifest.json' },
+      {
+        setHeader(name: string, value: string) {
+          headers[name] = value;
+        },
+        end(value: string) {
+          body = value;
+        },
+      },
+      vi.fn()
+    );
+
+    const manifest = JSON.parse(body);
+    expect(headers['Content-Type']).toBe('application/json');
+    expect(manifest.metaData.ssrRemoteEntry).toMatchObject({
+      name: 'remoteEntry.ssr.js',
+      path: '/__mf_ssr__/',
+      type: 'module',
+    });
+  });
+
   it('emits companion stats file using manifest fileName suffix', async () => {
     const emitted = await runGenerateBundleWithManifest({
       fileName: 'path/custom-manifest.json',

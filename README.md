@@ -182,6 +182,41 @@ const RemoteMFE = defineAsyncComponent( 👈
 </template>
 ```
 
+## SSR runtime
+
+When `manifest` is enabled, remotes emit a browser `remoteEntry` and a Node-safe
+`ssrRemoteEntry`. Server hosts can use `@module-federation/vite/runtime` to load
+the Node entry from `mf-manifest.json`:
+
+```ts
+import {
+  createServerFederationInstance,
+  loadRemoteFromManifest,
+} from '@module-federation/vite/runtime';
+
+createServerFederationInstance({
+  name: 'ssr-host',
+  remotes: [],
+  shared: {
+    vue: {
+      version: '3.5.0',
+      lib: () => Vue,
+      shareConfig: { singleton: true, requiredVersion: false },
+    },
+  },
+});
+
+const remote = await loadRemoteFromManifest('remote/remote-app', remoteManifestUrl, {
+  target: 'node',
+});
+```
+
+For Nuxt/Nitro, put the server runtime setup in a server plugin or composable
+that only runs on the server, and call `loadRemoteFromManifest(..., { target:
+'node' })` during SSR. The server helper automatically installs the Vite SSR
+entry loader plugin; the browser can use `createFederationInstance` or the
+normal static remote imports.
+
 ## ⚠️ `codeSplitting` settings are controlled by the plugin
 
 Do not set either `build.rollupOptions.output.codeSplitting` or

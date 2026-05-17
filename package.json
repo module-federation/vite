@@ -23,6 +23,14 @@
       "import": "./lib/utils/ssrEntryLoader.mjs",
       "require": "./lib/utils/ssrEntryLoader.cjs"
     },
+    "./runtime": {
+      "types": {
+        "import": "./lib/runtime.d.mts",
+        "require": "./lib/runtime.d.cts"
+      },
+      "import": "./lib/runtime.mjs",
+      "require": "./lib/runtime.cjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [

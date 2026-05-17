@@ -327,7 +327,7 @@ describe('pluginSSRRemoteEntry', () => {
   });
 
   describe('main plugin — buildStart', () => {
-    it('emits SSR entry as a pre-generated ESM asset for Rollup (avoids code-splitting side effects)', () => {
+    it('emits SSR entry as a chunk for Rollup', () => {
       getIsRolldownMock.mockReturnValue(false);
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
@@ -344,7 +344,8 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(emitFile).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'asset',
+          type: 'chunk',
+          name: 'ssrRemoteEntry',
           fileName: 'remoteEntry.ssr.js',
         })
       );
@@ -445,31 +446,8 @@ describe('pluginSSRRemoteEntry', () => {
     });
   });
 
-  describe('main plugin — buildStart (Rollup ESM asset generation)', () => {
-    function getEmittedAssetSource() {
-      getIsRolldownMock.mockReturnValue(false);
-      const emitFile = makeEmitFile();
-      const plugins = pluginSSRRemoteEntry(makeOptions());
-      const mainPlugin = plugins[1];
-
-      callHook(
-        mainPlugin.buildStart,
-        { meta: makePluginMeta(false), emitFile } as unknown as Rollup.PluginContext,
-        {} as Rollup.NormalizedInputOptions
-      );
-
-      const call = emitFile.mock.calls[0]?.[0] as { source?: string } | undefined;
-      return call?.source ?? '';
-    }
-
-    it('emits asset with ESM export syntax from mock ESM source', () => {
-      const source = getEmittedAssetSource();
-      expect(source).toBe(`export { init, get }`);
-    });
-  });
-
   describe('main plugin — generateBundle', () => {
-    it('leaves Rolldown (ESM) bundle unchanged', () => {
+    it('leaves emitted SSR bundle unchanged', () => {
       getIsRolldownMock.mockReturnValue(true);
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());

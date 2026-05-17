@@ -1,6 +1,5 @@
 import { Plugin } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { getIsRolldown } from '../utils/packageUtils';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
 import {
   generateRemoteEntrySSR,
@@ -23,7 +22,6 @@ import {
 export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions): Plugin[] {
   const remoteEntrySSRId = getRemoteEntrySSRId(options);
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
-  let isRolldown = false;
   let ssrOutputFilename = '';
 
   // MF internal packages must be external for the SSR entry (Node resolves
@@ -263,10 +261,6 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       buildStart() {
         // Only emit the SSR entry chunk during vite build — not vite serve.
         if (isServe) return;
-        // `this.meta` is available in Rollup/Rolldown hooks — use it to detect
-        // whether we're running under Rolldown (Vite 8+) so we can choose the
-        // right output format and file extension.
-        isRolldown = getIsRolldown(this);
         ssrOutputFilename = getSsrRemoteEntryFileName(options.filename);
 
         const environmentName = (this as { environment?: { name?: string } }).environment?.name;
@@ -276,38 +270,19 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
         if (Object.keys(options.exposes).length === 0) return;
 
-        if (isRolldown) {
-          // Vite 8+ (Rolldown): emit as a proper chunk. Rolldown handles multiple
-          // entry chunks without code-splitting side effects on the browser entry.
-          this.emitFile({
-            type: 'chunk',
-            id: remoteEntrySSRId,
-            name: 'ssrRemoteEntry',
-            fileName: ssrOutputFilename,
-            preserveSignature: 'strict',
-          });
-        } else {
-          // Vite 5–7 (Rollup): emit as a pre-generated ESM asset instead of a chunk.
-          // Emitting a second Rollup entry chunk that shares transitive deps with
-          // the browser remoteEntry causes Rollup to code-split those deps out of
-          // remoteEntry.js, breaking tests and consuming apps that expect them inlined.
-          // Generating the ESM asset directly avoids touching the browser module graph.
-          this.emitFile({
-            type: 'asset',
-            fileName: ssrOutputFilename,
-            source: generateRemoteEntrySSR(options),
-          });
-        }
+        this.emitFile({
+          type: 'chunk',
+          id: remoteEntrySSRId,
+          name: 'ssrRemoteEntry',
+          fileName: ssrOutputFilename,
+          preserveSignature: 'strict',
+        });
       },
 
       generateBundle(_options, bundle) {
-        // Vite 8+ (Rolldown) only — the chunk was emitted via the chunk path in buildStart.
-        // No post-processing needed; Rolldown emits ESM natively.
-        // On Vite 5–7 the SSR entry was emitted as a pre-generated asset, so nothing to do here.
-        if (!isRolldown) return;
         const chunk = bundle[ssrOutputFilename];
         if (!chunk || chunk.type !== 'chunk') return;
-        // Verify the chunk exists and was emitted correctly — no transform needed for Rolldown.
+        // Verify the chunk exists and was emitted correctly — no transform needed.
       },
     },
   ];

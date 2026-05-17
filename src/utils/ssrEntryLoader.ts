@@ -148,6 +148,15 @@ interface Manifest {
 // Process-level cache: manifest URL → { ssrEntry URL, type }
 const manifestCache = new Map<string, Promise<{ url: string; type: string } | null>>();
 
+function isDirectSSREntry(entryUrl: string): boolean {
+  try {
+    const pathname = new URL(entryUrl).pathname;
+    return pathname.includes('/__mf_ssr__/') || pathname.endsWith('.ssr.js');
+  } catch {
+    return entryUrl.includes('/__mf_ssr__/') || entryUrl.endsWith('.ssr.js');
+  }
+}
+
 async function fetchManifest(manifestUrl: string): Promise<Manifest | null> {
   try {
     const res = await fetch(manifestUrl);
@@ -282,7 +291,11 @@ function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string,
       /(?:from|import\s*\()\s*(["'`])([^"'`./][^"'`]*)["'`]/g,
       (m, _q, specifier) => {
         const resolved = sharedPkgMap.get(specifier);
-        return resolved ? m.replace(specifier, `file://${resolved}`) : m;
+        if (!resolved) return m;
+        return m.replace(
+          specifier,
+          resolved.startsWith('file://') ? resolved : `file://${resolved}`
+        );
       }
     );
   }
@@ -301,15 +314,19 @@ function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string,
       return locals.map((l) => `const ${l} = (fn) => fn();`).join('\n');
     }
   );
-  code = code.replace(/__vite__mapDeps\([^)]+\)/g, '[]');
   // Rolldown can inline Vite's preload helper instead of importing
   // preload-helper. Its error path dispatches `vite:preloadError` on window,
   // which is invalid while Node imports remote SSR temp files. Replace calls
   // to helpers that wrap dynamic imports with the wrapped import itself.
   code = code.replace(
+    /\b[A-Za-z_$][\w$]*\s*\(\s*\(\s*\)\s*=>\s*import\(([^)]*)\)\s*,\s*__vite__mapDeps\([^)]*\)\s*,\s*import\.meta\.url\s*\)/g,
+    'import($1)'
+  );
+  code = code.replace(
     /\b([A-Za-z_$][\w$]*)\s*\(\s*\(\s*\)\s*=>\s*import\(([^)]*)\)\s*,\s*\[\]\s*\)/g,
     'import($2)'
   );
+  code = code.replace(/__vite__mapDeps\([^)]+\)/g, '[]');
   return code;
 }
 
@@ -438,7 +455,7 @@ async function loadSSRRemoteEntry(
 
     try {
       const tmpFile = await fetchEsmToTempFile(url, cacheDir, new Map(), sharedPkgMap);
-      return (await import(tmpFile)) as { init: unknown; get: unknown };
+      return (await nodeImport(tmpFile)) as { init: unknown; get: unknown };
     } catch {
       return null;
     }
@@ -480,7 +497,9 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
       // Only intercept on the server — browser should use the normal path.
       if (typeof (globalThis as Record<string, unknown>).window !== 'undefined') return;
 
-      const ssrEntry = await getSSREntry(remoteInfo.entry);
+      const ssrEntry = isDirectSSREntry(remoteInfo.entry)
+        ? { url: remoteInfo.entry, type: remoteInfo.type || 'module' }
+        : await getSSREntry(remoteInfo.entry);
       if (!ssrEntry) return;
 
       const mod = await loadSSRRemoteEntry(ssrEntry, resolvedShared);
