@@ -515,6 +515,15 @@ ${importHelper}(async () => {
           return mapCodeToCodeWithSourcemap(injection + code);
         }
 
+        const isHydrationEntryFallback =
+          inject === 'entry' &&
+          entryFiles.length === 0 &&
+          (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
+          !clientInjected &&
+          !id.includes('node_modules') &&
+          (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
+          /hydrateRoot|createRoot|ReactDOM\.render/.test(code);
+
         const shouldInject =
           (injectEntry() && entryFiles.some((file) => id.endsWith(file))) ||
           // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
@@ -532,14 +541,7 @@ ${importHelper}(async () => {
           // TanStack Start inlines client.tsx into a virtual entry module, so
           // we also match virtual IDs (id.startsWith('\0')) that contain the
           // hydration call.
-          (_command === 'serve' &&
-            inject === 'entry' &&
-            entryFiles.length === 0 &&
-            (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
-            !clientInjected &&
-            !id.includes('node_modules') &&
-            (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
-            /hydrateRoot|createRoot|ReactDOM\.render/.test(code));
+          isHydrationEntryFallback;
         if (shouldInject) {
           clientInjected = true;
           // For the dev-mode entry fallback (inject:'entry' with no known entry
@@ -547,11 +549,7 @@ ${importHelper}(async () => {
           // wrapper is incompatible with SSR module evaluation — the async IIFE
           // it generates prevents the module from exporting synchronously.
           const usesDevEntryFallback =
-            _command === 'serve' &&
-            inject === 'entry' &&
-            entryFiles.length === 0 &&
-            (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
-            /hydrateRoot|createRoot|ReactDOM\.render/.test(code);
+            _command === 'serve' && inject === 'entry' && isHydrationEntryFallback;
           if (!waitsForInit || usesDevEntryFallback) {
             const injection = `import ${JSON.stringify(getEntryPath())};\n`;
             return mapCodeToCodeWithSourcemap(injection + code);
