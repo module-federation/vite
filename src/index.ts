@@ -1101,4 +1101,13 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   ];
 }
 
-export { federation, type ModuleFederationOptions, type PluginManifestOptions };
+function createModuleFederationConfig(options: ModuleFederationOptions): ModuleFederationOptions {
+  return options;
+}
+
+export {
+  createModuleFederationConfig,
+  federation,
+  type ModuleFederationOptions,
+  type PluginManifestOptions,
+};
