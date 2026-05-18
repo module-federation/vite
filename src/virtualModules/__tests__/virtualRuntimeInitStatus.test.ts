@@ -120,4 +120,17 @@ describe('virtualRuntimeInitStatus', () => {
       'module.exports = globalThis[globalKey];'
     );
   });
+
+  it('serializes SSR remotes into build init code', async () => {
+    const { setSsrRemotes, writeRuntimeInitStatus } = await import('../virtualRuntimeInitStatus');
+
+    setSsrRemotes([
+      { name: 'remote', entry: 'http://localhost:4174/remoteEntry.js', type: 'module' },
+    ]);
+    writeRuntimeInitStatus('build', true);
+
+    const code = writeSyncSpy.mock.calls.at(-1)?.[0] ?? '';
+    expect(code).toContain('"name":"remote"');
+    expect(code).toContain('"entry":"http://localhost:4174/remoteEntry.js"');
+  });
 });

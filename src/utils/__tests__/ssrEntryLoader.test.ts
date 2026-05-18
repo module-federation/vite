@@ -323,6 +323,39 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     );
   });
 
+  it('fetches loader-wrapped template literal dynamic imports', async () => {
+    let written = '';
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (_p: unknown, code: unknown) => {
+        written += `${code as string}\n`;
+      }
+    );
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'var mod = preload(() => import(`./assets/exposes.js`), []);export async function init() {}',
+      },
+      'http://localhost:5001/assets/exposes.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export const exposed = 1;',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+    expect(fetch.mock.calls.some((c) => c[0] === 'http://localhost:5001/assets/exposes.js')).toBe(
+      true
+    );
+    expect(written).not.toContain('import(`http://localhost:5001/assets/exposes.js`)');
+  });
+
   it('replaces Vite preload-helper import with server no-op', async () => {
     let written = '';
     const fsMock = await import('fs');
