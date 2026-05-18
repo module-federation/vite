@@ -27,7 +27,6 @@ function createCtx(): { ctx: AdapterContext; middlewares: Middleware[] } {
       remotes: {},
       virtualModuleDir: '__mf__virtual',
     }),
-    strategy: 'native',
   };
   return { ctx, middlewares };
 }
@@ -41,7 +40,7 @@ describe('reactAdapter', () => {
 
   it('serves the /@react-refresh proxy module', () => {
     const { ctx, middlewares } = createCtx();
-    reactAdapter.configureRemote?.(ctx);
+    reactAdapter.remote?.configureServer?.(ctx);
     expect(middlewares).toHaveLength(1);
 
     const res = { setHeader: vi.fn(), end: vi.fn() };
@@ -63,7 +62,7 @@ describe('reactAdapter', () => {
 
   it('passes other requests through', () => {
     const { ctx, middlewares } = createCtx();
-    reactAdapter.configureRemote?.(ctx);
+    reactAdapter.remote?.configureServer?.(ctx);
 
     const res = { setHeader: vi.fn(), end: vi.fn() };
     const next = vi.fn();
@@ -77,7 +76,7 @@ describe('reactAdapter', () => {
     expect(res.end).not.toHaveBeenCalled();
   });
 
-  it('does not provide a validate hook', () => {
-    expect(reactAdapter.validate).toBeUndefined();
+  it('does not register a host-side hook namespace', () => {
+    expect(reactAdapter.host).toBeUndefined();
   });
 });

@@ -504,12 +504,16 @@ interface PluginDevOptions {
    * - `true` — HMR enabled with auto-detected strategy. When a framework
    *   plugin with cross-federation HMR support is detected, broadcast/relay
    *   is suppressed and the framework's native HMR handles updates:
-   *     - React (`@vitejs/plugin-react` / `@vitejs/plugin-react-swc`) uses
-   *       the shared `/@react-refresh` proxy served by this plugin.
-   *     - Vue (`@vitejs/plugin-vue` / `@vitejs/plugin-vue-jsx`) uses
-   *       `__VUE_HMR_RUNTIME__` from `@vue/runtime-core`. This requires
-   *       `vue` to be configured as `singleton: true` in `shared`;
-   *       otherwise a warning is emitted at server start.
+   *     - React (`@vitejs/plugin-react` / `@vitejs/plugin-react-swc`) — the
+   *       plugin serves a `/@react-refresh` proxy on remotes that delegates
+   *       to the host's `RefreshRuntime`, unifying the component registry.
+   *     - Vue (`@vitejs/plugin-vue` / `@vitejs/plugin-vue-jsx`) — the plugin
+   *       injects a `__VUE_HMR_RUNTIME__` guard into the host page so the
+   *       first-loaded (host) Vue runtime is pinned and remote-loaded Vue
+   *       copies cannot overwrite it.
+   *   For any host, the plugin also injects a script that clears the
+   *   federation `moduleCache` on `vite:beforeUpdate` so subsequent
+   *   `loadRemote()` calls return the freshly patched module.
    *   Other frameworks fall back to full page reloads.
    * - `'full-reload'` — HMR enabled, always use full page reloads even when
    *   a framework with native cross-federation HMR is detected.

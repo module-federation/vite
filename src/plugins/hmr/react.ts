@@ -26,14 +26,16 @@ export const reactAdapter: HmrAdapter = {
     'vite:react-refresh', // @vitejs/plugin-react
     'vite:react-swc:refresh', // @vitejs/plugin-react-swc
   ],
-  configureRemote({ server }) {
-    server.middlewares.use((req, res, next) => {
-      const url = req.url?.replace(/\?.*$/, '');
-      if (url !== '/@react-refresh') return next();
+  remote: {
+    configureServer({ server }) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url?.replace(/\?.*$/, '');
+        if (url !== '/@react-refresh') return next();
 
-      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.end(REACT_REFRESH_PROXY_MODULE);
-    });
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.end(REACT_REFRESH_PROXY_MODULE);
+      });
+    },
   },
 };

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import type { MinimalPluginContextWithoutEnvironment } from 'vite';
+import type { HtmlTagDescriptor, MinimalPluginContextWithoutEnvironment } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from '../pluginDevRemoteHmr';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
@@ -57,10 +57,24 @@ type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
+function runConfigResolved(
+  plugin: ReturnType<typeof pluginDevRemoteHmr>,
+  server: MockServer
+): void {
+  // Vite invokes `configResolved` before any other hook; the plugin now caches
+  // adapter/strategy state there, so tests must mirror that ordering.
+  callHook(
+    plugin.configResolved,
+    {} as MinimalPluginContextWithoutEnvironment,
+    server.config as unknown as import('vite').ResolvedConfig
+  );
+}
+
 function runConfigureServer(
   plugin: ReturnType<typeof pluginDevRemoteHmr>,
   server: MockServer
 ): void {
+  runConfigResolved(plugin, server);
   callHook(
     plugin.configureServer,
     {} as MinimalPluginContextWithoutEnvironment,
@@ -559,7 +573,7 @@ describe('pluginDevRemoteHmr', () => {
       expect(server.ws.send).toHaveBeenCalled();
     });
 
-    it('suppresses broadcast when Vue plugin is detected with singleton vue', () => {
+    it('suppresses broadcast when Vue plugin is detected', () => {
       const { server, emit } = createServer({
         config: { plugins: [{ name: 'vite:vue' }] },
       });
@@ -568,7 +582,6 @@ describe('pluginDevRemoteHmr', () => {
           normalizeModuleFederationOptions({
             ...remoteOpts,
             dev: { remoteHmr: true },
-            shared: { vue: { singleton: true } },
           })
         ),
         server
@@ -586,7 +599,6 @@ describe('pluginDevRemoteHmr', () => {
           normalizeModuleFederationOptions({
             ...remoteOpts,
             dev: { remoteHmr: true },
-            shared: { vue: { singleton: true } },
           })
         ),
         server
@@ -596,121 +608,111 @@ describe('pluginDevRemoteHmr', () => {
     });
   });
 
-  describe('Vue singleton warning', () => {
-    const vueRemoteOpts = {
-      name: 'remote-app',
-      exposes: { './Button': { import: './src/Button.vue' } } as Record<
-        string,
-        string | { import: string }
-      >,
-      remotes: {},
-      virtualModuleDir: '__mf__virtual',
-    } as const;
+  describe('host HTML injection', () => {
+    type TransformIndexHtmlHook = (
+      this: unknown,
+      html: string,
+      ctx: { server?: import('vite').ViteDevServer }
+    ) => HtmlTagDescriptor[] | undefined;
 
-    it('warns when vite:vue is detected but vue is not a singleton shared', () => {
+    function getHtmlHandler(
+      plugin: ReturnType<typeof pluginDevRemoteHmr>,
+      server: MockServer
+    ): TransformIndexHtmlHook {
+      // Plugin caches adapters in configResolved; run it before the html hook
+      // so the cache reflects the server's plugin pipeline.
+      runConfigResolved(plugin, server);
+      const hook = plugin.transformIndexHtml;
+      if (!hook || typeof hook !== 'object' || typeof hook.handler !== 'function') {
+        throw new Error('expected an object-form transformIndexHtml hook');
+      }
+      return hook.handler as TransformIndexHtmlHook;
+    }
+
+    function makeHostPlugin(opts: { remoteHmr?: boolean | 'full-reload' }) {
+      return pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'host-app',
+          dev: opts.remoteHmr ? { remoteHmr: opts.remoteHmr } : undefined,
+          exposes: {},
+          remotes: { remoteApp: 'remoteApp@http://remote.example/remoteEntry.js' },
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+    }
+
+    it('injects the federation moduleCache clear script for a host', () => {
+      const { server } = createServer();
+      const tags = getHtmlHandler(makeHostPlugin({ remoteHmr: true }), server).call(
+        null,
+        '<html></html>',
+        { server: server as unknown as import('vite').ViteDevServer }
+      );
+      expect(Array.isArray(tags)).toBe(true);
+      const cacheClear = tags?.find(
+        (t) => typeof t.children === 'string' && t.children.includes('moduleCache')
+      );
+      expect(cacheClear).toBeDefined();
+      expect(cacheClear?.attrs?.type).toBe('module');
+      expect(cacheClear?.injectTo).toBe('head');
+    });
+
+    it('injects the Vue HMR runtime guard when vite:vue is in the host pipeline', () => {
       const { server } = createServer({
         config: { plugins: [{ name: 'vite:vue' }] },
       });
-      runConfigureServer(
-        pluginDevRemoteHmr(
-          normalizeModuleFederationOptions({
-            ...vueRemoteOpts,
-            dev: { remoteHmr: true },
-            shared: {},
-          })
-        ),
-        server
+      const tags = getHtmlHandler(makeHostPlugin({ remoteHmr: true }), server).call(
+        null,
+        '<html></html>',
+        { server: server as unknown as import('vite').ViteDevServer }
       );
-      expect(mfWarn).toHaveBeenCalledWith(
-        expect.stringContaining('"vue" is not configured as a singleton')
+      const guard = tags?.find(
+        (t) => typeof t.children === 'string' && t.children.includes('__VUE_HMR_RUNTIME__')
       );
+      expect(guard).toBeDefined();
+      expect(guard?.injectTo).toBe('head-prepend');
+      // Guard must be a plain script: runs before module scripts evaluate.
+      expect(guard?.attrs?.type).toBeUndefined();
     });
 
-    it('warns when vue is shared but singleton is false', () => {
-      const { server } = createServer({
-        config: { plugins: [{ name: 'vite:vue' }] },
-      });
-      runConfigureServer(
-        pluginDevRemoteHmr(
-          normalizeModuleFederationOptions({
-            ...vueRemoteOpts,
-            dev: { remoteHmr: true },
-            shared: { vue: { singleton: false } },
-          })
-        ),
-        server
-      );
-      expect(mfWarn).toHaveBeenCalledWith(
-        expect.stringContaining('"vue" is not configured as a singleton')
-      );
-    });
-
-    it('does not warn when vue is a singleton shared', () => {
-      const { server } = createServer({
-        config: { plugins: [{ name: 'vite:vue' }] },
-      });
-      runConfigureServer(
-        pluginDevRemoteHmr(
-          normalizeModuleFederationOptions({
-            ...vueRemoteOpts,
-            dev: { remoteHmr: true },
-            shared: { vue: { singleton: true } },
-          })
-        ),
-        server
-      );
-      expect(mfWarn).not.toHaveBeenCalled();
-    });
-
-    it('does not warn when @vue/runtime-core is a singleton shared', () => {
-      const { server } = createServer({
-        config: { plugins: [{ name: 'vite:vue' }] },
-      });
-      runConfigureServer(
-        pluginDevRemoteHmr(
-          normalizeModuleFederationOptions({
-            ...vueRemoteOpts,
-            dev: { remoteHmr: true },
-            shared: { '@vue/runtime-core': { singleton: true } },
-          })
-        ),
-        server
-      );
-      expect(mfWarn).not.toHaveBeenCalled();
-    });
-
-    it('does not warn when no Vue plugin is detected', () => {
+    it('does not inject the Vue guard when no Vue plugin is present', () => {
       const { server } = createServer({
         config: { plugins: [{ name: 'vite:react-refresh' }] },
       });
-      runConfigureServer(
-        pluginDevRemoteHmr(
-          normalizeModuleFederationOptions({
-            ...vueRemoteOpts,
-            dev: { remoteHmr: true },
-            shared: {},
-          })
-        ),
-        server
+      const tags = getHtmlHandler(makeHostPlugin({ remoteHmr: true }), server).call(
+        null,
+        '<html></html>',
+        { server: server as unknown as import('vite').ViteDevServer }
       );
-      expect(mfWarn).not.toHaveBeenCalled();
+      const guard = tags?.find(
+        (t) => typeof t.children === 'string' && t.children.includes('__VUE_HMR_RUNTIME__')
+      );
+      expect(guard).toBeUndefined();
     });
 
-    it('does not warn when strategy is explicit full-reload', () => {
-      const { server } = createServer({
-        config: { plugins: [{ name: 'vite:vue' }] },
+    it('skips injection when remoteHmr is disabled', () => {
+      const { server } = createServer();
+      const result = getHtmlHandler(makeHostPlugin({}), server).call(null, '<html></html>', {
+        server: server as unknown as import('vite').ViteDevServer,
       });
-      runConfigureServer(
-        pluginDevRemoteHmr(
-          normalizeModuleFederationOptions({
-            ...vueRemoteOpts,
-            dev: { remoteHmr: 'full-reload' },
-            shared: {},
-          })
-        ),
-        server
+      expect(result).toBeUndefined();
+    });
+
+    it('skips injection when current process is not a host', () => {
+      const { server } = createServer();
+      const remotePlugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'remote-app',
+          dev: { remoteHmr: true },
+          exposes: { './Button': { import: './src/Button.vue' } },
+          remotes: {},
+          virtualModuleDir: '__mf__virtual',
+        })
       );
-      expect(mfWarn).not.toHaveBeenCalled();
+      const result = getHtmlHandler(remotePlugin, server).call(null, '<html></html>', {
+        server: server as unknown as import('vite').ViteDevServer,
+      });
+      expect(result).toBeUndefined();
     });
   });
 });
