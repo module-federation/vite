@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
-import { version as viteVersion } from 'vite';
 import type { ConfigEnv, Plugin, UserConfig } from 'vite';
+import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
@@ -13,8 +13,8 @@ import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
-import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
+import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import {
   collectLoadShareProxyChunks,
@@ -1101,4 +1101,13 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   ];
 }
 
-export { federation, type ModuleFederationOptions, type PluginManifestOptions };
+function createModuleFederationConfig<T extends ModuleFederationOptions>(options: T): T {
+  return options;
+}
+
+export {
+  createModuleFederationConfig,
+  federation,
+  type ModuleFederationOptions,
+  type PluginManifestOptions,
+};

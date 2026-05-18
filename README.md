@@ -54,6 +54,33 @@ With **@module-federation/vite**, the process becomes delightfully simple, you w
 > This example is with [Vue.js](https://vuejs.org/)</br>
 > The @module-federation/vite configuration remains the same for different frameworks.
 
+## Dedicated configuration file
+
+You can keep Module Federation options in `module-federation.config.ts`.
+
+```ts
+import { createModuleFederationConfig } from '@module-federation/vite';
+
+export default createModuleFederationConfig({
+  name: 'remote',
+  filename: 'remoteEntry.js',
+  exposes: {
+    './remote-app': './src/App.vue',
+  },
+  shared: ['vue'],
+});
+```
+
+```ts
+import { defineConfig } from 'vite';
+import { federation } from '@module-federation/vite';
+import moduleFederationConfig from './module-federation.config';
+
+export default defineConfig({
+  plugins: [federation(moduleFederationConfig)],
+});
+```
+
 ## The Remote Application configuration
 
 file: **remote/vite.config.ts**
