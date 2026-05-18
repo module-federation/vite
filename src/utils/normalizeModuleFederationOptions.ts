@@ -568,6 +568,38 @@ interface DtsHostOptions {
 let config: NormalizedModuleFederationOptions;
 let explicitSharedKeys: Set<string> = new Set();
 
+function resolveRuntimeImplementation(): string {
+  const fallback = require.resolve('@module-federation/runtime');
+
+  try {
+    const packageJsonPath = require.resolve('@module-federation/runtime/package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
+      module?: string;
+      exports?: {
+        '.'?:
+          | string
+          | {
+              import?: string | { default?: string };
+            };
+      };
+    };
+    const importExport = packageJson.exports?.['.'];
+    const exportImport =
+      typeof importExport === 'object'
+        ? typeof importExport.import === 'string'
+          ? importExport.import
+          : importExport.import?.default
+        : undefined;
+    const esmEntry = packageJson.module || exportImport;
+
+    if (esmEntry) return path.join(path.dirname(packageJsonPath), esmEntry);
+  } catch {
+    // Fall back to Node's CJS resolver for older/nonstandard runtime packages.
+  }
+
+  return fallback;
+}
+
 export function getNormalizeModuleFederationOptions() {
   return config;
 }
@@ -609,7 +641,7 @@ export function normalizeModuleFederationOptions(
     shareScope: options.shareScope || 'default',
     shared: normalizeShared(options.shared),
     runtimePlugins: options.runtimePlugins || [],
-    implementation: options.implementation || require.resolve('@module-federation/runtime'),
+    implementation: options.implementation || resolveRuntimeImplementation(),
     manifest: normalizeManifest(options.manifest),
     dev: options.dev,
     dts: options.dts,

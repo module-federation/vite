@@ -229,6 +229,120 @@ describe('pluginAddEntry', () => {
     );
   });
 
+  it('wraps Nuxt dev client entry behind host init', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-dev-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      'const entry = () => import("#app/entry").then((m) => m.default);\nif (true) {\n  entry();\n}\nexport default entry;',
+      '/repo/node_modules/.pnpm/nuxt@4.3.1/node_modules/nuxt/dist/app/entry.async.js?v=123'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('const { initHost } = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain(
+      '})().then(() => import("/repo/node_modules/.pnpm/nuxt@4.3.1/node_modules/nuxt/dist/app/entry.async.js?v=123&mf-entry-bootstrap"));'
+    );
+  });
+
+  it('injects host init before Nuxt dev mount', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-mount-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      'await nuxt.hooks.callHook("app:beforeMount", vueApp);\n      vueApp.mount(vueAppRootContainer);\n      await nuxt.hooks.callHook("app:mounted", vueApp);',
+      '/repo/node_modules/.pnpm/nuxt@4.3.1/node_modules/nuxt/dist/app/entry.js?v=123'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain(
+      'await import("/virtual/hostInit.js").then(({ initHost }) => initHost());'
+    );
+    expect(result?.code).toContain('vueApp.mount(vueAppRootContainer);');
+  });
+
+  it('rewrites dev html entry scripts when host init inject is entry', async () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: 'virtual:mf-host-init',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(servePlugin, {
+      root: '/repo',
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransformIndexHtml(
+      servePlugin,
+      '<html><head><script type="module" src="/_nuxt/entry.async.js"></script></head></html>',
+      {} as IndexHtmlTransformContext
+    )) as string;
+
+    expect(result).toContain('/@id/__x00__virtual:mf-html-entry-proxy?');
+    expect(result).toContain('init=%2F%40id%2Fvirtual%3Amf-host-init');
+    expect(result).toContain('entry=%2F_nuxt%2Fentry.async.js');
+  });
+
   it('preloads scoped remote subpaths but skips the bare scoped remote key', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-scoped-'));
     const htmlFile = path.join(tempDir, 'index.html');
