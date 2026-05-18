@@ -348,7 +348,7 @@ describe('normalizeModuleFederationOption', () => {
     });
 
     it('resolves the parent package version for a shared subpath key', () => {
-      // Regression for #XXX: when a shared key is a subpath like
+      // When a shared key is a subpath like
       // "@scope/foo/bar", searchPackageVersion() used to look up the pnpm
       // store for a package literally named "@scope/foo/bar", which never
       // exists. The resolved version stayed undefined, and the consumer's
