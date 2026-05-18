@@ -1,6 +1,6 @@
 {
   "name": "@module-federation/vite",
-  "version": "1.15.4",
+  "version": "1.15.5",
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "main": "./lib/index.cjs",
@@ -14,6 +14,14 @@
       },
       "import": "./lib/index.mjs",
       "require": "./lib/index.cjs"
+    },
+    "./ssrEntryLoader": {
+      "types": {
+        "import": "./lib/utils/ssrEntryLoader.d.mts",
+        "require": "./lib/utils/ssrEntryLoader.d.cts"
+      },
+      "import": "./lib/utils/ssrEntryLoader.mjs",
+      "require": "./lib/utils/ssrEntryLoader.cjs"
     },
     "./package.json": "./package.json"
   },

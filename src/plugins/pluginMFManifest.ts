@@ -17,6 +17,7 @@ import {
   processModuleAssets,
 } from '../utils/cssModuleHelpers';
 import { resolvePublicPath } from '../utils/pathNormalization';
+import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
 
 /**
  * Resolves the build version for the module federation manifest.
@@ -67,6 +68,7 @@ const Manifest = (): Plugin[] => {
 
   let root: string;
   let remoteEntryFile: string;
+  let ssrRemoteEntryFile: string;
   let publicPath: string;
   let _command: string;
   let _originalConfigBase: string | undefined;
@@ -116,7 +118,7 @@ const Manifest = (): Plugin[] => {
                     type: 'module',
                   },
                   ssrRemoteEntry: {
-                    name: filename,
+                    name: getSsrRemoteEntryFileName(filename),
                     path: '',
                     type: 'module',
                   },
@@ -183,11 +185,16 @@ const Manifest = (): Plugin[] => {
         let filesMap: PreloadMap = {};
 
         const foundRemoteEntryFile = findRemoteEntryFile(mfOptions.filename, bundle);
+        const expectedSsrRemoteEntryFile = getSsrRemoteEntryFileName(mfOptions.filename);
+        const foundSsrRemoteEntryFile = Object.values(bundle).find(
+          (file) => file.fileName === expectedSsrRemoteEntryFile
+        )?.fileName;
 
         // First pass: Find remoteEntry file
         if (foundRemoteEntryFile) {
           remoteEntryFile = foundRemoteEntryFile;
         }
+        ssrRemoteEntryFile = foundSsrRemoteEntryFile || expectedSsrRemoteEntryFile;
 
         // Second pass: Collect all CSS assets
         const allCssAssets =
@@ -256,6 +263,11 @@ const Manifest = (): Plugin[] => {
     const { name, varFilename } = options;
     const remoteEntry = {
       name: remoteEntryFile,
+      path: '',
+      type: 'module',
+    };
+    const ssrRemoteEntry = {
+      name: ssrRemoteEntryFile || getSsrRemoteEntryFileName(filename),
       path: '',
       type: 'module',
     };
@@ -342,7 +354,7 @@ const Manifest = (): Plugin[] => {
           buildName: name,
         },
         remoteEntry,
-        ssrRemoteEntry: remoteEntry,
+        ssrRemoteEntry,
         varRemoteEntry,
         types: {
           path: '',

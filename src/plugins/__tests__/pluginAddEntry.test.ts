@@ -194,6 +194,41 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
 
+  it('wraps hydration entry fallback behind host init during build', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-build-hydration-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'build', mode: 'production' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);',
+      '/virtual/client-entry.tsx'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('const { initHost } = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain('const runtime = await initHost();');
+    expect(result?.code).toContain(
+      '})().then(() => import("/virtual/client-entry.tsx?mf-entry-bootstrap"));'
+    );
+  });
+
   it('preloads scoped remote subpaths but skips the bare scoped remote key', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-scoped-'));
     const htmlFile = path.join(tempDir, 'index.html');

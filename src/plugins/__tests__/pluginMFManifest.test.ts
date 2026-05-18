@@ -215,6 +215,21 @@ describe('pluginMFManifest', () => {
     ).toBeTruthy();
   });
 
+  it('points ssrRemoteEntry at the dedicated SSR entry filename', async () => {
+    const emitted = await runGenerateBundleWithManifest(true);
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.metaData.remoteEntry).toMatchObject({
+      name: 'remoteEntry.js',
+      type: 'module',
+    });
+    expect(manifest.metaData.ssrRemoteEntry).toMatchObject({
+      name: 'remoteEntry.ssr.js',
+      type: 'module',
+    });
+  });
+
   it('emits companion stats file using manifest fileName suffix', async () => {
     const emitted = await runGenerateBundleWithManifest({
       fileName: 'path/custom-manifest.json',
