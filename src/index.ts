@@ -206,15 +206,13 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
 
       // Configure SSR runtime with the host's remotes so server-side loadRemote
       // knows the entry URL for each remote when ssrEntryLoader intercepts it.
-      if (_command === 'serve') {
-        setSsrRemotes(
-          Object.entries(options.remotes).map(([key, r]) => ({
-            name: key,
-            entry: r.entry,
-            type: r.type ?? 'module',
-          }))
-        );
-      }
+      setSsrRemotes(
+        Object.entries(options.remotes).map(([key, r]) => ({
+          name: key,
+          entry: r.entry,
+          type: r.type ?? 'module',
+        }))
+      );
 
       // Create core virtual modules
       initVirtualModules(_command, getRemoteEntryId(options));
