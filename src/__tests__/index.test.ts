@@ -967,6 +967,32 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include.join(',')).not.toContain('virtual:mf:');
     expect(config.optimizeDeps.needsInterop).toBeUndefined();
   });
+
+  it('aliases runtime to the ESM entry for non-Rolldown optimizeDeps', () => {
+    const plugin = getModuleFederationVitePlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      resolve: {
+        alias: [],
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const runtimeAlias = config.resolve.alias.find(
+      (alias: { find: string }) => alias.find === '@module-federation/runtime'
+    );
+
+    expect(runtimeAlias.replacement).toEqual(
+      expect.stringMatching(/@module-federation\/runtime\/dist\/index\.js$/)
+    );
+  });
 });
 
 function getEarlyInitPluginWithImportFalse(): Plugin {

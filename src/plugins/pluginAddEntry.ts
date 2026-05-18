@@ -241,7 +241,8 @@ ${importHelper}(async () => {
         // would mistakenly rewrite those proxied inline scripts too (#571).
         order: 'pre',
         handler(c) {
-          if (!injectHtml()) return;
+          const shouldWrapEntryHtml = _command === 'serve' && inject === 'entry' && waitsForInit;
+          if (!injectHtml() && !shouldWrapEntryHtml) return;
           clientInjected = true;
           // Normalize all paths to root-relative (without base) before storing
           // in query params. devHtmlHook runs after pre hooks and prepends base
@@ -515,6 +516,24 @@ ${importHelper}(async () => {
           return mapCodeToCodeWithSourcemap(injection + code);
         }
 
+        const isNuxtMountEntry =
+          _command === 'serve' &&
+          inject === 'entry' &&
+          waitsForInit &&
+          !clientInjected &&
+          /(?:^|\/)nuxt\/dist\/app\/entry\.js(?:\?|$)/.test(id) &&
+          code.includes('vueApp.mount(vueAppRootContainer);');
+        if (isNuxtMountEntry) {
+          clientInjected = true;
+          const injection = `await import(${JSON.stringify(getEntryPath())}).then(({ initHost }) => initHost());\n      `;
+          return mapCodeToCodeWithSourcemap(
+            code.replace(
+              'vueApp.mount(vueAppRootContainer);',
+              `${injection}vueApp.mount(vueAppRootContainer);`
+            )
+          );
+        }
+
         const isHydrationEntryFallback =
           inject === 'entry' &&
           entryFiles.length === 0 &&
@@ -523,6 +542,16 @@ ${importHelper}(async () => {
           !id.includes('node_modules') &&
           (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
           /hydrateRoot|createRoot|ReactDOM\.render/.test(code);
+
+        const isNuxtClientEntryFallback =
+          _command === 'serve' &&
+          inject === 'entry' &&
+          entryFiles.length === 0 &&
+          (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
+          !clientInjected &&
+          !id.includes('node_modules/.vite') &&
+          /(?:^|\/)nuxt\/dist\/app\/entry\.async\.js(?:\?|$)/.test(id) &&
+          code.includes('entry();');
 
         const shouldInject =
           (injectEntry() && entryFiles.some((file) => id.endsWith(file))) ||
@@ -541,7 +570,8 @@ ${importHelper}(async () => {
           // TanStack Start inlines client.tsx into a virtual entry module, so
           // we also match virtual IDs (id.startsWith('\0')) that contain the
           // hydration call.
-          isHydrationEntryFallback;
+          isHydrationEntryFallback ||
+          isNuxtClientEntryFallback;
         if (shouldInject) {
           clientInjected = true;
           // For the dev-mode entry fallback (inject:'entry' with no known entry

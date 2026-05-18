@@ -37,7 +37,7 @@ describe('normalizeModuleFederationOption', () => {
       shared: {},
       runtime: undefined,
       runtimePlugins: [],
-      implementation: require.resolve('@module-federation/runtime'),
+      implementation: expect.stringMatching(/@module-federation\/runtime\/dist\/index\.js$/),
       manifest: undefined,
       dev: undefined,
       dts: undefined,
