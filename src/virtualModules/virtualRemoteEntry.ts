@@ -236,7 +236,7 @@ const normalizeRuntimeShareCode = `const __mfNormalizeRuntimeShare = (mod) => {
             let current = mod;
             for (let i = 0; i < 5; i++) {
               const defaultExport = current?.default;
-              if (!defaultExport || typeof defaultExport !== "object") break;
+              if (!defaultExport || typeof defaultExport !== "object" || Object.keys(defaultExport).length === 0) break;
               const namedValues = Object.keys(current).filter((key) => key !== "default").map((key) => current[key]);
               if (namedValues.length > 0 && namedValues.some((value) => value !== undefined)) break;
               current = defaultExport;
