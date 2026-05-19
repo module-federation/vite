@@ -41,7 +41,12 @@ export function generateRemotes(id: string, command: string, enableSsrInit = fal
       ? `${getRuntimeModuleCacheBootstrapCode()}
     import { hostInitPromise as __mfHostInitPromise } from ${JSON.stringify(getHostAutoInitPath())};`
       : `${getRuntimeInitBootstrapCode(enableSsrInit)}
-    const { initPromise, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
+    const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];
+    if (typeof window !== "undefined") {
+      import(${JSON.stringify(getHostAutoInitPath())})
+        .then((mod) => mod.hostInitPromise)
+        .then(initResolve, initReject);
+    }`;
   // In dev+ESM mode (Vite 8+), unwrap the module namespace to avoid
   // double-wrapping: loadRemote returns {default: Component}, and
   // "export default exportModule" would make import() return
