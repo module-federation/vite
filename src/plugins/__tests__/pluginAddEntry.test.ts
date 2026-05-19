@@ -684,6 +684,30 @@ describe('pluginAddEntry', () => {
     expect(result).toBeUndefined();
   });
 
+  it('does not replace exposed modules that are also rollup inputs', async () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      skipTransformFor: ['./src/expose.ts'],
+    });
+    const buildPlugin = plugins[1];
+
+    runConfigResolved(buildPlugin, {
+      root: '/repo/remote-app',
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: { input: '/repo/remote-app/src/expose.ts' } },
+    } as unknown as ResolvedConfig);
+
+    const result = await runTransform(
+      buildPlugin,
+      'export function render() {}',
+      '/repo/remote-app/src/expose.ts'
+    );
+
+    expect(result).toBeUndefined();
+  });
+
   it('wraps SvelteKit static inline startup behind host init during build', () => {
     const plugins = addEntry({
       entryName: 'hostInit',
