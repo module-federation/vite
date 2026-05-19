@@ -553,8 +553,16 @@ ${importHelper}(async () => {
           /(?:^|\/)nuxt\/dist\/app\/entry\.async\.js(?:\?|$)/.test(id) &&
           code.includes('entry();');
 
+        // When `forceClientInjected` is true (currently set when the build has
+        // `exposes`), skip the rollupOptions.input wrap. Wrapping replaces the
+        // entry file's code with a host-init bootstrap IIFE that has no exports;
+        // if that same file is also an expose target, virtualExposes' dynamic
+        // import resolves to the wrapped chunk and `loadRemote` hands back an
+        // empty namespace (#724). For these builds, init is guaranteed via the
+        // `loadRemote -> virtualExposes -> remoteEntry.init` path, so the wrap
+        // is both redundant and lossy.
         const shouldInject =
-          (injectEntry() && entryFiles.some((file) => id.endsWith(file))) ||
+          (injectEntry() && entryFiles.some((file) => id.endsWith(file)) && !forceClientInjected) ||
           // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
           (_command === 'serve' &&
             inject === 'html' &&

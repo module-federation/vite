@@ -194,6 +194,40 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
 
+  it('skips host-init bootstrap on rollupOptions.input entries when the build has exposes (#724)', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-expose-input-'));
+    const exposePath = path.join(tempDir, 'src/expose.ts');
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      forceClientInjected: true,
+    });
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: { input: exposePath } } },
+      { command: 'build', mode: 'production' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: { input: exposePath } },
+    } as unknown as ResolvedConfig);
+
+    const originalCode = 'export function render(root) { root.textContent = "hi" }';
+    const result = await runTransform(buildPlugin, originalCode, exposePath);
+
+    // The transform must skip — wrapping with the bootstrap IIFE would
+    // discard the named exports and virtualExposes' dynamic import of this
+    // same path would resolve to an empty namespace, breaking loadRemote.
+    expect(result).toBeUndefined();
+  });
+
   it('wraps hydration entry fallback behind host init during build', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-build-hydration-'));
     const plugins = addEntry({
