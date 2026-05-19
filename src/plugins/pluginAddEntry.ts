@@ -21,6 +21,7 @@ interface AddEntryOptions {
   inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
   /** When true, skip the SSR fallback bootstrap wrapper (used for MF remotes whose HTML is never browser-requested). */
   forceClientInjected?: boolean;
+  skipTransformFor?: string[];
 }
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
@@ -33,6 +34,7 @@ const addEntry = ({
   fileName,
   inject = 'entry',
   forceClientInjected,
+  skipTransformFor = [],
 }: AddEntryOptions): Plugin[] => {
   const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
   const ENTRY_BOOTSTRAP_QUERY = '?mf-entry-bootstrap';
@@ -46,6 +48,7 @@ const addEntry = ({
   let viteConfig: any;
   let clientInjected = forceClientInjected ?? false;
   let emittedFileName: string | undefined;
+  let skipTransformIds = new Set<string>();
 
   function skipSvelteKitSsrBuild() {
     return (
@@ -183,6 +186,15 @@ ${importHelper}(async () => {
       .replace(/^__x00__/, '');
   }
 
+  function normalizeModuleId(id: string) {
+    return id.split('?')[0].replace(/\\/g, '/');
+  }
+
+  function resolveProjectId(id: string) {
+    if (id.startsWith('\0') || id.startsWith('virtual:')) return normalizeModuleId(id);
+    return normalizeModuleId(path.isAbsolute(id) ? id : path.resolve(viteConfig.root, id));
+  }
+
   return [
     {
       name: 'add-entry',
@@ -207,6 +219,7 @@ ${importHelper}(async () => {
             : '/' + normalized.replace(/^[A-Za-z]:[\\/]/, '');
           devEntryPath = config.base + relativePath.replace(/^\//, '');
         }
+        skipTransformIds = new Set(skipTransformFor.map(resolveProjectId));
       },
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
@@ -307,6 +320,7 @@ ${importHelper}(async () => {
       },
       configResolved(config) {
         viteConfig = config;
+        skipTransformIds = new Set(skipTransformFor.map(resolveProjectId));
 
         // In Vite 8 multi-environment mode this hook fires once per environment.
         // Only populate entryFiles from the 'client' environment — reading it from
@@ -476,6 +490,7 @@ ${importHelper}(async () => {
         if (skipSvelteKitSsrBuild()) return;
         if (isSvelteKitServerModule(id)) return;
         if (id.includes(ENTRY_BOOTSTRAP_QUERY)) return;
+        if (skipTransformIds.has(resolveProjectId(id))) return;
         // Only inject into client-side modules. In Vite 8 multi-environment mode
         // this transform also runs for ssr/server environments — injecting there
         // would set clientInjected=true and prevent the real client injection.
