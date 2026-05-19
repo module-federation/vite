@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import type { MinimalPluginContextWithoutEnvironment } from 'vite';
+import type { HtmlTagDescriptor, MinimalPluginContextWithoutEnvironment } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from '../pluginDevRemoteHmr';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
@@ -57,10 +57,24 @@ type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
+function runConfigResolved(
+  plugin: ReturnType<typeof pluginDevRemoteHmr>,
+  server: MockServer
+): void {
+  // Vite invokes `configResolved` before any other hook; the plugin now caches
+  // adapter/strategy state there, so tests must mirror that ordering.
+  callHook(
+    plugin.configResolved,
+    {} as MinimalPluginContextWithoutEnvironment,
+    server.config as unknown as import('vite').ResolvedConfig
+  );
+}
+
 function runConfigureServer(
   plugin: ReturnType<typeof pluginDevRemoteHmr>,
   server: MockServer
 ): void {
+  runConfigResolved(plugin, server);
   callHook(
     plugin.configureServer,
     {} as MinimalPluginContextWithoutEnvironment,
@@ -208,14 +222,14 @@ describe('pluginDevRemoteHmr', () => {
 
     runConfigureServer(plugin, server);
 
-    expect(middlewares).toHaveLength(2);
+    expect(middlewares).toHaveLength(1);
 
     const res = {
       setHeader: vi.fn(),
       end: vi.fn(),
     };
     const next = vi.fn();
-    middlewares[1](
+    middlewares[0](
       { url: '/app/__mf_hmr?x=1' } as IncomingMessage,
       res as unknown as ServerResponse<IncomingMessage>,
       next
@@ -265,8 +279,14 @@ describe('pluginDevRemoteHmr', () => {
       );
     }
 
+    function createReactRemoteServer() {
+      return createServer({
+        config: { plugins: [{ name: 'vite:react-refresh' }] },
+      });
+    }
+
     it('should intercept /@react-refresh on remote dev servers', () => {
-      const { server, middlewares } = createServer();
+      const { server, middlewares } = createReactRemoteServer();
       const plugin = makeRemotePlugin({
         exposes: { './Foo': { import: './src/Foo.tsx' } },
         remoteHmr: true,
@@ -291,7 +311,7 @@ describe('pluginDevRemoteHmr', () => {
     });
 
     it('should pass through non-/@react-refresh requests', () => {
-      const { server, middlewares } = createServer();
+      const { server, middlewares } = createReactRemoteServer();
       const plugin = makeRemotePlugin({
         exposes: { './Foo': { import: './src/Foo.tsx' } },
         remoteHmr: true,
@@ -311,7 +331,7 @@ describe('pluginDevRemoteHmr', () => {
     });
 
     it('should strip query strings when matching /@react-refresh', () => {
-      const { server, middlewares } = createServer();
+      const { server, middlewares } = createReactRemoteServer();
       const plugin = makeRemotePlugin({
         exposes: { './Foo': { import: './src/Foo.tsx' } },
         remoteHmr: true,
@@ -339,6 +359,26 @@ describe('pluginDevRemoteHmr', () => {
       runConfigureServer(plugin, server);
 
       expect(middlewares).toHaveLength(0);
+    });
+
+    it('should not install /@react-refresh middleware when only Vue plugin is present', () => {
+      const { server, middlewares } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      const plugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'remote-app',
+          dev: { remoteHmr: true },
+          exposes: { './Button': { import: './src/Button.vue' } },
+          remotes: {},
+          shared: { vue: { singleton: true } },
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+      runConfigureServer(plugin, server);
+
+      // Only the __mf_hmr metadata middleware is installed, no react-refresh proxy.
+      expect(middlewares).toHaveLength(1);
     });
   });
 
@@ -531,6 +571,148 @@ describe('pluginDevRemoteHmr', () => {
       );
       emit('change', '/src/Button.tsx');
       expect(server.ws.send).toHaveBeenCalled();
+    });
+
+    it('suppresses broadcast when Vue plugin is detected', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...remoteOpts,
+            dev: { remoteHmr: true },
+          })
+        ),
+        server
+      );
+      emit('change', '/src/Button.vue');
+      expect(server.ws.send).not.toHaveBeenCalled();
+    });
+
+    it('suppresses broadcast when Vue JSX plugin is detected', () => {
+      const { server, emit } = createServer({
+        config: { plugins: [{ name: 'vite:vue-jsx' }] },
+      });
+      runConfigureServer(
+        pluginDevRemoteHmr(
+          normalizeModuleFederationOptions({
+            ...remoteOpts,
+            dev: { remoteHmr: true },
+          })
+        ),
+        server
+      );
+      emit('change', '/src/Button.tsx');
+      expect(server.ws.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('host HTML injection', () => {
+    type TransformIndexHtmlHook = (
+      this: unknown,
+      html: string,
+      ctx: { server?: import('vite').ViteDevServer }
+    ) => HtmlTagDescriptor[] | undefined;
+
+    function getHtmlHandler(
+      plugin: ReturnType<typeof pluginDevRemoteHmr>,
+      server: MockServer
+    ): TransformIndexHtmlHook {
+      // Plugin caches adapters in configResolved; run it before the html hook
+      // so the cache reflects the server's plugin pipeline.
+      runConfigResolved(plugin, server);
+      const hook = plugin.transformIndexHtml;
+      if (!hook || typeof hook !== 'object' || typeof hook.handler !== 'function') {
+        throw new Error('expected an object-form transformIndexHtml hook');
+      }
+      return hook.handler as TransformIndexHtmlHook;
+    }
+
+    function makeHostPlugin(opts: { remoteHmr?: boolean | 'full-reload' }) {
+      return pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'host-app',
+          dev: opts.remoteHmr ? { remoteHmr: opts.remoteHmr } : undefined,
+          exposes: {},
+          remotes: { remoteApp: 'remoteApp@http://remote.example/remoteEntry.js' },
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+    }
+
+    it('injects the federation moduleCache clear script for a host', () => {
+      const { server } = createServer();
+      const tags = getHtmlHandler(makeHostPlugin({ remoteHmr: true }), server).call(
+        null,
+        '<html></html>',
+        { server: server as unknown as import('vite').ViteDevServer }
+      );
+      expect(Array.isArray(tags)).toBe(true);
+      const cacheClear = tags?.find(
+        (t) => typeof t.children === 'string' && t.children.includes('moduleCache')
+      );
+      expect(cacheClear).toBeDefined();
+      expect(cacheClear?.attrs?.type).toBe('module');
+      expect(cacheClear?.injectTo).toBe('head');
+    });
+
+    it('injects the Vue HMR runtime guard when vite:vue is in the host pipeline', () => {
+      const { server } = createServer({
+        config: { plugins: [{ name: 'vite:vue' }] },
+      });
+      const tags = getHtmlHandler(makeHostPlugin({ remoteHmr: true }), server).call(
+        null,
+        '<html></html>',
+        { server: server as unknown as import('vite').ViteDevServer }
+      );
+      const guard = tags?.find(
+        (t) => typeof t.children === 'string' && t.children.includes('__VUE_HMR_RUNTIME__')
+      );
+      expect(guard).toBeDefined();
+      expect(guard?.injectTo).toBe('head-prepend');
+      // Guard must be a plain script: runs before module scripts evaluate.
+      expect(guard?.attrs?.type).toBeUndefined();
+    });
+
+    it('does not inject the Vue guard when no Vue plugin is present', () => {
+      const { server } = createServer({
+        config: { plugins: [{ name: 'vite:react-refresh' }] },
+      });
+      const tags = getHtmlHandler(makeHostPlugin({ remoteHmr: true }), server).call(
+        null,
+        '<html></html>',
+        { server: server as unknown as import('vite').ViteDevServer }
+      );
+      const guard = tags?.find(
+        (t) => typeof t.children === 'string' && t.children.includes('__VUE_HMR_RUNTIME__')
+      );
+      expect(guard).toBeUndefined();
+    });
+
+    it('skips injection when remoteHmr is disabled', () => {
+      const { server } = createServer();
+      const result = getHtmlHandler(makeHostPlugin({}), server).call(null, '<html></html>', {
+        server: server as unknown as import('vite').ViteDevServer,
+      });
+      expect(result).toBeUndefined();
+    });
+
+    it('skips injection when current process is not a host', () => {
+      const { server } = createServer();
+      const remotePlugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'remote-app',
+          dev: { remoteHmr: true },
+          exposes: { './Button': { import: './src/Button.vue' } },
+          remotes: {},
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+      const result = getHtmlHandler(remotePlugin, server).call(null, '<html></html>', {
+        server: server as unknown as import('vite').ViteDevServer,
+      });
+      expect(result).toBeUndefined();
     });
   });
 });
