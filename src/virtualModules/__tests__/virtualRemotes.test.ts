@@ -31,6 +31,15 @@ describe('generateRemotes', () => {
     expect(code).not.toContain('module.exports = exportModule');
   });
 
+  it('starts host init for browser dev remote wrappers', () => {
+    const code = generateRemotes('remote/Button', 'serve');
+
+    expect(code).toContain('if (typeof window !== "undefined")');
+    expect(code).toContain('import("/virtual/hostInit.js")');
+    expect(code).toContain('.then((mod) => mod.hostInitPromise)');
+    expect(code).toContain('.then(initResolve, initReject)');
+  });
+
   it('can include SSR runtime init in dev wrappers', () => {
     const code = generateRemotes('remote/Button', 'serve', true);
 
