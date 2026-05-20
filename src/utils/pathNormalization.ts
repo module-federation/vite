@@ -14,6 +14,14 @@ export function ensureTrailingSlash(value: string): string {
   return `${removeTrailingSlash(value)}/`;
 }
 
+export function getBasePath(base?: string): string {
+  return removeTrailingSlash(base || '/');
+}
+
+export function isNuxtClientBase(base?: string): boolean {
+  return getBasePath(base).endsWith('/_nuxt');
+}
+
 export function normalizeNodeModulePath(source: string): string {
   return source.replace(/\\/g, '/').replace(/\?.*$/, '');
 }

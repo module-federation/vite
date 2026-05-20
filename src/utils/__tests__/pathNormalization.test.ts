@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   ensureTrailingSlash,
+  getBasePath,
   getCommonSharedSubpathFromNodeModulePath,
   getMatchingNodeModuleSubpath,
+  isNuxtClientBase,
   isNodeModulePath,
   normalizeNodeModulePath,
   removeTrailingSlash,
@@ -17,6 +19,17 @@ describe('pathNormalization', () => {
   it('ensures one trailing slash', () => {
     expect(ensureTrailingSlash('/vite')).toBe('/vite/');
     expect(ensureTrailingSlash('/vite/')).toBe('/vite/');
+  });
+
+  it('normalizes Vite base paths', () => {
+    expect(getBasePath('/_nuxt/')).toBe('/_nuxt');
+    expect(getBasePath(undefined)).toBe('');
+  });
+
+  it('detects Nuxt client base paths', () => {
+    expect(isNuxtClientBase('/_nuxt/')).toBe(true);
+    expect(isNuxtClientBase('/app/_nuxt/')).toBe(true);
+    expect(isNuxtClientBase('/assets/')).toBe(false);
   });
 
   it('normalizes node_modules paths', () => {
