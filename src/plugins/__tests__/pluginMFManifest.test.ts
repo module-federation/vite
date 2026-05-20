@@ -127,7 +127,8 @@ async function runGenerateBundleWithManifest(
       | undefined
     >;
   } = {},
-  command: 'serve' | 'build' = 'build'
+  command: 'serve' | 'build' = 'build',
+  base = '/'
 ): Promise<Record<string, string>> {
   getNormalizeModuleFederationOptions.mockReturnValue({
     name: 'basicRemote',
@@ -168,7 +169,7 @@ async function runGenerateBundleWithManifest(
     {} as MinimalPluginContextWithoutEnvironment,
     {
       root: '/',
-      base: '/',
+      base,
       build: {},
       server: { origin: 'http://localhost' },
     } as unknown as ResolvedConfig
@@ -226,6 +227,18 @@ describe('pluginMFManifest', () => {
     });
     expect(manifest.metaData.ssrRemoteEntry).toMatchObject({
       name: 'remoteEntry.ssr.js',
+      type: 'module',
+    });
+  });
+
+  it('points Nuxt dev ssrRemoteEntry at the SSR middleware path', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {}, 'serve', '/_nuxt/');
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.metaData.ssrRemoteEntry).toMatchObject({
+      name: 'remoteEntry.ssr.js',
+      path: '/__mf_ssr__/',
       type: 'module',
     });
   });

@@ -26,8 +26,11 @@ describe('generateRemotes', () => {
   it('uses ESM remote wrapper exports in dev', () => {
     const code = generateRemotes('remote/Button', 'serve');
 
-    expect(code).toContain('const mod = await __mfRemotePending;');
-    expect(code).toContain('export const __moduleExports = exportModule;');
+    expect(code).not.toContain('await __mfRemotePending');
+    expect(code).toContain('export { exportModule as __moduleExports };');
+    expect(code).toContain(
+      'export const __mf_remote_pending = __mfRemotePending || Promise.resolve(exportModule);'
+    );
     expect(code).not.toContain('module.exports = exportModule');
   });
 
@@ -50,8 +53,12 @@ describe('generateRemotes', () => {
   it('awaits build remote loading before exporting the module', () => {
     const code = generateRemotes('remote/App', 'build');
 
-    expect(code).toContain('const mod = await __mfRemotePending;');
-    expect(code).toContain('export const __moduleExports = exportModule;');
+    expect(code).not.toContain('await __mfRemotePending');
+    expect(code).toContain('export { exportModule as __moduleExports };');
+    expect(code).toContain(
+      'export const __mf_remote_pending = __mfRemotePending || Promise.resolve(exportModule);'
+    );
+    expect(code).toContain('exportModule = __mfCreateRemoteProxy(__mfRemotePending);');
     expect(code).toContain(
       'export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule'
     );

@@ -1,6 +1,7 @@
-import { Plugin } from 'vite';
+import { Plugin, ResolvedConfig } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { getIsRolldown } from '../utils/packageUtils';
+import { getIsRolldown, hasPackageDependency } from '../utils/packageUtils';
+import { getBasePath, isNuxtClientBase } from '../utils/pathNormalization';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
 import {
   generateRemoteEntrySSR,
@@ -51,6 +52,27 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   // resolve it from its own module cache at runtime).
   const resolvedAbsToPackage = new Map<string, string>();
   let isServe = false;
+  let viteConfig: ResolvedConfig | undefined;
+  let isNuxtProject = false;
+
+  const findNuxtExposesChunk = (
+    bundle: Record<string, { type: string; fileName: string; code?: string }>
+  ) => {
+    const exposeKeys = Object.keys(options.exposes);
+    if (exposeKeys.length === 0) return;
+
+    return Object.values(bundle).find((file) => {
+      if (
+        file.type !== 'chunk' ||
+        !file.fileName.startsWith('_nuxt/') ||
+        !file.fileName.endsWith('.js')
+      ) {
+        return false;
+      }
+      const code = file.code || '';
+      return exposeKeys.every((key) => code.includes(JSON.stringify(key)));
+    })?.fileName;
+  };
 
   return [
     {
@@ -111,8 +133,26 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       // No `apply: 'build'` — resolveId/load must run in serve too.
       // buildStart and generateBundle are guarded internally.
 
+      configResolved(config) {
+        viteConfig = config;
+        isNuxtProject =
+          hasPackageDependency('nuxt', config.root) ||
+          hasPackageDependency('nuxt-nightly', config.root);
+      },
+
       configureServer(server) {
         const base = '/__mf_ssr__';
+        const basePath = getBasePath(viteConfig?.base);
+        const ssrEntryFileName = getSsrRemoteEntryFileName(options.filename);
+
+        if (isNuxtProject || isNuxtClientBase(basePath)) {
+          server.middlewares.use((req, _res, next) => {
+            if (req.url?.replace(/\?.*/, '') === `${basePath}/${ssrEntryFileName}`) {
+              req.url = `${basePath}/__mf_ssr__/${ssrEntryFileName}`;
+            }
+            next();
+          });
+        }
 
         // Vite 8+ fetchModule proxy — allows ssrEntryLoader to create a
         // ModuleRunner on the remote host that fetches module source via HTTP
@@ -219,7 +259,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         }
 
         // Serve the SSR remote entry at a predictable URL.
-        const ssrPath = `${base}/${getSsrRemoteEntryFileName(options.filename)}`;
+        const ssrPath = `${base}/${ssrEntryFileName}`;
         server.middlewares.use(ssrPath, (_req, res) => {
           const exposesUrl = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
           const code = generateRemoteEntrySSR(options).replace(
@@ -301,6 +341,15 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       },
 
       generateBundle(_options, bundle) {
+        const exposesChunk = findNuxtExposesChunk(bundle);
+        const ssrAsset = bundle[ssrOutputFilename];
+        if (exposesChunk && ssrAsset?.type === 'asset' && typeof ssrAsset.source === 'string') {
+          ssrAsset.source = ssrAsset.source.replace(
+            /import\("virtual:mf-exposes-ssr:[^"]+"\)/g,
+            `import("./${exposesChunk}")`
+          );
+        }
+
         // Vite 8+ (Rolldown) only — the chunk was emitted via the chunk path in buildStart.
         // No post-processing needed; Rolldown emits ESM natively.
         // On Vite 5–7 the SSR entry was emitted as a pre-generated asset, so nothing to do here.
