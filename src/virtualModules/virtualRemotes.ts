@@ -30,7 +30,7 @@ export function getUsedRemotesMap() {
   return usedRemotesMap;
 }
 export function generateRemotes(id: string, command: string, enableSsrInit = false) {
-  const useReactProxy = command === 'serve' && hasPackageDependency('react');
+  const useReactProxy = hasPackageDependency('react');
   const reactImportLine = useReactProxy
     ? `import __mfReactDefault from "react";
     import * as __mfReactNamespace from "react";
@@ -58,24 +58,26 @@ export function generateRemotes(id: string, command: string, enableSsrInit = fal
   const exportLine =
     command === 'serve'
       ? `if (__mfRemotePending) {
-  const mod = await __mfRemotePending;
-  if (mod !== undefined) exportModule = mod;
+  __mfRemotePending = __mfRemotePending.then((mod) => {
+    if (mod !== undefined) exportModule = mod;
+    return exportModule;
+  });
 }
-export const __moduleExports = exportModule;
-export const __mf_remote_pending = Promise.resolve(exportModule);
+export { exportModule as __moduleExports };
+export const __mf_remote_pending = __mfRemotePending || Promise.resolve(exportModule);
 export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule`
       : command === 'build'
         ? `if (__mfRemotePending) {
-  const mod = await __mfRemotePending;
-  if (mod !== undefined) exportModule = mod;
+  __mfRemotePending = __mfRemotePending.then((mod) => {
+    if (mod !== undefined) exportModule = mod;
+    return exportModule;
+  });
 }
-export const __moduleExports = exportModule;
-export const __mf_remote_pending = Promise.resolve(exportModule);
+export { exportModule as __moduleExports };
+export const __mf_remote_pending = __mfRemotePending || Promise.resolve(exportModule);
 export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule`
         : 'export default exportModule';
-  const devProxyCode =
-    command !== 'build'
-      ? `
+  const remoteProxyCode = `
     function __mfCreateRemoteProxy(pendingPromise) {
       const listeners = new Set();
       pendingPromise?.finally(() => {
@@ -156,13 +158,12 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
           return target.apply(thisArg, args);
         }
       });
-    }`
-      : '';
+    }`;
 
   return `
     ${reactImportLine}
     ${importLine}
-    ${devProxyCode}
+    ${remoteProxyCode}
     let __mfRemotePending;
     let exportModule = __mfModuleCache.remote[${JSON.stringify(id)}]
     if (exportModule === undefined) {
@@ -202,7 +203,7 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
           });
       }
       __mfRemotePending = __mfModuleCache.remote[pendingKey];
-      exportModule = {};`
+      exportModule = __mfCreateRemoteProxy(__mfRemotePending);`
       }
     }
     ${exportLine}
