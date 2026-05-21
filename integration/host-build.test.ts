@@ -66,6 +66,26 @@ describe('host build', () => {
     expect(bootstrapAsset?.source).toContain('hostInit');
   });
 
+  it('builds when rolldownOptions.input points at a named HTML entry', async () => {
+    const output = await buildFixture({
+      fixture: 'basic-host',
+      mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: 'entry' },
+      viteConfig: {
+        build: {
+          rolldownOptions: {
+            input: {
+              main: 'indexProd.html',
+            },
+          },
+        },
+      },
+    });
+
+    const htmlAsset = getHtmlAsset(output);
+    expect(htmlAsset).toBeDefined();
+    expect(getAllChunkCode(output)).toContain('loadRemote');
+  });
+
   it('does not add bootstrap script to HTML when hostInitInjectLocation is entry', async () => {
     const output = await buildFixture({
       fixture: 'basic-host',

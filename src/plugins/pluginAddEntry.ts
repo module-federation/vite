@@ -28,6 +28,45 @@ function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
   return entryFiles.find((file) => file.endsWith('.html'));
 }
 
+function stripQueryAndHash(file: string) {
+  return file.split(/[?#]/)[0];
+}
+
+function getBuildInput(config: any) {
+  return config.build?.rollupOptions?.input ?? config.build?.rolldownOptions?.input;
+}
+
+function patchHashEntryFileName(output: any, entryName: string, fileName: string) {
+  const originalEntryFileNames = output.entryFileNames;
+  output.entryFileNames = (chunkInfo: { name?: string }, ...args: unknown[]) => {
+    if (chunkInfo?.name === entryName) return fileName;
+    if (typeof originalEntryFileNames === 'function') {
+      return originalEntryFileNames(chunkInfo, ...args);
+    }
+    return originalEntryFileNames || 'assets/[name]-[hash].js';
+  };
+}
+
+function patchHashEntryFileNames(config: any, entryName: string, fileName?: string) {
+  if (!fileName?.includes?.('[hash')) return;
+  config.build ??= {};
+  config.build.rollupOptions ??= {};
+  config.build.rolldownOptions ??= {};
+
+  const patchOutput = (output: any) => patchHashEntryFileName(output, entryName, fileName);
+  const patchBundlerOutput = (bundlerOptions: any) => {
+    const output = bundlerOptions.output;
+    if (Array.isArray(output)) {
+      output.forEach(patchOutput);
+      return;
+    }
+    patchOutput((bundlerOptions.output ??= {}));
+  };
+
+  patchBundlerOutput(config.build.rollupOptions);
+  patchBundlerOutput(config.build.rolldownOptions);
+}
+
 const addEntry = ({
   entryName,
   entryPath,
@@ -195,6 +234,29 @@ ${importHelper}(async () => {
     return normalizeModuleId(path.isAbsolute(id) ? id : path.resolve(viteConfig.root, id));
   }
 
+  function addEntryFile(file: string) {
+    const normalized = normalizeModuleId(file);
+    if (!entryFiles.includes(normalized)) entryFiles.push(normalized);
+  }
+
+  function addHtmlScriptEntries(htmlPath: string) {
+    if (!fs.existsSync(htmlPath)) return;
+    const htmlContent = fs.readFileSync(htmlPath, 'utf-8');
+    const scriptRegex =
+      /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=["']([^"']+)["'])[^>]*>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = scriptRegex.exec(htmlContent)) !== null) {
+      const scriptSrc = stripQueryAndHash(match[1]);
+      if (/^(?:[a-z]+:)?\/\//i.test(scriptSrc)) continue;
+      addEntryFile(scriptSrc);
+      const scriptPath = scriptSrc.startsWith('/')
+        ? path.resolve(viteConfig.root, scriptSrc.slice(1))
+        : path.resolve(path.dirname(htmlPath), scriptSrc);
+      addEntryFile(scriptPath);
+    }
+  }
+
   return [
     {
       name: 'add-entry',
@@ -318,6 +380,9 @@ ${importHelper}(async () => {
       applyToEnvironment() {
         return true;
       },
+      config(config) {
+        patchHashEntryFileNames(config, entryName, fileName);
+      },
       configResolved(config) {
         viteConfig = config;
         skipTransformIds = new Set(skipTransformFor.map(resolveProjectId));
@@ -336,30 +401,24 @@ ${importHelper}(async () => {
             : undefined
         ) as { name?: string } | undefined;
         if (envName?.name && envName.name !== 'client') return;
-        const inputOptions = config.build.rollupOptions.input;
+        const inputOptions = getBuildInput(config);
 
         if (!inputOptions) {
           htmlFilePath = path.resolve(config.root, 'index.html');
         } else if (typeof inputOptions === 'string') {
-          entryFiles = [inputOptions];
+          entryFiles = [normalizeModuleId(inputOptions)];
         } else if (Array.isArray(inputOptions)) {
-          entryFiles = inputOptions;
+          entryFiles = inputOptions.map(normalizeModuleId);
         } else if (typeof inputOptions === 'object') {
-          entryFiles = Object.values(inputOptions);
+          entryFiles = Object.values(inputOptions).map((input) => normalizeModuleId(String(input)));
         }
 
         if (entryFiles.length > 0) {
           htmlFilePath = getFirstHtmlEntryFile(entryFiles);
         }
 
-        if (_command === 'serve' && htmlFilePath && fs.existsSync(htmlFilePath)) {
-          const htmlContent = fs.readFileSync(htmlFilePath, 'utf-8');
-          const scriptRegex = /<script\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
-          let match: RegExpExecArray | null;
-
-          while ((match = scriptRegex.exec(htmlContent)) !== null) {
-            entryFiles.push(match[1]);
-          }
+        if (htmlFilePath) {
+          addHtmlScriptEntries(htmlFilePath);
         }
       },
       buildStart() {
@@ -383,14 +442,8 @@ ${importHelper}(async () => {
           emitFileOptions.fileName = fileName;
         }
         emitFileId = this.emitFile(emitFileOptions);
-        if (htmlFilePath && fs.existsSync(htmlFilePath)) {
-          const htmlContent = fs.readFileSync(htmlFilePath, 'utf-8');
-          const scriptRegex = /<script\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
-          let match: RegExpExecArray | null;
-
-          while ((match = scriptRegex.exec(htmlContent)) !== null) {
-            entryFiles.push(match[1]);
-          }
+        if (htmlFilePath) {
+          addHtmlScriptEntries(htmlFilePath);
         }
       },
       generateBundle(_options, bundle) {
@@ -490,6 +543,7 @@ ${importHelper}(async () => {
         if (skipSvelteKitSsrBuild()) return;
         if (isSvelteKitServerModule(id)) return;
         if (id.includes(ENTRY_BOOTSTRAP_QUERY)) return;
+        if (normalizeModuleId(id).endsWith('.html')) return;
         if (skipTransformIds.has(resolveProjectId(id))) return;
         // Only inject into client-side modules. In Vite 8 multi-environment mode
         // this transform also runs for ssr/server environments — injecting there
@@ -569,7 +623,7 @@ ${importHelper}(async () => {
           code.includes('entry();');
 
         const shouldInject =
-          (injectEntry() && entryFiles.some((file) => id.endsWith(file))) ||
+          (injectEntry() && entryFiles.some((file) => resolveProjectId(id) === file)) ||
           // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
           (_command === 'serve' &&
             inject === 'html' &&
