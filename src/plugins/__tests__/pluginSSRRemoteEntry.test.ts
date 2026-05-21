@@ -391,7 +391,35 @@ describe('pluginSSRRemoteEntry', () => {
       expect(emitFile).not.toHaveBeenCalled();
     });
 
-    it('skips emit in non-client environments', () => {
+    it('emits in the ssr environment when environments.ssr is configured', () => {
+      getIsRolldownMock.mockReturnValue(true);
+      const emitFile = makeEmitFile();
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      const configResolved = mainPlugin.configResolved as (config: ResolvedConfig) => void;
+      configResolved?.({
+        environments: { client: {}, ssr: {} },
+      } as unknown as ResolvedConfig);
+
+      callHook(
+        mainPlugin.buildStart,
+        {
+          meta: makePluginMeta(true),
+          emitFile,
+          environment: { name: 'ssr' },
+        } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'chunk',
+          fileName: 'remoteEntry.ssr.js',
+        })
+      );
+    });
+
+    it('skips emit in the ssr environment when only a client environment exists', () => {
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
       const mainPlugin = plugins[1];

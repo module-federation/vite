@@ -181,8 +181,24 @@ function resolveSSREntryUrl(
  * remoteEntry.js → /__mf_ssr__/remoteEntry.ssr.js (dev middleware)
  * Returns the first URL that responds with a 200.
  */
+async function headCheckSsrEntry(candidate: {
+  url: string;
+  type: string;
+}): Promise<{ url: string; type: string } | null> {
+  try {
+    const res = await fetch(candidate.url, { method: 'HEAD' });
+    const ct = res.headers.get('content-type') ?? '';
+    // Reject SPA index.html fallbacks — only accept JS/text responses.
+    if (res.ok && !ct.includes('text/html')) return candidate;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 async function getSSREntryByConvention(
-  remoteEntryUrl: string
+  remoteEntryUrl: string,
+  options: { skipServerBuild?: boolean } = {}
 ): Promise<{ url: string; type: string } | null> {
   const base = remoteEntryUrl.replace(/\.[^.]+$/, '');
   const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
@@ -192,23 +208,36 @@ async function getSSREntryByConvention(
       .pop()
       ?.replace(/\.[^.]+$/, '') ?? 'remoteEntry';
   const candidates = [
+    // SSR graph from a dedicated server build (Environment API or `vite build --ssr`).
+    // Must be tried before the client-emitted .ssr.js entry, which pulls browser
+    // loadRemote chunks and can recurse indefinitely for nested remotes.
+    ...(options.skipServerBuild
+      ? []
+      : [{ url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`, type: 'module' as const }]),
     { url: `${base}.ssr.js`, type: 'module' },
     { url: `${remoteOrigin}/__mf_ssr__/${filename}.ssr.js`, type: 'module' },
   ];
   for (const candidate of candidates) {
-    try {
-      const res = await fetch(candidate.url, { method: 'HEAD' });
-      const ct = res.headers.get('content-type') ?? '';
-      // Reject SPA index.html fallbacks — only accept JS/text responses.
-      if (res.ok && !ct.includes('text/html')) return candidate;
-    } catch {
-      // ignore — try next
-    }
+    const hit = await headCheckSsrEntry(candidate);
+    if (hit) return hit;
   }
   return null;
 }
 
 async function getSSREntry(remoteEntryUrl: string): Promise<{ url: string; type: string } | null> {
+  const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
+  const filename =
+    remoteEntryUrl
+      .split('/')
+      .pop()
+      ?.replace(/\.[^.]+$/, '') ?? 'remoteEntry';
+  // Prefer a server-build SSR entry when the remote serves dist/server (preview/production).
+  const fromServerBuild = await headCheckSsrEntry({
+    url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
+    type: 'module',
+  });
+  if (fromServerBuild) return fromServerBuild;
+
   const manifestUrl = getManifestUrl(remoteEntryUrl);
   if (!manifestCache.has(manifestUrl)) {
     manifestCache.set(
@@ -219,7 +248,7 @@ async function getSSREntry(remoteEntryUrl: string): Promise<{ url: string; type:
           if (fromManifest) return fromManifest;
         }
         // Manifest absent or has no ssrRemoteEntry — fall back to URL convention.
-        return getSSREntryByConvention(remoteEntryUrl);
+        return getSSREntryByConvention(remoteEntryUrl, { skipServerBuild: true });
       })
     );
   }
@@ -375,6 +404,10 @@ async function fetchEsmToTempFile(
   return promise;
 }
 
+async function importTempModule(filePath: string): Promise<{ init: unknown; get: unknown }> {
+  return (await import(/* @vite-ignore */ filePath)) as { init: unknown; get: unknown };
+}
+
 async function loadSSRRemoteEntry(
   ssrEntry: { url: string; type: string },
   resolvedShared: Record<string, string> = {}
@@ -440,7 +473,7 @@ async function loadSSRRemoteEntry(
 
     try {
       const tmpFile = await fetchEsmToTempFile(url, cacheDir, new Map(), sharedPkgMap);
-      return (await import(tmpFile)) as { init: unknown; get: unknown };
+      return await importTempModule(tmpFile);
     } catch {
       return null;
     }
