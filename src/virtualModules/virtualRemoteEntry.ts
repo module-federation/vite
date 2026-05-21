@@ -414,7 +414,7 @@ export function generateRemoteEntry(
       : [];
     const initRes = runtimeInit({
       name: mfName,
-      remotes: usedRemotes,
+      remotes: ${options.shareStrategy === 'loaded-first' ? '[]' : 'usedRemotes'},
       shared: usedShared,
       plugins: [...__browserPlugins, ...__ssrPlugins],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
@@ -473,6 +473,8 @@ const hostAutoInitModule = new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG)
 let currentHostAutoInitRemoteEntryId = REMOTE_ENTRY_ID;
 let currentHostAutoInitCommand = 'build';
 export function generateHostAutoInitCode(remoteEntryImport: string, _command = 'build') {
+  const shouldPreloadShares =
+    getNormalizeModuleFederationOptions().shareStrategy !== 'loaded-first';
   return `
     ${getRuntimeModuleCacheBootstrapCode()}
     let hostInitPromise;
@@ -484,6 +486,9 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
           const runtime = await remoteEntry.init();
           const usedShared = ${generateUsedSharedPreloadConfig()};
           ${normalizeRuntimeShareCode}
+          ${
+            shouldPreloadShares
+              ? `
           for (const [pkg, share] of Object.entries(usedShared)) {
             if (__mfModuleCache.share[pkg] !== undefined) {
               continue;
@@ -496,6 +501,9 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
                 __mfModuleCache.share[pkg] = __mfNormalizeRuntimeShare(resolved);
               });
             });
+          }
+          `
+              : ''
           }
           const __mfRemotePreloads = [];
           await Promise.all(__mfRemotePreloads);
