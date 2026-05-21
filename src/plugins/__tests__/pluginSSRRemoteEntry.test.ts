@@ -3,14 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 
-const { getIsRolldownMock, hasPackageDependencyMock } = vi.hoisted(() => ({
+const { getIsRolldownMock, hasPackageDependencyMock, isNuxtProjectRootMock } = vi.hoisted(() => ({
   getIsRolldownMock: vi.fn<(ctx: unknown) => boolean>(() => false),
   hasPackageDependencyMock: vi.fn<(pkg: string, cwd?: string) => boolean>(() => false),
+  isNuxtProjectRootMock: vi.fn<(root: string) => boolean>(() => false),
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
   getIsRolldown: getIsRolldownMock,
   hasPackageDependency: hasPackageDependencyMock,
+  isNuxtProjectRoot: isNuxtProjectRootMock,
   getPackageDetectionCwd: vi.fn(() => '/mock/cwd'),
   setPackageDetectionCwd: vi.fn(),
   getPackageName: vi.fn((s: string) => s.split('/')[0]),
@@ -70,6 +72,7 @@ describe('pluginSSRRemoteEntry', () => {
     vi.clearAllMocks();
     getIsRolldownMock.mockReturnValue(false);
     hasPackageDependencyMock.mockReturnValue(false);
+    isNuxtProjectRootMock.mockReturnValue(false);
   });
 
   it('returns two plugins with correct names and enforce', () => {
@@ -445,7 +448,7 @@ describe('pluginSSRRemoteEntry', () => {
     });
 
     it('still emits in the client environment for Nuxt when environments.ssr is configured', () => {
-      hasPackageDependencyMock.mockImplementation((pkg: string, _cwd?: string) => pkg === 'nuxt');
+      isNuxtProjectRootMock.mockReturnValue(true);
       getIsRolldownMock.mockReturnValue(true);
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
