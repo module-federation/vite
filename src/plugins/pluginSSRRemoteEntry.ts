@@ -317,8 +317,11 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
         // Environment API (client + ssr): emit only in the ssr environment so exposes
         // are bundled with the Node SSR graph (nested loadRemote stays on the server).
+        // Nuxt only runs the client Vite graph for federation output (dist/client);
+        // skipping the client pass leaves no remoteEntry.ssr.js in .output/public and
+        // the host falls back to the browser remoteEntry (SourceTextModule errors).
         if (hasSsrEnvironment) {
-          if (environmentName !== 'ssr') return;
+          if (environmentName !== 'ssr' && !isNuxtProject) return;
         } else if (isLegacySsrBuild) {
           // Legacy `vite build --ssr` pass (e.g. vue-ssr dual build:server).
         } else if (environmentName && environmentName !== 'client') {
