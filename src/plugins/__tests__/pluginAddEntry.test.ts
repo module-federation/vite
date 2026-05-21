@@ -708,6 +708,75 @@ describe('pluginAddEntry', () => {
     expect(result).toBeUndefined();
   });
 
+  it('uses Vite 8 rolldownOptions.input to detect HTML entries', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-rolldown-input-'));
+    const htmlFile = path.join(tempDir, 'indexProd.html');
+    fs.writeFileSync(
+      htmlFile,
+      '<html><head></head><body><script type="module" src="/src/main.tsx"></script></body></html>'
+    );
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+    const buildPlugin = plugins[1];
+    const emitted: Rollup.EmittedFile[] = [];
+    const bundle: any = {
+      'indexProd.html': {
+        type: 'asset',
+        source:
+          '<html><head></head><body><script type="module" src="/src/main.tsx"></script></body></html>',
+      },
+    };
+
+    runConfig(buildPlugin, {} as ConfigPluginContext, {}, { command: 'build', mode: 'production' });
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'build',
+      build: {
+        rollupOptions: {},
+        rolldownOptions: {
+          input: {
+            main: htmlFile,
+          },
+        },
+      },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'host-init-ref';
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return file.type === 'asset' ? file.fileName! : `bootstrap-${emitted.length}`;
+        },
+        getFileName: (ref: string) => (ref === 'host-init-ref' ? 'assets/hostInit.js' : ref),
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
+
+    expect(emitted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'chunk', id: '/virtual/hostInit.js' }),
+        expect.objectContaining({ type: 'asset', fileName: 'mf-entry-bootstrap-0.js' }),
+      ])
+    );
+    expect(bundle['indexProd.html'].source).toContain('mf-entry-bootstrap-0.js');
+  });
+
   it('wraps SvelteKit static inline startup behind host init during build', () => {
     const plugins = addEntry({
       entryName: 'hostInit',

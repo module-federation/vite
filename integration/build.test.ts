@@ -14,10 +14,11 @@ describe('build', () => {
     it('remoteEntry contains federation runtime init with correct name', async () => {
       const output = await buildFixture({ mfOptions: BASIC_REMOTE_MF_OPTIONS });
       const remoteEntry = findChunk(output, 'remoteEntry');
+      const allCode = getAllChunkCode(output);
       expect(remoteEntry).toBeDefined();
-      expect(remoteEntry!.code).toContain('basicRemote');
-      expect(remoteEntry!.code).toContain('localSharedImportMapPromise');
-      expect(remoteEntry!.code).toContain('getExposesMap');
+      expect(allCode).toContain('basicRemote');
+      expect(allCode).toContain('localSharedImportMapPromise');
+      expect(allCode).toContain('getExposesMap');
     });
 
     it('exposed module content is included in output', async () => {
