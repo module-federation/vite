@@ -60,7 +60,8 @@ describe('host build', () => {
     );
     expect(bootstrapAsset?.source).toContain('const { initHost } = await __mfImport(');
     expect(bootstrapAsset?.source).toContain('const runtime = await initHost();');
-    expect(bootstrapAsset?.source).toContain('runtime.loadRemote("remote1/Module")');
+    expect(bootstrapAsset?.source).toContain('__mfPreloadRemote("remote1/Module")');
+    expect(bootstrapAsset?.source).toContain('runtime.loadRemote(remote)');
     expect(bootstrapAsset?.source).toContain('})().then(() => __mfImport(');
     expect(bootstrapAsset?.source).toContain('globalThis.System.import(src)');
     expect(bootstrapAsset?.source).toContain('hostInit');

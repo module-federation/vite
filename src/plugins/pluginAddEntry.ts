@@ -171,18 +171,6 @@ const addEntry = ({
   }
 
   function getBootstrapSource(initSrc: string, entrySrc: string, useSystemImportFallback = false) {
-    // Keep only sub-path entries (e.g. "remote/App"); skip bare remote keys
-    // ("remote" or scoped "@scope/remote") since they refer to the container
-    // itself, not an exposed module. The previous `includes('/')` check
-    // incorrectly matched scoped names like "@scope/remote".
-    const remotePreloads = Object.entries(getUsedRemotesMap())
-      .flatMap(([remoteKey, remotes]) =>
-        Array.from(remotes).filter((remote) => remote !== remoteKey)
-      )
-      .sort()
-      .map((remote) => `runtime.loadRemote(${JSON.stringify(remote)})`)
-      .join(',');
-
     const importHelper = useSystemImportFallback
       ? `const __mfImport = (src) =>
   globalThis.System && typeof globalThis.System.import === 'function'
@@ -195,10 +183,38 @@ const addEntry = ({
         ? `__mfImport(${JSON.stringify(src)})`
         : `import(${JSON.stringify(src)})`;
 
+    // Keep only sub-path entries (e.g. "remote/App"); skip bare remote keys
+    // ("remote" or scoped "@scope/remote") since they refer to the container
+    // itself, not an exposed module. The previous `includes('/')` check
+    // incorrectly matched scoped names like "@scope/remote".
+    const remotePreloads = Object.entries(getUsedRemotesMap())
+      .flatMap(([remoteKey, remotes]) =>
+        Array.from(remotes).filter((remote) => remote !== remoteKey)
+      )
+      .sort()
+      .map((remote) => `__mfPreloadRemote(${JSON.stringify(remote)})`)
+      .join(',');
+
     return `${getRuntimeModuleCacheBootstrapCode()}
 ${importHelper}(async () => {
   const { initHost } = await ${importExpression(initSrc)};
   const runtime = await initHost();
+  const __mfPreloadRemote = (remote) => {
+    const pendingKey = "__mf_pending__" + remote;
+    if (!__mfModuleCache.remote[pendingKey]) {
+      __mfModuleCache.remote[pendingKey] = runtime.loadRemote(remote)
+        .then((mod) => {
+          __mfModuleCache.remote[remote] = mod;
+          delete __mfModuleCache.remote[pendingKey];
+          return mod;
+        })
+        .catch((error) => {
+          delete __mfModuleCache.remote[pendingKey];
+          throw error;
+        });
+    }
+    return __mfModuleCache.remote[pendingKey];
+  };
   const __mfRemotePreloads = [${remotePreloads}];
   await Promise.all(__mfRemotePreloads);
 })().then(() => ${importExpression(entrySrc)});

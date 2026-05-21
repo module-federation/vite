@@ -390,8 +390,9 @@ describe('pluginAddEntry', () => {
       | { code: string }
       | undefined;
 
-    expect(result?.code).toContain('runtime.loadRemote("@scope/remote/Button")');
-    expect(result?.code).not.toContain('runtime.loadRemote("@scope/remote")');
+    expect(result?.code).toContain('__mfPreloadRemote("@scope/remote/Button")');
+    expect(result?.code).not.toContain('__mfPreloadRemote("@scope/remote")');
+    expect(result?.code).toContain('runtime.loadRemote(remote)');
   });
 
   it('rewrites dev html entry scripts to external proxy modules instead of inline scripts', async () => {
