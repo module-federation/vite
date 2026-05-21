@@ -20,12 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 10
 
       - name: Cache Tool Downloads
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache
           key: ${{ runner.os }}-toolcache-${{ hashFiles('pnpm-lock.yaml') }}
@@ -33,12 +33,12 @@ jobs:
             ${{ runner.os }}-toolcache-
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.28.2
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: '24'
           cache: 'pnpm'
@@ -48,7 +48,7 @@ jobs:
         run: pnpm install --ignore-scripts
 
       - name: Create Release Pull Request
-        uses: module-federation/actions@v2
+        uses: module-federation/actions@842df3a7740093a5ff44de2b9a890106046b8e32 # v2
         with:
           version: ${{ github.event.inputs.version || 'latest' }}
           versionNumber: 'auto'
