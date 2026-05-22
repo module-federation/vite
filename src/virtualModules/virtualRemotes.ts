@@ -1,8 +1,8 @@
-import { hasPackageDependency } from '../utils/packageUtils';
 import {
   getNormalizeModuleFederationOptions,
   type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
+import { hasPackageDependency } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
@@ -35,9 +35,9 @@ export function getUsedRemotesMap() {
 }
 
 export function getRemoteFromId(id: string, remotes: Record<string, RemoteObjectConfig>) {
-  // 'remote1/App' => 'remote1'
-  // '@scope/remote1/App' => '@scope/remote1'
-  const remoteName = Object.keys(remotes).find((name) => id === name || id.startsWith(name + '/'));
+  const remoteName = Object.keys(remotes)
+    .filter((name) => id === name || id.startsWith(name + '/'))
+    .sort((a, b) => b.length - a.length)[0];
 
   return remoteName ? remotes[remoteName] : undefined;
 }

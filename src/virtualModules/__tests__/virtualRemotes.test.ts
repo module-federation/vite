@@ -30,6 +30,13 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
         entry: 'http://localhost:4174/remoteEntry.js',
         shareScope: 'default',
       },
+      'remote/sub': {
+        entryGlobalName: 'remote_sub',
+        name: 'remote/sub',
+        type: 'module',
+        entry: 'http://localhost:4176/remoteEntry.js',
+        shareScope: 'default',
+      },
       '@scope/remote': {
         entryGlobalName: 'scope_remote',
         name: '@scope/remote',
@@ -95,6 +102,16 @@ describe('generateRemotes', () => {
 
     expect(code).not.toContain('runtime.registerRemotes([');
     expect(code).toContain('runtime.loadRemote("@scope/unknown/Button")');
+  });
+
+  it('uses the most specific remote config when names overlap', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('remote/sub/Button', 'serve');
+
+    expect(code).toContain('runtime.registerRemotes([');
+    expect(code).toContain('"name":"remote/sub"');
+    expect(code).toContain('"entryGlobalName":"remote_sub"');
+    expect(code).toContain('"entry":"http://localhost:4176/remoteEntry.js"');
   });
 
   it('uses ESM remote wrapper exports in dev', () => {
