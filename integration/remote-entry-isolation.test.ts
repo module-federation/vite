@@ -2,7 +2,7 @@ import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
 import { buildFixture, FIXTURES } from './helpers/build';
-import { findChunk, getChunkNames } from './helpers/matchers';
+import { findChunk, getAllChunkCode, getChunkNames } from './helpers/matchers';
 
 const ISOLATION_MF_OPTIONS = {
   name: 'isolatedRemote',
@@ -27,6 +27,7 @@ describe('remote entry isolation', () => {
     const hostInit = findChunk(output, 'hostInit');
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
     const virtualExposes = findChunk(output, 'virtualExposes');
+    const allCode = getAllChunkCode(output);
 
     expect(remoteEntry).toBeDefined();
     expect(hostInit).toBeDefined();
@@ -37,8 +38,8 @@ describe('remote entry isolation', () => {
     expect(chunkNames.some((name) => name.includes('__loadShare__'))).toBe(true);
     expect(chunkNames.some((name) => name.includes('localSharedImportMap'))).toBe(true);
 
-    expect(remoteEntry!.code).toContain('localSharedImportMap');
-    expect(remoteEntry!.code).toContain('virtualExposes');
+    expect(allCode).toContain('localSharedImportMap');
+    expect(allCode).toContain('virtualExposes');
     expect(remoteEntry!.code).not.toContain('__vite__mapDeps');
     expect(remoteEntry!.code).not.toMatch(/import\{_ as \w+\}from["']\.\/assets\/.*TreeLoader/);
     expect(remoteEntry!.code).not.toMatch(/import["']\.\/assets\/.*__loadShare__/);

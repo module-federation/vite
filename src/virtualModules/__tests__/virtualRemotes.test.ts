@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getRemoteVirtualModule, generateRemotes } from '../virtualRemotes';
+
+const mockOptions = vi.hoisted(() => ({
+  shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
+}));
 
 vi.mock('../../utils/packageUtils', async () => {
   const actual = await vi.importActual<typeof import('../../utils/packageUtils')>(
@@ -18,11 +22,42 @@ vi.mock('../virtualRemoteEntry', () => ({
 vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
   getNormalizeModuleFederationOptions: () => ({
     internalName: 'host',
+    remotes: {
+      remote: {
+        entryGlobalName: 'remote',
+        name: 'remote',
+        type: 'module',
+        entry: 'http://localhost:4174/remoteEntry.js',
+        shareScope: 'default',
+      },
+    },
+    shareStrategy: mockOptions.shareStrategy,
     virtualModuleDir: '__mf__virtual',
   }),
 }));
 
 describe('generateRemotes', () => {
+  beforeEach(() => {
+    mockOptions.shareStrategy = 'version-first';
+  });
+
+  it('starts remote loading during wrapper evaluation for version-first', () => {
+    const code = generateRemotes('remote/Button', 'serve');
+
+    expect(code).toContain('__mfRemotePending = __mfStartRemoteLoad();');
+    expect(code).toContain('runtime.loadRemote("remote/Button")');
+  });
+
+  it('defers remote loading until proxy use for loaded-first', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('remote/Button', 'serve');
+
+    expect(code).toContain('exportModule = __mfCreateRemoteProxy();');
+    expect(code).toContain('pendingPromise ||= __mfStartRemoteLoad();');
+    expect(code).toContain('runtime.registerRemotes([');
+    expect(code).not.toContain('__mfRemotePending = __mfStartRemoteLoad();');
+  });
+
   it('uses ESM remote wrapper exports in dev', () => {
     const code = generateRemotes('remote/Button', 'serve');
 

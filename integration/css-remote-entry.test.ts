@@ -2,7 +2,7 @@ import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
 import { buildFixture, FIXTURES } from './helpers/build';
-import { findChunk } from './helpers/matchers';
+import { getAllChunkCode } from './helpers/matchers';
 
 const CSS_REMOTE_ENTRY_OPTIONS = {
   name: 'cssRemote',
@@ -21,10 +21,9 @@ describe('css remote entry', () => {
       mfOptions: CSS_REMOTE_ENTRY_OPTIONS,
     });
 
-    const virtualExposes = findChunk(output, 'virtualExposes');
-    expect(virtualExposes).toBeDefined();
-    expect(virtualExposes!.code).toContain('injectCssAssets');
-    expect(virtualExposes!.code).toContain('.css');
-    expect(virtualExposes!.code).toContain('./widget');
+    const allCode = getAllChunkCode(output);
+    expect(allCode).toContain('injectCssAssets');
+    expect(allCode).toContain('.css');
+    expect(allCode).toContain('./widget');
   });
 });

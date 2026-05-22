@@ -150,13 +150,37 @@ function applyRewrites(
           if (imp.defaultLocal) importParts.push(`default as ${imp.defaultLocal}`);
           importParts.push(`__moduleExports as ${nsId}`);
 
-          const destructParts = imp.named.map((s) =>
-            s.imported === s.local ? s.local : `${s.imported}: ${s.local}`
-          );
-
           let rewrite = `import { ${importParts.join(', ')} } from ${src};`;
-          if (destructParts.length > 0)
-            rewrite += `\nconst { ${destructParts.join(', ')} } = ${nsId};`;
+          if (imp.named.length > 0) {
+            const isProxyId = `__mf_is_proxy_${counter++}`;
+            const namedProxyHelper = `function __mfCreateNamedRemoteProxy(ns, key) {
+  const target = function (...args) {
+    const value = ns[key];
+    return typeof value === "function" ? value.apply(this, args) : value;
+  };
+  return new Proxy(target, {
+    get(_target, prop) {
+      if (prop === "then") return undefined;
+      const value = ns[key];
+      if (prop === Symbol.toPrimitive) return () => value;
+      const item = value == null ? undefined : value[prop];
+      return typeof item === "function" ? item.bind(value) : item;
+    },
+    apply(target, thisArg, args) {
+      return target.apply(thisArg, args);
+    }
+  });
+}`;
+            const tempNames = imp.named.map((_s) => `__mf_named_${counter++}`);
+            const destructParts = imp.named.map((s, index) => `${s.imported}: ${tempNames[index]}`);
+            const bindingLines = imp.named.map((s, index) => {
+              const temp = tempNames[index];
+              return `const ${s.local} = ${isProxyId} ? __mfCreateNamedRemoteProxy(${nsId}, ${JSON.stringify(s.imported)}) : ${temp};`;
+            });
+            rewrite += `\n${namedProxyHelper}\nconst ${isProxyId} = ${nsId} && ${nsId}.__mf_is_remote_proxy;`;
+            rewrite += `\nconst { ${destructParts.join(', ')} } = ${isProxyId} ? {} : ${nsId};`;
+            rewrite += `\n${bindingLines.join('\n')}`;
+          }
 
           ms.overwrite(imp.start, imp.end, rewrite);
         }

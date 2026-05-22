@@ -98,27 +98,31 @@ describe('pluginRemoteNamedExports', () => {
     it('rewrites named import', async () => {
       const result = await transform('import { foo } from "remoteApp/utils";');
       expect(result).toContain('import { __moduleExports as');
-      expect(result).toContain('const { foo }');
+      expect(result).toContain('__mfCreateNamedRemoteProxy');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
       expect(result).not.toContain('import { foo }');
     });
 
     it('rewrites multiple named imports', async () => {
       const result = await transform('import { foo, bar, baz } from "remoteApp/utils";');
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo, bar, baz }');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "bar")');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "baz")');
     });
 
     it('rewrites aliased import', async () => {
       const result = await transform('import { foo as myFoo } from "remoteApp/utils";');
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('foo: myFoo');
+      expect(result).toContain('const myFoo =');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
     });
 
     it('rewrites default + named imports', async () => {
       const result = await transform('import Default, { foo } from "remoteApp/utils";');
       expect(result).toContain('default as Default');
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo }');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
     });
 
     it('skips default-only import', async () => {
@@ -138,7 +142,7 @@ describe('pluginRemoteNamedExports', () => {
     it('handles bare remote name (no subpath)', async () => {
       const result = await transform('import { foo } from "remoteApp";');
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo }');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
     });
 
     it('skips bare remote-name rewrites inside node_modules files', async () => {
@@ -155,7 +159,7 @@ describe('pluginRemoteNamedExports', () => {
         '/repo/node_modules/some-package/index.js'
       );
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo }');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
     });
 
     it('handles multiple remotes in one file', async () => {
@@ -164,8 +168,8 @@ describe('pluginRemoteNamedExports', () => {
         'import { bar } from "otherRemote/helpers";',
       ].join('\n');
       const result = await transform(code);
-      expect(result).toContain('const { foo }');
-      expect(result).toContain('const { bar }');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_3, "bar")');
     });
   });
 
@@ -251,7 +255,7 @@ describe('pluginRemoteNamedExports', () => {
         true
       );
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo }');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
     });
 
     it('rewrites namespace import via fallback', async () => {
@@ -270,7 +274,7 @@ describe('pluginRemoteNamedExports', () => {
         true
       );
       expect(result).toContain('default as Default');
-      expect(result).toContain('const { foo }');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
     });
 
     it('wraps dynamic import via fallback', async () => {
@@ -330,7 +334,8 @@ describe('pluginRemoteNamedExports', () => {
         '/src/app.tsx',
         true
       );
-      expect(result).toContain('foo: myFoo');
+      expect(result).toContain('const myFoo =');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
     });
 
     it('keeps runtime specifiers and skips inline type specifiers via fallback', async () => {
@@ -346,8 +351,9 @@ describe('pluginRemoteNamedExports', () => {
         true
       );
       expect(result).toContain('default as Default');
-      expect(result).toContain('foo: myFoo');
-      expect(result).toContain('bar');
+      expect(result).toContain('const myFoo =');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
+      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "bar")');
       expect(result).not.toContain('type Foo');
     });
 

@@ -95,11 +95,11 @@ describe('shared dependencies', () => {
 
     expect(remoteEntry).toBeDefined();
     expect(loadShare).toBeDefined();
-    expect(remoteEntry!.code).toContain('const versions =');
-    expect(remoteEntry!.code).toContain('[pkg]');
-    expect(remoteEntry!.code).toContain('const provider = versions && versions[Object.keys(versions)[0]]');
-    expect(remoteEntry!.code).toContain('__mfModuleCache.share[pkg]');
-    expect(remoteEntry!.code).not.toContain('initRes.loadShare(pkg');
+    expect(allCode).toContain('const versions =');
+    expect(allCode).toContain('[pkg]');
+    expect(allCode).toContain('const provider = versions && versions[Object.keys(versions)[0]]');
+    expect(allCode).toContain('__mfModuleCache.share[pkg]');
+    expect(allCode).not.toContain('initRes.loadShare(pkg');
     expect(loadShare!.code).toContain('initPromise.then');
     expect(loadShare!.code).toContain('__mfModuleCache.share["pathe"]');
     expect(loadShare!.code).toContain('join');

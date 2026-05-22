@@ -1,4 +1,5 @@
 import { hasPackageDependency } from '../utils/packageUtils';
+import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
@@ -31,6 +32,20 @@ export function getUsedRemotesMap() {
 }
 export function generateRemotes(id: string, command: string, enableSsrInit = false) {
   const useReactProxy = hasPackageDependency('react');
+  const options = getNormalizeModuleFederationOptions();
+  const isLoadedFirst = options.shareStrategy === 'loaded-first';
+  const remoteName = id.split('/')[0];
+  const remote = options.remotes[remoteName];
+  const registerRemoteCode =
+    isLoadedFirst && remote
+      ? `runtime.registerRemotes([${JSON.stringify({
+          entryGlobalName: remote.entryGlobalName,
+          name: remote.name,
+          type: remote.type,
+          entry: remote.entry,
+          shareScope: remote.shareScope ?? 'default',
+        })}]);`
+      : '';
   const reactImportLine = useReactProxy
     ? `import __mfReactDefault from "react";
     import * as __mfReactNamespace from "react";
@@ -77,18 +92,52 @@ export { exportModule as __moduleExports };
 export const __mf_remote_pending = __mfRemotePending || Promise.resolve(exportModule);
 export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?.__esModule ? exportModule.default : exportModule.default ?? exportModule`
         : 'export default exportModule';
+  const remoteLoadRuntimePromise = command === 'build' ? '__mfHostInitPromise' : 'initPromise';
+  const remoteLoadFailureHandler =
+    command === 'build'
+      ? `.catch((error) => {
+            delete __mfModuleCache.remote[pendingKey];
+            throw error;
+          })`
+      : `.catch(() => {
+            delete __mfModuleCache.remote[pendingKey];
+          })`;
+  const startRemoteLoadCode = `
+      const pendingKey = ${JSON.stringify(`__mf_pending__${id}`)};
+      if (!__mfModuleCache.remote[pendingKey]) {
+        __mfModuleCache.remote[pendingKey] = ${remoteLoadRuntimePromise}
+          .then((runtime) => {
+            ${registerRemoteCode}
+            return runtime.loadRemote(${JSON.stringify(id)});
+          })
+          .then((mod) => {
+            __mfModuleCache.remote[${JSON.stringify(id)}] = mod;
+            delete __mfModuleCache.remote[pendingKey];
+            return mod;
+          })
+          ${remoteLoadFailureHandler};
+      }
+      return __mfModuleCache.remote[pendingKey];`;
   const remoteProxyCode = `
+    function __mfStartRemoteLoad() {
+      ${startRemoteLoadCode}
+    }
     function __mfCreateRemoteProxy(pendingPromise) {
       const listeners = new Set();
-      pendingPromise?.finally(() => {
-        for (const listener of listeners) listener();
-      });
+      const ensurePending = () => {
+        pendingPromise ||= __mfStartRemoteLoad();
+        pendingPromise?.finally(() => {
+          for (const listener of listeners) listener();
+        });
+        return pendingPromise;
+      };
       const getModule = () => __mfModuleCache.remote[${JSON.stringify(id)}];
       const proxyTarget = function (...args) {
         ${
           useReactProxy
             ? `const [, setVersion] = __mfReact.useState(0);
         __mfReact.useEffect(() => {
+          ensurePending();
           const listener = () => setVersion((value) => value + 1);
           listeners.add(listener);
           if (getModule()) listener();
@@ -105,7 +154,7 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
               : `return fn.apply(this, args);`
           }
         }
-        ${useReactProxy ? `return null;` : `throw pendingPromise;`}
+        ${useReactProxy ? `return null;` : `throw ensurePending();`}
       };
       return new Proxy(proxyTarget, {
         get(_target, prop) {
@@ -123,7 +172,12 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
           // When the module is pending and React.lazy() checks for "default",
           // return the proxy function itself so React renders it (returns null)
           // rather than crashing on undefined.
-          ${useReactProxy ? `if (prop === "default") return proxyTarget; return undefined;` : `throw pendingPromise;`}
+          ${
+            useReactProxy
+              ? `if (prop === "default") return proxyTarget;
+          return undefined;`
+              : `throw ensurePending();`
+          }
         },
         has(_target, prop) {
           const mod = getModule();
@@ -168,41 +222,9 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
     let exportModule = __mfModuleCache.remote[${JSON.stringify(id)}]
     if (exportModule === undefined) {
       ${
-        command !== 'build'
-          ? `const pendingKey = ${JSON.stringify(`__mf_pending__${id}`)};
-      if (!__mfModuleCache.remote[pendingKey]) {
-        __mfModuleCache.remote[pendingKey] = initPromise
-          .then((runtime) => runtime.loadRemote(${JSON.stringify(id)}))
-          .then((mod) => {
-            __mfModuleCache.remote[${JSON.stringify(id)}] = mod;
-            delete __mfModuleCache.remote[pendingKey];
-            return mod;
-          })
-          .catch(() => {
-            delete __mfModuleCache.remote[pendingKey];
-          });
-      }`
-          : ''
-      }
-      ${
-        command !== 'build'
-          ? `__mfRemotePending = __mfModuleCache.remote[pendingKey];
-      exportModule = __mfCreateRemoteProxy(__mfRemotePending);`
-          : `const pendingKey = ${JSON.stringify(`__mf_pending__${id}`)};
-      if (!__mfModuleCache.remote[pendingKey]) {
-        __mfModuleCache.remote[pendingKey] = __mfHostInitPromise
-          .then((runtime) => runtime.loadRemote(${JSON.stringify(id)}))
-          .then((mod) => {
-            __mfModuleCache.remote[${JSON.stringify(id)}] = mod;
-            delete __mfModuleCache.remote[pendingKey];
-            return mod;
-          })
-          .catch((error) => {
-            delete __mfModuleCache.remote[pendingKey];
-            throw error;
-          });
-      }
-      __mfRemotePending = __mfModuleCache.remote[pendingKey];
+        isLoadedFirst
+          ? `exportModule = __mfCreateRemoteProxy();`
+          : `__mfRemotePending = __mfStartRemoteLoad();
       exportModule = __mfCreateRemoteProxy(__mfRemotePending);`
       }
     }

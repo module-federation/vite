@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { hasPackageDependencyMock, normalizedSharedMock, usedRemotesMapMock, writeSyncSpy } =
-  vi.hoisted(() => ({
-    hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
-    normalizedSharedMock: vi.fn(() => ({})),
-    usedRemotesMapMock: vi.fn(() => ({})),
-    writeSyncSpy: vi.fn(),
-  }));
+const {
+  hasPackageDependencyMock,
+  normalizedSharedMock,
+  usedRemotesMapMock,
+  writeSyncSpy,
+  optionsMock,
+} = vi.hoisted(() => ({
+  hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
+  normalizedSharedMock: vi.fn(() => ({})),
+  usedRemotesMapMock: vi.fn(() => ({})),
+  writeSyncSpy: vi.fn(),
+  optionsMock: {
+    shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
+  },
+}));
 
 function getLastCallFirstArg<T>(mockFn: { mock: { calls: T[][] } }): T | undefined {
   const calls = mockFn.mock.calls;
@@ -48,7 +56,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       shared: normalizedSharedMock(),
       shareScope: 'default',
       runtimePlugins: [],
-      shareStrategy: 'version-first',
+      shareStrategy: optionsMock.shareStrategy,
     }),
     isExplicitSharedKey: (key: string) => key in normalizedSharedMock(),
     getNormalizeShareItem: (pkg: string) => ({
@@ -108,6 +116,7 @@ describe('virtualRemoteEntry', () => {
     usedRemotesMapMock.mockReset();
     usedRemotesMapMock.mockReturnValue({});
     writeSyncSpy.mockClear();
+    optionsMock.shareStrategy = 'version-first';
     vi.resetModules();
   });
 
@@ -483,6 +492,63 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('some-dep/dist');
     // The runtime.loadShare loop should still be present
     expect(code).toContain('runtime.loadShare(pkg');
+  });
+
+  it('does not preload shares in hostAutoInit with loaded-first', async () => {
+    optionsMock.shareStrategy = 'loaded-first';
+    normalizedSharedMock.mockReturnValue({
+      react: {
+        name: 'react',
+        from: '',
+        version: '19.2.4',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '19.2.4',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+
+    expect(code).not.toContain('runtime.loadShare(pkg');
+    expect(code).not.toContain('for (const [pkg, share] of Object.entries(usedShared))');
+  });
+
+  it('does not register remotes during remoteEntry init with loaded-first', async () => {
+    optionsMock.shareStrategy = 'loaded-first';
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {
+          remote: {
+            entryGlobalName: 'remote',
+            name: 'remote',
+            type: 'module',
+            entry: 'http://localhost:4174/remoteEntry.js',
+          },
+        },
+        shared: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'loaded-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    expect(code).toContain('remotes: []');
+    expect(code).not.toContain('remotes: usedRemotes');
   });
 
   it('seeds import:false shared modules in hostAutoInit during serve', async () => {
