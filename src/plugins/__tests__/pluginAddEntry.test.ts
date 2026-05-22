@@ -17,9 +17,29 @@ vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: () => true,
 }));
 
+const mockMfOptions = vi.hoisted(() => ({
+  shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
+}));
+
+vi.mock('../../utils/normalizeModuleFederationOptions', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../utils/normalizeModuleFederationOptions')
+  >('../../utils/normalizeModuleFederationOptions');
+  return {
+    ...actual,
+    getNormalizeModuleFederationOptions: () => ({
+      shareStrategy: mockMfOptions.shareStrategy,
+      shared: {},
+      remotes: {},
+      internalName: 'host',
+      name: 'host',
+    }),
+  };
+});
+
 import addEntry from '../pluginAddEntry';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
-import { addUsedRemote } from '../../virtualModules/virtualRemotes';
+import { addUsedRemote, getUsedRemotesMap } from '../../virtualModules/virtualRemotes';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
 
@@ -82,9 +102,18 @@ function runGenerateBundle(
   callHook(plugin.generateBundle, ctx, outputOptions, bundle, isWrite);
 }
 
+function clearUsedRemotes() {
+  const usedRemotesMap = getUsedRemotesMap();
+  for (const remoteKey of Object.keys(usedRemotesMap)) {
+    delete usedRemotesMap[remoteKey];
+  }
+}
+
 describe('pluginAddEntry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockMfOptions.shareStrategy = 'version-first';
+    clearUsedRemotes();
   });
 
   for (const testCase of [
@@ -189,7 +218,7 @@ describe('pluginAddEntry', () => {
     )) as { code: string } | undefined;
 
     expect(result?.code).toContain('const { initHost } = await import("/virtual/hostInit.js");');
-    expect(result?.code).toContain('const runtime = await initHost();');
+    expect(result?.code).toContain('await initHost();');
     expect(result?.code).toContain('})().then(() => import("/src/main.tsx?mf-entry-bootstrap"));');
     expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
@@ -223,7 +252,7 @@ describe('pluginAddEntry', () => {
     )) as { code: string } | undefined;
 
     expect(result?.code).toContain('const { initHost } = await import("/virtual/hostInit.js");');
-    expect(result?.code).toContain('const runtime = await initHost();');
+    expect(result?.code).toContain('await initHost();');
     expect(result?.code).toContain(
       '})().then(() => import("/virtual/client-entry.tsx?mf-entry-bootstrap"));'
     );
@@ -393,6 +422,64 @@ describe('pluginAddEntry', () => {
     expect(result?.code).toContain('__mfPreloadRemote("@scope/remote/Button")');
     expect(result?.code).not.toContain('__mfPreloadRemote("@scope/remote")');
     expect(result?.code).toContain('runtime.loadRemote(remote)');
+    // A preload failure must not abort host bootstrap.
+    expect(result?.code).toContain('await Promise.allSettled(__mfRemotePreloads);');
+    expect(result?.code).not.toContain('Promise.all(__mfRemotePreloads)');
+  });
+
+  it('skips remote preload in the host bootstrap when shareStrategy is loaded-first', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-loaded-first-'));
+    fs.writeFileSync(
+      path.join(tempDir, 'index.html'),
+      [
+        '<!doctype html>',
+        '<html>',
+        '  <body>',
+        '    <script type="module" src="/src/main.ts"></script>',
+        '  </body>',
+        '</html>',
+      ].join('\n')
+    );
+    addUsedRemote('employees', 'employees/staff');
+    mockMfOptions.shareStrategy = 'loaded-first';
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(buildPlugin, 'export const app = true;', '/src/main.ts')) as
+      | { code: string }
+      | undefined;
+
+    // loaded-first defers remote loading to the runtime — the host bootstrap
+    // must not preload, so an offline remote can never blank the host.
+    expect(result?.code).not.toContain('__mfPreloadRemote');
+    expect(result?.code).not.toContain('loadRemote');
+    expect(result?.code).not.toContain('__mfRemotePreloads');
+    expect(result?.code).toContain('await initHost();');
+    expect(result?.code).toContain('})().then(() => import("/src/main.ts?mf-entry-bootstrap"));');
   });
 
   it('rewrites dev html entry scripts to external proxy modules instead of inline scripts', async () => {
@@ -515,7 +602,7 @@ describe('pluginAddEntry', () => {
     // The proxy module must import both init and entry as resolvable paths
     // (no base prefix — Vite's server-side resolver handles base itself)
     expect(code).toContain('const { initHost } = await import("/@id/virtual:mf-host-init");');
-    expect(code).toContain('const runtime = await initHost();');
+    expect(code).toContain('await initHost();');
     expect(code).toContain('})().then(() => import("/src/main.tsx"));');
     expect(code).not.toContain('globalThis.System.import(src)');
     expect(code).not.toContain('/foo/');

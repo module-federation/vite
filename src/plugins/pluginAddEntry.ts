@@ -10,6 +10,7 @@ import {
 } from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getUsedRemotesMap } from '../virtualModules/virtualRemotes';
 import { getRuntimeModuleCacheBootstrapCode } from '../virtualModules/virtualRuntimeInitStatus';
@@ -183,21 +184,31 @@ const addEntry = ({
         ? `__mfImport(${JSON.stringify(src)})`
         : `import(${JSON.stringify(src)})`;
 
+    // Eagerly preloading remotes mirrors the federation runtime's own
+    // `version-first` behaviour, where `ShareHandler.initializeSharing()` loads
+    // every remote entry during startup. With `loaded-first` the runtime defers
+    // remote loading until a module is actually requested, so the host must NOT
+    // preload — otherwise an offline remote would block host bootstrap even
+    // though the user explicitly opted into the on-demand strategy.
+    const shouldPreloadRemotes =
+      getNormalizeModuleFederationOptions()?.shareStrategy !== 'loaded-first';
+
     // Keep only sub-path entries (e.g. "remote/App"); skip bare remote keys
     // ("remote" or scoped "@scope/remote") since they refer to the container
     // itself, not an exposed module. The previous `includes('/')` check
     // incorrectly matched scoped names like "@scope/remote".
-    const remotePreloads = Object.entries(getUsedRemotesMap())
-      .flatMap(([remoteKey, remotes]) =>
-        Array.from(remotes).filter((remote) => remote !== remoteKey)
-      )
-      .sort()
-      .map((remote) => `__mfPreloadRemote(${JSON.stringify(remote)})`)
-      .join(',');
+    const remotePreloads = shouldPreloadRemotes
+      ? Object.entries(getUsedRemotesMap())
+          .flatMap(([remoteKey, remotes]) =>
+            Array.from(remotes).filter((remote) => remote !== remoteKey)
+          )
+          .sort()
+          .map((remote) => `__mfPreloadRemote(${JSON.stringify(remote)})`)
+          .join(',')
+      : '';
 
-    return `${getRuntimeModuleCacheBootstrapCode()}
-${importHelper}(async () => {
-  const { initHost } = await ${importExpression(initSrc)};
+    const preloadBlock = remotePreloads
+      ? `
   const runtime = await initHost();
   const __mfPreloadRemote = (remote) => {
     const pendingKey = "__mf_pending__" + remote;
@@ -216,9 +227,17 @@ ${importHelper}(async () => {
     return __mfModuleCache.remote[pendingKey];
   };
   const __mfRemotePreloads = [${remotePreloads}];
-  await Promise.all(__mfRemotePreloads);
+  await Promise.allSettled(__mfRemotePreloads);`
+      : `await initHost();`;
+
+    const importCode = `
+(async () => {
+  const { initHost } = await ${importExpression(initSrc)};
+  ${preloadBlock}
 })().then(() => ${importExpression(entrySrc)});
 `;
+
+    return [getRuntimeModuleCacheBootstrapCode(), importHelper, importCode].join('\n');
   }
 
   function getSystemBootstrapSource(initSrc: string, entrySrc: string) {
