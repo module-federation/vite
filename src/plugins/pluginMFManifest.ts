@@ -16,7 +16,7 @@ import {
   type PreloadMap,
   processModuleAssets,
 } from '../utils/cssModuleHelpers';
-import { isNuxtClientBase, resolvePublicPath } from '../utils/pathNormalization';
+import { resolvePublicPath } from '../utils/pathNormalization';
 import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
 
 /**
@@ -119,7 +119,7 @@ const Manifest = (): Plugin[] => {
                   },
                   ssrRemoteEntry: {
                     name: getSsrRemoteEntryFileName(filename),
-                    path: isNuxtClientBase(viteConfig?.base) ? '/__mf_ssr__/' : '',
+                    path: '/__mf_ssr__/',
                     type: 'module',
                   },
                   varRemoteEntry: varFilename
@@ -269,7 +269,7 @@ const Manifest = (): Plugin[] => {
     };
     const ssrRemoteEntry = {
       name: ssrRemoteEntryFile || getSsrRemoteEntryFileName(filename),
-      path: _command === 'serve' && isNuxtClientBase(viteConfig?.base) ? '/__mf_ssr__/' : '',
+      path: _command === 'serve' ? '/__mf_ssr__/' : '',
       type: 'module',
     };
 

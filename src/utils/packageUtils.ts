@@ -286,6 +286,20 @@ export function getIsRolldown(ctx: unknown): boolean {
   return (Number.isFinite(viteMajor) && viteMajor >= 8) || !!(ctx as any)?.meta?.rolldownVersion;
 }
 
+/** Walk up from Vite `config.root` (Nuxt may point at `.nuxt` cache dirs). */
+export function isNuxtProjectRoot(root: string): boolean {
+  let dir = root;
+  for (let i = 0; i < 8; i++) {
+    if (hasPackageDependency('nuxt', dir) || hasPackageDependency('nuxt-nightly', dir)) {
+      return true;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return false;
+}
+
 export function hasPackageDependency(
   dependencyName: string,
   cwd = packageDetectionCwd || process.cwd()

@@ -3,13 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 
-const { getIsRolldownMock } = vi.hoisted(() => ({
+const { getIsRolldownMock, hasPackageDependencyMock, isNuxtProjectRootMock } = vi.hoisted(() => ({
   getIsRolldownMock: vi.fn<(ctx: unknown) => boolean>(() => false),
+  hasPackageDependencyMock: vi.fn<(pkg: string, cwd?: string) => boolean>(() => false),
+  isNuxtProjectRootMock: vi.fn<(root: string) => boolean>(() => false),
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
   getIsRolldown: getIsRolldownMock,
-  hasPackageDependency: vi.fn(() => false),
+  hasPackageDependency: hasPackageDependencyMock,
+  isNuxtProjectRoot: isNuxtProjectRootMock,
   getPackageDetectionCwd: vi.fn(() => '/mock/cwd'),
   setPackageDetectionCwd: vi.fn(),
   getPackageName: vi.fn((s: string) => s.split('/')[0]),
@@ -68,6 +71,8 @@ describe('pluginSSRRemoteEntry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getIsRolldownMock.mockReturnValue(false);
+    hasPackageDependencyMock.mockReturnValue(false);
+    isNuxtProjectRootMock.mockReturnValue(false);
   });
 
   it('returns two plugins with correct names and enforce', () => {
@@ -391,7 +396,88 @@ describe('pluginSSRRemoteEntry', () => {
       expect(emitFile).not.toHaveBeenCalled();
     });
 
-    it('skips emit in non-client environments', () => {
+    it('emits in the ssr environment when environments.ssr is configured', () => {
+      getIsRolldownMock.mockReturnValue(true);
+      const emitFile = makeEmitFile();
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      const configResolved = mainPlugin.configResolved as (config: ResolvedConfig) => void;
+      configResolved?.({
+        environments: { client: {}, ssr: {} },
+      } as unknown as ResolvedConfig);
+
+      callHook(
+        mainPlugin.buildStart,
+        {
+          meta: makePluginMeta(true),
+          emitFile,
+          environment: { name: 'ssr' },
+        } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'chunk',
+          fileName: 'remoteEntry.ssr.js',
+        })
+      );
+    });
+
+    it('skips emit in the client environment when environments.ssr is configured', () => {
+      getIsRolldownMock.mockReturnValue(true);
+      const emitFile = makeEmitFile();
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      const configResolved = mainPlugin.configResolved as (config: ResolvedConfig) => void;
+      configResolved?.({
+        environments: { client: {}, ssr: {} },
+      } as unknown as ResolvedConfig);
+
+      callHook(
+        mainPlugin.buildStart,
+        {
+          meta: makePluginMeta(true),
+          emitFile,
+          environment: { name: 'client' },
+        } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      expect(emitFile).not.toHaveBeenCalled();
+    });
+
+    it('still emits in the client environment for Nuxt when environments.ssr is configured', () => {
+      isNuxtProjectRootMock.mockReturnValue(true);
+      getIsRolldownMock.mockReturnValue(true);
+      const emitFile = makeEmitFile();
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      const configResolved = mainPlugin.configResolved as (config: ResolvedConfig) => void;
+      configResolved?.({
+        root: '/app',
+        environments: { client: {}, ssr: {} },
+      } as unknown as ResolvedConfig);
+
+      callHook(
+        mainPlugin.buildStart,
+        {
+          meta: makePluginMeta(true),
+          emitFile,
+          environment: { name: 'client' },
+        } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'chunk',
+          fileName: 'remoteEntry.ssr.js',
+        })
+      );
+    });
+
+    it('skips emit in the ssr environment when only a client environment exists', () => {
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
       const mainPlugin = plugins[1];
