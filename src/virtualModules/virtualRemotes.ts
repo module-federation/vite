@@ -232,12 +232,8 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
     let __mfRemotePending;
     let exportModule = __mfModuleCache.remote[${JSON.stringify(id)}]
     if (exportModule === undefined) {
-      ${
-        isLoadedFirst
-          ? `exportModule = __mfCreateRemoteProxy();`
-          : `__mfRemotePending = __mfStartRemoteLoad();
-      exportModule = __mfCreateRemoteProxy(__mfRemotePending);`
-      }
+      __mfRemotePending = __mfStartRemoteLoad();
+      exportModule = __mfCreateRemoteProxy(__mfRemotePending);
     }
     ${exportLine}
   `;

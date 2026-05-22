@@ -62,14 +62,14 @@ describe('generateRemotes', () => {
     expect(code).toContain('runtime.loadRemote("remote/Button")');
   });
 
-  it('defers remote loading until proxy use for loaded-first', () => {
+  it('starts remote loading while keeping a proxy for loaded-first', () => {
     mockOptions.shareStrategy = 'loaded-first';
     const code = generateRemotes('remote/Button', 'serve');
 
-    expect(code).toContain('exportModule = __mfCreateRemoteProxy();');
+    expect(code).toContain('exportModule = __mfCreateRemoteProxy(__mfRemotePending);');
     expect(code).toContain('pendingPromise ||= __mfStartRemoteLoad();');
     expect(code).toContain('runtime.registerRemotes([');
-    expect(code).not.toContain('__mfRemotePending = __mfStartRemoteLoad();');
+    expect(code).toContain('__mfRemotePending = __mfStartRemoteLoad();');
   });
 
   it('loads a scoped remote module using its full id', () => {
