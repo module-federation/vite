@@ -1,5 +1,8 @@
+import {
+  getNormalizeModuleFederationOptions,
+  type RemoteObjectConfig,
+} from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
-import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
@@ -30,12 +33,20 @@ export function addUsedRemote(remoteKey: string, remoteModule: string) {
 export function getUsedRemotesMap() {
   return usedRemotesMap;
 }
+
+export function getRemoteFromId(id: string, remotes: Record<string, RemoteObjectConfig>) {
+  const remoteName = Object.keys(remotes)
+    .filter((name) => id === name || id.startsWith(name + '/'))
+    .sort((a, b) => b.length - a.length)[0];
+
+  return remoteName ? remotes[remoteName] : undefined;
+}
+
 export function generateRemotes(id: string, command: string, enableSsrInit = false) {
   const useReactProxy = hasPackageDependency('react');
   const options = getNormalizeModuleFederationOptions();
   const isLoadedFirst = options.shareStrategy === 'loaded-first';
-  const remoteName = id.split('/')[0];
-  const remote = options.remotes[remoteName];
+  const remote = getRemoteFromId(id, options.remotes);
   const registerRemoteCode =
     isLoadedFirst && remote
       ? `runtime.registerRemotes([${JSON.stringify({

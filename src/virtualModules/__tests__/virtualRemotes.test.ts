@@ -30,6 +30,20 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
         entry: 'http://localhost:4174/remoteEntry.js',
         shareScope: 'default',
       },
+      'remote/sub': {
+        entryGlobalName: 'remote_sub',
+        name: 'remote/sub',
+        type: 'module',
+        entry: 'http://localhost:4176/remoteEntry.js',
+        shareScope: 'default',
+      },
+      '@scope/remote': {
+        entryGlobalName: 'scope_remote',
+        name: '@scope/remote',
+        type: 'module',
+        entry: 'http://localhost:4175/remoteEntry.js',
+        shareScope: 'default',
+      },
     },
     shareStrategy: mockOptions.shareStrategy,
     virtualModuleDir: '__mf__virtual',
@@ -56,6 +70,48 @@ describe('generateRemotes', () => {
     expect(code).toContain('pendingPromise ||= __mfStartRemoteLoad();');
     expect(code).toContain('runtime.registerRemotes([');
     expect(code).not.toContain('__mfRemotePending = __mfStartRemoteLoad();');
+  });
+
+  it('loads a scoped remote module using its full id', () => {
+    const code = generateRemotes('@scope/remote/Button', 'serve');
+
+    expect(code).toContain('runtime.loadRemote("@scope/remote/Button")');
+  });
+
+  it('loads a scoped remote referenced by its bare name', () => {
+    const code = generateRemotes('@scope/remote', 'serve');
+
+    expect(code).toContain('runtime.loadRemote("@scope/remote")');
+  });
+
+  it('registers the scoped remote config for loaded-first', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('@scope/remote/Button', 'serve');
+
+    // The remote name contains a slash, so it must be matched against the
+    // configured remotes rather than naively split on the first path segment.
+    expect(code).toContain('runtime.registerRemotes([');
+    expect(code).toContain('"name":"@scope/remote"');
+    expect(code).toContain('"entryGlobalName":"scope_remote"');
+    expect(code).toContain('"entry":"http://localhost:4175/remoteEntry.js"');
+  });
+
+  it('skips remote registration when a scoped id matches no configured remote', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('@scope/unknown/Button', 'serve');
+
+    expect(code).not.toContain('runtime.registerRemotes([');
+    expect(code).toContain('runtime.loadRemote("@scope/unknown/Button")');
+  });
+
+  it('uses the most specific remote config when names overlap', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('remote/sub/Button', 'serve');
+
+    expect(code).toContain('runtime.registerRemotes([');
+    expect(code).toContain('"name":"remote/sub"');
+    expect(code).toContain('"entryGlobalName":"remote_sub"');
+    expect(code).toContain('"entry":"http://localhost:4176/remoteEntry.js"');
   });
 
   it('uses ESM remote wrapper exports in dev', () => {
