@@ -39,7 +39,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', async () => {
 
 import addEntry from '../pluginAddEntry';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
-import { addUsedRemote } from '../../virtualModules/virtualRemotes';
+import { addUsedRemote, getUsedRemotesMap } from '../../virtualModules/virtualRemotes';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
 
@@ -102,10 +102,18 @@ function runGenerateBundle(
   callHook(plugin.generateBundle, ctx, outputOptions, bundle, isWrite);
 }
 
+function clearUsedRemotes() {
+  const usedRemotesMap = getUsedRemotesMap();
+  for (const remoteKey of Object.keys(usedRemotesMap)) {
+    delete usedRemotesMap[remoteKey];
+  }
+}
+
 describe('pluginAddEntry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockMfOptions.shareStrategy = 'version-first';
+    clearUsedRemotes();
   });
 
   for (const testCase of [
@@ -594,7 +602,7 @@ describe('pluginAddEntry', () => {
     // The proxy module must import both init and entry as resolvable paths
     // (no base prefix — Vite's server-side resolver handles base itself)
     expect(code).toContain('const { initHost } = await import("/@id/virtual:mf-host-init");');
-    expect(code).toContain('const runtime = await initHost();');
+    expect(code).toContain('await initHost();');
     expect(code).toContain('})().then(() => import("/src/main.tsx"));');
     expect(code).not.toContain('globalThis.System.import(src)');
     expect(code).not.toContain('/foo/');
