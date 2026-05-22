@@ -231,25 +231,27 @@ async function getSSREntry(remoteEntryUrl: string): Promise<{ url: string; type:
       .split('/')
       .pop()
       ?.replace(/\.[^.]+$/, '') ?? 'remoteEntry';
-  // Prefer a server-build SSR entry when the remote serves dist/server (preview/production).
-  const fromServerBuild = await headCheckSsrEntry({
-    url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
-    type: 'module',
-  });
-  if (fromServerBuild) return fromServerBuild;
 
   const manifestUrl = getManifestUrl(remoteEntryUrl);
   if (!manifestCache.has(manifestUrl)) {
     manifestCache.set(
       manifestUrl,
-      fetchManifest(manifestUrl).then(async (manifest) => {
+      (async () => {
+        // Prefer a server-build SSR entry when the remote serves dist/server (preview/production).
+        const fromServerBuild = await headCheckSsrEntry({
+          url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
+          type: 'module',
+        });
+        if (fromServerBuild) return fromServerBuild;
+
+        const manifest = await fetchManifest(manifestUrl);
         if (manifest) {
           const fromManifest = resolveSSREntryUrl(manifest, manifestUrl);
           if (fromManifest) return fromManifest;
         }
         // Manifest absent or has no ssrRemoteEntry — fall back to URL convention.
         return getSSREntryByConvention(remoteEntryUrl, { skipServerBuild: true });
-      })
+      })()
     );
   }
   return manifestCache.get(manifestUrl)!;
