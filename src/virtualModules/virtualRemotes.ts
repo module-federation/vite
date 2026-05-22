@@ -234,7 +234,8 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
     if (exportModule === undefined) {
       ${
         isLoadedFirst
-          ? `exportModule = __mfCreateRemoteProxy();`
+          ? `__mfRemotePending = __mfStartRemoteLoad();
+      exportModule = __mfCreateRemoteProxy(__mfRemotePending);`
           : `__mfRemotePending = __mfStartRemoteLoad();
       exportModule = __mfCreateRemoteProxy(__mfRemotePending);`
       }
