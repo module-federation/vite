@@ -30,6 +30,20 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
         entry: 'http://localhost:4174/remoteEntry.js',
         shareScope: 'default',
       },
+      'remote/sub': {
+        entryGlobalName: 'remote_sub',
+        name: 'remote/sub',
+        type: 'module',
+        entry: 'http://localhost:4176/remoteEntry.js',
+        shareScope: 'default',
+      },
+      '@scope/remote': {
+        entryGlobalName: 'scope_remote',
+        name: '@scope/remote',
+        type: 'module',
+        entry: 'http://localhost:4175/remoteEntry.js',
+        shareScope: 'default',
+      },
     },
     shareStrategy: mockOptions.shareStrategy,
     virtualModuleDir: '__mf__virtual',
@@ -37,8 +51,10 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
 }));
 
 describe('generateRemotes', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mockOptions.shareStrategy = 'version-first';
+    const { hasPackageDependency } = await import('../../utils/packageUtils');
+    vi.mocked(hasPackageDependency).mockReturnValue(false);
   });
 
   it('starts remote loading during wrapper evaluation for version-first', () => {
@@ -48,9 +64,10 @@ describe('generateRemotes', () => {
     expect(code).toContain('runtime.loadRemote("remote/Button")');
     expect(code).toContain('exportModule = await __mfRemotePending;');
     expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
+    expect(code).not.toContain('__mfCreateRemoteProxy');
   });
 
-  it('defers browser remote loading until use for loaded-first', () => {
+  it('defers browser remote loading until use for loaded-first (non-React)', () => {
     mockOptions.shareStrategy = 'loaded-first';
     const code = generateRemotes('remote/Button', 'serve');
 
@@ -58,6 +75,7 @@ describe('generateRemotes', () => {
     expect(code).toContain('runtime.registerRemotes([');
     expect(code).toContain('typeof window === "undefined"');
     expect(code).not.toContain('__mfReact');
+    expect(code).not.toContain('__mfCreateRemoteProxy');
     expect(code).not.toMatch(
       /typeof window === "undefined"[\s\S]*?} else \{\s*__mfRemotePending = __mfStartRemoteLoad\(\)/
     );
@@ -71,7 +89,61 @@ describe('generateRemotes', () => {
     expect(code).toContain('exportModule = await __mfRemotePending;');
   });
 
-  it('does not use a React-specific remote proxy', () => {
+  it('starts remote loading while keeping a React proxy for loaded-first', async () => {
+    const { hasPackageDependency } = await import('../../utils/packageUtils');
+    vi.mocked(hasPackageDependency).mockReturnValue(true);
+
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('remote/Button', 'serve');
+
+    expect(code).toContain('exportModule = __mfCreateRemoteProxy(__mfRemotePending);');
+    expect(code).toContain('pendingPromise ||= __mfStartRemoteLoad();');
+    expect(code).toContain('runtime.registerRemotes([');
+    expect(code).toContain('__mfRemotePending = __mfStartRemoteLoad();');
+    expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
+  });
+
+  it('loads a scoped remote module using its full id', () => {
+    const code = generateRemotes('@scope/remote/Button', 'serve');
+
+    expect(code).toContain('runtime.loadRemote("@scope/remote/Button")');
+  });
+
+  it('loads a scoped remote referenced by its bare name', () => {
+    const code = generateRemotes('@scope/remote', 'serve');
+
+    expect(code).toContain('runtime.loadRemote("@scope/remote")');
+  });
+
+  it('registers the scoped remote config for loaded-first', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('@scope/remote/Button', 'serve');
+
+    expect(code).toContain('runtime.registerRemotes([');
+    expect(code).toContain('"name":"@scope/remote"');
+    expect(code).toContain('"entryGlobalName":"scope_remote"');
+    expect(code).toContain('"entry":"http://localhost:4175/remoteEntry.js"');
+  });
+
+  it('skips remote registration when a scoped id matches no configured remote', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('@scope/unknown/Button', 'serve');
+
+    expect(code).not.toContain('runtime.registerRemotes([');
+    expect(code).toContain('runtime.loadRemote("@scope/unknown/Button")');
+  });
+
+  it('uses the most specific remote config when names overlap', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('remote/sub/Button', 'serve');
+
+    expect(code).toContain('runtime.registerRemotes([');
+    expect(code).toContain('"name":"remote/sub"');
+    expect(code).toContain('"entryGlobalName":"remote_sub"');
+    expect(code).toContain('"entry":"http://localhost:4176/remoteEntry.js"');
+  });
+
+  it('does not use a React-specific remote proxy when React is absent', () => {
     const code = generateRemotes('remote/Button', 'serve', true);
 
     expect(code).not.toContain('__mfCreateRemoteProxy');
@@ -111,6 +183,7 @@ describe('generateRemotes', () => {
     expect(code).toContain('__mfRemotePending ??= __mfStartRemoteLoad();');
     expect(code).toContain('__mfRemotePending = __mfStartRemoteLoad();');
     expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
+    expect(code).not.toContain('__mfCreateRemoteProxy');
     expect(code).toContain('__mfUnwrapRemoteDefault(exportModule)');
   });
 
@@ -137,6 +210,14 @@ describe('generateRemotes', () => {
       expect(code).toContain('getOwnPropertyDescriptor(_target, prop)');
       expect(code).toContain('Object.getOwnPropertyDescriptor(proxyTarget, prop)');
       expect(code).toContain('if (targetDesc && !targetDesc.configurable) return targetDesc;');
+    });
+
+    it('proxy still delegates property access to the remote module', () => {
+      mockOptions.shareStrategy = 'loaded-first';
+      const code = generateRemotes('remote/Proxy', 'serve');
+
+      expect(code).toContain('const mod = getModule();');
+      expect(code).toContain('return prop in mod ? mod[prop] : mod.default?.[prop];');
     });
   });
 });

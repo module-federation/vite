@@ -171,7 +171,12 @@ const addEntry = ({
     return patched;
   }
 
-  function getBootstrapSource(initSrc: string, entrySrc: string, useSystemImportFallback = false) {
+  function getBootstrapSource(
+    initSrc: string,
+    entrySrc: string,
+    useSystemImportFallback = false,
+    options?: { skipRemotePreload?: boolean }
+  ) {
     const importHelper = useSystemImportFallback
       ? `const __mfImport = (src) =>
   globalThis.System && typeof globalThis.System.import === 'function'
@@ -191,6 +196,7 @@ const addEntry = ({
     // preload — otherwise an offline remote would block host bootstrap even
     // though the user explicitly opted into the on-demand strategy.
     const shouldPreloadRemotes =
+      !options?.skipRemotePreload &&
       getNormalizeModuleFederationOptions()?.shareStrategy !== 'loaded-first';
 
     // Keep only sub-path entries (e.g. "remote/App"); skip bare remote keys
@@ -647,35 +653,42 @@ const addEntry = ({
           (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
           /hydrateRoot|createRoot|ReactDOM\.render/.test(code);
 
+        const isNuxtEntryAsyncModule =
+          /(?:^|\/)nuxt\/dist\/app\/entry\.async\.js(?:\?|$)/.test(id) && code.includes('entry();');
         const isNuxtClientEntryFallback =
           _command === 'serve' &&
           inject === 'entry' &&
-          entryFiles.length === 0 &&
           (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
           !clientInjected &&
           !id.includes('node_modules/.vite') &&
-          /(?:^|\/)nuxt\/dist\/app\/entry\.async\.js(?:\?|$)/.test(id) &&
-          code.includes('entry();');
+          isNuxtEntryAsyncModule &&
+          !entryFiles.some((file) => resolveProjectId(id) === file);
+
+        // Nuxt dev loads entry.async.js as the HTML module script; wrapping it in
+        // the async host-init bootstrap sets clientInjected before entry.js is
+        // processed, so the mount-time init injection never runs and Vue stays inert.
+        const skipNuxtDevEntryAsyncInject = _command === 'serve' && isNuxtEntryAsyncModule;
 
         const shouldInject =
-          (injectEntry() && entryFiles.some((file) => resolveProjectId(id) === file)) ||
-          // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
-          (_command === 'serve' &&
-            inject === 'html' &&
-            !isVinext &&
-            !clientInjected &&
-            !id.startsWith('\0') &&
-            !id.includes('node_modules') &&
-            /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) ||
-          // Fallback for frameworks (e.g. TanStack Start) that manage their own
-          // client entry and never populate rollupOptions.input in dev. Inject
-          // into the module that mounts/hydrates the React app — identified by
-          // the presence of hydrateRoot, createRoot, or ReactDOM.render calls.
-          // TanStack Start inlines client.tsx into a virtual entry module, so
-          // we also match virtual IDs (id.startsWith('\0')) that contain the
-          // hydration call.
-          isHydrationEntryFallback ||
-          isNuxtClientEntryFallback;
+          !skipNuxtDevEntryAsyncInject &&
+          ((injectEntry() && entryFiles.some((file) => resolveProjectId(id) === file)) ||
+            // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
+            (_command === 'serve' &&
+              inject === 'html' &&
+              !isVinext &&
+              !clientInjected &&
+              !id.startsWith('\0') &&
+              !id.includes('node_modules') &&
+              /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) ||
+            // Fallback for frameworks (e.g. TanStack Start) that manage their own
+            // client entry and never populate rollupOptions.input in dev. Inject
+            // into the module that mounts/hydrates the React app — identified by
+            // the presence of hydrateRoot, createRoot, or ReactDOM.render calls.
+            // TanStack Start inlines client.tsx into a virtual entry module, so
+            // we also match virtual IDs (id.startsWith('\0')) that contain the
+            // hydration call.
+            isHydrationEntryFallback ||
+            isNuxtClientEntryFallback);
         if (shouldInject) {
           clientInjected = true;
           // For the dev-mode entry fallback (inject:'entry' with no known entry
@@ -691,7 +704,9 @@ const addEntry = ({
           const entrySrc = id.includes('?')
             ? `${id}&${ENTRY_BOOTSTRAP_QUERY.slice(1)}`
             : `${id}${ENTRY_BOOTSTRAP_QUERY}`;
-          const bootstrap = getBootstrapSource(getEntryPath(), entrySrc);
+          const bootstrap = getBootstrapSource(getEntryPath(), entrySrc, false, {
+            skipRemotePreload: _command === 'serve' && isNuxtEntryAsyncModule,
+          });
           return mapCodeToCodeWithSourcemap(bootstrap);
         }
       },

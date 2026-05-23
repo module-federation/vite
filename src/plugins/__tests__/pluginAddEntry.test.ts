@@ -258,7 +258,7 @@ describe('pluginAddEntry', () => {
     );
   });
 
-  it('wraps Nuxt dev client entry behind host init', async () => {
+  it('does not wrap Nuxt dev entry.async (mount hook handles host init)', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-dev-'));
     const plugins = addEntry({
       entryName: 'hostInit',
@@ -287,16 +287,13 @@ describe('pluginAddEntry', () => {
       build: { rollupOptions: {} },
     } as unknown as ResolvedConfig);
 
-    const result = (await runTransform(
+    const result = await runTransform(
       buildPlugin,
       'const entry = () => import("#app/entry").then((m) => m.default);\nif (true) {\n  entry();\n}\nexport default entry;',
       '/repo/node_modules/.pnpm/nuxt@4.3.1/node_modules/nuxt/dist/app/entry.async.js?v=123'
-    )) as { code: string } | undefined;
-
-    expect(result?.code).toContain('const { initHost } = await import("/virtual/hostInit.js");');
-    expect(result?.code).toContain(
-      '})().then(() => import("/repo/node_modules/.pnpm/nuxt@4.3.1/node_modules/nuxt/dist/app/entry.async.js?v=123&mf-entry-bootstrap"));'
     );
+
+    expect(result).toBeUndefined();
   });
 
   it('injects host init before Nuxt dev mount', async () => {
