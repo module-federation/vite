@@ -79,6 +79,9 @@ describe('generateRemotes', () => {
     expect(code).not.toMatch(
       /typeof window === "undefined"[\s\S]*?} else \{\s*__mfRemotePending = __mfStartRemoteLoad\(\)/
     );
+    expect(code).not.toContain('Promise.resolve(exportModule)');
+    expect(code).toContain('export const __mf_remote_pending = __mfRemotePending ?? {');
+    expect(code).toContain('__mfRemotePending ??= __mfStartRemoteLoad().then((mod) => {');
   });
 
   it('awaits the real remote on the server for loaded-first dev', () => {
@@ -101,6 +104,8 @@ describe('generateRemotes', () => {
       expect(code).not.toContain('typeof window === "undefined"');
       expect(code).toContain('import("/virtual/hostInit.js")');
       expect(code).not.toContain('exportModule = await __mfRemotePending;');
+      expect(code).not.toContain('Promise.resolve(exportModule)');
+      expect(code).toContain('export const __mf_remote_pending = __mfRemotePending ?? {');
     });
 
     it('server wrapper awaits the real remote without proxy helpers', () => {

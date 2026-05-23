@@ -249,8 +249,17 @@ export function generateRemotes(
       }
     }`;
   const defaultExportLine = `export default exportModule?.__mf_is_remote_proxy ? exportModule : __mfUnwrapRemoteDefault(exportModule)`;
+  const remotePendingThenable = `{
+  then(onFulfilled, onRejected) {
+    __mfRemotePending ??= __mfStartRemoteLoad().then((mod) => {
+      if (mod !== undefined) exportModule = mod;
+      return exportModule;
+    });
+    return __mfRemotePending.then(onFulfilled, onRejected);
+  },
+}`;
   const remotePendingExport = useDeferredClient
-    ? `export const __mf_remote_pending = __mfRemotePending ?? Promise.resolve(exportModule);`
+    ? `export const __mf_remote_pending = __mfRemotePending ?? ${remotePendingThenable}`
     : `export const __mf_remote_pending =
   __mfRemotePending ??
   __mfStartRemoteLoad().then((mod) => {
