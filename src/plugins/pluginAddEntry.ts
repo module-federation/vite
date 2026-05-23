@@ -110,6 +110,10 @@ const addEntry = ({
       if (!body.includes('kit.start(app, element);') || !body.includes('Promise.all([')) {
         return scriptTag;
       }
+      // generateBundle and closeBundle both patch SvelteKit HTML; skip re-wrap.
+      if (body.includes('initHost')) {
+        return scriptTag;
+      }
 
       const blockStart = body.indexOf('{');
       const blockEnd = body.lastIndexOf('}');

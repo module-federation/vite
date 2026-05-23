@@ -89,6 +89,40 @@ describe('generateRemotes', () => {
     expect(code).toContain('exportModule = await __mfRemotePending;');
   });
 
+  describe('environment-split wrappers (loaded-first dev)', () => {
+    beforeEach(() => {
+      mockOptions.shareStrategy = 'loaded-first';
+    });
+
+    it('client wrapper uses proxy without typeof window', () => {
+      const code = generateRemotes('remote/Button', 'serve', false, 'client');
+
+      expect(code).toContain('__mfCreateDeferredRemoteProxy()');
+      expect(code).not.toContain('typeof window === "undefined"');
+      expect(code).toContain('import("/virtual/hostInit.js")');
+      expect(code).not.toContain('exportModule = await __mfRemotePending;');
+    });
+
+    it('server wrapper awaits the real remote without proxy helpers', () => {
+      const code = generateRemotes('remote/Button', 'serve', false, 'server');
+
+      expect(code).toContain('exportModule = await __mfRemotePending;');
+      expect(code).not.toContain('typeof window === "undefined"');
+      expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
+      expect(code).not.toContain('import("/virtual/hostInit.js")');
+    });
+
+    it('client React wrapper starts load and exposes a proxy', async () => {
+      const { hasPackageDependency } = await import('../../utils/packageUtils');
+      vi.mocked(hasPackageDependency).mockReturnValue(true);
+
+      const code = generateRemotes('remote/Button', 'serve', false, 'client');
+
+      expect(code).toContain('exportModule = __mfCreateRemoteProxy(__mfRemotePending);');
+      expect(code).not.toContain('typeof window === "undefined"');
+    });
+  });
+
   it('starts remote loading while keeping a React proxy for loaded-first', async () => {
     const { hasPackageDependency } = await import('../../utils/packageUtils');
     vi.mocked(hasPackageDependency).mockReturnValue(true);

@@ -2,6 +2,7 @@ import {
   getNormalizeModuleFederationOptions,
   type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
+import type { RemoteConsumer } from '../utils/remoteConsumerTarget';
 import { hasPackageDependency } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
@@ -14,11 +15,19 @@ const cacheRemoteMap: {
   [remote: string]: VirtualModule;
 } = {};
 export const LOAD_REMOTE_TAG = '__loadRemote__';
-export function getRemoteVirtualModule(remote: string, command: string, enableSsrInit = false) {
-  const cacheKey = `${remote}__${command}__${enableSsrInit ? 'ssr' : 'no-ssr'}`;
+
+export function getRemoteVirtualModule(
+  remote: string,
+  command: string,
+  enableSsrInit = false,
+  consumer: RemoteConsumer = 'unified'
+) {
+  const { shareStrategy } = getNormalizeModuleFederationOptions();
+  const consumerKey = command === 'build' ? 'build' : consumer;
+  const cacheKey = `${remote}__${command}__${shareStrategy}__${consumerKey}__${enableSsrInit ? 'ssr-init' : 'no-ssr-init'}`;
   if (!cacheRemoteMap[cacheKey]) {
     cacheRemoteMap[cacheKey] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.mjs');
-    cacheRemoteMap[cacheKey].writeSync(generateRemotes(remote, command, enableSsrInit));
+    cacheRemoteMap[cacheKey].writeSync(generateRemotes(remote, command, enableSsrInit, consumer));
   }
   const virtual = cacheRemoteMap[cacheKey];
   return virtual;
@@ -50,12 +59,18 @@ function resolveRemoteExportStrategy(command: string, shareStrategy: string): Re
   return 'await-real';
 }
 
-export function generateRemotes(id: string, command: string, enableSsrInit = false) {
+export function generateRemotes(
+  id: string,
+  command: string,
+  enableSsrInit = false,
+  consumer: RemoteConsumer = 'unified'
+) {
   const useReactProxy = hasPackageDependency('react');
   const options = getNormalizeModuleFederationOptions();
   const isLoadedFirst = options.shareStrategy === 'loaded-first';
   const exportStrategy = resolveRemoteExportStrategy(command, options.shareStrategy);
   const useDeferredClient = exportStrategy === 'deferred-client' && command === 'serve';
+  const useSplitConsumer = consumer !== 'unified' && command === 'serve';
   const remote = getRemoteFromId(id, options.remotes);
   const registerRemoteCode =
     isLoadedFirst && remote
@@ -72,16 +87,23 @@ export function generateRemotes(id: string, command: string, enableSsrInit = fal
     import * as __mfReactNamespace from "react";
     const __mfReact = __mfReactDefault ?? __mfReactNamespace.default ?? __mfReactNamespace;`
     : '';
+  const browserHostInitCode = `import(${JSON.stringify(getHostAutoInitPath())})
+        .then((mod) => mod.hostInitPromise)
+        .then(initResolve, initReject);`;
+  const devRuntimeBootstrap = `${getRuntimeInitBootstrapCode(enableSsrInit)}
+    const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
   const importLine =
     command === 'build'
       ? `${getRuntimeModuleCacheBootstrapCode()}
     import { hostInitPromise as __mfHostInitPromise } from ${JSON.stringify(getHostAutoInitPath())};`
-      : `${getRuntimeInitBootstrapCode(enableSsrInit)}
-    const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];
+      : useSplitConsumer && consumer === 'server'
+        ? devRuntimeBootstrap
+        : useSplitConsumer && consumer === 'client'
+          ? `${devRuntimeBootstrap}
+    ${browserHostInitCode}`
+          : `${devRuntimeBootstrap}
     if (typeof window !== "undefined") {
-      import(${JSON.stringify(getHostAutoInitPath())})
-        .then((mod) => mod.hostInitPromise)
-        .then(initResolve, initReject);
+      ${browserHostInitCode}
     }`;
   const unwrapHelper = `
     function __mfUnwrapRemoteDefault(mod) {
@@ -280,22 +302,26 @@ ${defaultExportLine}`;
       ${startRemoteLoadCode}
     }`;
 
-  const initExportModule = useDeferredClient
-    ? `if (typeof window === "undefined") {
-      __mfRemotePending = __mfStartRemoteLoad();
-      exportModule = await __mfRemotePending;
-    } else {
-      ${
-        useReactProxy
-          ? `__mfRemotePending = __mfStartRemoteLoad();
+  const deferredClientInit = useReactProxy
+    ? `__mfRemotePending = __mfStartRemoteLoad();
       exportModule = __mfCreateRemoteProxy(__mfRemotePending);`
-          : `exportModule = __mfCreateDeferredRemoteProxy();`
-      }
-    }`
-    : `__mfRemotePending = __mfStartRemoteLoad();`;
+    : `exportModule = __mfCreateDeferredRemoteProxy();`;
+  const deferredServerInit = `__mfRemotePending = __mfStartRemoteLoad();
+      exportModule = await __mfRemotePending;`;
+  const initExportModule = !useDeferredClient
+    ? `__mfRemotePending = __mfStartRemoteLoad();`
+    : useSplitConsumer && consumer === 'server'
+      ? deferredServerInit
+      : useSplitConsumer && consumer === 'client'
+        ? deferredClientInit
+        : `if (typeof window === "undefined") {
+      ${deferredServerInit}
+    } else {
+      ${deferredClientInit}
+    }`;
 
   const proxyHelperCode = useReactProxy ? reactRemoteProxyCode : deferredProxyCode;
-  const includeProxyHelper = useDeferredClient;
+  const includeProxyHelper = useDeferredClient && (!useSplitConsumer || consumer === 'client');
 
   return `
     ${reactImportLine}

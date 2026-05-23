@@ -916,5 +916,10 @@ describe('pluginAddEntry', () => {
     );
     expect(bundle['index.html'].source).toContain('kit.start(app, element);');
     expect(bundle['index.html'].source).not.toContain('type="module" src="/assets/hostInit.js"');
+    expect(
+      bundle['index.html'].source.match(
+        /await import\([^)]+\)\.then\(\(\{ initHost \}\) => initHost\(\)\)/g
+      )?.length
+    ).toBe(1);
   });
 });
