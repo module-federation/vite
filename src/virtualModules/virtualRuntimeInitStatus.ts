@@ -24,15 +24,8 @@ export function setSsrRemotes(remotes: Array<{ name: string; entry: string; type
 }
 
 // enableSsrInit controls whether the server-side MF runtime initialisation block
-// is emitted. Currently only Vite 8+ is supported — it requires ModuleRunner and
-// FetchableDevEnvironment APIs that don't exist in Vite 5–7. On older versions
-// the dynamic import of '@module-federation/vite/ssrEntryLoader' would cause
-// Rollup to fail at build time when resolving the subpath export.
-//
-// To add Vite 5–7 SSR support: implement a replacement for ssrEntryLoader that
-// works without ModuleRunner, export it as a separate subpath, and pass
-// enableSsrInit: true from configResolved when your implementation is available.
-// No changes to this function are needed — just wire up the correct loader.
+// is emitted in dev remote wrappers. Gating is centralized in getSsrCapabilities()
+// (Vite 8+ dev ModuleRunner; build/preview uses HTTP fetch via ssrEntryLoader).
 function getSsrNoopResolveCode(enableSsrInit: boolean) {
   if (!enableSsrInit) return '';
 
