@@ -140,6 +140,10 @@ export interface ShareItem {
   shareConfig: SharedConfig & moduleFederationPlugin.SharedConfig;
 }
 
+export type ModuleFederationChunkMap =
+  | Record<string, string>
+  | ((id: string) => string | undefined | void);
+
 /**
  * Tries to find the package.json's version of a shared package
  * if `package.json` is not declared in `exports`
@@ -466,6 +470,16 @@ export type ModuleFederationOptions = {
    * add any other Node-only packages that should not be bundled into the SSR entry.
    */
   ssrExternals?: string[];
+  /**
+   * Assign regular imported modules to chunks managed by this plugin.
+   *
+   * Object form maps an import id or package name to a chunk name:
+   * `{ react: 'vendor', './src/editor.ts': 'editor' }`.
+   *
+   * Function form receives the resolved module id and should return a chunk
+   * name or undefined. Federation runtime chunks always keep priority.
+   */
+  chunkMap?: ModuleFederationChunkMap;
 };
 
 export interface NormalizedModuleFederationOptions extends Omit<
@@ -665,5 +679,6 @@ export function normalizeModuleFederationOptions(
     moduleParseIdleTimeout: options.moduleParseIdleTimeout,
     varFilename: options.varFilename,
     target: options.target,
+    chunkMap: options.chunkMap,
   });
 }

@@ -158,6 +158,15 @@ export default defineConfig({
       // moduleParseTimeout for large codebases where total build time may
       // exceed the fixed timeout value.
       moduleParseIdleTimeout: 10,
+      // Assign regular imported modules to chunks managed by this plugin.
+      // Federation runtime chunks keep priority and cannot be overridden.
+      // Shared dependencies are also protected from chunkMap to preserve
+      // Module Federation bootstrap order.
+      // Keys can be package names, resolved ids, or relative file suffixes.
+      chunkMap: {
+        vue: "vendor",
+        "./src/features/editor.ts": "editor",
+      },
       // Controls whether module federation manifest artifacts are generated.
       // Type: boolean | object
       // - false/undefined: no manifest generated
@@ -223,6 +232,8 @@ Do not use `build.rollupOptions.output.manualChunks` or
 `build.rolldownOptions.output.manualChunks` with this plugin — it will be **automatically ignored**.
 The plugin manages the runtime chunk graph itself, and forcing custom chunk grouping can break Module Federation bootstrap order.
 The plugin injects the splits it needs so `runtimeInitStatus` and `loadShare` stay isolated.
+Use the federation plugin's `chunkMap` option when you need to place regular imported modules into named chunks.
+The plugin ignores `chunkMap` for shared dependencies and federation-generated modules.
 
 ### So far so good 🎉
 

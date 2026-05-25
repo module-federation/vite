@@ -36,7 +36,12 @@ import type {
 } from './utils/normalizeModuleFederationOptions';
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import {
+  getIsRolldown,
+  getPackageNameFromNodeModulePath,
+  hasPackageDependency,
+  setPackageDetectionCwd,
+} from './utils/packageUtils';
 import { getCommonSharedSubpaths } from './utils/pathNormalization';
 import VirtualModule from './utils/VirtualModule';
 import {
@@ -47,6 +52,7 @@ import {
   initVirtualModules,
   LOAD_REMOTE_TAG,
   LOAD_SHARE_TAG,
+  PREBUILD_TAG,
   setSsrRemotes,
   writeLocalSharedImportMap,
 } from './virtualModules';
@@ -183,6 +189,79 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
       file.includes('rolldown-runtime') ||
       file.startsWith('dist-'))
   );
+}
+
+function normalizeModuleIdForChunkMatch(id: string): string {
+  return id.replace(/\\/g, '/').split('?')[0];
+}
+
+function isFederationManagedChunkId(
+  id: string,
+  options: NormalizedModuleFederationOptions
+): boolean {
+  const normalizedId = normalizeModuleIdForChunkMatch(id);
+
+  if (
+    normalizedId.includes(LOAD_SHARE_TAG) ||
+    normalizedId.includes(LOAD_REMOTE_TAG) ||
+    normalizedId.includes(PREBUILD_TAG) ||
+    normalizedId.includes('localSharedImportMap') ||
+    normalizedId.includes('hostInit') ||
+    normalizedId.includes('virtualExposes') ||
+    normalizedId.includes(options.filename)
+  ) {
+    return true;
+  }
+
+  const nodeModulePackage = getPackageNameFromNodeModulePath(normalizedId);
+  if (nodeModulePackage && findSharedKey(nodeModulePackage, options.shared)) {
+    return true;
+  }
+
+  return Object.keys(options.shared ?? {}).some((sharedKey) =>
+    matchesChunkMapSpecifier(normalizedId, sharedKey)
+  );
+}
+
+function matchesChunkMapSpecifier(id: string, specifier: string): boolean {
+  const normalizedId = normalizeModuleIdForChunkMatch(id);
+  const normalizedSpecifier = normalizeModuleIdForChunkMatch(specifier);
+  const specifierCandidates = normalizedSpecifier.startsWith('./')
+    ? [normalizedSpecifier, normalizedSpecifier.slice(2)]
+    : [normalizedSpecifier];
+
+  if (
+    specifierCandidates.some(
+      (candidate) => normalizedId === candidate || normalizedId.endsWith(`/${candidate}`)
+    )
+  ) {
+    return true;
+  }
+
+  if (path.isAbsolute(normalizedSpecifier) || normalizedSpecifier.startsWith('.')) {
+    return false;
+  }
+
+  const nodeModulesPrefix = `/node_modules/${normalizedSpecifier}`;
+  return (
+    normalizedId.includes(`${nodeModulesPrefix}/`) ||
+    normalizedId.endsWith(nodeModulesPrefix) ||
+    normalizedId.includes(`${nodeModulesPrefix}.`)
+  );
+}
+
+function resolveConfiguredChunkName(
+  id: string,
+  options: NormalizedModuleFederationOptions
+): string | void {
+  const { chunkMap } = options;
+  if (!chunkMap) return;
+  if (isFederationManagedChunkId(id, options)) return;
+  if (typeof chunkMap === 'function') return chunkMap(id);
+
+  for (const [specifier, chunkName] of Object.entries(chunkMap)) {
+    if (matchesChunkMapSpecifier(id, specifier)) return chunkName;
+  }
 }
 
 /**
@@ -676,6 +755,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';
             }
+            return resolveConfiguredChunkName(id, options);
           };
           patchedManualChunks.add(mfManualChunks);
           output.manualChunks = mfManualChunks;
