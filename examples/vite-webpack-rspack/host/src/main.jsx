@@ -1,4 +1,4 @@
-import { init } from '@module-federation/runtime';
+import { init } from '@module-federation/enhanced/runtime';
 
 init({
   name: 'host',

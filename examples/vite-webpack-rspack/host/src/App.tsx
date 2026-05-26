@@ -1,4 +1,4 @@
-import { registerRemotes } from '@module-federation/runtime';
+import { registerRemotes } from '@module-federation/enhanced/runtime';
 import React, { lazy, StrictMode, Suspense, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Footer } from './components/Footer';
@@ -64,7 +64,7 @@ const TestsScreen = lazyWithRetry(
 );
 
 // if module federation is already setup through plugin in vite.config.js,
-// there is no need to call init() from '@module-federation/runtime' here
+// there is no need to call init() from '@module-federation/enhanced/runtime' here
 registerRemotes([
   {
     name: 'dynamicRemote',
