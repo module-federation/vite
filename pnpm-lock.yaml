@@ -346,6 +346,9 @@ importers:
 
   examples/vite-webpack-rspack/host:
     dependencies:
+      '@module-federation/enhanced':
+        specifier: ^2.5.0
+        version: 2.5.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(typescript@5.9.3)(webpack@5.97.1(esbuild@0.27.3))
       '@module-federation/vite':
         specifier: workspace:*
         version: link:../../..
