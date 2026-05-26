@@ -1,4 +1,4 @@
-import { loadRemote } from '@module-federation/runtime';
+import { loadRemote } from '@module-federation/enhanced/runtime';
 import { ElementType, useEffect, useState } from 'react';
 
 interface DynamicImportProps {
