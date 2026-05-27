@@ -24,7 +24,7 @@ export type RemoteEntryType =
 
 import * as fs from 'fs';
 import * as path from 'pathe';
-import { createModuleFederationError, mfError, mfWarn } from './logger';
+import { createModuleFederationError, mfWarn } from './logger';
 import { getInstalledPackageJson, getPackageDetectionCwd, getPackageName } from './packageUtils';
 
 interface ExposesItem {
@@ -193,9 +193,11 @@ function normalizeShareItem(
         strictVersion?: boolean;
       }
 ): ShareItem {
-  let version: string | undefined;
-
   const isImportFalse = typeof shareItem === 'object' && shareItem.import === false;
+  const explicitVersion =
+    typeof shareItem === 'object'
+      ? shareItem.version || inferVersionFromRequiredVersion(shareItem.requiredVersion)
+      : undefined;
 
   // Version resolution is required even when import: false.
   //
@@ -209,30 +211,7 @@ function normalizeShareItem(
   //
   // Errors are only thrown when version resolution fails for non-import:false
   // modules, as those are expected to be resolvable.
-  try {
-    try {
-      version = require(path.join(getPackageName(key), 'package.json')).version;
-    } catch (e1) {
-      try {
-        const localPath = path.join(
-          process.cwd(),
-          'node_modules',
-          getPackageName(key),
-          'package.json'
-        );
-        version = require(localPath).version;
-      } catch (e2) {
-        version = searchPackageVersion(key);
-        if (!version && !isImportFalse) {
-          mfError(e1);
-        }
-      }
-    }
-  } catch (e) {
-    if (!isImportFalse) {
-      mfError(`Unexpected error resolving version for ${key}:`, e);
-    }
-  }
+  const version = explicitVersion || searchPackageVersion(key);
   if (typeof shareItem === 'string') {
     return {
       name: shareItem,
@@ -246,18 +225,17 @@ function normalizeShareItem(
       },
     };
   }
-  const explicitVersion =
-    shareItem.version || inferVersionFromRequiredVersion(shareItem.requiredVersion);
   return {
     name: key,
     from: '',
-    version: explicitVersion || version,
+    version,
     scope: shareItem.shareScope || 'default',
     shareConfig: {
       import: shareItem.import,
       singleton: shareItem.singleton || false,
       requiredVersion:
-        shareItem.requiredVersion || (isImportFalse ? '*' : version ? `^${version}` : '*'),
+        shareItem.requiredVersion ||
+        (isImportFalse || shareItem.version ? '*' : version ? `^${version}` : '*'),
       strictVersion: !!shareItem.strictVersion,
     },
   };
