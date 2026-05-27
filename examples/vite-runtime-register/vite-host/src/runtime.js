@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import { createInstance } from '@module-federation/runtime';
+import { createInstance } from '@module-federation/enhanced/runtime';
 
 const remoteEntryUrl =
   import.meta.env.VITE_REMOTE_ENTRY_URL ??
