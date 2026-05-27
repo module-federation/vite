@@ -23,8 +23,7 @@ export function getRemoteVirtualModule(
   consumer: RemoteConsumer = 'unified'
 ) {
   const { shareStrategy } = getNormalizeModuleFederationOptions();
-  const consumerKey = command === 'build' ? 'build' : consumer;
-  const cacheKey = `${remote}__${command}__${shareStrategy}__${consumerKey}__${enableSsrInit ? 'ssr-init' : 'no-ssr-init'}`;
+  const cacheKey = `${remote}__${command}__${shareStrategy}__${consumer}__${enableSsrInit ? 'ssr-init' : 'no-ssr-init'}`;
   if (!cacheRemoteMap[cacheKey]) {
     cacheRemoteMap[cacheKey] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.mjs');
     cacheRemoteMap[cacheKey].writeSync(generateRemotes(remote, command, enableSsrInit, consumer));
@@ -51,12 +50,39 @@ export function getRemoteFromId(id: string, remotes: Record<string, RemoteObject
   return remoteName ? remotes[remoteName] : undefined;
 }
 
-type RemoteExportStrategy = 'await-real' | 'deferred-client';
+/**
+ * How a generated remote wrapper loads at module evaluation time.
+ *
+ * - `eager`: version-first — start `loadRemote` immediately, await via top-level export hook
+ * - `loaded-first-ssr`: SSR/client split — real module (proxies are invalid on the server)
+ * - `loaded-first-client`: browser split — defer until an export is read
+ * - `loaded-first-unified`: single graph — `typeof window` picks SSR vs browser behavior
+ */
+export type RemoteInitMode =
+  | 'eager'
+  | 'loaded-first-ssr'
+  | 'loaded-first-client'
+  | 'loaded-first-unified';
 
-function resolveRemoteExportStrategy(command: string, shareStrategy: string): RemoteExportStrategy {
-  if (command === 'build') return 'await-real';
-  if (shareStrategy === 'loaded-first') return 'deferred-client';
-  return 'await-real';
+export function resolveRemoteInitMode(
+  shareStrategy: string,
+  consumer: RemoteConsumer
+): RemoteInitMode {
+  if (shareStrategy !== 'loaded-first') return 'eager';
+  if (consumer === 'server') return 'loaded-first-ssr';
+  if (consumer === 'client') return 'loaded-first-client';
+  return 'loaded-first-unified';
+}
+
+function usesEnvironmentSplit(initMode: RemoteInitMode, command: string) {
+  return (
+    (initMode === 'loaded-first-client' || initMode === 'loaded-first-ssr') &&
+    (command === 'serve' || command === 'build')
+  );
+}
+
+function shouldDeferRemoteLoad(initMode: RemoteInitMode) {
+  return initMode === 'loaded-first-client' || initMode === 'loaded-first-unified';
 }
 
 export function generateRemotes(
@@ -68,9 +94,9 @@ export function generateRemotes(
   const useReactProxy = hasPackageDependency('react');
   const options = getNormalizeModuleFederationOptions();
   const isLoadedFirst = options.shareStrategy === 'loaded-first';
-  const exportStrategy = resolveRemoteExportStrategy(command, options.shareStrategy);
-  const useDeferredClient = exportStrategy === 'deferred-client' && command === 'serve';
-  const useSplitConsumer = consumer !== 'unified' && command === 'serve';
+  const initMode = resolveRemoteInitMode(options.shareStrategy, consumer);
+  const useSplitConsumer = usesEnvironmentSplit(initMode, command);
+  const deferRemoteLoad = shouldDeferRemoteLoad(initMode);
   const remote = getRemoteFromId(id, options.remotes);
   const registerRemoteCode =
     isLoadedFirst && remote
@@ -258,7 +284,7 @@ export function generateRemotes(
     return __mfRemotePending.then(onFulfilled, onRejected);
   },
 }`;
-  const remotePendingExport = useDeferredClient
+  const remotePendingExport = deferRemoteLoad
     ? `export const __mf_remote_pending = __mfRemotePending ?? ${remotePendingThenable}`
     : `export const __mf_remote_pending =
   __mfRemotePending ??
@@ -276,7 +302,7 @@ export function generateRemotes(
 }
 export { exportModule as __moduleExports };
 ${remotePendingExport}
-${useDeferredClient ? '' : resolveRemoteExport}
+${deferRemoteLoad ? '' : resolveRemoteExport}
 ${defaultExportLine}`
       : `${resolveRemoteExport}
 ${defaultExportLine}`;
@@ -317,20 +343,21 @@ ${defaultExportLine}`;
     : `exportModule = __mfCreateDeferredRemoteProxy();`;
   const deferredServerInit = `__mfRemotePending = __mfStartRemoteLoad();
       exportModule = await __mfRemotePending;`;
-  const initExportModule = !useDeferredClient
-    ? `__mfRemotePending = __mfStartRemoteLoad();`
-    : useSplitConsumer && consumer === 'server'
-      ? deferredServerInit
-      : useSplitConsumer && consumer === 'client'
-        ? deferredClientInit
-        : `if (typeof window === "undefined") {
+  const initExportModule =
+    initMode === 'eager'
+      ? `__mfRemotePending = __mfStartRemoteLoad();`
+      : useSplitConsumer && initMode === 'loaded-first-ssr'
+        ? deferredServerInit
+        : useSplitConsumer && initMode === 'loaded-first-client'
+          ? deferredClientInit
+          : `if (typeof window === "undefined") {
       ${deferredServerInit}
     } else {
       ${deferredClientInit}
     }`;
 
   const proxyHelperCode = useReactProxy ? reactRemoteProxyCode : deferredProxyCode;
-  const includeProxyHelper = useDeferredClient && (!useSplitConsumer || consumer === 'client');
+  const includeProxyHelper = deferRemoteLoad;
 
   return `
     ${reactImportLine}

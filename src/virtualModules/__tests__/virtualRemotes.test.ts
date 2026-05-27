@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getRemoteVirtualModule, generateRemotes } from '../virtualRemotes';
+import { getRemoteVirtualModule, generateRemotes, resolveRemoteInitMode } from '../virtualRemotes';
 
 const mockOptions = vi.hoisted(() => ({
   shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
@@ -49,6 +49,19 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
     virtualModuleDir: '__mf__virtual',
   }),
 }));
+
+describe('resolveRemoteInitMode', () => {
+  it.each([
+    ['version-first', 'unified', 'eager'],
+    ['version-first', 'client', 'eager'],
+    ['version-first', 'server', 'eager'],
+    ['loaded-first', 'client', 'loaded-first-client'],
+    ['loaded-first', 'server', 'loaded-first-ssr'],
+    ['loaded-first', 'unified', 'loaded-first-unified'],
+  ] as const)('maps %s + %s to %s', (shareStrategy, consumer, expected) => {
+    expect(resolveRemoteInitMode(shareStrategy, consumer)).toBe(expected);
+  });
+});
 
 describe('generateRemotes', () => {
   beforeEach(async () => {
@@ -214,7 +227,7 @@ describe('generateRemotes', () => {
     expect(code).toContain('initResolve(runtime)');
   });
 
-  it('uses build remote wrappers with unified remote resolution', () => {
+  it('uses build remote wrappers with unified remote resolution (version-first)', () => {
     const code = generateRemotes('remote/App', 'build');
 
     expect(code).toContain('exportModule = await __mfRemotePending;');
@@ -224,6 +237,47 @@ describe('generateRemotes', () => {
     expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
     expect(code).not.toContain('__mfCreateRemoteProxy');
     expect(code).toContain('__mfUnwrapRemoteDefault(exportModule)');
+  });
+
+  describe('loaded-first build', () => {
+    beforeEach(() => {
+      mockOptions.shareStrategy = 'loaded-first';
+    });
+
+    it('defers client build remotes until an export is read', () => {
+      const code = generateRemotes('remote/App', 'build', false, 'client');
+
+      expect(code).toContain('__mfCreateDeferredRemoteProxy()');
+      expect(code).not.toContain('__mfRemotePending = __mfStartRemoteLoad();');
+      expect(code).not.toContain('exportModule = await __mfRemotePending;');
+      expect(code).toContain('export const __mf_remote_pending = __mfRemotePending ?? {');
+    });
+
+    it('awaits the real remote for SSR build output', () => {
+      const code = generateRemotes('remote/App', 'build', false, 'server');
+
+      expect(code).toContain('__mfRemotePending = __mfStartRemoteLoad();');
+      expect(code).toContain('exportModule = await __mfRemotePending;');
+      expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
+    });
+
+    it('unified build keeps browser deferral and SSR await via typeof window', () => {
+      const code = generateRemotes('remote/App', 'build');
+
+      expect(code).toContain('typeof window === "undefined"');
+      expect(code).toContain('__mfCreateDeferredRemoteProxy()');
+      expect(code).toContain('exportModule = await __mfRemotePending;');
+    });
+  });
+
+  it('caches client and server build wrappers separately', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const client = getRemoteVirtualModule('remote/Card', 'build', false, 'client');
+    const server = getRemoteVirtualModule('remote/Card', 'build', false, 'server');
+
+    expect(client).not.toBe(server);
+    expect(client.code).toContain('__mfCreateDeferredRemoteProxy');
+    expect(server.code).not.toContain('__mfCreateDeferredRemoteProxy');
   });
 
   it('uses ESM remote wrappers in Rollup build mode', () => {
