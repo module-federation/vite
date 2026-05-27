@@ -6,7 +6,6 @@ import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
-import pluginDts from './plugins/pluginDts';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
@@ -424,6 +423,14 @@ export default __mfShared.default ?? __mfShared;`,
 
 const SSR_ONLY_PLUGINS = new Set(['@module-federation/vite/ssrEntryLoader']);
 
+function loadPluginDts(options: NormalizedModuleFederationOptions): any[] {
+  if (options.dts === false) {
+    return [];
+  }
+
+  return [import('./plugins/pluginDts').then(({ default: pluginDts }) => pluginDts(options))];
+}
+
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
@@ -495,7 +502,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     aliasToArrayPlugin,
     checkAliasConflicts({ shared }),
     normalizeOptimizeDepsPlugin,
-    ...pluginDts(options),
+    ...loadPluginDts(options),
     pluginDevRemoteHmr(options),
     {
       // Some frameworks (e.g. TanStack Start) assume the bundle has exactly one
