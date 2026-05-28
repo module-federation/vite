@@ -288,6 +288,32 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
+    it('ignores module federation runtime packages in explicit shared arrays', () => {
+      const shared = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: ['dep1', '@module-federation/runtime', '@module-federation/runtime-core'],
+      }).shared;
+
+      expect(shared.dep1).toBeDefined();
+      expect(shared['@module-federation/runtime']).toBeUndefined();
+      expect(shared['@module-federation/runtime-core']).toBeUndefined();
+    });
+
+    it('ignores module federation runtime packages in explicit shared objects', () => {
+      const shared = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          dep1: { singleton: true },
+          '@module-federation/runtime': { singleton: true },
+          '@module-federation/runtime-core': { singleton: true },
+        },
+      }).shared;
+
+      expect(shared.dep1).toBeDefined();
+      expect(shared['@module-federation/runtime']).toBeUndefined();
+      expect(shared['@module-federation/runtime-core']).toBeUndefined();
+    });
+
     it('resolves version for import: false when package is installed', () => {
       mfErrorSpy.mockClear();
 

@@ -290,12 +290,14 @@ function normalizeShared(
   const sourceEntries: Array<[string, string | Record<string, any>]> = [];
   if (Array.isArray(shared)) {
     shared.forEach((key) => {
+      if (isModuleFederationRuntimePackage(key)) return;
       result[key] = normalizeShareItem(key, key);
       explicitSharedKeys.add(key);
       sourceEntries.push([key, key]);
     });
   } else if (typeof shared === 'object') {
     Object.keys(shared).forEach((key) => {
+      if (isModuleFederationRuntimePackage(key)) return;
       const value = shared[key] as any;
       result[key] = normalizeShareItem(key, value);
       explicitSharedKeys.add(key);
@@ -313,6 +315,10 @@ function normalizeShared(
   return result;
 }
 
+function isModuleFederationRuntimePackage(key: string): boolean {
+  return key === '@module-federation/runtime' || key === '@module-federation/runtime-core';
+}
+
 function shouldAutoShareDependency(key: string): boolean {
   const installed = getInstalledPackageJson(key);
   const pkg = installed?.packageJson as
@@ -327,7 +333,7 @@ function shouldAutoShareDependency(key: string): boolean {
   if (!pkg) return false;
   if (!pkg.browser && !pkg.exports && typeof pkg.module !== 'string') return false;
 
-  if (key === '@module-federation/vite') {
+  if (key === '@module-federation/vite' || isModuleFederationRuntimePackage(key)) {
     return false;
   }
 
