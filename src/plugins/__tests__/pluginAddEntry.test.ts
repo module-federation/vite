@@ -853,13 +853,19 @@ describe('pluginAddEntry', () => {
       bundle as unknown as Rollup.OutputBundle
     );
 
+    const bootstrapAsset = (emitted as Rollup.EmittedFile[]).find(
+      (item) =>
+        item.type === 'asset' &&
+        typeof item.fileName === 'string' &&
+        item.fileName.startsWith('mf-entry-bootstrap-')
+    ) as Rollup.EmittedAsset | undefined;
+    expect(bootstrapAsset?.fileName).toMatch(/^mf-entry-bootstrap-0-[a-f0-9]{8}\.js$/);
     expect(emitted).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: 'chunk', id: '/virtual/hostInit.js' }),
-        expect.objectContaining({ type: 'asset', fileName: 'mf-entry-bootstrap-0.js' }),
       ])
     );
-    expect(bundle['indexProd.html'].source).toContain('mf-entry-bootstrap-0.js');
+    expect(bundle['indexProd.html'].source).toContain(bootstrapAsset!.fileName);
   });
 
   it('wraps SvelteKit static inline startup behind host init during build', () => {

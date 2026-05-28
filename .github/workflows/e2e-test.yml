@@ -13,13 +13,16 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  contents: read
   pull-requests: read
 
 jobs:
   run-playwright-tests:
     name: Playwright Tests
+    timeout-minutes: 5
     runs-on: ubuntu-latest
-    container: node:20
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -37,24 +40,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
           registry-url: https://registry.npmjs.org/
 
-      - name: Enable Corepack and Setup PNPM
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.28.2 --activate
-
-      - name: Restore Playwright Browser Cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: /root/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-chromium-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-chromium-
-
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Install Chromium Browser
-        run: pnpm playwright install --with-deps chromium
 
       - name: Build Libs
         run: pnpm build && pnpm build:shared-lib

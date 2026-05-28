@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'pathe';
 import type { Plugin } from 'vite';
@@ -548,11 +549,20 @@ const addEntry = ({
           let rewritten = false;
           htmlContent = htmlContent.replace(scriptRegex, (scriptTag, entrySrc) => {
             rewritten = true;
-            const bootstrapFileName = `mf-entry-bootstrap-${bootstrapIndex++}.js`;
+            const bootstrapSource = getSystemBootstrapSource(initPath, entrySrc);
+            // Content-hash the bootstrap filename so browsers/CDNs invalidate
+            // the cache on deploy. Without a hash the file ships as
+            // `mf-entry-bootstrap-0.js` and stale caches serve the old
+            // bootstrap, breaking app load after a deploy.
+            const bootstrapHash = createHash('sha256')
+              .update(bootstrapSource)
+              .digest('hex')
+              .slice(0, 8);
+            const bootstrapFileName = `mf-entry-bootstrap-${bootstrapIndex++}-${bootstrapHash}.js`;
             const bootstrapRef = this.emitFile({
               type: 'asset',
               fileName: bootstrapFileName,
-              source: getSystemBootstrapSource(initPath, entrySrc),
+              source: bootstrapSource,
             });
             const bootstrapPath = viteConfig.base + this.getFileName(bootstrapRef);
             return scriptTag.replace(entrySrc, bootstrapPath);
