@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
 import { createModuleFederationError } from './logger';
+import type { ShareItem } from './normalizeModuleFederationOptions';
 
 type PackageJsonDependencyGroups = {
   dependencies?: Record<string, string>;
@@ -137,6 +138,12 @@ export function getPackageNameFromNodeModulePath(source: string): string | undef
   if (!parts[0]) return;
   if (parts[0].startsWith('@')) return parts[1] ? `${parts[0]}/${parts[1]}` : undefined;
   return parts[0];
+}
+
+export function getSharedCacheKey(pkg: string, shareItem: ShareItem) {
+  return shareItem.shareConfig.singleton || !shareItem.version
+    ? pkg
+    : `${pkg}@${shareItem.version}`;
 }
 
 export function getInstalledPackageJson(

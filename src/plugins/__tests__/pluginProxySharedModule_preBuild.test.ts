@@ -24,6 +24,11 @@ vi.mock('fs', async (importOriginal) => {
 });
 
 vi.mock('../../utils/packageUtils', () => ({
+  getSharedCacheKey: (
+    pkg: string,
+    shareItem: { version?: string; shareConfig: { singleton?: boolean } }
+  ) =>
+    shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: vi.fn(() => undefined),
   getInstalledPackageJson: vi.fn((pkg: string) => {
