@@ -62,6 +62,10 @@ vi.mock('../../utils/packageUtils', () => ({
 
 vi.mock('../../utils/VirtualModule', () => ({
   default: class MockVirtualModule {
+    static findModule(tag: string, value: string) {
+      const [, name] = value.split(tag);
+      return name ? { name } : undefined;
+    }
     getImportId() {
       return 'mock-import-id';
     }
@@ -365,6 +369,71 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(resolution).toBeUndefined();
     });
   }
+
+  it('matches Vue bundler aliases to the root Vue share', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      'vue/dist/vue.esm-bundler.js',
+      '/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect((resolution as { id: string }).id).toBeDefined();
+    expect(preBuildShareItemMap.has('vue')).toBe(true);
+    expect(preBuildShareItemMap.has('vue/dist/vue.esm-bundler.js')).toBe(false);
+  });
+
+  it('keeps proxying shared imports from other loadShare wrappers', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      'vue/dist/vue.esm-bundler.js',
+      '/virtual/__loadShare__@fortawesome/vue-fontawesome__loadShare__.js',
+      { isEntry: false }
+    );
+
+    expect((resolution as { id: string }).id).toBeDefined();
+    expect(preBuildShareItemMap.has('vue')).toBe(true);
+  });
 
   it('skips prebuild for import: false shared deps in configResolved', () => {
     hasPackageDependencyMock.mockReturnValue(false);
