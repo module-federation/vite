@@ -1,11 +1,13 @@
 import { federation } from '@module-federation/vite';
-import react from '@vitejs/plugin-react';
+import babel from '@rolldown/plugin-babel';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
   base: 'http://localhost:4176/',
   plugins: [
     react(),
+    babel({ presets: [reactCompilerPreset()] }),
     federation({
       name: 'runtimeRemote',
       manifest: true,
