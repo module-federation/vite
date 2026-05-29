@@ -12,7 +12,10 @@ import {
   getLoadShareImportId,
   getLoadShareModulePath,
 } from '../virtualModules/virtualShared_preBuild';
-import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
+import type {
+  ModuleFederationOptions,
+  PluginManifestOptions,
+} from '../utils/normalizeModuleFederationOptions';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>((_dependency: string) => false),
@@ -63,11 +66,12 @@ function createChunk(fileName: string, code: string): Rollup.OutputBundle[string
   } as unknown as Rollup.OutputBundle[string];
 }
 
-function getEsmShimsPlugin(): FederationPlugin {
+function getEsmShimsPlugin(options: Partial<ModuleFederationOptions> = {}): FederationPlugin {
   const plugin = (
     federation({
       name: 'host',
       filename: 'remoteEntry.js',
+      ...options,
     }) as Plugin[]
   ).find((entry) => entry.name === 'module-federation-esm-shims');
 
@@ -406,6 +410,77 @@ describe('module-federation-esm-shims', () => {
 
     // Warning was emitted (once for both outputs)
     expect(mfWarn).toHaveBeenCalled();
+  });
+
+  it('uses plugin chunkMap after federation chunk isolation rules', () => {
+    const plugin = getEsmShimsPlugin({
+      chunkMap: {
+        react: 'vendor',
+        './src/editor.ts': 'editor',
+      },
+    });
+    const runtimeInitId = virtualRuntimeInitStatus.getImportId();
+    const config: any = {
+      build: {
+        rollupOptions: { output: {} },
+        rolldownOptions: { output: {} },
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+
+    const manualChunks = config.build.rollupOptions.output.manualChunks;
+    expect(typeof manualChunks).toBe('function');
+    expect(manualChunks('/repo/node_modules/react/index.js')).toBe('vendor');
+    expect(manualChunks('/repo/src/editor.ts')).toBe('editor');
+    expect(manualChunks(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
+    expect(manualChunks(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
+      `react${LOAD_SHARE_TAG}chunk.js`
+    );
+  });
+
+  it('supports function chunkMap', () => {
+    const plugin = getEsmShimsPlugin({
+      chunkMap: (id) => (id.includes('/src/charts/') ? 'charts' : undefined),
+    });
+    const config: any = {
+      build: {
+        rollupOptions: { output: {} },
+        rolldownOptions: { output: {} },
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+
+    const manualChunks = config.build.rollupOptions.output.manualChunks;
+    expect(typeof manualChunks).toBe('function');
+    expect(manualChunks('/repo/src/charts/index.ts')).toBe('charts');
+    expect(manualChunks('/repo/src/other.ts')).toBeUndefined();
+  });
+
+  it('does not apply chunkMap to shared or federation-managed modules', () => {
+    const plugin = getEsmShimsPlugin({
+      shared: {
+        react: { import: false },
+      },
+      chunkMap: () => 'user-chunk',
+    });
+    const config: any = {
+      build: {
+        rollupOptions: { output: {} },
+        rolldownOptions: { output: {} },
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+
+    const manualChunks = config.build.rollupOptions.output.manualChunks;
+    expect(typeof manualChunks).toBe('function');
+    expect(manualChunks('/repo/node_modules/react/index.js')).toBeUndefined();
+    expect(manualChunks('/repo/node_modules/react/jsx-runtime.js')).toBeUndefined();
+    expect(manualChunks('/repo/src/__mf__virtual/react__prebuild__.js')).toBeUndefined();
+    expect(manualChunks('/repo/src/localSharedImportMap.js')).toBeUndefined();
+    expect(manualChunks('/repo/src/regular-module.ts')).toBe('user-chunk');
   });
 
   it('patches manualChunks and removes codeSplitting groups for rolldown output arrays', () => {

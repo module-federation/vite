@@ -52,7 +52,22 @@ describe('normalizeModuleFederationOption', () => {
       moduleParseIdleTimeout: undefined,
       target: undefined,
       varFilename: undefined,
+      chunkMap: undefined,
     });
+  });
+
+  it('preserves chunkMap option', () => {
+    const chunkMap = {
+      react: 'vendor',
+      './src/editor.ts': 'editor',
+    };
+
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        chunkMap,
+      }).chunkMap
+    ).toBe(chunkMap);
   });
 
   it('maps reserved remote name internally', () => {

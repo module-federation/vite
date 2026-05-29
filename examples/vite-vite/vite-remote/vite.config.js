@@ -4,6 +4,13 @@ import { defineConfig } from 'vite';
 
 // https://vitejs.dev/config/
 const isMixed2 = process.env.MIXED_VV === '2';
+const chunkMap = {
+  '@mui/material': 'mui-vendor',
+  'ag-grid-community': 'ag-grid-vendor',
+  'ag-grid-react': 'ag-grid-vendor',
+  'styled-components': 'styled-vendor',
+  './src/EmotionDemo.jsx': 'emotion-demo',
+};
 
 export default defineConfig({
   server: {
@@ -40,6 +47,7 @@ export default defineConfig({
       filename: 'remoteEntry-[hash].js',
       varFilename: 'varRemoteEntry.js', // in cases when host's config requires remote's "type": "var"
       manifest: true,
+      chunkMap,
       shared: {
         vue: {},
         'react/': {
