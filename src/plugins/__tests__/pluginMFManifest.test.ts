@@ -163,7 +163,10 @@ async function runGenerateBundleWithManifest(
   const [, buildPlugin] = manifestPlugin();
   const emitted: Record<string, string> = {};
 
-  callHook(buildPlugin.config, {} as ConfigPluginContext, {}, { command, mode: 'test' });
+  callHook(buildPlugin.config, {} as ConfigPluginContext, base === '/' ? {} : { base }, {
+    command,
+    mode: 'test',
+  });
   callHook(
     buildPlugin.configResolved,
     {} as MinimalPluginContextWithoutEnvironment,
@@ -337,6 +340,20 @@ describe('pluginMFManifest', () => {
       singleton: true,
       requiredVersion: '^18.0.0',
     });
+  });
+
+  it('uses auto publicPath when Vite base was not explicitly configured', async () => {
+    const emitted = await runGenerateBundleWithManifest(true);
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.metaData.publicPath).toBe('auto');
+  });
+
+  it('uses configured Vite base as publicPath', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {}, 'build', '/remote/');
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.metaData.publicPath).toBe('/remote/');
   });
 
   it('preserves publicPath "auto" in manifest metaData', async () => {
