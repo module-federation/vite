@@ -39,6 +39,11 @@ vi.mock('../../utils/logger', () => ({
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
+  getSharedCacheKey: (
+    pkg: string,
+    shareItem: { version?: string; shareConfig: { singleton?: boolean } }
+  ) =>
+    shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   getInstalledPackageEntry: vi.fn((pkg: string) => {
@@ -616,6 +621,28 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode).not.toContain('import { initPromise } from');
     expect(generatedCode).not.toContain('require("mock-import-id")');
+  });
+
+  it('keys non-singleton shared cache by version so incompatible versions can coexist', () => {
+    const pkg = 'zustand';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '4.5.7',
+      shareConfig: {
+        singleton: false,
+        strictVersion: false,
+        requiredVersion: '^4.5.5',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('__mfModuleCache.share["zustand"]');
+    expect(generatedCode).toContain('__mfModuleCache.share["zustand@4.5.7"]');
   });
 
   it('unwraps default exports for shared ESM modules', () => {
