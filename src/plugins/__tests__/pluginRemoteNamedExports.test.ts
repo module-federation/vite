@@ -171,6 +171,16 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
       expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_3, "bar")');
     });
+
+    it('declares named remote proxy helper once for multiple named remote imports', async () => {
+      const code = [
+        'import { useAuth } from "remoteApp/auth";',
+        'import { useShellStore } from "otherRemote/shellStore";',
+      ].join('\n');
+      const result = await transform(code);
+      const declarations = result?.match(/function __mfCreateNamedRemoteProxy/g) ?? [];
+      expect(declarations).toHaveLength(1);
+    });
   });
 
   // ── namespace imports ────────────────────────────────────────
