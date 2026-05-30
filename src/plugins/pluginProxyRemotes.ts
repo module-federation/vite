@@ -1,6 +1,8 @@
 import type { Plugin } from 'vite';
 import { version as viteVersion } from 'vite';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { resolveRemoteConsumer } from '../utils/remoteConsumerTarget';
+import { getSsrCapabilities } from '../utils/ssrCapabilities';
 import { getInstalledPackageEntry } from '../utils/packageUtils';
 import { filterId } from '../utils/pathNormalization';
 import { addUsedRemote, getRemoteVirtualModule, refreshHostAutoInit } from '../virtualModules';
@@ -30,16 +32,23 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
   let command: string;
   let root = process.cwd();
   let enableSsrInit = false;
+  let hasMultiEnvironment = false;
   const { remotes } = options;
 
-  function resolveRemoteId(source: string, importer: string | undefined, remoteName: string) {
+  function resolveRemoteId(
+    pluginContext: unknown,
+    source: string,
+    importer: string | undefined,
+    remoteName: string
+  ) {
     if (source === remoteName) {
       const installedPackageEntry = getInstalledPackageEntry(source, { cwd: root });
       if (installedPackageEntry && (importer === undefined || isNodeModulesImporter(importer))) {
         return installedPackageEntry;
       }
     }
-    const remoteModule = getRemoteVirtualModule(source, command, enableSsrInit);
+    const consumer = resolveRemoteConsumer(pluginContext, hasMultiEnvironment);
+    const remoteModule = getRemoteVirtualModule(source, command, enableSsrInit, consumer);
     addUsedRemote(remoteName, source);
     refreshHostAutoInit();
     return remoteModule.getImportId();
@@ -48,6 +57,9 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
   return {
     name: 'proxyRemotes',
     enforce: 'pre',
+    applyToEnvironment() {
+      return true;
+    },
     config(config, { command: _command }) {
       command = _command;
       root = config.root || process.cwd();
@@ -59,14 +71,21 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
         });
       });
     },
-    configResolved() {
-      enableSsrInit = command === 'serve' && parseInt(viteVersion, 10) >= 8;
+    configResolved(config) {
+      hasMultiEnvironment = Boolean(
+        (config as { environments?: Record<string, unknown> }).environments?.ssr
+      );
+      enableSsrInit = getSsrCapabilities(
+        parseInt(viteVersion, 10),
+        command as 'serve' | 'build',
+        Object.keys(remotes).length > 0
+      ).enableSsrInitBootstrap;
     },
     resolveId(source, importer) {
       if (!filterId(source)) return;
       for (const remote of Object.values(remotes)) {
         if (source !== remote.name && !source.startsWith(`${remote.name}/`)) continue;
-        return resolveRemoteId(source, importer, remote.name);
+        return resolveRemoteId(this, source, importer, remote.name);
       }
     },
   };

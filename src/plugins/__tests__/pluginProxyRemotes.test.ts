@@ -56,7 +56,11 @@ function createPluginMeta(overrides: Partial<TestPluginMeta> = {}): TestPluginMe
   };
 }
 
-function runConfig(plugin: ReturnType<typeof pluginProxyRemotes>, config: MockUserConfig): void {
+function runConfig(
+  plugin: ReturnType<typeof pluginProxyRemotes>,
+  config: MockUserConfig,
+  configResolvedOverrides: Record<string, unknown> = {}
+): void {
   callHook(plugin.config, { meta: createPluginMeta() } as unknown as ConfigPluginContext, config, {
     command: 'serve',
     mode: 'test',
@@ -67,6 +71,7 @@ function runConfig(plugin: ReturnType<typeof pluginProxyRemotes>, config: MockUs
     {
       ...config,
       root: config.root ?? '/repo',
+      ...configResolvedOverrides,
     } as any
   );
 }
@@ -74,11 +79,12 @@ function runConfig(plugin: ReturnType<typeof pluginProxyRemotes>, config: MockUs
 function runResolveId(
   plugin: ReturnType<typeof pluginProxyRemotes>,
   source: string,
-  importer: string | undefined
+  importer: string | undefined,
+  pluginContext: Record<string, unknown> = { meta: createPluginMeta() }
 ) {
   return callHook(
     plugin.resolveId,
-    { meta: createPluginMeta() } as unknown as Rollup.PluginContext,
+    { meta: createPluginMeta(), ...pluginContext } as unknown as Rollup.PluginContext,
     source,
     importer,
     { isEntry: false }
@@ -139,7 +145,8 @@ describe('pluginProxyRemotes', () => {
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler/SchedulePanel',
       'serve',
-      true
+      true,
+      'unified'
     );
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
   });
@@ -163,7 +170,7 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'scheduler', '/repo/src/App.tsx');
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true);
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true, 'unified');
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
   });
 
@@ -173,7 +180,7 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'scheduler', '/repo/node_modules/.vite/deps/react-dom.js');
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true);
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true, 'unified');
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
   });
 
@@ -200,8 +207,36 @@ describe('pluginProxyRemotes', () => {
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler/SchedulePanel',
       'serve',
-      true
+      true,
+      'unified'
     );
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
+  });
+
+  it('resolves client and server wrappers separately when environments.ssr is configured', () => {
+    const { plugin } = getSchedulerPluginAndConfig();
+    runConfig(plugin, { resolve: { alias: [] } }, { environments: { client: {}, ssr: {} } });
+
+    runResolveId(plugin, 'scheduler/Button', '/repo/src/App.tsx', {
+      environment: { name: 'client' },
+    });
+    runResolveId(plugin, 'scheduler/Button', '/repo/src/entry-server.ts', {
+      environment: { name: 'ssr' },
+    });
+
+    expect(getRemoteVirtualModuleMock).toHaveBeenNthCalledWith(
+      1,
+      'scheduler/Button',
+      'serve',
+      true,
+      'client'
+    );
+    expect(getRemoteVirtualModuleMock).toHaveBeenNthCalledWith(
+      2,
+      'scheduler/Button',
+      'serve',
+      true,
+      'server'
+    );
   });
 });

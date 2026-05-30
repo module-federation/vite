@@ -36,6 +36,7 @@ import type {
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import { getSsrCapabilities } from './utils/ssrCapabilities';
 import { getCommonSharedSubpaths } from './utils/pathNormalization';
 import VirtualModule from './utils/VirtualModule';
 import {
@@ -360,20 +361,15 @@ export default __mfShared.default ?? __mfShared;`,
       }
     },
 
-    // ssrEntryLoader is only supported on Vite 8+ (requires ModuleRunner /
-    // FetchableDevEnvironment APIs introduced in Vite 8). On Vite 5–7 the
-    // injection is skipped entirely — pluginSSRRemoteEntry still emits
-    // remoteEntry.ssr.js at build time so a future contributor can wire
-    // up their own loadEntry intercept for older Vite versions without
-    // needing to change anything here; they just need to provide an
-    // equivalent ssrEntryLoader that works with the older Vite dev server.
     configResolved(config) {
       const viteMajor = parseInt(viteVersion, 10);
-      if (viteMajor < 8) return;
-
-      const hasRemotesOrExposes =
-        Object.keys(options.exposes).length > 0 || Object.keys(options.remotes).length > 0;
-      if (!hasRemotesOrExposes) return;
+      const hasRemotes = Object.keys(options.remotes).length > 0;
+      const ssrCapabilities = getSsrCapabilities(
+        viteMajor,
+        config.command as 'serve' | 'build',
+        hasRemotes
+      );
+      if (!ssrCapabilities.injectSsrEntryLoader) return;
 
       const alreadyInjected = options.runtimePlugins.some((p) => {
         const specifier = typeof p === 'string' ? p : p[0];
@@ -496,7 +492,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         command = env.command;
       },
       configResolved() {
-        initVirtualModules(command, remoteEntryId, parseInt(viteVersion, 10) >= 8);
+        const ssrCapabilities = getSsrCapabilities(
+          parseInt(viteVersion, 10),
+          command as 'serve' | 'build',
+          Object.keys(options.remotes).length > 0
+        );
+        initVirtualModules(command, remoteEntryId, ssrCapabilities.enableSsrInitBootstrap);
       },
     },
     aliasToArrayPlugin,
