@@ -327,7 +327,28 @@ describe('module-federation-esm-shims', () => {
     ]);
   });
 
-  it('removes codeSplitting false and warns once', () => {
+  // Resolves the federation `name(id)` group function installed on an output.
+  const federationNameFn = (output: any): ((id: string) => string | null) => {
+    const groups = output?.codeSplitting?.groups;
+    if (!Array.isArray(groups)) {
+      throw new Error('expected federation codeSplitting groups to be installed');
+    }
+    const group = groups.find((g: any) => typeof g?.name === 'function');
+    if (!group) {
+      throw new Error('expected a federation name() group');
+    }
+    return group.name;
+  };
+
+  // Resolves the isolated preload-helper group installed on an output.
+  const preloadHelperGroup = (output: any): any => {
+    const groups = output?.codeSplitting?.groups;
+    return Array.isArray(groups)
+      ? groups.find((g: any) => g?.name === 'vite-preload-helper')
+      : undefined;
+  };
+
+  it('removes codeSplitting false, warns once, and installs federation groups', () => {
     const plugin = getEsmShimsPlugin();
     const config: any = {
       build: {
@@ -338,13 +359,15 @@ describe('module-federation-esm-shims', () => {
 
     runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
-    expect(config.build.rollupOptions.output.codeSplitting).toBeUndefined();
-    expect(config.build.rolldownOptions.output.codeSplitting).toBeUndefined();
+    // `codeSplitting: false` is replaced with the federation groups.
+    expect(Array.isArray(config.build.rollupOptions.output.codeSplitting.groups)).toBe(true);
+    expect(Array.isArray(config.build.rolldownOptions.output.codeSplitting.groups)).toBe(true);
     expect(mfWarn).toHaveBeenCalledTimes(1);
   });
 
-  it('removes codeSplitting groups and warns once', () => {
+  it('replaces user codeSplitting groups with federation groups and warns once', () => {
     const plugin = getEsmShimsPlugin();
+    const runtimeInitId = virtualRuntimeInitStatus.getImportId();
     const config: any = {
       build: {
         rolldownOptions: {
@@ -364,17 +387,27 @@ describe('module-federation-esm-shims', () => {
 
     runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
-    expect(config.build.rolldownOptions.output.codeSplitting).toBeUndefined();
+    const groups = config.build.rolldownOptions.output.codeSplitting.groups;
+    // User's 'react' group is dropped; federation groups take over.
+    expect(groups.find((g: any) => g.name === 'react')).toBeUndefined();
+    const helper = preloadHelperGroup(config.build.rolldownOptions.output);
+    expect(helper).toBeDefined();
+    // Matches Rolldown's injected helper id, not arbitrary user files.
+    expect(helper.test.test('\0vite/preload-helper.js')).toBe(true);
+    expect(helper.test.test('/src/preload-helper.ts')).toBe(false);
+    expect(federationNameFn(config.build.rolldownOptions.output)(`/virtual/${runtimeInitId}`)).toBe(
+      'runtimeInit'
+    );
     expect(mfWarn).toHaveBeenCalledTimes(1);
   });
 
   it('ignores user manualChunks and warns, keeps federation chunks isolated', () => {
     const plugin = getEsmShimsPlugin();
     const runtimeInitId = virtualRuntimeInitStatus.getImportId();
-    const functionOutput = {
+    const functionOutput: any = {
       manualChunks: vi.fn((_id: string) => 'existing-fn-chunk'),
     };
-    const objectOutput = {
+    const objectOutput: any = {
       manualChunks: {
         vendor: ['react'],
       },
@@ -388,27 +421,27 @@ describe('module-federation-esm-shims', () => {
 
     runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
-    // Federation chunks are still isolated
-    expect(functionOutput.manualChunks(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
-    expect(functionOutput.manualChunks(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
+    // User manualChunks is removed in favor of federation codeSplitting groups.
+    expect(functionOutput.manualChunks).toBeUndefined();
+    expect(objectOutput.manualChunks).toBeUndefined();
+
+    // Federation chunks are still isolated via the name() group.
+    const nameFn = federationNameFn(functionOutput);
+    expect(nameFn(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
+    expect(nameFn(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
       `react${LOAD_SHARE_TAG}chunk.js`
     );
-    // User's manualChunks is ignored — non-federation modules return undefined
-    expect(functionOutput.manualChunks('/src/custom.ts')).toBeUndefined();
+    // Non-federation modules are left to automatic chunking.
+    expect(nameFn('/src/custom.ts')).toBeNull();
 
-    const objectManualChunks: unknown = objectOutput.manualChunks;
-    expect(typeof objectManualChunks).toBe('function');
-    if (typeof objectManualChunks !== 'function') {
-      throw new Error('manualChunks should be patched into a function');
-    }
-    expect(objectManualChunks('/src/react/index.ts')).toBeUndefined();
-    expect(objectManualChunks('/src/other/index.ts')).toBeUndefined();
+    // The preload helper is isolated into its own chunk.
+    expect(preloadHelperGroup(functionOutput)).toBeDefined();
 
     // Warning was emitted (once for both outputs)
     expect(mfWarn).toHaveBeenCalled();
   });
 
-  it('patches manualChunks and removes codeSplitting groups for rolldown output arrays', () => {
+  it('installs federation groups and removes manualChunks for rolldown output arrays', () => {
     const plugin = getEsmShimsPlugin();
     const runtimeInitId = virtualRuntimeInitStatus.getImportId();
     const config: any = {
@@ -437,17 +470,19 @@ describe('module-federation-esm-shims', () => {
 
     runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
-    expect(config.build.rolldownOptions.output[0].codeSplitting).toBeUndefined();
-    const patchedManualChunks = config.build.rolldownOptions.output[1].manualChunks;
-    expect(typeof patchedManualChunks).toBe('function');
-    if (typeof patchedManualChunks !== 'function') {
-      throw new Error('manualChunks should be patched into a function');
-    }
-    expect(patchedManualChunks(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
-    expect(patchedManualChunks(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
+    const out0 = config.build.rolldownOptions.output[0];
+    const out1 = config.build.rolldownOptions.output[1];
+    // User's 'react' group is dropped; preload helper isolated on out0.
+    expect(out0.codeSplitting.groups.find((g: any) => g.name === 'react')).toBeUndefined();
+    expect(preloadHelperGroup(out0)).toBeDefined();
+    // User's manualChunks removed; federation groups installed on out1.
+    expect(out1.manualChunks).toBeUndefined();
+    const nameFn = federationNameFn(out1);
+    expect(nameFn(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
+    expect(nameFn(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
       `react${LOAD_SHARE_TAG}chunk.js`
     );
-    expect(patchedManualChunks('/src/other/index.ts')).toBeUndefined();
+    expect(nameFn('/src/other/index.ts')).toBeNull();
     expect(mfWarn).toHaveBeenCalledTimes(2);
   });
 
