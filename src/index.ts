@@ -61,6 +61,24 @@ import {
 
 const patchedManualChunks = new WeakSet<Function>();
 
+// Rolldown injects the `__vite_preload` helper as a special runtime module and,
+// left to automatic chunking, hoists it into whichever loadShare chunk first uses
+// it. When that shared singleton's source statically imports another shared
+// singleton, the resulting cross-loadShare static import closes a top-level-await
+// cycle and the host deadlocks on bootstrap. Isolate the helper into its own
+// dependency-free, TLA-free chunk so no loadShare chunk imports it from a sibling.
+const PRELOAD_HELPER_CHUNK = 'vite-preload-helper';
+// Matches Rolldown's injected helper module id (`\0vite/preload-helper.js`).
+// Anchored on the `vite/` segment so a user module merely named "preload-helper"
+// isn't pulled into this chunk; the leading virtual-module NUL is optional.
+const PRELOAD_HELPER_TEST = /\0?vite\/preload-helper/;
+
+type CodeSplittingGroup = {
+  name: string | ((id: string) => string | null);
+  test?: RegExp;
+  priority?: number;
+};
+
 function normalizeVinextRscPreloadHints(code: string): string {
   return code
     .replace(/(:HL\[[^\]\n]*?,)"stylesheet"/g, '$1"style"')
@@ -645,6 +663,20 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           if (!output?.codeSplitting || typeof output.codeSplitting !== 'object') return;
           if (!('groups' in output.codeSplitting)) return;
 
+          // Don't strip the groups we set ourselves in applyManualChunks — they
+          // isolate the loadShare/runtimeInit wrappers and the preload helper.
+          const groups = output.codeSplitting.groups;
+          if (
+            Array.isArray(groups) &&
+            groups.some(
+              (group) =>
+                typeof (group as Partial<CodeSplittingGroup>)?.name === 'function' &&
+                patchedManualChunks.has((group as { name: Function }).name)
+            )
+          ) {
+            return;
+          }
+
           delete output.codeSplitting.groups;
           if (Object.keys(output.codeSplitting).length === 0) {
             delete output.codeSplitting;
@@ -673,7 +705,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                 'the application to silently hang.'
             );
           }
-          const mfManualChunks = function (id: string) {
+          const mfChunkName = function (id: string): string | null {
             // Keep runtimeInitStatus in its own chunk to break init deadlock
             if (id.includes(runtimeInitId)) {
               return 'runtimeInit';
@@ -683,9 +715,20 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';
             }
+            return null;
           };
-          patchedManualChunks.add(mfManualChunks);
-          output.manualChunks = mfManualChunks;
+          patchedManualChunks.add(mfChunkName);
+          // `manualChunks` cannot relocate the injected preload helper (Rolldown
+          // ignores its placement), so use `codeSplitting` instead: a dynamic
+          // `name()` group reproduces the runtimeInit/loadShare isolation, and a
+          // higher-priority `test` group pulls the preload helper into its own
+          // chunk (the helper is only matched by `test`, never the `name()` fn).
+          const groups: CodeSplittingGroup[] = [
+            { name: PRELOAD_HELPER_CHUNK, test: PRELOAD_HELPER_TEST, priority: 100 },
+            { name: mfChunkName },
+          ];
+          output.codeSplitting = { ...(output.codeSplitting || {}), groups };
+          delete output.manualChunks;
         };
 
         config.build.rollupOptions = config.build.rollupOptions || {};
