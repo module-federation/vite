@@ -173,6 +173,35 @@ describe('cssModuleHelpers', () => {
       });
     });
 
+    it('tracks dynamic imports reachable through the static-import graph', () => {
+      const bundle = {
+        'entry.js': {
+          ...createChunk('entry.js'),
+          modules: {
+            module1: createRenderedModule(),
+          },
+          imports: ['sibling.js'],
+        },
+        'sibling.js': {
+          ...createChunk('sibling.js'),
+          dynamicImports: ['async.js'],
+        },
+        'async.js': createChunk('async.js'),
+      } satisfies Record<string, OutputBundleItem>;
+
+      const filesMap = {};
+      const moduleMatcher = (path: string) => path;
+
+      processModuleAssets(bundle, filesMap, moduleMatcher);
+
+      expect(filesMap).toEqual({
+        module1: {
+          js: { sync: ['entry.js'], async: ['async.js'] },
+          css: { sync: [], async: [] },
+        },
+      });
+    });
+
     it('tracks CSS assets from viteMetadata.importedCss', () => {
       const bundle = {
         'App-abc123.js': {
