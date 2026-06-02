@@ -78,8 +78,8 @@ export function resolvePublicPath(
     return options.publicPath;
   }
 
-  // Handle empty original base case
-  if (originalBase === '') {
+  // Use runtime inference when base was not explicitly configured.
+  if (!originalBase) {
     return 'auto';
   }
 

@@ -112,8 +112,9 @@ export default function ({
               typeof viteConfig.server?.host === 'string' && viteConfig.server.host !== '0.0.0.0'
                 ? viteConfig.server.host
                 : 'localhost';
+            const resolvedPublicPath = resolvePublicPath(options, viteConfig.base);
             const publicPath = JSON.stringify(
-              resolvePublicPath(options, viteConfig.base) + options.filename
+              (resolvedPublicPath === 'auto' ? '/' : resolvedPublicPath) + options.filename
             );
             const fallbackOrigin = `//${host}:${viteConfig.server?.port}`;
             const ssrRemoteEntry =

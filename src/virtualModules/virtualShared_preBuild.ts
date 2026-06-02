@@ -19,6 +19,7 @@ import {
   getInstalledPackageJson,
   getPackageDetectionCwd,
   getPackageName,
+  getSharedCacheKey,
 } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
 import {
@@ -391,7 +392,11 @@ export function getLoadShareModulePath(pkg: string, isRolldown: boolean): string
   return filepath;
 }
 
-function generateDeferredHostProvidedExports(namedExports: string[], pkg: string) {
+function generateDeferredHostProvidedExports(
+  namedExports: string[],
+  pkg: string,
+  cacheKey: string
+) {
   const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
   const declarations = ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join(
     '\n    '
@@ -411,10 +416,10 @@ function generateDeferredHostProvidedExports(namedExports: string[], pkg: string
     const __mfApplyHostProvidedExports = (exportModule) => {
       ${assignments}
     };
-    let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}];
+    let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}];
     if (exportModule === undefined) {
       initPromise.then(() => {
-        exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}];
+        exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}];
         if (exportModule === undefined) {
           throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.");
         }
@@ -467,6 +472,7 @@ export function writeLoadShareModule(
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.mjs');
   }
   const importLine = getRuntimeModuleCacheBootstrapCode();
+  const cacheKey = getSharedCacheKey(pkg, shareItem);
 
   // import: false means the host must provide this module — the remote has no local copy.
   // Generate a minimal loadShare module that just delegates to the runtime.
@@ -478,14 +484,14 @@ export function writeLoadShareModule(
     const namedExports = getPackageNamedExports(pkg);
     let exportLine: string;
     if (namedExports.length > 0) {
-      exportLine = generateDeferredHostProvidedExports(namedExports, pkg);
+      exportLine = generateDeferredHostProvidedExports(namedExports, pkg, cacheKey);
     } else {
       mfWarn(
         `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
           `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +
           `  Install it as a devDependency to enable named export detection.`
       );
-      exportLine = generateDeferredHostProvidedExports([], pkg);
+      exportLine = generateDeferredHostProvidedExports([], pkg, cacheKey);
     }
     loadShareCacheMap[pkg].writeSync(
       `
@@ -548,14 +554,14 @@ export function writeLoadShareModule(
     ${devDynamicImportLine}
     ${importLine}
     ${normalizeLocalShareModuleCode}
-    let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}]
+    let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}]
     if (exportModule === undefined) {
       ${
         usesLazyLocalFallback
           ? `exportModule = __mfNormalizeShareModule(await import(${escapeGeneratedStringLiteral(lazyLocalFallbackSource)}));
-      __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}] = exportModule;`
+      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;`
           : `exportModule = __mfNormalizeShareModule(__mfLocalShare);
-      __mfModuleCache.share[${escapeGeneratedStringLiteral(pkg)}] = exportModule;`
+      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;`
       }
     }
     ${exportLine}

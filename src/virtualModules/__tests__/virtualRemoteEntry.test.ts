@@ -41,6 +41,11 @@ vi.mock('../../utils/VirtualModule', () => {
 
 vi.mock('../../utils/packageUtils', () => {
   return {
+    getSharedCacheKey: (
+      pkg: string,
+      shareItem: { version?: string; shareConfig: { singleton?: boolean } }
+    ) =>
+      shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
     hasPackageDependency: hasPackageDependencyMock,
     packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
   };

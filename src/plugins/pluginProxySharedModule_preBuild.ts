@@ -66,6 +66,12 @@ function isBuildConfigImporter(importer: string | undefined): boolean {
 
 export function matchesSharedSource(source: string, key: string): boolean {
   const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
+  if (
+    keyBase === 'vue' &&
+    (source === 'vue/dist/vue.esm-bundler.js' || source === 'vue/dist/vue.runtime.esm-bundler.js')
+  ) {
+    return true;
+  }
   if (key.endsWith('/')) return source === keyBase || source.startsWith(`${keyBase}/`);
   if (getCommonSharedSubpaths(keyBase).includes(source)) return true;
   return source === keyBase;
@@ -236,6 +242,17 @@ export function proxySharedModule(options: {
       name: 'proxyPreBuildShared:resolve-shared-loadShare',
       enforce: 'pre',
       async resolveId(source, importer) {
+        function shouldSkipTaggedImporterProxy(sharedKey: string, tag: string): boolean {
+          if (!importer?.includes(tag)) return false;
+
+          const taggedModule = VirtualModule.findModule(tag, importer);
+          if (!taggedModule) return true;
+
+          // Only skip a wrapper's own fallback import. Cross-wrapper shared imports
+          // still need proxying, e.g. @fortawesome/vue-fontawesome -> vue.
+          return taggedModule.name === sharedKey || matchesSharedSource(source, taggedModule.name);
+        }
+
         const key = findSharedKeyForSource(source, shared);
         if (!key) return;
         if (useDirectReactImport && key === 'react') return;
@@ -249,11 +266,14 @@ export function proxySharedModule(options: {
         if (importer && (importer.includes('hostAutoInit') || importer.includes('__H_A_I__'))) {
           return;
         }
-        if (importer && importer.includes(LOAD_SHARE_TAG)) return;
-        if (importer && importer.includes(PREBUILD_TAG)) return;
-        const shareSource = isNodeModulePath(source)
-          ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
-          : source;
+        if (shouldSkipTaggedImporterProxy(key, LOAD_SHARE_TAG)) return;
+        if (shouldSkipTaggedImporterProxy(key, PREBUILD_TAG)) return;
+        const shareSource =
+          key === 'vue' && source.startsWith('vue/dist/')
+            ? key
+            : isNodeModulePath(source)
+              ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
+              : source;
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown);
         writeLoadShareModule(shareSource, shared[key], _command, useRolldown);
         if (shared[key].shareConfig.import !== false) {
