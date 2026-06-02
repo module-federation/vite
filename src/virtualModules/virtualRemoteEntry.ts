@@ -398,6 +398,28 @@ export function generateRemoteEntry(
 
   async function init(shared = {}, initScope = []) {
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
+    try {
+      const allInstances = globalThis.__FEDERATION__?.__SHARE__;
+      if (allInstances) {
+        ${normalizeRuntimeShareCode}
+        for (const [, scopes] of Object.entries(allInstances)) {
+          const scopeShare = scopes?.['${options.shareScope}'];
+          if (!scopeShare) continue;
+          for (const [pkg, versionMap] of Object.entries(scopeShare)) {
+            for (const [version, provider] of Object.entries(versionMap)) {
+              if (!provider.lib) continue;
+              const cacheKey = provider.shareConfig?.singleton ? pkg : \`\${pkg}@\${version}\`;
+              if (__mfModuleCache.share[cacheKey] !== undefined) continue;
+              const mod = typeof provider.lib === "function" ? provider.lib() : provider.lib;
+              const resolved = await Promise.resolve(mod);
+              __mfModuleCache.share[cacheKey] = __mfNormalizeRuntimeShare(resolved);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[Module Federation] Failed to bridge external shared modules', e)
+    }
     ${generateDirectSharedCacheSeedCode(command)}
     const __browserPlugins = [${pluginImportNames
       .filter((item) => !isSsrOnlyPlugin(item[1]))

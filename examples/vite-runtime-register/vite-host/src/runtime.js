@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
+import * as ReactCompilerRuntime from 'react/compiler-runtime';
 import { createInstance } from '@module-federation/enhanced/runtime';
 
 const remoteEntryUrl =
@@ -30,19 +31,17 @@ mf.registerShared({
       requiredVersion: `^${ReactDOM.version || React.version}`,
     },
   },
+  'react/compiler-runtime': {
+    version: React.version,
+    scope: 'default',
+    lib: () => ReactCompilerRuntime,
+    shareConfig: {
+      singleton: true,
+      requiredVersion: `^${React.version}`,
+    },
+  },
 });
 
-// Vite-built remotes resolve singleton shared modules from
-// globalThis.__mf_module_cache__.share, which is a different key than
-// what @module-federation/enhanced/runtime writes to (__FEDERATION__.__SHARE__).
-// Pre-populate the cache so the remote's loadShare initializers find the
-// host's modules instead of falling back to their bundled copies.
-const CACHE_KEY = '__mf_module_cache__';
-globalThis[CACHE_KEY] ??= {};
-globalThis[CACHE_KEY].share ??= {};
-if (globalThis[CACHE_KEY].share["react"] === undefined) {
-  globalThis[CACHE_KEY].share["react"] = React;
-}
 
 export function registerRuntimeRemote() {
   mf.registerRemotes([
