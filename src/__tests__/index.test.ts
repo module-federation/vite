@@ -348,8 +348,9 @@ describe('module-federation-esm-shims', () => {
       : undefined;
   };
 
-  it('removes codeSplitting false, warns once, and installs federation groups', () => {
+  it('removes codeSplitting false, warns once, and installs bundler-appropriate isolation', () => {
     const plugin = getEsmShimsPlugin();
+    const runtimeInitId = virtualRuntimeInitStatus.getImportId();
     const config: any = {
       build: {
         rollupOptions: { output: { codeSplitting: false } },
@@ -359,9 +360,16 @@ describe('module-federation-esm-shims', () => {
 
     runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
-    // `codeSplitting: false` is replaced with the federation groups.
-    expect(Array.isArray(config.build.rollupOptions.output.codeSplitting.groups)).toBe(true);
+    // Rollup (Vite 5–7) gets `manualChunks` and never `codeSplitting` (which Rollup
+    // rejects as an unknown output option).
+    expect(config.build.rollupOptions.output.codeSplitting).toBeUndefined();
+    expect(typeof config.build.rollupOptions.output.manualChunks).toBe('function');
+    expect(config.build.rollupOptions.output.manualChunks(`/virtual/${runtimeInitId}`)).toBe(
+      'runtimeInit'
+    );
+    // Rolldown (Vite 8+) gets the `codeSplitting` groups and no `manualChunks`.
     expect(Array.isArray(config.build.rolldownOptions.output.codeSplitting.groups)).toBe(true);
+    expect(config.build.rolldownOptions.output.manualChunks).toBeUndefined();
     expect(mfWarn).toHaveBeenCalledTimes(1);
   });
 
@@ -421,21 +429,25 @@ describe('module-federation-esm-shims', () => {
 
     runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
-    // User manualChunks is removed in favor of federation codeSplitting groups.
-    expect(functionOutput.manualChunks).toBeUndefined();
-    expect(objectOutput.manualChunks).toBeUndefined();
-
-    // Federation chunks are still isolated via the name() group.
-    const nameFn = federationNameFn(functionOutput);
-    expect(nameFn(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
-    expect(nameFn(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
+    // Rollup output (Vite 5–7): user's manualChunks is replaced by the plugin's,
+    // and no codeSplitting is set.
+    expect(functionOutput.codeSplitting).toBeUndefined();
+    expect(typeof functionOutput.manualChunks).toBe('function');
+    expect(functionOutput.manualChunks(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
+    expect(functionOutput.manualChunks(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
       `react${LOAD_SHARE_TAG}chunk.js`
     );
-    // Non-federation modules are left to automatic chunking.
-    expect(nameFn('/src/custom.ts')).toBeNull();
+    // Non-federation modules are left to automatic chunking (and it is not the
+    // user's original function, which would have returned 'existing-fn-chunk').
+    expect(functionOutput.manualChunks('/src/custom.ts')).toBeUndefined();
 
-    // The preload helper is isolated into its own chunk.
-    expect(preloadHelperGroup(functionOutput)).toBeDefined();
+    // Rolldown output (Vite 8+): user's manualChunks is removed in favor of the
+    // federation codeSplitting groups, with the preload helper isolated.
+    expect(objectOutput.manualChunks).toBeUndefined();
+    const nameFn = federationNameFn(objectOutput);
+    expect(nameFn(`/virtual/${runtimeInitId}`)).toBe('runtimeInit');
+    expect(nameFn('/src/custom.ts')).toBeNull();
+    expect(preloadHelperGroup(objectOutput)).toBeDefined();
 
     // Warning was emitted (once for both outputs)
     expect(mfWarn).toHaveBeenCalled();
