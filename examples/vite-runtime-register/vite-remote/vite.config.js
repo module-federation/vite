@@ -22,9 +22,6 @@ export default defineConfig({
         'react-dom': {
           singleton: true,
         },
-        'react/compiler-runtime': {
-          singleton: true,
-        },
       },
       dts: false,
     }),
@@ -36,9 +33,6 @@ export default defineConfig({
   },
   preview: {
     port: 4176,
-  },
-  optimizeDeps: {
-    exclude: ['react/compiler-runtime'],
   },
   build: {
     target: 'chrome89',

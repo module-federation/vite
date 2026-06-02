@@ -7,9 +7,6 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] }),
   ],
-  optimizeDeps: {
-    exclude: ['react/compiler-runtime'],
-  },
   server: {
     open: false,
     port: 4175,
