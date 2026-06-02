@@ -166,7 +166,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('node_modules/mock-package-browser-conditional/dist/server.js') ||
       filePath.endsWith('/mock-package-browser-conditional/dist/server.js') ||
       filePath.endsWith('/repo/packages/workspace-shared-lib/package.json') ||
-      filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json')
+      filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json') ||
+      filePath.endsWith('/repo/packages/custom-shared-source/index.ts')
   ),
   readFileSync: vi.fn((filePath: string) => {
     if (
@@ -307,6 +308,12 @@ export { type, other } from './foo';`;
     if (filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json')) {
       return JSON.stringify({ name: 'different-package-name' });
     }
+    if (filePath.endsWith('/repo/packages/custom-shared-source/index.ts')) {
+      return `export const sharedValue = 'shared';
+              export function useSharedFeature() {
+                return sharedValue;
+              }`;
+    }
     throw new Error(`Unexpected readFileSync path: ${filePath}`);
   }),
   realpathSync: Object.assign(
@@ -325,6 +332,9 @@ export { type, other } from './foo';`;
       ),
     }
   ),
+  statSync: vi.fn(() => ({
+    isDirectory: () => false,
+  })),
 }));
 
 // Mock module/createRequire to return specific named exports
@@ -597,6 +607,37 @@ describe('writeLoadShareModule', () => {
     );
   });
 
+  it('detects prebuild named exports from shareConfig.import when it points at a non-package module', () => {
+    const pkg = '@repo/custom-shared-source';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/custom-shared-source',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writePreBuildLibPath(pkg, mockShareItem);
+
+    expect(writeSyncSpy).toHaveBeenCalled();
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'import * as __mfPrebuildNamespace from "/repo/packages/custom-shared-source";'
+    );
+    expect(generatedCode).toContain('const __mf_0 = __mfPrebuildExports["sharedValue"];');
+    expect(generatedCode).toContain('const __mf_1 = __mfPrebuildExports["useSharedFeature"];');
+    expect(generatedCode).toContain(
+      'export { __mf_0 as sharedValue, __mf_1 as useSharedFeature };'
+    );
+    expect(generatedCode).not.toContain('export * from "/repo/packages/custom-shared-source"');
+  });
+
   it('inlines a build-only cache bootstrap without importing runtimeInit', () => {
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {
@@ -689,6 +730,68 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('import * as __mfLocalShare from "/abs/pkg-b/dist/index.js";');
     expect(generatedCode).toContain('export * from "/abs/pkg-b/dist/index.js"');
     expect(generatedCode).not.toContain('import "mock-import-id";');
+  });
+
+  it('detects loadShare named exports from shareConfig.import when it points at a non-package module', () => {
+    const pkg = '@repo/custom-shared-source';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/custom-shared-source',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "/repo/packages/custom-shared-source";'
+    );
+    expect(generatedCode).toContain(
+      'const { sharedValue: __mf_0, useSharedFeature: __mf_1 } = exportModule;'
+    );
+    expect(generatedCode).toContain(
+      'export { __mf_0 as sharedValue, __mf_1 as useSharedFeature };'
+    );
+    expect(generatedCode).not.toContain('export * from "/repo/packages/custom-shared-source"');
+    expect(generatedCode).not.toContain('mock-import-id');
+  });
+
+  it('falls back to package-based named export detection when shareConfig.import cannot be inspected', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/missing/mock-package-with-reserved/index.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "/missing/mock-package-with-reserved/index.js";'
+    );
+    expect(generatedCode).toContain(
+      'const { delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule;'
+    );
+    expect(generatedCode).toContain(
+      'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
+    );
   });
 
   it('uses cache-backed react output for Astro build output', () => {
