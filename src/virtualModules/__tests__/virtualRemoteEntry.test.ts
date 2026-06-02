@@ -560,6 +560,11 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain(
       '__mfModuleCache.share[cacheKey] = __mfNormalizeRuntimeShare(resolved);'
     );
+    // Bridge must synthesize react/compiler-runtime from shared react when not explicitly provided
+    expect(code).toContain("const compilerRuntimeKey = 'react/compiler-runtime'");
+    expect(code).toContain("__mfModuleCache.share['react']");
+    expect(code).toContain('__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE');
+    expect(code).toContain('internals.H.useMemoCache(size)');
     // Bridge must appear before directSharedCacheSeed (so host wins over local fallback)
     // and before the import:false loop
     const bridgeIndex = code.indexOf('globalThis.__FEDERATION__?.__SHARE__');

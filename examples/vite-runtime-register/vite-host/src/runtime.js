@@ -1,6 +1,5 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import * as ReactCompilerRuntime from 'react/compiler-runtime';
 import { createInstance } from '@module-federation/enhanced/runtime';
 
 const remoteEntryUrl =
@@ -29,15 +28,6 @@ mf.registerShared({
     shareConfig: {
       singleton: true,
       requiredVersion: `^${ReactDOM.version || React.version}`,
-    },
-  },
-  'react/compiler-runtime': {
-    version: React.version,
-    scope: 'default',
-    lib: () => ReactCompilerRuntime,
-    shareConfig: {
-      singleton: true,
-      requiredVersion: `^${React.version}`,
     },
   },
 });
