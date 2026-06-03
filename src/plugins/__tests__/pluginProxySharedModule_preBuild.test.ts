@@ -8,10 +8,24 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 
-const { hasPackageDependencyMock, existsSyncMock, readFileSyncMock } = vi.hoisted(() => ({
+const {
+  hasPackageDependencyMock,
+  existsSyncMock,
+  readFileSyncMock,
+  addUsedSharesMock,
+  refreshHostAutoInitMock,
+  writeLoadShareModuleMock,
+  writeLocalSharedImportMapMock,
+  writePreBuildLibPathMock,
+} = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(),
   existsSyncMock: vi.fn<(path: string) => boolean>(() => false),
   readFileSyncMock: vi.fn<(path: string) => string>(() => '{}'),
+  addUsedSharesMock: vi.fn<(pkg: string) => void>(),
+  refreshHostAutoInitMock: vi.fn<() => void>(),
+  writeLoadShareModuleMock: vi.fn(),
+  writeLocalSharedImportMapMock: vi.fn<() => void>(),
+  writePreBuildLibPathMock: vi.fn(),
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -24,6 +38,11 @@ vi.mock('fs', async (importOriginal) => {
 });
 
 vi.mock('../../utils/packageUtils', () => ({
+  getSharedCacheKey: (
+    pkg: string,
+    shareItem: { version?: string; shareConfig: { singleton?: boolean } }
+  ) =>
+    shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: vi.fn(() => undefined),
   getInstalledPackageJson: vi.fn((pkg: string) => {
@@ -57,6 +76,10 @@ vi.mock('../../utils/packageUtils', () => ({
 
 vi.mock('../../utils/VirtualModule', () => ({
   default: class MockVirtualModule {
+    static findModule(tag: string, value: string) {
+      const [, name] = value.split(tag);
+      return name ? { name } : undefined;
+    }
     getImportId() {
       return 'mock-import-id';
     }
@@ -130,10 +153,28 @@ vi.mock('../../virtualModules', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../virtualModules')>();
   return {
     ...actual,
+    addUsedShares: (pkg: string) => {
+      addUsedSharesMock(pkg);
+      return actual.addUsedShares(pkg);
+    },
+    refreshHostAutoInit: () => {
+      refreshHostAutoInitMock();
+      return actual.refreshHostAutoInit();
+    },
+    writeLoadShareModule: (
+      pkg: string,
+      shareItem: NormalizedShared[string],
+      command: string,
+      useRolldown: boolean
+    ) => {
+      writeLoadShareModuleMock(pkg, shareItem, command, useRolldown);
+      return actual.writeLoadShareModule(pkg, shareItem, command, useRolldown);
+    },
     writePreBuildLibPath: (pkg: string, shareItem?: NormalizedShared[string]) => {
+      writePreBuildLibPathMock(pkg, shareItem);
       preBuildShareItemMap.set(pkg, shareItem);
     },
-    writeLocalSharedImportMap: vi.fn(),
+    writeLocalSharedImportMap: writeLocalSharedImportMapMock,
     getPreBuildShareItem: (pkg: string) => preBuildShareItemMap.get(pkg),
     getConcreteSharedImportSource: (pkg: string, shareItem?: NormalizedShared[string]) =>
       typeof shareItem?.shareConfig.import === 'string'
@@ -208,6 +249,11 @@ function makeShared(): NormalizedShared {
 describe('pluginProxySharedModule_preBuild', () => {
   beforeEach(() => {
     hasPackageDependencyMock.mockReset();
+    addUsedSharesMock.mockReset();
+    refreshHostAutoInitMock.mockReset();
+    writeLoadShareModuleMock.mockReset();
+    writeLocalSharedImportMapMock.mockReset();
+    writePreBuildLibPathMock.mockReset();
     preBuildShareItemMap.clear();
     consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -360,6 +406,114 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(resolution).toBeUndefined();
     });
   }
+
+  it('matches Vue bundler aliases to the root Vue share', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      'vue/dist/vue.esm-bundler.js',
+      '/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect((resolution as { id: string }).id).toBeDefined();
+    expect(preBuildShareItemMap.has('vue')).toBe(true);
+    expect(preBuildShareItemMap.has('vue/dist/vue.esm-bundler.js')).toBe(false);
+  });
+
+  it('keeps proxying shared imports from other loadShare wrappers', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      'vue/dist/vue.esm-bundler.js',
+      '/virtual/__loadShare__@fortawesome/vue-fontawesome__loadShare__.js',
+      { isEntry: false }
+    );
+
+    expect((resolution as { id: string }).id).toBeDefined();
+    expect(preBuildShareItemMap.has('vue')).toBe(true);
+  });
+
+  it('materializes repeated loadShare resolutions once per shared source', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+    const resolveMock = vi.fn(async (id: string) => ({ id: `/resolved/${id}` }));
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: resolveMock,
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: resolveMock } as any,
+      'vue',
+      '/src/entry-a.ts',
+      { isEntry: false }
+    );
+    await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: resolveMock } as any,
+      'vue',
+      '/src/entry-b.ts',
+      { isEntry: false }
+    );
+
+    expect(writeLoadShareModuleMock).toHaveBeenCalledTimes(1);
+    expect(writeLoadShareModuleMock).toHaveBeenCalledWith('vue', makeShared().vue, 'build', false);
+    expect(writePreBuildLibPathMock).toHaveBeenCalledTimes(1);
+    expect(addUsedSharesMock).toHaveBeenCalledTimes(1);
+    expect(writeLocalSharedImportMapMock).toHaveBeenCalledTimes(1);
+    expect(refreshHostAutoInitMock).toHaveBeenCalledTimes(1);
+    expect(resolveMock).toHaveBeenCalledTimes(2);
+  });
 
   it('skips prebuild for import: false shared deps in configResolved', () => {
     hasPackageDependencyMock.mockReturnValue(false);

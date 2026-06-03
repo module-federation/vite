@@ -5,7 +5,7 @@ import {
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
-import { hasPackageDependency, packageNameEncode } from '../utils/packageUtils';
+import { getSharedCacheKey, hasPackageDependency, packageNameEncode } from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
@@ -218,8 +218,9 @@ function getShareItemForPreload(pkg: string) {
   return undefined;
 }
 
-function generateSharedCacheSeedItem(pkg: string, importPath: string) {
-  return `if (__mfModuleCache.share[${JSON.stringify(pkg)}] === undefined) {
+function generateSharedCacheSeedItem(pkg: string, shareItem: ShareItem, importPath: string) {
+  const cacheKey = getSharedCacheKey(pkg, shareItem);
+  return `if (__mfModuleCache.share[${JSON.stringify(cacheKey)}] === undefined) {
         const mod = await import(${JSON.stringify(importPath)});
         ${normalizeRuntimeShareCode}
         const normalizedModule = __mfNormalizeRuntimeShare(mod);
@@ -228,7 +229,7 @@ function generateSharedCacheSeedItem(pkg: string, importPath: string) {
           value: true,
           enumerable: false
         });
-        __mfModuleCache.share[${JSON.stringify(pkg)}] = exportModule;
+        __mfModuleCache.share[${JSON.stringify(cacheKey)}] = exportModule;
       }`;
 }
 
@@ -253,7 +254,7 @@ export function generateDirectSharedCacheSeedCode(command = 'build') {
         command === 'serve'
           ? getLocalSharedPackagePath(pkg, shareItem)
           : getDirectSharedCacheSeedImportPath(pkg, shareItem);
-      return generateSharedCacheSeedItem(pkg, importPath);
+      return generateSharedCacheSeedItem(pkg, shareItem, importPath);
     })
     .filter((item) => item !== null)
     .join('\n');
@@ -293,7 +294,7 @@ function generateHostAutoInitSharedCacheSeedCode(command = 'build') {
     .map(({ pkg, shareItem }) => {
       if (!shareItem) return null;
       const importPath = getBrowserImportPath(getDirectSharedCacheSeedImportPath(pkg, shareItem));
-      return generateSharedCacheSeedItem(pkg, importPath);
+      return generateSharedCacheSeedItem(pkg, shareItem, importPath);
     })
     .filter((item) => item !== null)
     .join('\n');
@@ -439,7 +440,8 @@ export function generateRemoteEntry(
       console.error('[Module Federation]', e)
     }
     for (const [pkg, share] of Object.entries(usedShared)) {
-      if (share.shareConfig?.import !== false || __mfModuleCache.share[pkg] !== undefined) continue;
+      const cacheKey = share.shareConfig?.singleton || !share.version ? pkg : \`\${pkg}@\${share.version}\`;
+      if (share.shareConfig?.import !== false || __mfModuleCache.share[cacheKey] !== undefined) continue;
       ${normalizeRuntimeShareCode}
       const versions = shared?.[pkg];
       const provider = versions && versions[Object.keys(versions)[0]];
@@ -447,7 +449,7 @@ export function generateRemoteEntry(
       const factory = provider.lib || (provider.loading ? await provider.loading : await provider.get?.());
       const mod = typeof factory === "function" ? factory() : factory;
       const resolved = await Promise.resolve(mod);
-      __mfModuleCache.share[pkg] = __mfNormalizeRuntimeShare(resolved);
+      __mfModuleCache.share[cacheKey] = __mfNormalizeRuntimeShare(resolved);
     }
     return initRes
   }
@@ -490,7 +492,8 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
             shouldPreloadShares
               ? `
           for (const [pkg, share] of Object.entries(usedShared)) {
-            if (__mfModuleCache.share[pkg] !== undefined) {
+            const cacheKey = share.shareConfig?.singleton || !share.version ? pkg : \`\${pkg}@\${share.version}\`;
+            if (__mfModuleCache.share[cacheKey] !== undefined) {
               continue;
             }
             await runtime.loadShare(pkg, {
@@ -498,7 +501,7 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
             }).then((factory) => {
               const mod = typeof factory === "function" ? factory() : factory;
               return Promise.resolve(mod).then((resolved) => {
-                __mfModuleCache.share[pkg] = __mfNormalizeRuntimeShare(resolved);
+                __mfModuleCache.share[cacheKey] = __mfNormalizeRuntimeShare(resolved);
               });
             });
           }
