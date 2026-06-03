@@ -32,7 +32,6 @@ mf.registerShared({
   },
 });
 
-
 export function registerRuntimeRemote() {
   mf.registerRemotes([
     {
