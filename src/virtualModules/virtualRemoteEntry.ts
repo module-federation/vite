@@ -116,7 +116,7 @@ export function generateLocalSharedImportMap() {
             version: ${JSON.stringify(shareItem.version)},
             scope: [${JSON.stringify(shareItem.scope)}],
             loaded: false,
-            from: ${JSON.stringify(options.internalName)},
+            from: ${JSON.stringify(options.name)},
             async get () {
               if (${shareItem.shareConfig.import === false}) {
                 throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(key)}}' must be provided by host\`);
@@ -356,7 +356,7 @@ export function generateRemoteEntry(
   ${getRuntimeModuleCacheBootstrapCode()}
   const initTokens = {}
   const shareScopeName = ${JSON.stringify(options.shareScope)}
-  const mfName = ${JSON.stringify(options.internalName)}
+  const mfName = ${JSON.stringify(options.name)}
   let localSharedImportMapPromise
   let exposesMapPromise
   const shouldRetrySharedInitError = ${command !== 'build'} && ((error) => {
