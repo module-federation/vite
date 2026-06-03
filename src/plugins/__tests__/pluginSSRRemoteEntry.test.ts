@@ -44,6 +44,7 @@ vi.mock('../../virtualModules/virtualRemoteEntrySSR', () => ({
 }));
 
 import { pluginSSRRemoteEntry } from '../pluginSSRRemoteEntry';
+import { generateRemoteEntrySSR } from '../../virtualModules/virtualRemoteEntrySSR';
 
 function makeOptions(overrides: Record<string, unknown> = {}) {
   return normalizeModuleFederationOptions({
@@ -309,6 +310,12 @@ describe('pluginSSRRemoteEntry', () => {
       const result = callHook(mainPlugin.load, {} as Rollup.PluginContext, ssrId);
 
       expect(result).toBe('export { init, get }');
+      expect(generateRemoteEntrySSR).toHaveBeenCalledWith(
+        expect.objectContaining({
+          internalName: '__mfe_internal__remote',
+          name: 'remote',
+        })
+      );
     });
 
     it('returns SSR exposes map for exposes ID', () => {

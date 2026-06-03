@@ -184,14 +184,25 @@ export const processModuleAssets = (
         }
       }
 
-      // Handle dynamic imports
-      if (fileData.dynamicImports) {
-        for (const dynamicImport of fileData.dynamicImports) {
-          const importData = bundle[dynamicImport];
-          if (!importData) continue;
+      // Handle dynamic imports from static chunks reachable from the matched expose chunk
+      const visited = new Set<string>();
+      const queue: string[] = [fileName];
+      for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
+        const cur = queue[queueIndex];
+        if (visited.has(cur)) continue;
+        visited.add(cur);
+        const chunk = bundle[cur];
+        if (!chunk || chunk.type !== 'chunk') continue;
 
-          const isCss = isCSSFile(dynamicImport);
-          trackAsset(filesMap, matchKey, dynamicImport, true, isCss ? 'css' : 'js');
+        if (chunk.dynamicImports) {
+          for (const dynamicImport of chunk.dynamicImports) {
+            if (!bundle[dynamicImport]) continue;
+            const isCss = isCSSFile(dynamicImport);
+            trackAsset(filesMap, matchKey, dynamicImport, true, isCss ? 'css' : 'js');
+          }
+        }
+        if (chunk.imports) {
+          for (const imp of chunk.imports) queue.push(imp);
         }
       }
     }
