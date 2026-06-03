@@ -130,29 +130,35 @@ describe('generateRemotes', () => {
       expect(code).not.toContain('import("/virtual/hostInit.js")');
     });
 
-    it('client React wrapper starts load and exposes a proxy', async () => {
+    it('client wrapper stays lazy when React is installed', async () => {
       const { hasPackageDependency } = await import('../../utils/packageUtils');
       vi.mocked(hasPackageDependency).mockReturnValue(true);
 
       const code = generateRemotes('remote/Button', 'serve', false, 'client');
 
-      expect(code).toContain('exportModule = __mfCreateRemoteProxy(__mfRemotePending);');
+      expect(code).toContain('exportModule = __mfCreateDeferredRemoteProxy();');
+      expect(code).not.toContain('__mfRemotePending = __mfStartRemoteLoad();');
+      expect(code).not.toContain('__mfCreateRemoteProxy');
+      expect(code).not.toContain('__mfReact');
       expect(code).not.toContain('typeof window === "undefined"');
     });
   });
 
-  it('starts remote loading while keeping a React proxy for loaded-first', async () => {
+  it('defers remote loading when React is installed for loaded-first', async () => {
     const { hasPackageDependency } = await import('../../utils/packageUtils');
     vi.mocked(hasPackageDependency).mockReturnValue(true);
 
     mockOptions.shareStrategy = 'loaded-first';
     const code = generateRemotes('remote/Button', 'serve');
 
-    expect(code).toContain('exportModule = __mfCreateRemoteProxy(__mfRemotePending);');
+    expect(code).toContain('exportModule = __mfCreateDeferredRemoteProxy();');
     expect(code).toContain('pendingPromise ||= __mfStartRemoteLoad();');
     expect(code).toContain('runtime.registerRemotes([');
-    expect(code).toContain('__mfRemotePending = __mfStartRemoteLoad();');
-    expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
+    expect(code).not.toMatch(
+      /typeof window === "undefined"[\s\S]*?} else \{\s*__mfRemotePending = __mfStartRemoteLoad\(\)/
+    );
+    expect(code).not.toContain('__mfCreateRemoteProxy');
+    expect(code).not.toContain('__mfReact');
   });
 
   it('loads a scoped remote module using its full id', () => {

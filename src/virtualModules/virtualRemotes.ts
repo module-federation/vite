@@ -3,7 +3,6 @@ import {
   type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
 import type { RemoteConsumer } from '../utils/remoteConsumerTarget';
-import { hasPackageDependency } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
@@ -91,7 +90,6 @@ export function generateRemotes(
   enableSsrInit = false,
   consumer: RemoteConsumer = 'unified'
 ) {
-  const useReactProxy = hasPackageDependency('react');
   const options = getNormalizeModuleFederationOptions();
   const isLoadedFirst = options.shareStrategy === 'loaded-first';
   const initMode = resolveRemoteInitMode(options.shareStrategy, consumer);
@@ -108,11 +106,6 @@ export function generateRemotes(
           shareScope: remote.shareScope ?? 'default',
         })}]);`
       : '';
-  const reactImportLine = useReactProxy
-    ? `import __mfReactDefault from "react";
-    import * as __mfReactNamespace from "react";
-    const __mfReact = __mfReactDefault ?? __mfReactNamespace.default ?? __mfReactNamespace;`
-    : '';
   const browserHostInitCode = `import(${JSON.stringify(getHostAutoInitPath())})
         .then((mod) => mod.hostInitPromise)
         .then(initResolve, initReject);`;
@@ -136,77 +129,6 @@ export function generateRemotes(
       if (mod == null) return mod;
       if (mod.__esModule && mod.default != null) return mod.default;
       return mod.default ?? mod;
-    }`;
-  const reactRemoteProxyCode = `
-    function __mfCreateRemoteProxy(pendingPromise) {
-      const listeners = new Set();
-      const ensurePending = () => {
-        pendingPromise ||= __mfStartRemoteLoad();
-        pendingPromise?.finally(() => {
-          for (const listener of listeners) listener();
-        });
-        return pendingPromise;
-      };
-      const getModule = () => __mfModuleCache.remote[${JSON.stringify(id)}];
-      const proxyTarget = function (...args) {
-        const [, setVersion] = __mfReact.useState(0);
-        __mfReact.useEffect(() => {
-          ensurePending();
-          const listener = () => setVersion((value) => value + 1);
-          listeners.add(listener);
-          if (getModule()) listener();
-          return () => listeners.delete(listener);
-        }, []);
-        const mod = getModule();
-        const fn = mod && (mod.default ?? mod);
-        if (fn !== undefined && fn !== null) {
-          return __mfReact.createElement(fn, args[0]);
-        }
-        return null;
-      };
-      return new Proxy(proxyTarget, {
-        get(_target, prop) {
-          if (prop === "__mf_is_remote_proxy") return true;
-          if (prop === "__esModule") return true;
-          if (prop === "then") return undefined;
-          if (prop === Symbol.toPrimitive || prop === "toString")
-            return () => "[MF remote proxy: pending]";
-          const mod = getModule();
-          if (mod) {
-            return prop in mod ? mod[prop] : mod.default?.[prop];
-          }
-          if (prop === "default") return proxyTarget;
-          return undefined;
-        },
-        has(_target, prop) {
-          const mod = getModule();
-          if (mod) return prop in mod;
-          return prop === "default" || prop === "__esModule" || prop === "__mf_is_remote_proxy";
-        },
-        ownKeys() {
-          const mod = getModule();
-          const keys = new Set(mod ? Reflect.ownKeys(mod) : []);
-          for (const k of Reflect.ownKeys(proxyTarget)) {
-            const d = Object.getOwnPropertyDescriptor(proxyTarget, k);
-            if (d && !d.configurable) keys.add(k);
-          }
-          return Array.from(keys);
-        },
-        getOwnPropertyDescriptor(_target, prop) {
-          const targetDesc = Object.getOwnPropertyDescriptor(proxyTarget, prop);
-          if (targetDesc && !targetDesc.configurable) return targetDesc;
-          const mod = getModule();
-          if (!mod) return undefined;
-          return Object.getOwnPropertyDescriptor(mod, prop) || {
-            configurable: true,
-            enumerable: true,
-            value: mod[prop],
-          };
-        },
-        apply(target, thisArg, args) {
-          return target.apply(thisArg, args);
-        }
-      });
     }`;
   const deferredProxyCode = `
     function __mfCreateDeferredRemoteProxy() {
@@ -337,10 +259,7 @@ ${defaultExportLine}`;
       ${startRemoteLoadCode}
     }`;
 
-  const deferredClientInit = useReactProxy
-    ? `__mfRemotePending = __mfStartRemoteLoad();
-      exportModule = __mfCreateRemoteProxy(__mfRemotePending);`
-    : `exportModule = __mfCreateDeferredRemoteProxy();`;
+  const deferredClientInit = `exportModule = __mfCreateDeferredRemoteProxy();`;
   const deferredServerInit = `__mfRemotePending = __mfStartRemoteLoad();
       exportModule = await __mfRemotePending;`;
   const initExportModule =
@@ -356,14 +275,12 @@ ${defaultExportLine}`;
       ${deferredClientInit}
     }`;
 
-  const proxyHelperCode = useReactProxy ? reactRemoteProxyCode : deferredProxyCode;
   const includeProxyHelper = deferRemoteLoad;
 
   return `
-    ${reactImportLine}
     ${importLine}
     ${remoteLoadCode}
-    ${includeProxyHelper ? proxyHelperCode : ''}
+    ${includeProxyHelper ? deferredProxyCode : ''}
     ${unwrapHelper}
     let __mfRemotePending;
     let exportModule = __mfModuleCache.remote[${JSON.stringify(id)}]
