@@ -417,23 +417,6 @@ export function generateRemoteEntry(
           }
         }
       }
-      // Synthesize react/compiler-runtime from the shared react when available.
-      // react/compiler-runtime captures ReactSharedInternals from require('react')
-      // at bundle time, so the pre-bundled remote copy may reference the wrong
-      // React instance. A late-binding wrapper reading from the already-seeded
-      // shared React ensures useMemoCache hits the correct dispatcher regardless
-      // of whether the host explicitly shared react/compiler-runtime.
-      const compilerRuntimeKey = 'react/compiler-runtime';
-      if (__mfModuleCache.share[compilerRuntimeKey] === undefined) {
-        const sharedReact = __mfModuleCache.share['react'];
-        if (sharedReact !== undefined) {
-          const reactExports = sharedReact?.default ?? sharedReact;
-          const internals = reactExports?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
-          if (internals) {
-            __mfModuleCache.share[compilerRuntimeKey] = { c: function(size) { return internals.H.useMemoCache(size); } };
-          }
-        }
-      }
     } catch (e) {
       console.error('[Module Federation] Failed to bridge external shared modules', e)
     }

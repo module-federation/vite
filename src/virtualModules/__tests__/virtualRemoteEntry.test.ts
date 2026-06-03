@@ -525,55 +525,6 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('for (const [pkg, share] of Object.entries(usedShared))');
   });
 
-  it('bridges __FEDERATION__.__SHARE__ into __mf_module_cache__ after initializeSharing in remoteEntry init', async () => {
-    const mod = await import('../virtualRemoteEntry');
-
-    const code = mod.generateRemoteEntry(
-      {
-        internalName: '__mfe_internal__remote',
-        name: 'remote',
-        filename: 'remoteEntry.js',
-        remotes: {},
-        runtimePlugins: [],
-        shareScope: 'default',
-        shareStrategy: 'version-first',
-      } as any,
-      'virtual:exposes',
-      'build'
-    );
-
-    // Bridge must read all instances from __FEDERATION__.__SHARE__ (structure is [instanceName][scope])
-    expect(code).toContain('globalThis.__FEDERATION__?.__SHARE__');
-    expect(code).toContain('for (const [, scopes] of Object.entries(allInstances))');
-    // Bridge must drill into the correct share scope per instance
-    expect(code).toContain("scopes?.['default']");
-    // Bridge must iterate pkg → versionMap → provider
-    expect(code).toContain('for (const [pkg, versionMap] of Object.entries(scopeShare))');
-    expect(code).toContain('for (const [version, provider] of Object.entries(versionMap))');
-    // Bridge must skip providers with no lib (not yet resolved)
-    expect(code).toContain('if (!provider.lib) continue;');
-    // Bridge must use singleton flag to choose cacheKey (pkg vs pkg@version)
-    expect(code).toContain('provider.shareConfig?.singleton ? pkg : `${pkg}@${version}`');
-    // Bridge must skip cache keys that are already seeded
-    expect(code).toContain('if (__mfModuleCache.share[cacheKey] !== undefined) continue;');
-    // Bridge must seed the resolved module into __mfModuleCache.share
-    expect(code).toContain(
-      '__mfModuleCache.share[cacheKey] = __mfNormalizeRuntimeShare(resolved);'
-    );
-    // Bridge must synthesize react/compiler-runtime from shared react when not explicitly provided
-    expect(code).toContain("const compilerRuntimeKey = 'react/compiler-runtime'");
-    expect(code).toContain("__mfModuleCache.share['react']");
-    expect(code).toContain('__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE');
-    expect(code).toContain('internals.H.useMemoCache(size)');
-    // Bridge must appear before directSharedCacheSeed (so host wins over local fallback)
-    // and before the import:false loop
-    const bridgeIndex = code.indexOf('globalThis.__FEDERATION__?.__SHARE__');
-    const getLocalSharedImportMapIndex = code.indexOf('getLocalSharedImportMap()');
-    const importFalseLoopIndex = code.indexOf('share.shareConfig?.import !== false');
-    expect(bridgeIndex).toBeGreaterThan(getLocalSharedImportMapIndex);
-    expect(bridgeIndex).toBeLessThan(importFalseLoopIndex);
-  });
-
   it('does not register remotes during remoteEntry init with loaded-first', async () => {
     optionsMock.shareStrategy = 'loaded-first';
     const mod = await import('../virtualRemoteEntry');

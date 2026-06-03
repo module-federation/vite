@@ -298,6 +298,23 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
   preBuildShareItemMap[pkg] = shareItem;
   const importSource = getConcreteSharedImportSource(pkg, shareItem) || pkg;
+  if (pkg === 'react/compiler-runtime') {
+    preBuildCacheMap[pkg].writeSync(
+      `
+    const __mfCacheGlobalKey = "__mf_module_cache__";
+    export const c = function(size) {
+      const cache = globalThis[__mfCacheGlobalKey]?.share;
+      const sharedReact = cache?.['react'];
+      const reactExports = sharedReact?.default ?? sharedReact;
+      const internals = reactExports?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+      return internals?.H?.useMemoCache(size);
+    };
+    export default { c };
+  `,
+      true
+    );
+    return;
+  }
   if (pkg === 'react/jsx-dev-runtime') {
     preBuildCacheMap[pkg].writeSync(
       `

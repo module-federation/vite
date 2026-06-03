@@ -389,6 +389,7 @@ export default __mfShared.default ?? __mfShared;`,
         'react-dom',
         'react/jsx-runtime',
         'react/jsx-dev-runtime',
+        'react/compiler-runtime',
         '@module-federation/runtime',
         '@module-federation/runtime-core',
         '@module-federation/sdk',
@@ -475,6 +476,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               const reactServerEntryMap: Record<string, string> = {
                 'react/jsx-runtime': 'react/cjs/react-jsx-runtime.production.js',
                 'react/jsx-dev-runtime': 'react/cjs/react-jsx-dev-runtime.production.js',
+                'react/compiler-runtime': 'react/cjs/react-compiler-runtime.production.js',
               };
               if (!(id in reactServerEntryMap)) return;
               const environmentName = (this as { environment?: { name?: string } }).environment
