@@ -794,6 +794,33 @@ describe('writeLoadShareModule', () => {
     );
   });
 
+  it('detects named exports from the ESM entry of configured bare import sources', () => {
+    const pkg = 'mock-package-browser-conditional';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: pkg,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "mock-package-browser-conditional";'
+    );
+    expect(generatedCode).toContain('const { clientOnly: __mf_0 } = exportModule;');
+    expect(generatedCode).toContain('export { __mf_0 as clientOnly };');
+    expect(generatedCode).not.toContain('serverOnly');
+  });
+
   it('uses cache-backed react output for Astro build output', () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'astro');
 

@@ -123,16 +123,19 @@ function resolveConfiguredImportPath(importSource: string): string | undefined {
     return resolveFileLikeModule(path.resolve(projectRoot, importSource));
   }
 
+  const esmEntry = getInstalledPackageEntry(importSource, {
+    conditions: ['browser', 'import', 'module', 'default'],
+    resolveSubpathWithRequire: false,
+  });
+  if (esmEntry) return esmEntry;
+
   try {
     const projectRequire = createRequire(
       new URL(`file://${path.join(projectRoot, 'package.json')}`)
     );
     return projectRequire.resolve(importSource);
   } catch {
-    return getInstalledPackageEntry(importSource, {
-      conditions: ['browser', 'import', 'module', 'default'],
-      resolveSubpathWithRequire: false,
-    });
+    return undefined;
   }
 }
 
