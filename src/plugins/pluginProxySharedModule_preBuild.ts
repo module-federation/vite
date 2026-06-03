@@ -166,6 +166,12 @@ export function proxySharedModule(options: {
   let useRolldown = false;
   const savePrebuild = new PromiseStore<string>();
   let devServer: ViteDevServer | undefined;
+  // resolveId fires once per importing module. The loadShare virtual module,
+  // prebuild path, import map, and host-auto-init are a pure function of the
+  // shared source, so regenerating them on every resolution is redundant — a
+  // singleton imported by N modules would rewrite all of it N times. Track which
+  // sources have been materialized so the heavy writes happen at most once each.
+  const materializedLoadShareSources = new Set<string>();
 
   return [
     {
@@ -275,13 +281,16 @@ export function proxySharedModule(options: {
               ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
               : source;
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown);
-        writeLoadShareModule(shareSource, shared[key], _command, useRolldown);
-        if (shared[key].shareConfig.import !== false) {
-          writePreBuildLibPath(shareSource, shared[key]);
+        if (!materializedLoadShareSources.has(shareSource)) {
+          materializedLoadShareSources.add(shareSource);
+          writeLoadShareModule(shareSource, shared[key], _command, useRolldown);
+          if (shared[key].shareConfig.import !== false) {
+            writePreBuildLibPath(shareSource, shared[key]);
+          }
+          addUsedShares(shareSource);
+          writeLocalSharedImportMap();
+          refreshHostAutoInit();
         }
-        addUsedShares(shareSource);
-        writeLocalSharedImportMap();
-        refreshHostAutoInit();
         return this.resolve(loadSharePath, importer, { skipSelf: true });
       },
     },
