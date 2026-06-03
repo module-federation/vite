@@ -61,6 +61,24 @@ import {
 
 const patchedManualChunks = new WeakSet<Function>();
 
+// Rolldown injects the `__vite_preload` helper as a special runtime module and,
+// left to automatic chunking, hoists it into whichever loadShare chunk first uses
+// it. When that shared singleton's source statically imports another shared
+// singleton, the resulting cross-loadShare static import closes a top-level-await
+// cycle and the host deadlocks on bootstrap. Isolate the helper into its own
+// dependency-free, TLA-free chunk so no loadShare chunk imports it from a sibling.
+const PRELOAD_HELPER_CHUNK = 'vite-preload-helper';
+// Matches Rolldown's injected helper module id (`\0vite/preload-helper.js`).
+// Anchored on the `vite/` segment so a user module merely named "preload-helper"
+// isn't pulled into this chunk; the leading virtual-module NUL is optional.
+const PRELOAD_HELPER_TEST = /\0?vite\/preload-helper/;
+
+type CodeSplittingGroup = {
+  name: string | ((id: string) => string | null);
+  test?: RegExp;
+  priority?: number;
+};
+
 function normalizeVinextRscPreloadHints(code: string): string {
   return code
     .replace(/(:HL\[[^\]\n]*?,)"stylesheet"/g, '$1"style"')
@@ -669,6 +687,20 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           if (!output?.codeSplitting || typeof output.codeSplitting !== 'object') return;
           if (!('groups' in output.codeSplitting)) return;
 
+          // Don't strip the groups we set ourselves in applyManualChunks — they
+          // isolate the loadShare/runtimeInit wrappers and the preload helper.
+          const groups = output.codeSplitting.groups;
+          if (
+            Array.isArray(groups) &&
+            groups.some(
+              (group) =>
+                typeof (group as Partial<CodeSplittingGroup>)?.name === 'function' &&
+                patchedManualChunks.has((group as { name: Function }).name)
+            )
+          ) {
+            return;
+          }
+
           delete output.codeSplitting.groups;
           if (Object.keys(output.codeSplitting).length === 0) {
             delete output.codeSplitting;
@@ -683,7 +715,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         };
 
         let warnedAboutManualChunks = false;
-        const applyManualChunks = (output: MutableBundlerOutput) => {
+        // `useCodeSplitting` selects the bundler-appropriate isolation mechanism:
+        // Rolldown (Vite 8+) supports `codeSplitting` (and needs it to relocate the
+        // injected preload helper), while Rollup (Vite 5–7) only understands
+        // `manualChunks` and rejects `codeSplitting` as an unknown output option.
+        const applyManualChunks = (output: MutableBundlerOutput, useCodeSplitting: boolean) => {
           ensureCodeSplitting(output);
           const isPatchedByPlugin =
             typeof output.manualChunks === 'function' &&
@@ -697,7 +733,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                 'the application to silently hang.'
             );
           }
-          const mfManualChunks = function (id: string) {
+          const mfChunkName = function (id: string): string | null {
             // Keep runtimeInitStatus in its own chunk to break init deadlock
             if (id.includes(runtimeInitId)) {
               return 'runtimeInit';
@@ -707,22 +743,51 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';
             }
+            return null;
           };
-          patchedManualChunks.add(mfManualChunks);
-          output.manualChunks = mfManualChunks;
+          patchedManualChunks.add(mfChunkName);
+
+          if (!useCodeSplitting) {
+            // Rollup (Vite 5–7): `codeSplitting` is rejected as an unknown output
+            // option, and the hoisted-preload-helper deadlock is Rolldown-specific,
+            // so keep the original `manualChunks` isolation of runtimeInit/loadShare.
+            const mfManualChunks = function (id: string) {
+              return mfChunkName(id) ?? undefined;
+            };
+            patchedManualChunks.add(mfManualChunks);
+            output.manualChunks = mfManualChunks;
+            return;
+          }
+
+          // Rolldown (Vite 8+): `manualChunks` cannot relocate the injected preload
+          // helper (Rolldown ignores its placement), so use `codeSplitting` instead:
+          // a dynamic `name()` group reproduces the runtimeInit/loadShare isolation,
+          // and a higher-priority `test` group pulls the preload helper into its own
+          // chunk (the helper is only matched by `test`, never the `name()` fn).
+          const groups: CodeSplittingGroup[] = [
+            { name: PRELOAD_HELPER_CHUNK, test: PRELOAD_HELPER_TEST, priority: 100 },
+            { name: mfChunkName },
+          ];
+          output.codeSplitting = { ...(output.codeSplitting || {}), groups };
+          delete output.manualChunks;
         };
 
         config.build.rollupOptions = config.build.rollupOptions || {};
         const rollupOutput = config.build.rollupOptions.output;
         if (Array.isArray(rollupOutput)) {
-          rollupOutput.forEach((output) => applyManualChunks(output as MutableBundlerOutput));
+          rollupOutput.forEach((output) =>
+            applyManualChunks(output as MutableBundlerOutput, false)
+          );
         } else {
-          applyManualChunks((config.build.rollupOptions.output ||= {}) as MutableBundlerOutput);
+          applyManualChunks(
+            (config.build.rollupOptions.output ||= {}) as MutableBundlerOutput,
+            false
+          );
         }
 
-        // Vite 8+ reads build.rolldownOptions instead of rollupOptions.
-        // Apply the same split there so runtimeInit and loadShare stay isolated
-        // under both bundlers.
+        // Vite 8+ reads build.rolldownOptions instead of rollupOptions. Apply the
+        // same runtimeInit/loadShare isolation there, but via `codeSplitting` so the
+        // Rolldown-injected preload helper can also be pulled into its own chunk.
         const buildWithRolldown = config.build as typeof config.build & {
           rolldownOptions?: RolldownOptionsLike;
         };
@@ -737,11 +802,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           assetFileNames: output.assetFileNames,
         });
         if (Array.isArray(rolldownOutput)) {
-          rolldownOutput.forEach((output) => applyManualChunks(output));
+          rolldownOutput.forEach((output) => applyManualChunks(output, true));
           desiredRolldownOutput = rolldownOutput.map((output) => snapshotRolldownOutput(output));
         } else {
           applyManualChunks(
-            (buildWithRolldown.rolldownOptions.output ||= {}) as MutableBundlerOutput
+            (buildWithRolldown.rolldownOptions.output ||= {}) as MutableBundlerOutput,
+            true
           );
           // Vite 8's Rolldown build path overwrites output options like
           // entryFileNames/chunkFileNames/assetFileNames. Keep only those
