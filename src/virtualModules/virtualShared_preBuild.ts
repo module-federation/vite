@@ -83,11 +83,9 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
   );
 }
 
-function getEsmNamedExports(pkg: string): string[] {
+function getEsmNamedExportsFromFile(entryPath: string | undefined): string[] {
   let source = '';
-  let entryPath: string | undefined;
   try {
-    entryPath = getPackageEsmEntryPath(pkg);
     if (!entryPath) return [];
 
     const { initSync, parse } = localRequire('es-module-lexer') as typeof import('es-module-lexer');
@@ -109,6 +107,53 @@ function getEsmNamedExports(pkg: string): string[] {
   } catch {
     return source ? getNamedExportsViaRegex(source, entryPath) : [];
   }
+}
+
+function getEsmNamedExports(pkg: string): string[] {
+  return getEsmNamedExportsFromFile(getPackageEsmEntryPath(pkg));
+}
+
+function resolveConfiguredImportPath(importSource: string): string | undefined {
+  if (path.isAbsolute(importSource)) {
+    return resolveFileLikeModule(importSource);
+  }
+
+  const projectRoot = getPackageDetectionCwd();
+  if (importSource.startsWith('.')) {
+    return resolveFileLikeModule(path.resolve(projectRoot, importSource));
+  }
+
+  const esmEntry = getInstalledPackageEntry(importSource, {
+    conditions: ['browser', 'import', 'module', 'default'],
+    resolveSubpathWithRequire: false,
+  });
+  if (esmEntry) return esmEntry;
+
+  try {
+    const projectRequire = createRequire(
+      new URL(`file://${path.join(projectRoot, 'package.json')}`)
+    );
+    return projectRequire.resolve(importSource);
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveFileLikeModule(filePath: string): string | undefined {
+  if (existsSync(filePath) && !statSync(filePath).isDirectory()) return filePath;
+
+  const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.mts'];
+  for (const ext of extensions) {
+    const candidate = filePath + ext;
+    if (existsSync(candidate) && !statSync(candidate).isDirectory()) return candidate;
+  }
+
+  for (const ext of extensions) {
+    const candidate = path.join(filePath, 'index' + ext);
+    if (existsSync(candidate) && !statSync(candidate).isDirectory()) return candidate;
+  }
+
+  return undefined;
 }
 
 function resolveRelativeModule(filePath: string, specifier: string): string | undefined {
@@ -208,6 +253,17 @@ function getPackageNamedExports(pkg: string): string[] {
   } catch {
     return getEsmNamedExports(pkg);
   }
+}
+
+function getSharedNamedExports(pkg: string, shareItem?: ShareItem): string[] {
+  const configuredImport = shareItem?.shareConfig.import;
+  if (typeof configuredImport === 'string') {
+    const configuredImportPath = resolveConfiguredImportPath(configuredImport);
+    const configuredNamedExports = getEsmNamedExportsFromFile(configuredImportPath);
+    if (configuredNamedExports.length > 0) return configuredNamedExports;
+  }
+
+  return getPackageNamedExports(pkg);
 }
 
 export function getLocalProviderImportPath(pkg: string): string | undefined {
@@ -344,7 +400,7 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
     );
     return;
   }
-  const namedExports = getPackageNamedExports(pkg);
+  const namedExports = getSharedNamedExports(pkg, shareItem);
   if (namedExports.length > 0) {
     const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
     const declarations = namedExports
@@ -533,7 +589,7 @@ export function writeLoadShareModule(
     concreteSharedImportSource || localProviderPath || sharedImportSource;
   const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
   const usesLazyLocalFallback = isWorkspacePackage && shareItem.shareConfig.singleton === true;
-  const namedExports = getPackageNamedExports(pkg);
+  const namedExports = getSharedNamedExports(pkg, shareItem);
   let exportLine: string;
   if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;

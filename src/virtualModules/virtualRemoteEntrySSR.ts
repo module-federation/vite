@@ -46,11 +46,11 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
    */
   async function init(shared = {}, initScope = []) {
     const initRes = runtimeInit({
-      name: ${JSON.stringify(options.internalName)},
+      name: ${JSON.stringify(options.name)},
       remotes: [],
       shared: {},
     });
-    const initToken = { from: ${JSON.stringify(options.internalName)} };
+    const initToken = { from: ${JSON.stringify(options.name)} };
     if (initScope.indexOf(initToken) >= 0) return;
     initScope.push(initToken);
     initRes.initShareScopeMap(${JSON.stringify(options.shareScope)}, shared);
