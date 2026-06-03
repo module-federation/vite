@@ -184,6 +184,19 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
   );
 }
 
+// Returns false for subpaths not exported by the installed package (e.g.
+// react/compiler-runtime on React 18) so we can exclude them from Vite's dep
+// optimizer instead of letting Vite's resolver error on the missing export.
+function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean {
+  try {
+    const req = createRequire(new URL(`file://${projectRoot}/package.json`));
+    req.resolve(subpath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Plugin that runs FIRST to register generated virtual modules in the config hook.
  * This prevents 504 "Outdated Optimize Dep" errors by ensuring ids are known
@@ -314,9 +327,14 @@ export default __mfShared.default ?? __mfShared;`,
             if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
               const optimizeDeps = (config.optimizeDeps ??= {});
               optimizeDeps.include ??= [];
+              optimizeDeps.exclude ??= [];
               for (const subpath of getCommonSharedSubpaths(key)) {
                 writePreBuildLibPath(subpath, shareItem);
-                optimizeDeps.include.push(subpath);
+                if (canResolveSharedSubpath(subpath, root)) {
+                  optimizeDeps.include.push(subpath);
+                } else {
+                  optimizeDeps.exclude.push(subpath);
+                }
               }
             }
             continue;
@@ -352,7 +370,11 @@ export default __mfShared.default ?? __mfShared;`,
               writeLoadShareModule(subpath, shareItem, _command, isRolldown);
               writePreBuildLibPath(subpath, shareItem);
               addUsedShares(subpath);
-              optimizeDeps.include.push(subpath);
+              if (canResolveSharedSubpath(subpath, root)) {
+                optimizeDeps.include.push(subpath);
+              } else {
+                optimizeDeps.exclude.push(subpath);
+              }
             }
           }
         }
@@ -389,6 +411,7 @@ export default __mfShared.default ?? __mfShared;`,
         'react-dom',
         'react/jsx-runtime',
         'react/jsx-dev-runtime',
+        'react/compiler-runtime',
         '@module-federation/runtime',
         '@module-federation/runtime-core',
         '@module-federation/sdk',
@@ -475,6 +498,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               const reactServerEntryMap: Record<string, string> = {
                 'react/jsx-runtime': 'react/cjs/react-jsx-runtime.production.js',
                 'react/jsx-dev-runtime': 'react/cjs/react-jsx-dev-runtime.production.js',
+                'react/compiler-runtime': 'react/cjs/react-compiler-runtime.production.js',
               };
               if (!(id in reactServerEntryMap)) return;
               const environmentName = (this as { environment?: { name?: string } }).environment
