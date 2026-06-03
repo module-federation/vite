@@ -184,9 +184,16 @@ describe('cssModuleHelpers', () => {
         },
         'sibling.js': {
           ...createChunk('sibling.js'),
+          imports: ['nested.js'],
           dynamicImports: ['async.js'],
         },
+        'nested.js': {
+          ...createChunk('nested.js'),
+          imports: ['entry.js'],
+          dynamicImports: ['nested-async.js'],
+        },
         'async.js': createChunk('async.js'),
+        'nested-async.js': createChunk('nested-async.js'),
       } satisfies Record<string, OutputBundleItem>;
 
       const filesMap = {};
@@ -196,7 +203,7 @@ describe('cssModuleHelpers', () => {
 
       expect(filesMap).toEqual({
         module1: {
-          js: { sync: ['entry.js'], async: ['async.js'] },
+          js: { sync: ['entry.js'], async: ['async.js', 'nested-async.js'] },
           css: { sync: [], async: [] },
         },
       });

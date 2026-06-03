@@ -184,11 +184,11 @@ export const processModuleAssets = (
         }
       }
 
-      // Handle dynamic imports reachable through the static-import graph
+      // Handle dynamic imports from static chunks reachable from the matched expose chunk
       const visited = new Set<string>();
       const queue: string[] = [fileName];
-      while (queue.length) {
-        const cur = queue.shift()!;
+      for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
+        const cur = queue[queueIndex];
         if (visited.has(cur)) continue;
         visited.add(cur);
         const chunk = bundle[cur];
