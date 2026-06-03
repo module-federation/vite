@@ -8,6 +8,7 @@ import {
   getCommonSharedSubpaths,
   getMatchingNodeModuleSubpath,
   isNodeModulePath,
+  normalizeNodeModulePath,
 } from '../utils/pathNormalization';
 import {
   getIsRolldown,
@@ -91,15 +92,20 @@ function findSharedKeyForSource(
 ): string | undefined {
   const key = findSharedKey(source, shared);
   if (key) return key;
+  const explicitSharedSubpathKeys = Object.keys(shared || {}).filter(
+    (sharedKey) => getPackageName(sharedKey) !== sharedKey && !sharedKey.endsWith('/')
+  );
 
   if (isNodeModulePath(source)) {
-    const explicitSubpathKey = getMatchingNodeModuleSubpath(
-      source,
-      Object.keys(shared || {}).filter(
-        (sharedKey) => sharedKey.includes('/') && !sharedKey.endsWith('/')
-      )
-    );
+    const explicitSubpathKey = getMatchingNodeModuleSubpath(source, explicitSharedSubpathKeys);
     if (explicitSubpathKey) return explicitSubpathKey;
+
+    const normalizedSource = normalizeNodeModulePath(source);
+    const explicitSubpathEntryKey = explicitSharedSubpathKeys.find((sharedKey) => {
+      const entry = getInstalledPackageEntry(sharedKey, { cwd: getPackageDetectionCwd() });
+      return entry ? normalizeNodeModulePath(entry) === normalizedSource : false;
+    });
+    if (explicitSubpathEntryKey) return explicitSubpathEntryKey;
   }
 
   const packageName = getPackageNameFromNodeModulePath(source);
