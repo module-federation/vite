@@ -213,6 +213,18 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('virtual:prebuild:transitive-no-override');
   });
 
+  it('uses public name in generated shared records', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('from: "host"');
+    expect(code).not.toContain('from: "__mfe_internal__host"');
+  });
+
   it('writes host auto init before init', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => {
       return pkg === 'vinext';
@@ -373,7 +385,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('.then((mod) => mod.default ?? mod)');
     expect(code).toContain('const {usedShared, usedRemotes} = await getLocalSharedImportMap()');
     expect(code).toContain('const exposesMap = await getExposesMap()');
-    expect(code).toContain('const mfName = "__mfe_internal__host"');
+    expect(code).toContain('const mfName = "host"');
     expect(code).toContain('share.shareConfig?.import !== false');
     expect(code).toContain('const versions = shared?.[pkg]');
     expect(code).not.toContain('initRes.loadShare(pkg');

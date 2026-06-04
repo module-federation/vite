@@ -2,10 +2,11 @@ import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
 import { buildFixture, FIXTURES } from './helpers/build';
+import { isRollupChunk } from './helpers/assertions';
 import { findChunk, getAllChunkCode, getChunkNames } from './helpers/matchers';
 
 const ISOLATION_MF_OPTIONS = {
-  name: 'isolatedRemote',
+  name: 'scheduler',
   filename: 'remoteEntry.js',
   exposes: {
     './shared': resolve(FIXTURES, 'shared-remote', 'exposed-module.js'),
@@ -24,12 +25,16 @@ describe('remote entry isolation', () => {
     });
 
     const remoteEntry = findChunk(output, 'remoteEntry');
+    const remoteEntryImpl = output.output
+      .filter(isRollupChunk)
+      .find((chunk) => /(?:const|var) mfName\s*=\s*["']scheduler["']/.test(chunk.code));
     const hostInit = findChunk(output, 'hostInit');
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
     const virtualExposes = findChunk(output, 'virtualExposes');
     const allCode = getAllChunkCode(output);
 
     expect(remoteEntry).toBeDefined();
+    expect(remoteEntryImpl).toBeDefined();
     expect(hostInit).toBeDefined();
     expect(localSharedImportMap).toBeDefined();
     expect(virtualExposes).toBeDefined();
@@ -45,6 +50,10 @@ describe('remote entry isolation', () => {
     expect(remoteEntry!.code).not.toMatch(/import["']\.\/assets\/.*__loadShare__/);
     expect(remoteEntry!.code).not.toMatch(/import["']\.\/assets\/.*localSharedImportMap/);
     expect(remoteEntry!.code).not.toMatch(/import["']\.\/assets\/.*virtualExposes/);
+    expect(remoteEntryImpl!.code).toMatch(/(?:const|var) mfName\s*=\s*["']scheduler["']/);
+    expect(remoteEntryImpl!.code).toMatch(/name:\s*mfName/);
+    expect(allCode).toContain('__mfe_internal__scheduler');
+    expect(localSharedImportMap!.code).toMatch(/from:\s*["']scheduler["']/);
 
     expect(localSharedImportMap!.code).not.toContain('__vite__mapDeps');
     expect(localSharedImportMap!.code).not.toContain('remoteEntry.js');

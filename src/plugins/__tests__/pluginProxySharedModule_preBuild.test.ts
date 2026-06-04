@@ -17,6 +17,7 @@ const {
   writeLoadShareModuleMock,
   writeLocalSharedImportMapMock,
   writePreBuildLibPathMock,
+  getInstalledPackageEntryMock,
 } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(),
   existsSyncMock: vi.fn<(path: string) => boolean>(() => false),
@@ -26,6 +27,7 @@ const {
   writeLoadShareModuleMock: vi.fn(),
   writeLocalSharedImportMapMock: vi.fn<() => void>(),
   writePreBuildLibPathMock: vi.fn(),
+  getInstalledPackageEntryMock: vi.fn<(pkg: string) => string | undefined>(() => undefined),
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -44,7 +46,7 @@ vi.mock('../../utils/packageUtils', () => ({
   ) =>
     shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
   hasPackageDependency: hasPackageDependencyMock,
-  getInstalledPackageEntry: vi.fn(() => undefined),
+  getInstalledPackageEntry: getInstalledPackageEntryMock,
   getInstalledPackageJson: vi.fn((pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     const packageName = match ? match[0] : pkg;
@@ -254,6 +256,8 @@ describe('pluginProxySharedModule_preBuild', () => {
     writeLoadShareModuleMock.mockReset();
     writeLocalSharedImportMapMock.mockReset();
     writePreBuildLibPathMock.mockReset();
+    getInstalledPackageEntryMock.mockReset();
+    getInstalledPackageEntryMock.mockReturnValue(undefined);
     preBuildShareItemMap.clear();
     consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -470,6 +474,65 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     expect((resolution as { id: string }).id).toBeDefined();
     expect(preBuildShareItemMap.has('vue')).toBe(true);
+  });
+
+  it('does not proxy an explicit subpath share fallback to its package root wrapper', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg) =>
+      pkg === '@repro/hooks/media'
+        ? '/repo/apps/remote/node_modules/@repro/hooks/src/media.ts'
+        : undefined
+    );
+
+    const shared = makeShared();
+    shared['@repro/hooks'] = {
+      name: '@repro/hooks',
+      from: '',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: false,
+        strictVersion: false,
+      },
+    };
+    shared['@repro/hooks/media'] = {
+      name: '@repro/hooks/media',
+      from: '',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: false,
+        strictVersion: false,
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      '/repo/apps/remote/node_modules/@repro/hooks/src/media.ts',
+      '/virtual/__loadShare__@repro/hooks/media__loadShare__.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
   });
 
   it('materializes repeated loadShare resolutions once per shared source', async () => {
