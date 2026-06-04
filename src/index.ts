@@ -37,7 +37,7 @@ import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederat
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
 import { getCommonSharedSubpaths } from './utils/pathNormalization';
-import VirtualModule from './utils/VirtualModule';
+import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
   getHostAutoInitPath,
@@ -55,6 +55,8 @@ import { addUsedRemote } from './virtualModules/virtualRemotes';
 import { virtualRuntimeInitStatus } from './virtualModules/virtualRuntimeInitStatus';
 import {
   getLoadShareModulePath,
+  materializeCachedLoadShareModule,
+  toViteOptimizedDepVirtualId,
   writeLoadShareModule,
   writePreBuildLibPath,
 } from './virtualModules/virtualShared_preBuild';
@@ -306,10 +308,13 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             optimizeDeps.esbuildOptions.plugins.push({
               name: 'module-federation:optimize-shared-proxy',
               setup(build: any) {
-                build.onResolve({ filter: /^virtual:mf:/ }, (args: any) => ({
-                  path: args.path,
-                  external: true,
-                }));
+                build.onResolve(
+                  { filter: createViteEncodedIdPrefixRegExp('virtual:mf:') },
+                  (args: any) => ({
+                    path: args.path,
+                    external: true,
+                  })
+                );
                 build.onResolve({ filter: /.*/ }, (args: any) => {
                   if (!args.importer || args.namespace === 'mf-shared') return;
                   if (isSharedResolverInternalImporter(args.importer)) return;
@@ -322,6 +327,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (!key) return;
                   const shareItem = shared[key];
                   const loadSharePath = getLoadShareModulePath(args.path, isRolldown);
+                  const optimizedLoadSharePath = toViteOptimizedDepVirtualId(loadSharePath);
                   writeLoadShareModule(args.path, shareItem, _command, isRolldown);
                   if (shareItem.shareConfig?.import !== false) {
                     writePreBuildLibPath(args.path, shareItem);
@@ -330,8 +336,8 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   return {
                     loader: 'js',
                     resolveDir: root,
-                    contents: `import * as __mfShared from ${JSON.stringify(loadSharePath)};
-export * from ${JSON.stringify(loadSharePath)};
+                    contents: `import * as __mfShared from ${JSON.stringify(optimizedLoadSharePath)};
+export * from ${JSON.stringify(optimizedLoadSharePath)};
 export default __mfShared.default ?? __mfShared;`,
                   };
                 });
@@ -491,7 +497,19 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       name: 'vite:module-federation-virtual-modules',
       enforce: 'pre',
       resolveId(id: string) {
-        const virtualModule = VirtualModule.findById(id);
+        let virtualModule = VirtualModule.findById(id);
+        if (!virtualModule) {
+          materializeCachedLoadShareModule({
+            id,
+            shared: options.shared,
+            command,
+            isRolldown: getIsRolldown(this),
+            findSharedKey,
+            addUsedShares,
+            writeLocalSharedImportMap,
+          });
+          virtualModule = VirtualModule.findById(id);
+        }
         if (!virtualModule) return;
         return virtualModule.getResolvedId();
       },

@@ -11,6 +11,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getLoadShareImportId,
   getLoadShareModulePath,
+  toViteOptimizedDepVirtualId,
 } from '../virtualModules/virtualShared_preBuild';
 import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
 
@@ -719,6 +720,54 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).not.toContain(getPreBuildLibImportId('vue'));
     expect(config.optimizeDeps.include).not.toContain(getLoadShareImportId('vue', false));
     expect(config.optimizeDeps.include.join(',')).not.toContain('virtual:mf:');
+  });
+
+  it('uses Vite-resolvable loadShare ids in non-Rolldown optimized dep shared proxies', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          'pkg-foo/': {
+            singleton: true,
+          },
+        },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: ['pkg-bar'],
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const optimizeSharedProxy = config.optimizeDeps.esbuildOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-proxy'
+    );
+    const onResolveHandlers: any[] = [];
+    const onLoadHandlers: any[] = [];
+    optimizeSharedProxy.setup({
+      onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
+      onLoad: (_options: unknown, handler: unknown) => onLoadHandlers.push(handler),
+    });
+
+    const result = onLoadHandlers[0]({ path: 'pkg-foo/a' });
+    const loadSharePath = getLoadShareModulePath('pkg-foo/a', false);
+    const optimizedLoadSharePath = toViteOptimizedDepVirtualId(loadSharePath);
+
+    expect(onResolveHandlers[0]({ path: optimizedLoadSharePath })).toEqual({
+      path: optimizedLoadSharePath,
+      external: true,
+    });
+    expect(result.contents).toContain(JSON.stringify(optimizedLoadSharePath));
+    expect(result.contents).not.toContain(`from ${JSON.stringify(loadSharePath)}`);
   });
 
   it('redirects System.register commonjs-proxy consumers to loadShare chunks', () => {
