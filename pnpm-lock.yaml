@@ -18,44 +18,44 @@ importers:
         specifier: 2.5.0
         version: 2.5.0
       es-module-lexer:
-        specifier: ^2.0.0
+        specifier: 2.0.0
         version: 2.0.0
       estree-walker:
-        specifier: ^3.0.3
+        specifier: 3.0.3
         version: 3.0.3
       pathe:
-        specifier: ^2.0.3
+        specifier: 2.0.3
         version: 2.0.3
     devDependencies:
       '@changesets/cli':
-        specifier: ^2.30.0
+        specifier: 2.30.0
         version: 2.30.0(@types/node@25.3.3)
       '@playwright/test':
-        specifier: ^1.58.2
+        specifier: 1.58.2
         version: 1.58.2
       '@types/node':
-        specifier: ^25.3.3
+        specifier: 25.3.3
         version: 25.3.3
       husky:
-        specifier: ^9.1.7
+        specifier: 9.1.7
         version: 9.1.7
       oxfmt:
-        specifier: ^0.36.0
+        specifier: 0.36.0
         version: 0.36.0
       rollup:
-        specifier: ^4.47.1
+        specifier: 4.47.1
         version: 4.47.1
       tsdown:
-        specifier: ^0.21.0
+        specifier: 0.21.0
         version: 0.21.0(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(typescript@5.9.3)
       typescript:
         specifier: 5.9.3
         version: 5.9.3
       vite:
-        specifier: ^8.0.10
+        specifier: 8.0.10
         version: 8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
       vitest:
-        specifier: ^4.0.18
+        specifier: 4.0.18
         version: 4.0.18(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
   .github/publish-ci/node-esm:
@@ -84,19 +84,19 @@ importers:
         specifier: 2.3.3
         version: 2.3.3(@rspack/core@1.0.4(@swc/helpers@0.5.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.5.3)(webpack@5.97.1(esbuild@0.27.3))
       antd:
-        specifier: ^5.16.2
+        specifier: 5.22.7
         version: 5.22.7(luxon@3.7.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react:
-        specifier: ^18.2.0
+        specifier: 18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.2.0
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
       react-router-dom:
-        specifier: ^6.22.3
+        specifier: 6.28.1
         version: 6.28.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       vue:
-        specifier: ^3.4.29
+        specifier: 3.5.13
         version: 3.5.13(typescript@5.5.3)
     devDependencies:
       '@rsbuild/core':
@@ -121,26 +121,26 @@ importers:
         specifier: workspace:*
         version: link:../../..
       react:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.2.0
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
       vue:
-        specifier: ^3.4.35
+        specifier: 3.5.13
         version: 3.5.13(typescript@5.9.3)
       vue-router:
-        specifier: ^4.4.0
+        specifier: 4.4.3
         version: 4.4.3(vue@3.5.13(typescript@5.9.3))
     devDependencies:
       '@swc/core':
-        specifier: ~1.6.0
+        specifier: 1.6.13
         version: 1.6.13(@swc/helpers@0.5.3)
       '@vitejs/plugin-react':
-        specifier: ^4.3.1
+        specifier: 4.3.1
         version: 4.3.1(vite@5.4.21(@types/node@25.3.3)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6))
       vite:
-        specifier: ^5.3.1
+        specifier: 5.4.21
         version: 5.4.21(@types/node@25.3.3)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6)
 
   examples/vite-runtime-register/vite-host:
@@ -156,16 +156,16 @@ importers:
         version: 19.2.4(react@19.2.4)
     devDependencies:
       '@rolldown/plugin-babel':
-        specifier: ^0.2.3
+        specifier: 0.2.3
         version: 0.2.3(@babel/core@7.28.6)(@babel/runtime@7.29.2)(rolldown@1.0.0-rc.17)(vite@8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       '@vitejs/plugin-react':
-        specifier: ^6.0.2
+        specifier: 6.0.2
         version: 6.0.2(@rolldown/plugin-babel@0.2.3(@babel/core@7.28.6)(@babel/runtime@7.29.2)(rolldown@1.0.0-rc.17)(vite@8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)))(babel-plugin-react-compiler@1.0.0)(vite@8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       babel-plugin-react-compiler:
-        specifier: ^1.0.0
+        specifier: 1.0.0
         version: 1.0.0
       vite:
-        specifier: ^8.0.10
+        specifier: 8.0.10
         version: 8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
   examples/vite-runtime-register/vite-remote:
@@ -181,26 +181,26 @@ importers:
         version: 19.2.4(react@19.2.4)
     devDependencies:
       '@rolldown/plugin-babel':
-        specifier: ^0.2.3
+        specifier: 0.2.3
         version: 0.2.3(@babel/core@7.28.6)(@babel/runtime@7.29.2)(rolldown@1.0.0-rc.17)(vite@8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       '@vitejs/plugin-react':
-        specifier: ^6.0.2
+        specifier: 6.0.2
         version: 6.0.2(@rolldown/plugin-babel@0.2.3(@babel/core@7.28.6)(@babel/runtime@7.29.2)(rolldown@1.0.0-rc.17)(vite@8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)))(babel-plugin-react-compiler@1.0.0)(vite@8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       babel-plugin-react-compiler:
-        specifier: ^1.0.0
+        specifier: 1.0.0
         version: 1.0.0
       vite:
-        specifier: ^8.0.10
+        specifier: 8.0.10
         version: 8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
   examples/vite-vite/shared-lib:
     dependencies:
       typescript:
-        specifier: ^5.9.3
+        specifier: 5.9.3
         version: 5.9.3
     devDependencies:
       '@types/react':
-        specifier: ^19.0.0
+        specifier: 19.2.14
         version: 19.2.14
       react:
         specifier: 19.2.4
@@ -239,14 +239,14 @@ importers:
         specifier: 6.1.19
         version: 6.1.19(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       vue:
-        specifier: ^3.4.37
+        specifier: 3.5.13
         version: 3.5.13(typescript@5.9.3)
       vue-router:
-        specifier: ^4.4.3
+        specifier: 4.4.3
         version: 4.4.3(vue@3.5.13(typescript@5.9.3))
     devDependencies:
       '@swc/core':
-        specifier: ~1.7.10
+        specifier: 1.7.14
         version: 1.7.14(@swc/helpers@0.5.3)
       '@types/react':
         specifier: 19.2.14
@@ -255,10 +255,10 @@ importers:
         specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
-        specifier: ^5.1.2
+        specifier: 5.1.2
         version: 5.1.2(vite@8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       vite:
-        specifier: ^8.0.10
+        specifier: 8.0.10
         version: 8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
   examples/vite-vite/vite-remote:
@@ -291,20 +291,20 @@ importers:
         specifier: 19.2.4
         version: 19.2.4(react@19.2.4)
       sass-embedded:
-        specifier: ^1.77.8
+        specifier: 1.77.8
         version: 1.77.8
       styled-components:
         specifier: 6.1.19
         version: 6.1.19(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       vue:
-        specifier: ^3.4.37
+        specifier: 3.4.38
         version: 3.4.38(typescript@5.9.3)
       vue-router:
-        specifier: ^4.4.3
+        specifier: 4.4.3
         version: 4.4.3(vue@3.4.38(typescript@5.9.3))
     devDependencies:
       '@swc/core':
-        specifier: ~1.7.10
+        specifier: 1.7.14
         version: 1.7.14(@swc/helpers@0.5.3)
       '@types/react':
         specifier: 19.2.14
@@ -313,10 +313,10 @@ importers:
         specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
-        specifier: ^5.1.2
+        specifier: 5.1.2
         version: 5.1.2(vite@8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       vite:
-        specifier: ^8.0.10
+        specifier: 8.0.10
         version: 8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
   examples/vite-webpack-rspack/dynamic-remote:
@@ -325,75 +325,75 @@ importers:
         specifier: workspace:*
         version: link:../../..
       lodash:
-        specifier: ^4.17.21
+        specifier: 4.17.21
         version: 4.17.21
       react:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
       '@eslint/js':
-        specifier: ^9.9.0
+        specifier: 9.17.0
         version: 9.17.0
       '@types/react':
-        specifier: ^18.3.3
+        specifier: 18.3.3
         version: 18.3.3
       '@types/react-dom':
-        specifier: ^18.3.0
+        specifier: 18.3.0
         version: 18.3.0
       '@vitejs/plugin-react':
-        specifier: ^5.1.2
+        specifier: 5.1.2
         version: 5.1.2(vite@8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       globals:
-        specifier: ^15.9.0
+        specifier: 15.14.0
         version: 15.14.0
       tailwindcss:
-        specifier: ^3.4.13
+        specifier: 3.4.17
         version: 3.4.17
       vite:
-        specifier: ^8.0.10
+        specifier: 8.0.10
         version: 8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
   examples/vite-webpack-rspack/host:
     dependencies:
       '@module-federation/enhanced':
-        specifier: ^2.5.0
+        specifier: 2.5.0
         version: 2.5.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(typescript@5.9.3)(webpack@5.97.1(esbuild@0.27.3))
       '@module-federation/vite':
         specifier: workspace:*
         version: link:../../..
       lodash:
-        specifier: ^4.17.21
+        specifier: 4.17.21
         version: 4.17.21
       react:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
       '@eslint/js':
-        specifier: ^9.9.0
+        specifier: 9.17.0
         version: 9.17.0
       '@types/react':
-        specifier: ^18.3.3
+        specifier: 18.3.3
         version: 18.3.3
       '@types/react-dom':
-        specifier: ^18.3.0
+        specifier: 18.3.0
         version: 18.3.0
       '@vitejs/plugin-react':
-        specifier: ^4.3.1
+        specifier: 4.3.1
         version: 4.3.1(vite@7.3.2(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       globals:
-        specifier: ^15.9.0
+        specifier: 15.14.0
         version: 15.14.0
       tailwindcss:
-        specifier: ^3.4.13
+        specifier: 3.4.17
         version: 3.4.17
       vite:
-        specifier: ^7.3.1
+        specifier: 7.3.2
         version: 7.3.2(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
   examples/vite-webpack-rspack/remote:
@@ -402,41 +402,41 @@ importers:
         specifier: workspace:*
         version: link:../../..
       react:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
       '@eslint/js':
-        specifier: ^9.9.0
+        specifier: 9.17.0
         version: 9.17.0
       '@types/react':
-        specifier: ^18.3.3
+        specifier: 18.3.3
         version: 18.3.3
       '@types/react-dom':
-        specifier: ^18.3.0
+        specifier: 18.3.0
         version: 18.3.0
       '@vitejs/plugin-react':
-        specifier: ^4.3.1
+        specifier: 4.3.1
         version: 4.3.1(vite@6.4.2(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       globals:
-        specifier: ^15.9.0
+        specifier: 15.14.0
         version: 15.14.0
       tailwindcss:
-        specifier: ^3.4.13
+        specifier: 3.4.17
         version: 3.4.17
       vite:
-        specifier: ^6.4.1
+        specifier: 6.4.2
         version: 6.4.2(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
   examples/vite-webpack-rspack/rspack:
     dependencies:
       react:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
       '@rspack/cli':
@@ -449,25 +449,25 @@ importers:
         specifier: 1.0.0
         version: 1.0.0(react-refresh@0.14.2)
       '@types/react':
-        specifier: ^18.2.0
+        specifier: 18.3.3
         version: 18.3.3
       '@types/react-dom':
-        specifier: ^18.2.0
+        specifier: 18.3.0
         version: 18.3.0
       autoprefixer:
-        specifier: ^10.1.0
+        specifier: 10.4.20
         version: 10.4.20(postcss@8.4.49)
       postcss:
-        specifier: ^8.2.1
+        specifier: 8.4.49
         version: 8.4.49
       postcss-loader:
-        specifier: ^8.0.0
+        specifier: 8.1.1
         version: 8.1.1(@rspack/core@1.0.4(@swc/helpers@0.5.3))(postcss@8.4.49)(typescript@5.9.3)(webpack@5.97.1(esbuild@0.27.3))
       react-refresh:
-        specifier: ^0.14.0
+        specifier: 0.14.2
         version: 0.14.2
       tailwindcss:
-        specifier: ^3.4.11
+        specifier: 3.4.17
         version: 3.4.17
 
   examples/vite-webpack-rspack/tests-remote:
@@ -476,123 +476,123 @@ importers:
         specifier: workspace:*
         version: link:../../..
       chart.js:
-        specifier: ^4.4.7
+        specifier: 4.4.7
         version: 4.4.7
       ramda:
-        specifier: ^0.30.1
+        specifier: 0.30.1
         version: 0.30.1
       react:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1
       react-chartjs-2:
-        specifier: ^5.3.0
+        specifier: 5.3.0
         version: 5.3.0(chart.js@4.4.7)(react@18.3.1)
       react-dom:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
       react-dropzone:
-        specifier: ^14.3.5
+        specifier: 14.3.5
         version: 14.3.5(react@18.3.1)
       react-easy-crop:
-        specifier: ^5.2.0
+        specifier: 5.2.0
         version: 5.2.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@eslint/js':
-        specifier: ^9.9.0
+        specifier: 9.17.0
         version: 9.17.0
       '@types/ramda':
-        specifier: ^0.30.2
+        specifier: 0.30.2
         version: 0.30.2
       '@types/react':
-        specifier: ^18.3.3
+        specifier: 18.3.3
         version: 18.3.3
       '@types/react-dom':
-        specifier: ^18.3.0
+        specifier: 18.3.0
         version: 18.3.0
       '@vitejs/plugin-react':
-        specifier: ^4.3.1
+        specifier: 4.3.1
         version: 4.3.1(vite@7.3.2(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2))
       globals:
-        specifier: ^15.9.0
+        specifier: 15.14.0
         version: 15.14.0
       tailwindcss:
-        specifier: ^3.4.13
+        specifier: 3.4.17
         version: 3.4.17
       vite:
-        specifier: ^7.3.1
+        specifier: 7.3.2
         version: 7.3.2(@types/node@25.3.3)(jiti@2.6.1)(lightningcss@1.32.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
   examples/vite-webpack-rspack/webpack:
     dependencies:
       react:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.1
+        specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
       '@babel/core':
-        specifier: ^7.15.8
+        specifier: 7.25.2
         version: 7.25.2
       '@babel/plugin-transform-runtime':
-        specifier: ^7.15.8
+        specifier: 7.25.9
         version: 7.25.9(@babel/core@7.25.2)
       '@babel/preset-env':
-        specifier: ^7.15.8
+        specifier: 7.25.4
         version: 7.25.4(@babel/core@7.25.2)
       '@babel/preset-react':
-        specifier: ^7.14.5
+        specifier: 7.24.7
         version: 7.24.7(@babel/core@7.25.2)
       '@babel/preset-typescript':
-        specifier: ^7.10.4
+        specifier: 7.26.0
         version: 7.26.0(@babel/core@7.25.2)
       '@babel/runtime':
         specifier: 7.25.6
         version: 7.25.6
       '@types/react':
-        specifier: ^18.2.0
+        specifier: 18.3.3
         version: 18.3.3
       '@types/react-dom':
-        specifier: ^18.2.0
+        specifier: 18.3.0
         version: 18.3.0
       autoprefixer:
-        specifier: ^10.1.0
+        specifier: 10.4.20
         version: 10.4.20(postcss@8.4.49)
       babel-loader:
-        specifier: ^8.2.2
+        specifier: 8.4.1
         version: 8.4.1(@babel/core@7.25.2)(webpack@5.97.1)
       css-loader:
-        specifier: ^6.3.0
+        specifier: 6.11.0
         version: 6.11.0(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.97.1)
       dotenv-webpack:
-        specifier: ^8.0.1
+        specifier: 8.1.0
         version: 8.1.0(webpack@5.97.1)
       html-webpack-plugin:
-        specifier: ^5.3.2
+        specifier: 5.6.3
         version: 5.6.3(@rspack/core@1.0.4(@swc/helpers@0.5.3))(webpack@5.97.1)
       postcss:
-        specifier: ^8.2.1
+        specifier: 8.4.49
         version: 8.4.49
       postcss-loader:
-        specifier: ^4.1.0
+        specifier: 4.3.0
         version: 4.3.0(postcss@8.4.49)(webpack@5.97.1)
       style-loader:
-        specifier: ^3.3.0
+        specifier: 3.3.4
         version: 3.3.4(webpack@5.97.1)
       tailwindcss:
-        specifier: ^3.4.1
+        specifier: 3.4.17
         version: 3.4.17
       typescript:
-        specifier: ^4.5.2
+        specifier: 4.9.5
         version: 4.9.5
       webpack:
-        specifier: ^5.57.1
+        specifier: 5.97.1
         version: 5.97.1(esbuild@0.27.3)(webpack-cli@4.10.0)
       webpack-cli:
-        specifier: ^4.10.0
+        specifier: 4.10.0
         version: 4.10.0(webpack-dev-server@4.15.2)(webpack@5.97.1)
       webpack-dev-server:
-        specifier: ^4.3.1
+        specifier: 4.15.2
         version: 4.15.2(webpack-cli@4.10.0)(webpack@5.97.1)
 
 packages:

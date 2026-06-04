@@ -10,17 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "@module-federation/vite": "workspace:*"
   },
   "devDependencies": {
-    "@eslint/js": "^9.9.0",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "globals": "^15.9.0",
-    "tailwindcss": "^3.4.13",
-    "vite": "^6.4.1"
+    "@eslint/js": "9.17.0",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "@vitejs/plugin-react": "4.3.1",
+    "globals": "15.14.0",
+    "tailwindcss": "3.4.17",
+    "vite": "6.4.2"
   }
 }
