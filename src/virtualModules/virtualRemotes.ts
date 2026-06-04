@@ -52,7 +52,7 @@ export function getRemoteFromId(id: string, remotes: Record<string, RemoteObject
 /**
  * How a generated remote wrapper loads at module evaluation time.
  *
- * - `eager`: version-first — start `loadRemote` immediately, await via top-level export hook
+ * - `eager`: version-first — start `loadRemote` immediately, resolve via promise chain
  * - `loaded-first-ssr`: SSR/client split — real module (proxies are invalid on the server)
  * - `loaded-first-client`: browser split — defer until an export is read
  * - `loaded-first-unified`: single graph — `typeof window` picks SSR vs browser behavior
@@ -73,71 +73,53 @@ export function resolveRemoteInitMode(
   return 'loaded-first-unified';
 }
 
-function usesEnvironmentSplit(initMode: RemoteInitMode, command: string) {
-  return (
-    (initMode === 'loaded-first-client' || initMode === 'loaded-first-ssr') &&
-    (command === 'serve' || command === 'build')
-  );
-}
-
 function shouldDeferRemoteLoad(initMode: RemoteInitMode) {
   return initMode === 'loaded-first-client' || initMode === 'loaded-first-unified';
 }
 
-export function generateRemotes(
-  id: string,
-  command: string,
-  enableSsrInit = false,
-  consumer: RemoteConsumer = 'unified'
+function shouldIncludeDeferredProxy(
+  initMode: RemoteInitMode,
+  consumer: RemoteConsumer,
+  enableSsrInit: boolean,
+  deferRemoteLoad: boolean
 ) {
-  const options = getNormalizeModuleFederationOptions();
-  const isLoadedFirst = options.shareStrategy === 'loaded-first';
-  const initMode = resolveRemoteInitMode(options.shareStrategy, consumer);
-  const useSplitConsumer = usesEnvironmentSplit(initMode, command);
-  const deferRemoteLoad = shouldDeferRemoteLoad(initMode);
-  const remote = getRemoteFromId(id, options.remotes);
-  const registerRemoteCode =
-    isLoadedFirst && remote
-      ? `runtime.registerRemotes([${JSON.stringify({
-          entryGlobalName: remote.entryGlobalName,
-          name: remote.name,
-          type: remote.type,
-          entry: remote.entry,
-          shareScope: remote.shareScope ?? 'default',
-        })}]);`
-      : '';
-  const browserHostInitCode = `import(${JSON.stringify(getHostAutoInitPath())})
-        .then((mod) => mod.hostInitPromise)
-        .then(initResolve, initReject);`;
-  const devRuntimeBootstrap = `${getRuntimeInitBootstrapCode(enableSsrInit)}
-    const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
-  const importLine =
-    command === 'build'
-      ? `${getRuntimeModuleCacheBootstrapCode()}
-    import { hostInitPromise as __mfHostInitPromise } from ${JSON.stringify(getHostAutoInitPath())};`
-      : useSplitConsumer && consumer === 'server'
-        ? devRuntimeBootstrap
-        : useSplitConsumer && consumer === 'client'
-          ? `${devRuntimeBootstrap}
-    ${browserHostInitCode}`
-          : `${devRuntimeBootstrap}
-    if (typeof window !== "undefined") {
-      ${browserHostInitCode}
-    }`;
-  const unwrapHelper = `
+  if (initMode === 'eager') {
+    return consumer !== 'server' && (consumer === 'unified' || !enableSsrInit);
+  }
+  if (consumer === 'client' && enableSsrInit) return false;
+  return deferRemoteLoad || consumer !== 'server';
+}
+
+/** Codegen shared by every remote virtual module (no top-level await). */
+function getRemoteModuleRuntimeHelpers() {
+  return `
     function __mfUnwrapRemoteDefault(mod) {
       if (mod == null) return mod;
       if (mod.__esModule && mod.default != null) return mod.default;
       return mod.default ?? mod;
+    }
+    let __mfDefaultExport;
+    function __mfSyncDefaultExport() {
+      __mfDefaultExport = exportModule?.__mf_is_remote_proxy
+        ? exportModule
+        : __mfUnwrapRemoteDefault(exportModule);
+    }
+    function __mfAssignRemoteModule(mod) {
+      if (mod !== undefined) exportModule = mod;
+      __mfSyncDefaultExport();
+      return exportModule;
     }`;
-  const deferredProxyCode = `
+}
+
+function getDeferredProxyHelper(remoteId: string) {
+  return `
     function __mfCreateDeferredRemoteProxy() {
       let pendingPromise;
       const ensurePending = () => {
         pendingPromise ||= __mfStartRemoteLoad();
         return pendingPromise;
       };
-      const getModule = () => __mfModuleCache.remote[${JSON.stringify(id)}];
+      const getModule = () => __mfModuleCache.remote[${JSON.stringify(remoteId)}];
       const proxyTarget = function (...args) {
         const mod = getModule();
         const fn = mod && (mod.default ?? mod);
@@ -189,45 +171,66 @@ export function generateRemotes(
         }
       });
     }`;
-  const resolveRemoteExport = `
-    if (!exportModule?.__mf_is_remote_proxy) {
-      if (exportModule === undefined) {
-        __mfRemotePending ??= __mfStartRemoteLoad();
-        exportModule = await __mfRemotePending;
-      }
-    }`;
-  const defaultExportLine = `export default exportModule?.__mf_is_remote_proxy ? exportModule : __mfUnwrapRemoteDefault(exportModule)`;
-  const remotePendingThenable = `{
-  then(onFulfilled, onRejected) {
-    __mfRemotePending ??= __mfStartRemoteLoad().then((mod) => {
-      if (mod !== undefined) exportModule = mod;
-      return exportModule;
-    });
-    return __mfRemotePending.then(onFulfilled, onRejected);
-  },
-}`;
-  const remotePendingExport = deferRemoteLoad
-    ? `export const __mf_remote_pending = __mfRemotePending ?? ${remotePendingThenable}`
-    : `export const __mf_remote_pending =
-  __mfRemotePending ??
-  __mfStartRemoteLoad().then((mod) => {
-    if (mod !== undefined) exportModule = mod;
-    return exportModule;
-  });`;
-  const exportLine =
-    command === 'serve' || command === 'build'
-      ? `if (__mfRemotePending) {
-  __mfRemotePending = __mfRemotePending.then((mod) => {
-    if (mod !== undefined) exportModule = mod;
-    return exportModule;
-  });
 }
+
+function getLazyRemotePendingExport() {
+  return `export const __mf_remote_pending = __mfRemotePending ?? {
+  then(onFulfilled, onRejected) {
+    return (__mfRemotePending ??= __mfStartRemoteLoad().then(__mfAssignRemoteModule)).then(onFulfilled, onRejected);
+  },
+};`;
+}
+
+function getEagerRemotePendingExport() {
+  return `export const __mf_remote_pending =
+  __mfRemotePending ??
+  __mfStartRemoteLoad().then(__mfAssignRemoteModule);`;
+}
+
+function getRemoteExportBlock(command: string, deferRemoteLoad: boolean) {
+  if (command !== 'serve' && command !== 'build') {
+    return `__mfSyncDefaultExport();
+export default __mfDefaultExport`;
+  }
+  return `__mfRemotePending?.then(__mfSyncDefaultExport);
 export { exportModule as __moduleExports };
-${remotePendingExport}
-${deferRemoteLoad ? '' : resolveRemoteExport}
-${defaultExportLine}`
-      : `${resolveRemoteExport}
-${defaultExportLine}`;
+${deferRemoteLoad ? getLazyRemotePendingExport() : getEagerRemotePendingExport()}
+export default __mfDefaultExport`;
+}
+
+export function generateRemotes(
+  id: string,
+  command: string,
+  enableSsrInit = false,
+  consumer: RemoteConsumer = 'unified'
+) {
+  const options = getNormalizeModuleFederationOptions();
+  const isLoadedFirst = options.shareStrategy === 'loaded-first';
+  const initMode = resolveRemoteInitMode(options.shareStrategy, consumer);
+  const deferRemoteLoad = shouldDeferRemoteLoad(initMode);
+  const remote = getRemoteFromId(id, options.remotes);
+  const registerRemoteCode =
+    isLoadedFirst && remote
+      ? `runtime.registerRemotes([${JSON.stringify({
+          entryGlobalName: remote.entryGlobalName,
+          name: remote.name,
+          type: remote.type,
+          entry: remote.entry,
+          shareScope: remote.shareScope ?? 'default',
+        })}]);`
+      : '';
+  const browserHostInitCode = `import(${JSON.stringify(getHostAutoInitPath())})
+        .then((mod) => mod.hostInitPromise)
+        .then(initResolve, initReject);`;
+  const devRuntimeBootstrap = `${getRuntimeInitBootstrapCode(enableSsrInit, getHostAutoInitPath())}
+    const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
+  const devHostInitLine = command === 'serve' && consumer !== 'server' ? browserHostInitCode : '';
+  const importLine =
+    command === 'build'
+      ? `${getRuntimeModuleCacheBootstrapCode()}
+    import { hostInitPromise as __mfHostInitPromise } from ${JSON.stringify(getHostAutoInitPath())};`
+      : `${devRuntimeBootstrap}
+    ${devHostInitLine}`;
   const remoteLoadRuntimePromise = command === 'build' ? '__mfHostInitPromise' : 'initPromise';
   const remoteLoadFailureHandler =
     command === 'build'
@@ -259,34 +262,44 @@ ${defaultExportLine}`;
       ${startRemoteLoadCode}
     }`;
 
+  const realRemoteInit = `__mfRemotePending = __mfStartRemoteLoad().then(__mfAssignRemoteModule);`;
   const deferredClientInit = `exportModule = __mfCreateDeferredRemoteProxy();`;
-  const deferredServerInit = `__mfRemotePending = __mfStartRemoteLoad();
-      exportModule = await __mfRemotePending;`;
+  const eagerClientInit = enableSsrInit ? realRemoteInit : deferredClientInit;
+  const loadedFirstClientInit = enableSsrInit ? realRemoteInit : deferredClientInit;
+  const environmentSplitInit = (clientInit: string, serverInit: string) =>
+    consumer === 'client'
+      ? clientInit
+      : consumer === 'server'
+        ? serverInit
+        : `if (typeof window === "undefined") {
+      ${serverInit}
+    } else {
+      ${clientInit}
+    }`;
   const initExportModule =
     initMode === 'eager'
-      ? `__mfRemotePending = __mfStartRemoteLoad();`
-      : useSplitConsumer && initMode === 'loaded-first-ssr'
-        ? deferredServerInit
-        : useSplitConsumer && initMode === 'loaded-first-client'
-          ? deferredClientInit
-          : `if (typeof window === "undefined") {
-      ${deferredServerInit}
-    } else {
-      ${deferredClientInit}
-    }`;
+      ? environmentSplitInit(eagerClientInit, realRemoteInit)
+      : environmentSplitInit(loadedFirstClientInit, realRemoteInit);
 
-  const includeProxyHelper = deferRemoteLoad;
+  const includeProxyHelper = shouldIncludeDeferredProxy(
+    initMode,
+    consumer,
+    enableSsrInit,
+    deferRemoteLoad
+  );
+
+  const deferredProxyCode = getDeferredProxyHelper(id);
 
   return `
     ${importLine}
     ${remoteLoadCode}
     ${includeProxyHelper ? deferredProxyCode : ''}
-    ${unwrapHelper}
+    ${getRemoteModuleRuntimeHelpers()}
     let __mfRemotePending;
     let exportModule = __mfModuleCache.remote[${JSON.stringify(id)}]
     if (exportModule === undefined) {
       ${initExportModule}
     }
-    ${exportLine}
+    ${getRemoteExportBlock(command, deferRemoteLoad)}
   `;
 }

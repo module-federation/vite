@@ -26,8 +26,23 @@ export function setSsrRemotes(remotes: Array<{ name: string; entry: string; type
 // enableSsrInit controls whether the server-side MF runtime initialisation block
 // is emitted in dev remote wrappers. Gating is centralized in getSsrCapabilities()
 // (Vite 8+ dev ModuleRunner; build/preview uses HTTP fetch via ssrEntryLoader).
-function getSsrNoopResolveCode(enableSsrInit: boolean) {
+function getSsrNoopResolveCode(enableSsrInit: boolean, hostInitImportId?: string) {
   if (!enableSsrInit) return '';
+
+  // Prefer the host auto-init chunk in dev SSR (Nuxt/Vite server environments).
+  // It resolves the same initPromise as the browser path. The ModuleRunner-based
+  // bootstrap below remains as a fallback when host init is unavailable.
+  const hostInitResolveCode = hostInitImportId
+    ? `import(${JSON.stringify(hostInitImportId)})
+      .then(function(mod) { return mod.hostInitPromise; })
+      .then(function(runtime) {
+        initResolve(runtime);
+        return true;
+      })
+      .catch(function() {
+        return false;
+      })`
+    : 'Promise.resolve(false)';
 
   // On the server, initialise a real MF runtime with ssrEntryLoader so that
   // loadRemote triggers loadEntry and ssrEntryLoader can fetch the SSR remote
@@ -41,16 +56,19 @@ function getSsrNoopResolveCode(enableSsrInit: boolean) {
   const remotesJson = JSON.stringify(_ssrRemotes);
   return `if (typeof window === 'undefined') {
     var _noop = { loadRemote: function() { return Promise.resolve(undefined); }, loadShare: function() { return Promise.resolve(undefined); } };
-    import(/* @vite-ignore */ '@module-federation/runtime').then(function(runtimeMod) {
-      return import(/* @vite-ignore */ '@module-federation/vite/ssrEntryLoader').then(
-        function(loaderMod) { return [runtimeMod, [loaderMod.default()]]; },
-        function() { return [runtimeMod, []]; }
-      );
-    }).then(function(pair) {
-      var runtime = pair[0].init({ name: '__mf_ssr_host__', remotes: ${remotesJson}, shared: {}, plugins: pair[1] });
-      initResolve(runtime);
-    }, function() {
-      initResolve(_noop);
+    ${hostInitResolveCode}.then(function(resolved) {
+      if (resolved) return;
+      return import(/* @vite-ignore */ '@module-federation/runtime').then(function(runtimeMod) {
+        return import(/* @vite-ignore */ '@module-federation/vite/ssrEntryLoader').then(
+          function(loaderMod) { return [runtimeMod, [loaderMod.default()]]; },
+          function() { return [runtimeMod, []]; }
+        );
+      }).then(function(pair) {
+        var runtime = pair[0].init({ name: '__mf_ssr_host__', remotes: ${remotesJson}, shared: {}, plugins: pair[1] });
+        initResolve(runtime);
+      }, function() {
+        initResolve(_noop);
+      });
     });
   }`;
 }
@@ -78,7 +96,7 @@ const ${options.exposedConst} = ${options.stateVar}.${options.exposedProperty};
 `;
 }
 
-export function getRuntimeInitBootstrapCode(enableSsrInit = false) {
+export function getRuntimeInitBootstrapCode(enableSsrInit = false, hostInitImportId?: string) {
   return `
 const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey())};
 const moduleCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
@@ -93,7 +111,7 @@ if (!globalThis[globalKey]) {
     initReject,
     moduleCache: globalThis[moduleCacheGlobalKey],
   };
-  ${getSsrNoopResolveCode(enableSsrInit)}
+  ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId)}
 }
 globalThis[globalKey].moduleCache ||= globalThis[moduleCacheGlobalKey];
 globalThis[globalKey].moduleCache.share ||= {};
@@ -137,7 +155,11 @@ export function getRuntimeInitResolveBootstrapCode(enableSsrInit = false) {
   });
 }
 
-export function writeRuntimeInitStatus(command: string, enableSsrInit = false) {
+export function writeRuntimeInitStatus(
+  command: string,
+  enableSsrInit = false,
+  hostInitImportId?: string
+) {
   const exportStatement =
     command === 'build'
       ? `const { initPromise, initResolve, initReject, moduleCache } = globalThis[globalKey];
@@ -145,7 +167,7 @@ export { initPromise, initResolve, initReject, moduleCache };`
       : `module.exports = globalThis[globalKey];`;
 
   virtualRuntimeInitStatus.writeSync(`
-${getRuntimeInitBootstrapCode(enableSsrInit)}
+${getRuntimeInitBootstrapCode(enableSsrInit, hostInitImportId)}
 ${exportStatement}
 `);
 }

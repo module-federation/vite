@@ -93,8 +93,11 @@ function parseNamedSpecifiers<T extends NamedSpecifierKind>(
 function wrapDynamicImport(original: string): string {
   return (
     `${original}.then(function(__mf_m__) {\n` +
-    `  var __mf_ready__ = __mf_m__ && __mf_m__.__mf_remote_pending ? __mf_m__.__mf_remote_pending.then(function(__mf_resolved__) { return __mf_resolved__ || __mf_m__; }) : __mf_m__;\n` +
-    `  return Promise.resolve(__mf_ready__).then(function(__mf_m__) {\n` +
+    `  var __mf_pending__ = __mf_m__ && __mf_m__.__mf_remote_pending;\n` +
+    `  var __mf_ready__ = __mf_pending__ && typeof __mf_pending__.then === "function"\n` +
+    `    ? __mf_pending__.then(function(__mf_resolved__) { return __mf_resolved__ || __mf_m__; })\n` +
+    `    : Promise.resolve(__mf_m__);\n` +
+    `  return __mf_ready__.then(function(__mf_m__) {\n` +
     `  if (!__mf_m__ || !__mf_m__.__moduleExports) {\n` +
     `    if (__mf_m__ && __mf_m__.default && typeof __mf_m__.default === "object" && __mf_m__.default.__esModule) {\n` +
     `      var __mf_nested_e__ = __mf_m__.default;\n` +
@@ -104,7 +107,15 @@ function wrapDynamicImport(original: string): string {
     `      if ("default" in __mf_nested_e__) __mf_nested_ns__.default = __mf_nested_e__.default;\n` +
     `      return __mf_nested_ns__;\n` +
     `    }\n` +
-    `    return __mf_m__;\n` +
+    `    var __mf_flat_ns__ = Object.create(null);\n` +
+    `    Object.defineProperty(__mf_flat_ns__, Symbol.toStringTag, { value: "Module" });\n` +
+    `    var __mf_src__ = __mf_m__;\n` +
+    `    if (__mf_src__ && __mf_src__.default && typeof __mf_src__.default === "object" && __mf_src__.default.__esModule) __mf_src__ = __mf_src__.default;\n` +
+    `    if (__mf_src__) {\n` +
+    `      Object.keys(__mf_src__).forEach(function(k) { if (k !== "__esModule") __mf_flat_ns__[k] = __mf_src__[k]; });\n` +
+    `      __mf_flat_ns__.default = "default" in __mf_src__ ? __mf_src__.default : __mf_src__;\n` +
+    `    }\n` +
+    `    return __mf_flat_ns__;\n` +
     `  }\n` +
     `  var __mf_ns__ = Object.create(null);\n` +
     `  Object.defineProperty(__mf_ns__, Symbol.toStringTag, { value: "Module" });\n` +

@@ -219,7 +219,7 @@ describe('pluginRemoteNamedExports', () => {
 
     it('gracefully returns module if __moduleExports missing', async () => {
       const result = await transform('const m = import("remoteApp/utils");');
-      expect(result).toContain('return __mf_m__');
+      expect(result).toContain('return __mf_flat_ns__');
     });
 
     it('unwraps Vite 7 nested default namespaces for dynamic imports', async () => {
