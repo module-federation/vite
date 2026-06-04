@@ -78,6 +78,15 @@ describe('generateRemotes', () => {
     expect(code).toContain('import("/virtual/hostInit.js")');
   });
 
+  it('keeps deferred client proxies on build when SSR init is enabled', () => {
+    const code = generateRemotes('remote/Button', 'build', true);
+
+    expect(code).toContain('typeof window === "undefined"');
+    expect(code).toContain('__mfCreateDeferredRemoteProxy()');
+    expect(code).toContain('__mfStartRemoteLoad().then(__mfAssignRemoteModule)');
+    expect(code).not.toContain('await ');
+  });
+
   it('split server wrapper with SSR init bootstraps host init on the server only', () => {
     const code = generateRemotes('remote/Button', 'serve', true, 'server');
 

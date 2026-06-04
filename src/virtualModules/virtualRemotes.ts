@@ -77,16 +77,21 @@ function shouldDeferRemoteLoad(initMode: RemoteInitMode) {
   return initMode === 'loaded-first-client' || initMode === 'loaded-first-unified';
 }
 
+/** Dev SSR only — build/preview client graphs must keep deferred proxies for static imports. */
+function clientNeedsRealRemoteForHydration(command: string, enableSsrInit: boolean) {
+  return enableSsrInit && command === 'serve';
+}
+
 function shouldIncludeDeferredProxy(
   initMode: RemoteInitMode,
   consumer: RemoteConsumer,
-  enableSsrInit: boolean,
+  clientNeedsRealRemote: boolean,
   deferRemoteLoad: boolean
 ) {
   if (initMode === 'eager') {
-    return consumer !== 'server' && (consumer === 'unified' || !enableSsrInit);
+    return consumer !== 'server' && (consumer === 'unified' || !clientNeedsRealRemote);
   }
-  if (consumer === 'client' && enableSsrInit) return false;
+  if (consumer === 'client' && clientNeedsRealRemote) return false;
   return deferRemoteLoad || consumer !== 'server';
 }
 
@@ -121,12 +126,13 @@ function getDeferredProxyHelper(remoteId: string) {
       };
       const getModule = () => __mfModuleCache.remote[${JSON.stringify(remoteId)}];
       const proxyTarget = function (...args) {
+        pendingPromise ||= __mfStartRemoteLoad();
         const mod = getModule();
         const fn = mod && (mod.default ?? mod);
         if (fn !== undefined && fn !== null) {
           return fn.apply(this, args);
         }
-        throw ensurePending();
+        return null;
       };
       return new Proxy(proxyTarget, {
         get(_target, prop) {
@@ -139,12 +145,18 @@ function getDeferredProxyHelper(remoteId: string) {
           if (mod) {
             return prop in mod ? mod[prop] : mod.default?.[prop];
           }
+          pendingPromise ||= __mfStartRemoteLoad();
+          if (prop === "default") return proxyTarget;
           throw ensurePending();
         },
         has(_target, prop) {
           const mod = getModule();
           if (mod) return prop in mod;
-          return false;
+          return (
+            prop === "default" ||
+            prop === "__esModule" ||
+            prop === "__mf_is_remote_proxy"
+          );
         },
         ownKeys() {
           const mod = getModule();
@@ -192,7 +204,8 @@ function getRemoteExportBlock(command: string, deferRemoteLoad: boolean) {
     return `__mfSyncDefaultExport();
 export default __mfDefaultExport`;
   }
-  return `__mfRemotePending?.then(__mfSyncDefaultExport);
+  return `__mfSyncDefaultExport();
+__mfRemotePending?.then(__mfSyncDefaultExport);
 export { exportModule as __moduleExports };
 ${deferRemoteLoad ? getLazyRemotePendingExport() : getEagerRemotePendingExport()}
 export default __mfDefaultExport`;
@@ -264,8 +277,9 @@ export function generateRemotes(
 
   const realRemoteInit = `__mfRemotePending = __mfStartRemoteLoad().then(__mfAssignRemoteModule);`;
   const deferredClientInit = `exportModule = __mfCreateDeferredRemoteProxy();`;
-  const eagerClientInit = enableSsrInit ? realRemoteInit : deferredClientInit;
-  const loadedFirstClientInit = enableSsrInit ? realRemoteInit : deferredClientInit;
+  const clientNeedsRealRemote = clientNeedsRealRemoteForHydration(command, enableSsrInit);
+  const eagerClientInit = clientNeedsRealRemote ? realRemoteInit : deferredClientInit;
+  const loadedFirstClientInit = clientNeedsRealRemote ? realRemoteInit : deferredClientInit;
   const environmentSplitInit = (clientInit: string, serverInit: string) =>
     consumer === 'client'
       ? clientInit
@@ -284,7 +298,7 @@ export function generateRemotes(
   const includeProxyHelper = shouldIncludeDeferredProxy(
     initMode,
     consumer,
-    enableSsrInit,
+    clientNeedsRealRemote,
     deferRemoteLoad
   );
 
