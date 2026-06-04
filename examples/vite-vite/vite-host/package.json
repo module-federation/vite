@@ -20,14 +20,14 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "styled-components": "6.1.19",
-    "vue": "^3.4.37",
-    "vue-router": "^4.4.3"
+    "vue": "3.5.13",
+    "vue-router": "4.4.3"
   },
   "devDependencies": {
-    "@swc/core": "~1.7.10",
+    "@swc/core": "1.7.14",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "^5.1.2",
-    "vite": "^8.0.10"
+    "@vitejs/plugin-react": "5.1.2",
+    "vite": "8.0.10"
   }
 }

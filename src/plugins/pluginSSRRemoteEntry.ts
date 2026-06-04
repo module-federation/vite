@@ -2,6 +2,7 @@ import { Plugin, ResolvedConfig } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
 import { getBasePath, isNuxtClientBase } from '../utils/pathNormalization';
+import { decodeViteId } from '../utils/VirtualModule';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
 import {
   generateRemoteEntrySSR,
@@ -232,7 +233,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
                 // SSR env failed to resolve — try externalising via Node require from
                 // the remote project root. This handles bare package specifiers like
                 // @module-federation/runtime that need to run as Node externals.
-                const bareId = id.startsWith('/@id/') ? id.slice(5).replace(/^__x00__/, '\0') : id;
+                const bareId = decodeViteId(id);
                 try {
                   const { createRequire } = await import('module');
                   const req = createRequire(

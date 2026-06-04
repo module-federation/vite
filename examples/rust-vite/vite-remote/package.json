@@ -9,14 +9,14 @@
   },
   "dependencies": {
     "@module-federation/vite": "workspace:*",
-    "react": "^18.3.1",
-    "react-dom": "^18.2.0",
-    "vue": "^3.4.35",
-    "vue-router": "^4.4.0"
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "vue": "3.5.13",
+    "vue-router": "4.4.3"
   },
   "devDependencies": {
-    "@swc/core": "~1.6.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.3.1"
+    "@swc/core": "1.6.13",
+    "@vitejs/plugin-react": "4.3.1",
+    "vite": "5.4.21"
   }
 }

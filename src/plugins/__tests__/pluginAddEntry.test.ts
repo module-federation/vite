@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { toViteEncodedId, VITE_ID_PREFIX } from '../../utils/VirtualModule';
 
 vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: () => true,
@@ -364,7 +365,7 @@ describe('pluginAddEntry', () => {
       {} as IndexHtmlTransformContext
     )) as string;
 
-    expect(result).toContain('/@id/__x00__virtual:mf-html-entry-proxy?');
+    expect(result).toContain(toViteEncodedId('virtual:mf-html-entry-proxy?'));
     expect(result).toContain('init=%2F%40id%2Fvirtual%3Amf-host-init');
     expect(result).toContain('entry=%2F_nuxt%2Fentry.async.js');
   });
@@ -529,7 +530,7 @@ describe('pluginAddEntry', () => {
     if (typeof result !== 'string') throw new Error('transformIndexHtml should return html string');
 
     expect(result).toContain('src="/@vite/client"');
-    expect(result).toContain('src="/@id/__x00__virtual:mf-html-entry-proxy?');
+    expect(result).toContain(`src="${toViteEncodedId('virtual:mf-html-entry-proxy?')}`);
     expect(result).not.toContain('await import(');
     expect(result).not.toContain('<script type="module">');
   });
@@ -586,10 +587,13 @@ describe('pluginAddEntry', () => {
     // Vite client must not be rewritten
     expect(result).toContain('src="/foo/@vite/client"');
     // Entry script must be rewritten to use the proxy module
-    expect(result).toContain('src="/@id/__x00__virtual:mf-html-entry-proxy?');
+    expect(result).toContain(`src="${toViteEncodedId('virtual:mf-html-entry-proxy?')}`);
 
     // Extract the proxy module ID from the rewritten HTML and load it
-    const proxyIdMatch = result.match(/src="\/@id\/(__x00__virtual:mf-html-entry-proxy\?[^"]+)"/);
+    const proxyPrefix = toViteEncodedId('virtual:mf-html-entry-proxy?');
+    const proxyIdMatch = result.match(
+      new RegExp(`src="(${proxyPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"]*)"`)
+    );
     expect(proxyIdMatch).not.toBeNull();
     const proxyId = decodeURIComponent(proxyIdMatch![1]).replace(/&amp;/g, '&');
     const code = await runLoad(servePlugin, proxyId);
@@ -598,7 +602,9 @@ describe('pluginAddEntry', () => {
 
     // The proxy module must import both init and entry as resolvable paths
     // (no base prefix — Vite's server-side resolver handles base itself)
-    expect(code).toContain('const { initHost } = await import("/@id/virtual:mf-host-init");');
+    expect(code).toContain(
+      `const { initHost } = await import("${VITE_ID_PREFIX}virtual:mf-host-init");`
+    );
     expect(code).toContain('await initHost();');
     expect(code).toContain('})().then(() => import("/src/main.tsx"));');
     expect(code).not.toContain('globalThis.System.import(src)');

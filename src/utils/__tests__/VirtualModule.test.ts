@@ -1,4 +1,9 @@
-import VirtualModule, { getSuffix, assertModuleFound } from '../VirtualModule';
+import VirtualModule, {
+  getSuffix,
+  assertModuleFound,
+  normalizeVirtualModuleId,
+  toViteEncodedId,
+} from '../VirtualModule';
 import { normalizeModuleFederationOptions } from '../normalizeModuleFederationOptions';
 
 describe('getSuffix', () => {
@@ -66,6 +71,9 @@ describe('VirtualModule writeSync', () => {
     expect(vm.code).toBe('export default 1;');
     expect(VirtualModule.findById(vm.getResolvedId())).toBe(vm);
     expect(VirtualModule.findById(`\0\0${vm.getImportId()}?commonjs-proxy`)).toBe(vm);
+    const encodedId = `${toViteEncodedId(vm.getImportId())}?v=1`;
+    expect(normalizeVirtualModuleId(encodedId)).toBe(vm.getImportId());
+    expect(VirtualModule.findName('__loadShare__', encodedId)).toBe('mui/styles');
     expect(assertModuleFound('__loadShare__', vm.getImportId())).toBe(vm);
   });
 });

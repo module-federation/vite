@@ -1,6 +1,6 @@
 {
   "name": "@module-federation/vite",
-  "version": "1.16.2",
+  "version": "1.16.3",
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "main": "./lib/index.cjs",
@@ -77,23 +77,23 @@
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "dependencies": {
-    "@module-federation/dts-plugin": "2.5.0",
-    "@module-federation/runtime": "2.5.0",
-    "@module-federation/sdk": "2.5.0",
-    "es-module-lexer": "^2.0.0",
-    "estree-walker": "^3.0.3",
-    "pathe": "^2.0.3"
+    "@module-federation/dts-plugin": "2.5.1",
+    "@module-federation/runtime": "2.5.1",
+    "@module-federation/sdk": "2.5.1",
+    "es-module-lexer": "2.0.0",
+    "estree-walker": "3.0.3",
+    "pathe": "2.0.3"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.30.0",
-    "@playwright/test": "^1.58.2",
-    "@types/node": "^25.3.3",
-    "husky": "^9.1.7",
-    "oxfmt": "^0.36.0",
-    "rollup": "^4.47.1",
-    "tsdown": "^0.21.0",
+    "@changesets/cli": "2.30.0",
+    "@playwright/test": "1.58.2",
+    "@types/node": "25.3.3",
+    "husky": "9.1.7",
+    "oxfmt": "0.36.0",
+    "rollup": "4.47.1",
+    "tsdown": "0.21.0",
     "typescript": "5.9.3",
-    "vite": "^8.0.10",
-    "vitest": "^4.0.18"
+    "vite": "8.0.10",
+    "vitest": "4.0.18"
   }
 }

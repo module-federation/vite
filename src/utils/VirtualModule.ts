@@ -24,6 +24,30 @@ const cacheMap: {
   };
 } = {};
 
+export const VITE_ID_PREFIX = '/@id/';
+export const VITE_NULL_BYTE_PLACEHOLDER = '__x00__';
+export const VITE_ENCODED_NULL_BYTE_PREFIX = `${VITE_ID_PREFIX}${VITE_NULL_BYTE_PLACEHOLDER}`;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function createViteEncodedIdPrefixRegExp(sourcePrefix = ''): RegExp {
+  return new RegExp(`^(?:${escapeRegExp(VITE_ENCODED_NULL_BYTE_PREFIX)})?${sourcePrefix}`);
+}
+
+export function toViteEncodedId(id: string): string {
+  return `${VITE_ENCODED_NULL_BYTE_PREFIX}${id}`;
+}
+
+export function decodeViteId(id: string): string {
+  if (!id.startsWith(VITE_ID_PREFIX)) return id;
+  const viteId = id.slice(VITE_ID_PREFIX.length);
+  return viteId.startsWith(VITE_NULL_BYTE_PLACEHOLDER)
+    ? `\0${viteId.slice(VITE_NULL_BYTE_PLACEHOLDER.length)}`
+    : viteId;
+}
+
 export function assertModuleFound(tag: string, str: string = ''): VirtualModule {
   const module = VirtualModule.findModule(tag, str);
   if (!module) {
@@ -34,6 +58,15 @@ export function assertModuleFound(tag: string, str: string = ''): VirtualModule 
   return module;
 }
 
+export function normalizeVirtualModuleId(id: string): string {
+  const decoded = decodeViteId(id).replace(/^\0+/, '');
+  const queryIndex = decoded.indexOf('?');
+  const hashIndex = decoded.indexOf('#');
+  const endIndex =
+    queryIndex === -1 ? hashIndex : hashIndex === -1 ? queryIndex : Math.min(queryIndex, hashIndex);
+  return endIndex === -1 ? decoded : decoded.slice(0, endIndex);
+}
+
 export default class VirtualModule {
   name: string;
   tag: string;
@@ -41,21 +74,20 @@ export default class VirtualModule {
   inited: boolean = false;
   code: string | undefined;
 
-  static findModule(tag: string, str: string = ''): VirtualModule | undefined {
+  static findName(tag: string, str: string = ''): string | undefined {
     if (!patternMap[tag])
       patternMap[tag] = new RegExp(`(.*${packageNameEncode(tag)}(.+?)${packageNameEncode(tag)}.*)`);
-    const moduleName = (str.match(patternMap[tag]) || [])[2];
-    if (moduleName)
-      return cacheMap[tag][packageNameDecode(moduleName)] as VirtualModule | undefined;
-    return undefined;
+    const moduleName = (normalizeVirtualModuleId(str).match(patternMap[tag]) || [])[2];
+    return moduleName ? packageNameDecode(moduleName) : undefined;
+  }
+
+  static findModule(tag: string, str: string = ''): VirtualModule | undefined {
+    const moduleName = VirtualModule.findName(tag, str);
+    return moduleName ? (cacheMap[tag][moduleName] as VirtualModule | undefined) : undefined;
   }
 
   static findById(id: string): VirtualModule | undefined {
-    const normalized = id
-      .replace(/^\0+/, '')
-      .replace(/^\/@id\//, '')
-      .replace(/^__x00__/, '')
-      .replace(/[?#].*$/, '');
+    const normalized = normalizeVirtualModuleId(id);
     for (const modules of Object.values(cacheMap)) {
       for (const module of Object.values(modules)) {
         if (module.getImportId() === normalized) return module;

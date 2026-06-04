@@ -13,7 +13,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import path from 'pathe';
 import { mfWarn } from '../utils/logger';
-import { ShareItem } from '../utils/normalizeModuleFederationOptions';
+import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
   getInstalledPackageEntry,
   getInstalledPackageJson,
@@ -21,7 +21,7 @@ import {
   getPackageName,
   getSharedCacheKey,
 } from '../utils/packageUtils';
-import VirtualModule from '../utils/VirtualModule';
+import VirtualModule, { normalizeVirtualModuleId, toViteEncodedId } from '../utils/VirtualModule';
 import {
   getRuntimeInitPromiseBootstrapCode,
   getRuntimeModuleCacheBootstrapCode,
@@ -463,6 +463,42 @@ export function getLoadShareModulePath(pkg: string, isRolldown: boolean): string
   if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown);
   const filepath = loadShareCacheMap[pkg].getImportId();
   return filepath;
+}
+
+export function toViteOptimizedDepVirtualId(id: string): string {
+  return toViteEncodedId(id);
+}
+
+export function getCachedLoadSharePkg(id: string): string | undefined {
+  const normalized = normalizeVirtualModuleId(id);
+  if (!normalized.startsWith('virtual:mf:')) return;
+
+  const pkg = VirtualModule.findName(LOAD_SHARE_TAG, normalized);
+  if (!pkg) return;
+  return pkg;
+}
+
+export function materializeCachedLoadShareModule(options: {
+  id: string;
+  shared: NormalizedShared;
+  command: string;
+  isRolldown: boolean;
+  findSharedKey: (source: string, shared: NormalizedShared) => string | undefined;
+  addUsedShares: (pkg: string) => void;
+  writeLocalSharedImportMap: () => void;
+}): void {
+  const pkg = getCachedLoadSharePkg(options.id);
+  if (!pkg) return;
+  const key = options.findSharedKey(pkg, options.shared);
+  if (!key) return;
+
+  const shareItem = options.shared[key];
+  writeLoadShareModule(pkg, shareItem, options.command, options.isRolldown);
+  if (shareItem.shareConfig?.import !== false) {
+    writePreBuildLibPath(pkg, shareItem);
+  }
+  options.addUsedShares(pkg);
+  options.writeLocalSharedImportMap();
 }
 
 function generateLazyWorkspaceSingletonExports(

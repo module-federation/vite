@@ -13,6 +13,7 @@ import { mfWarn } from '../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
+import { decodeViteId, toViteEncodedId, VITE_ID_PREFIX } from '../utils/VirtualModule';
 import { getUsedRemotesMap } from '../virtualModules/virtualRemotes';
 import { getRuntimeModuleCacheBootstrapCode } from '../virtualModules/virtualRuntimeInitStatus';
 
@@ -265,10 +266,7 @@ const addEntry = ({
   }
 
   function normalizeDevHtmlProxyId(id: string) {
-    return id
-      .replace(/^\0/, '')
-      .replace(/^\/@id\//, '')
-      .replace(/^__x00__/, '');
+    return decodeViteId(id).replace(/^\0/, '');
   }
 
   function normalizeModuleId(id: string) {
@@ -314,7 +312,7 @@ const addEntry = ({
         viteConfig = config;
         const resolvedEntryPath = getEntryPath();
         if (resolvedEntryPath.startsWith('virtual:mf')) {
-          devEntryPath = config.base + '@id/' + resolvedEntryPath;
+          devEntryPath = config.base + VITE_ID_PREFIX.slice(1) + resolvedEntryPath;
         } else {
           // Convert absolute filesystem path to root-relative URL path.
           // On Windows, naive drive-letter stripping leaves the full directory
@@ -379,7 +377,7 @@ const addEntry = ({
               init: sanitizeDevEntryPath(stripBase(devEntryPath)),
               entry: sanitizeDevEntryPath(stripBase(originalSrc)),
             }).toString();
-            return `/@id/__x00__${DEV_HTML_PROXY_PREFIX}${query}`;
+            return toViteEncodedId(`${DEV_HTML_PROXY_PREFIX}${query}`);
           });
           return html === c ? injectEntryScript(c, stripBase(devEntryPath)) : html;
         },
