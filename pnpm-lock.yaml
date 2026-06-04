@@ -9,14 +9,14 @@ importers:
   .:
     dependencies:
       '@module-federation/dts-plugin':
-        specifier: 2.5.0
-        version: 2.5.0(typescript@5.9.3)
+        specifier: 2.5.1
+        version: 2.5.1(typescript@5.9.3)
       '@module-federation/runtime':
-        specifier: 2.5.0
-        version: 2.5.0
+        specifier: 2.5.1
+        version: 2.5.1
       '@module-federation/sdk':
-        specifier: 2.5.0
-        version: 2.5.0
+        specifier: 2.5.1
+        version: 2.5.1
       es-module-lexer:
         specifier: 2.0.0
         version: 2.0.0
@@ -2215,6 +2215,15 @@ packages:
       vue-tsc:
         optional: true
 
+  '@module-federation/dts-plugin@2.5.1':
+    resolution: {integrity: sha512-XylIL02As+VXk4DzFb8qYQs1YYoY0MZOpIqhf06LMkZBjPdOE0wJ1GOBvhFP9kM/cfuK7QV//mNdrWlZgvEkRA==}
+    peerDependencies:
+      typescript: ^4.9.0 || ^5.0.0
+      vue-tsc: '>=1.0.24'
+    peerDependenciesMeta:
+      vue-tsc:
+        optional: true
+
   '@module-federation/enhanced@2.3.3':
     resolution: {integrity: sha512-BJSs56lqO9NI9aC+hVhg2CU/UwG1TphVl1b7WBx6Jv6DYUyVQbgXeQpgqYVsxYVRKYOl7eDZmjXl2eA/n1IP/Q==}
     hasBin: true
@@ -2251,6 +2260,9 @@ packages:
   '@module-federation/error-codes@2.5.0':
     resolution: {integrity: sha512-sq05/8Gp3csy1nr2/f76K3vLy0/xRqVtP71ibGy8BiLg7h1UxWN7G4EwAKSrPZ4FnsERGeFlIszg5Z+MqlwhFg==}
 
+  '@module-federation/error-codes@2.5.1':
+    resolution: {integrity: sha512-3KIR8XbEW0Y+Fn8IAnxzDWMvXQWiS40Z1TE/Fft9aTeXP9dDAM7AiVhjTh5yF2csAwHSt/1LJVZbiCmS13mE8A==}
+
   '@module-federation/inject-external-runtime-core-plugin@2.3.3':
     resolution: {integrity: sha512-ImSft6hOkMdnpZX8O+RydwkYENxhAwT92n1OAT3Xf01DXMrEpSO0PqBlPGgontxuiaV9dM2/xWSLGuIWaOtupA==}
     peerDependencies:
@@ -2266,6 +2278,9 @@ packages:
 
   '@module-federation/managers@2.5.0':
     resolution: {integrity: sha512-9b5mU/7OYbKrYUJmhZ1kkfeJCZqR7qX6/FWp+oOfZMzUynN7Rb41dwoUs3TdnOKzbZ3CCwtZ2WsR4pF9ZNvuJA==}
+
+  '@module-federation/managers@2.5.1':
+    resolution: {integrity: sha512-AWbkH/U76FJDbdwBOodQ1An40WOdrDGAgqUMc8RD62+Ec/ocPfda0NhFcJbPxlUIvSFPTvBv6DwTnygmNC7GPA==}
 
   '@module-federation/manifest@2.3.3':
     resolution: {integrity: sha512-mAEXuo5sGt8FUDzftU8f0ci0PbsZIDcLRYX9AkXwbXg0JRyVEvWyiBrEKF+zZuy7YM7eRdyp6JjLJPDzufhj5w==}
@@ -2303,6 +2318,9 @@ packages:
   '@module-federation/runtime-core@2.5.0':
     resolution: {integrity: sha512-STmhQ3c6/hunba2FMP6GrHazXU/8GuN7Gk4dOkWNRpnqYIoD8Wx4MNl76j3HdCzBESC7uSMXTniksVaM1+xxyA==}
 
+  '@module-federation/runtime-core@2.5.1':
+    resolution: {integrity: sha512-UMuMsWHXeMrm8Isl8YD6/s1jmTVau3SQhp9RO4Ln+eD2lrjM4hQSwOX2xPtfT1C1I4/E6hgyZQV1K1Q/3Zpr0Q==}
+
   '@module-federation/runtime-tools@0.1.6':
     resolution: {integrity: sha512-7ILVnzMIa0Dlc0Blck5tVZG1tnk1MmLnuZpLOMpbdW+zl+N6wdMjjHMjEZFCUAJh2E5XJ3BREwfX8Ets0nIkLg==}
 
@@ -2327,6 +2345,9 @@ packages:
   '@module-federation/runtime@2.5.0':
     resolution: {integrity: sha512-dOc7pFEf8aruHBk5hoJLnvwkCa5ELT78q3o9dqcdaa/TT74X5z0FT0BsaGaRBPcse/iP6czK3fWd7RLv5ZKP5g==}
 
+  '@module-federation/runtime@2.5.1':
+    resolution: {integrity: sha512-Tf33FIpnQMn8FjIUAQMtSTYQgGibfh5vEvJihFO3q/hG9LiWwLMErZvOz/+wcPsE81gzHjYPxQgMKGSP3BuG8g==}
+
   '@module-federation/sdk@0.1.6':
     resolution: {integrity: sha512-qifXpyYLM7abUeEOIfv0oTkguZgRZuwh89YOAYIZJlkP6QbRG7DJMQvtM8X2yHXm9PTk0IYNnOJH0vNQCo6auQ==}
 
@@ -2349,11 +2370,22 @@ packages:
       node-fetch:
         optional: true
 
+  '@module-federation/sdk@2.5.1':
+    resolution: {integrity: sha512-FDhCx81ZCxX1oT/fyt/bW+gpPt287GR156E/Thv1yhb9XyNHGNkqe8zqJOipOMfb07E22OMzSzOulCBvAOgn3g==}
+    peerDependencies:
+      node-fetch: ^2.7.0 || ^3.3.2
+    peerDependenciesMeta:
+      node-fetch:
+        optional: true
+
   '@module-federation/third-party-dts-extractor@2.3.3':
     resolution: {integrity: sha512-rR94TjC1QVQLQPTazI0waLc76hI8dnv6aHTl+PUEIY9s5hXp8TA85XS0QJQqIf2KTjlPgZbWAwyFjOAJluTjaw==}
 
   '@module-federation/third-party-dts-extractor@2.5.0':
     resolution: {integrity: sha512-5di43LGk2ies86Cj8QyzYr540Ijc+nyPqYziyFotL6Pparnu+uf3b3ERfEyQfBmEcyGk1MpitQIO2J3bd9BcNw==}
+
+  '@module-federation/third-party-dts-extractor@2.5.1':
+    resolution: {integrity: sha512-/jD/o2IivDgg6jGUgdb9NZtlJWeoz1uKcblGL2BxYVzzlKT+1YS7Y2idTl1tqp4hNdFnDlPpQv6WLdKiLoOPNw==}
 
   '@module-federation/webpack-bundler-runtime@0.1.6':
     resolution: {integrity: sha512-K5WhKZ4RVNaMEtfHsd/9CNCgGKB0ipbm/tgweNNeC11mEuBTNxJ09Y630vg3WPkKv9vfMCuXg2p2Dk+Q/KWTSA==}
@@ -7175,6 +7207,18 @@ packages:
       utf-8-validate:
         optional: true
 
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
     engines: {node: '>=10'}
@@ -9075,6 +9119,24 @@ snapshots:
       - node-fetch
       - utf-8-validate
 
+  '@module-federation/dts-plugin@2.5.1(typescript@5.9.3)':
+    dependencies:
+      '@module-federation/error-codes': 2.5.1
+      '@module-federation/managers': 2.5.1
+      '@module-federation/sdk': 2.5.1
+      '@module-federation/third-party-dts-extractor': 2.5.1
+      adm-zip: 0.5.10
+      ansi-colors: 4.1.3
+      isomorphic-ws: 5.0.0(ws@8.21.0)
+      node-schedule: 2.1.1
+      typescript: 5.9.3
+      undici: 7.24.7
+      ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - node-fetch
+      - utf-8-validate
+
   '@module-federation/enhanced@2.3.3(@rspack/core@1.0.4(@swc/helpers@0.5.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.5.3)(webpack@5.97.1(esbuild@0.27.3))':
     dependencies:
       '@module-federation/bridge-react-webpack-plugin': 2.3.3
@@ -9132,6 +9194,8 @@ snapshots:
 
   '@module-federation/error-codes@2.5.0': {}
 
+  '@module-federation/error-codes@2.5.1': {}
+
   '@module-federation/inject-external-runtime-core-plugin@2.3.3(@module-federation/runtime-tools@2.3.3)':
     dependencies:
       '@module-federation/runtime-tools': 2.3.3
@@ -9150,6 +9214,13 @@ snapshots:
   '@module-federation/managers@2.5.0':
     dependencies:
       '@module-federation/sdk': 2.5.0
+      find-pkg: 2.0.0
+    transitivePeerDependencies:
+      - node-fetch
+
+  '@module-federation/managers@2.5.1':
+    dependencies:
+      '@module-federation/sdk': 2.5.1
       find-pkg: 2.0.0
     transitivePeerDependencies:
       - node-fetch
@@ -9228,6 +9299,13 @@ snapshots:
     transitivePeerDependencies:
       - node-fetch
 
+  '@module-federation/runtime-core@2.5.1':
+    dependencies:
+      '@module-federation/error-codes': 2.5.1
+      '@module-federation/sdk': 2.5.1
+    transitivePeerDependencies:
+      - node-fetch
+
   '@module-federation/runtime-tools@0.1.6':
     dependencies:
       '@module-federation/runtime': 0.1.6
@@ -9276,6 +9354,14 @@ snapshots:
     transitivePeerDependencies:
       - node-fetch
 
+  '@module-federation/runtime@2.5.1':
+    dependencies:
+      '@module-federation/error-codes': 2.5.1
+      '@module-federation/runtime-core': 2.5.1
+      '@module-federation/sdk': 2.5.1
+    transitivePeerDependencies:
+      - node-fetch
+
   '@module-federation/sdk@0.1.6': {}
 
   '@module-federation/sdk@0.5.1': {}
@@ -9284,12 +9370,19 @@ snapshots:
 
   '@module-federation/sdk@2.5.0': {}
 
+  '@module-federation/sdk@2.5.1': {}
+
   '@module-federation/third-party-dts-extractor@2.3.3':
     dependencies:
       find-pkg: 2.0.0
       resolve: 1.22.8
 
   '@module-federation/third-party-dts-extractor@2.5.0':
+    dependencies:
+      find-pkg: 2.0.0
+      resolve: 1.22.8
+
+  '@module-federation/third-party-dts-extractor@2.5.1':
     dependencies:
       find-pkg: 2.0.0
       resolve: 1.22.8
@@ -11890,6 +11983,10 @@ snapshots:
     dependencies:
       ws: 8.18.0
 
+  isomorphic-ws@5.0.0(ws@8.21.0):
+    dependencies:
+      ws: 8.21.0
+
   jackspeak@3.4.3:
     dependencies:
       '@isaacs/cliui': 8.0.2
@@ -14080,6 +14177,8 @@ snapshots:
   ws@7.5.10: {}
 
   ws@8.18.0: {}
+
+  ws@8.21.0: {}
 
   y18n@5.0.8: {}
 

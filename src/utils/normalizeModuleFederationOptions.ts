@@ -554,7 +554,7 @@ interface DtsHostOptions {
   runtimePkgs?: string[];
   remoteTypeUrls?: (() => Promise<RemoteTypeUrls>) | RemoteTypeUrls;
   timeout?: number;
-  family?: 4 | 6;
+  family?: 0 | 4 | 6;
   typesOnBuild?: boolean;
 }
 
