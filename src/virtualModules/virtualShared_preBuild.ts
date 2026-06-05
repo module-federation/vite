@@ -196,9 +196,9 @@ function getNamedExportsViaRegex(
     if (isValidEsmExportName(name)) names.add(name);
   }
 
-  // Destructuring exports, e.g. `export const { a, b: alias } = obj;` or
-  // `export const [first] = arr;` — the shape Redux Toolkit's `createSlice`
-  // produces (`export const { addItem: createActionAddItem } = slice.actions`).
+  // Destructuring exports, e.g. `export const { a, b: alias, ...rest } = obj;`
+  // or `export const [first, ...others] = arr;` — the shape Redux Toolkit's
+  // `createSlice` produces (`export const { addItem: createActionAddItem } = slice.actions`).
   // These are matched by neither `declRegex` (the next token is `{`/`[`) nor the
   // `export { ... }` list regex below (the leading `const` breaks it).
   const destructureRegex = /export\s+(?:const|let|var)\s+(\{[^}]*\}|\[[^\]]*\])\s*=/g;
@@ -206,8 +206,11 @@ function getNamedExportsViaRegex(
   while ((match = destructureRegex.exec(source)) !== null) {
     const inner = match[1].slice(1, -1);
     for (const part of inner.split(',')) {
+      // strip a default value (`= ...`); rest elements (`...x`) never have one
       let token = part.split('=')[0].trim();
-      if (!token || token.startsWith('...')) continue;
+      // rest element `...rest` -> the bound name is `rest`
+      if (token.startsWith('...')) token = token.slice(3).trim();
+      if (!token) continue;
       // object rename `key: alias` -> the bound name is the alias
       if (token.includes(':')) token = token.slice(token.indexOf(':') + 1).trim();
       const bindingMatch = token.match(bindingNameRegex);

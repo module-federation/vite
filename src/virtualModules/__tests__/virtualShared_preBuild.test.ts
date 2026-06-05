@@ -303,8 +303,10 @@ export { type, other } from './foo';`;
   Red = 'red',
   Blue = 'blue',
 }
-const actions = { addItem: () => {}, removeItem: () => {} };
-export const { addItem: createActionAddItem, removeItem: createActionRemoveItem } = actions;`;
+const actions = { addItem: () => {}, removeItem: () => {}, reset: () => {} };
+export const { addItem: createActionAddItem, removeItem: createActionRemoveItem, ...restActions } = actions;
+const tuple = [1, 2, 3];
+export const [firstItem, ...restItems] = tuple;`;
     }
     if (
       filePath.endsWith('node_modules/mock-package-browser-conditional/package.json') ||
@@ -1247,6 +1249,14 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('as createActionAddItem');
     expect(generatedCode).toContain('exportModule["createActionRemoveItem"]');
     expect(generatedCode).toContain('as createActionRemoveItem');
+    // Rest elements bind a real value and must be re-exported too.
+    expect(generatedCode).toContain('exportModule["restActions"]');
+    expect(generatedCode).toContain('as restActions');
+    // Array destructuring, including its rest element.
+    expect(generatedCode).toContain('exportModule["firstItem"]');
+    expect(generatedCode).toContain('as firstItem');
+    expect(generatedCode).toContain('exportModule["restItems"]');
+    expect(generatedCode).toContain('as restItems');
   });
 
   it('does not emit duplicate side-effect imports for workspace singletons in serve mode', () => {
