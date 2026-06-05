@@ -79,7 +79,8 @@ const addEntry = ({
   skipTransformFor = [],
 }: AddEntryOptions): Plugin[] => {
   const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
-  const ENTRY_BOOTSTRAP_QUERY = '?mf-entry-bootstrap';
+  const ENTRY_BOOTSTRAP_PARAM = 'mf-entry-bootstrap';
+  const ENTRY_BOOTSTRAP_QUERY = `?${ENTRY_BOOTSTRAP_PARAM}`;
   const waitsForInit = entryName === 'hostInit';
   const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
   let devEntryPath = '';
@@ -104,6 +105,12 @@ const addEntry = ({
     return (
       hasPackageDependency('@sveltejs/kit') &&
       (id.includes('.svelte-kit/generated/') || id.includes('/@sveltejs/kit/src/runtime/server/'))
+    );
+  }
+
+  function hasEntryBootstrapParam(id: string) {
+    return (
+      id.includes(ENTRY_BOOTSTRAP_PARAM) || decodeURIComponent(id).includes(ENTRY_BOOTSTRAP_PARAM)
     );
   }
 
@@ -585,7 +592,7 @@ const addEntry = ({
       transform(code, id) {
         if (skipSvelteKitSsrBuild()) return;
         if (isSvelteKitServerModule(id)) return;
-        if (id.includes(ENTRY_BOOTSTRAP_QUERY)) return;
+        if (hasEntryBootstrapParam(id)) return;
         if (normalizeModuleId(id).endsWith('.html')) return;
         if (skipTransformIds.has(resolveProjectId(id))) return;
         // Only inject into client-side modules. In Vite 8 multi-environment mode
@@ -661,6 +668,7 @@ const addEntry = ({
           entryFiles.length === 0 &&
           (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
           !clientInjected &&
+          !hasEntryBootstrapParam(id) &&
           !id.includes('node_modules/.vite') &&
           /(?:^|\/)nuxt\/dist\/app\/entry\.async\.js(?:\?|$)/.test(id) &&
           code.includes('entry();');
