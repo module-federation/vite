@@ -300,6 +300,44 @@ describe('pluginAddEntry', () => {
     );
   });
 
+  it('does not rewrap Nuxt dev client entry bootstrap request', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-dev-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = await runTransform(
+      buildPlugin,
+      'const entry = () => import("#app/entry").then((m) => m.default);\nif (true) {\n  entry();\n}\nexport default entry;',
+      '/repo/node_modules/.pnpm/nuxt@4.3.1/node_modules/nuxt/dist/app/entry.async.js?v=123&mf-entry-bootstrap'
+    );
+
+    expect(result).toBeUndefined();
+  });
+
   it('injects host init before Nuxt dev mount', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-mount-'));
     const plugins = addEntry({
