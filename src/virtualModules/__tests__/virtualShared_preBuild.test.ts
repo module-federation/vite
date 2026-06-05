@@ -73,6 +73,12 @@ vi.mock('../../utils/packageUtils', () => ({
       return '/repo/apps/remote/node_modules/mock-package-generator-export/src/index.js';
     }
     if (
+      pkg === 'mock-package-enum-destructure' ||
+      pkg.startsWith('mock-package-enum-destructure/')
+    ) {
+      return '/repo/apps/remote/node_modules/mock-package-enum-destructure/src/index.js';
+    }
+    if (
       pkg === 'mock-package-browser-conditional' ||
       pkg.startsWith('mock-package-browser-conditional/')
     ) {
@@ -159,6 +165,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-reexport-type/package.json') ||
       filePath.endsWith('node_modules/mock-package-generator-export/package.json') ||
       filePath.endsWith('/mock-package-generator-export/package.json') ||
+      filePath.endsWith('node_modules/mock-package-enum-destructure/package.json') ||
+      filePath.endsWith('/mock-package-enum-destructure/package.json') ||
       filePath.endsWith('node_modules/mock-package-browser-conditional/package.json') ||
       filePath.endsWith('/mock-package-browser-conditional/package.json') ||
       filePath.endsWith('node_modules/mock-package-browser-conditional/dist/browser.js') ||
@@ -276,6 +284,29 @@ export { type, other } from './foo';`;
       return `export function*loader() {
   yield 1;
 }`;
+    }
+    if (
+      filePath.endsWith('node_modules/mock-package-enum-destructure/package.json') ||
+      filePath.endsWith('/mock-package-enum-destructure/package.json')
+    ) {
+      return JSON.stringify({
+        name: 'mock-package-enum-destructure',
+        type: 'module',
+        module: './src/index.js',
+        exports: {
+          '.': './src/index.js',
+        },
+      });
+    }
+    if (filePath.endsWith('node_modules/mock-package-enum-destructure/src/index.js')) {
+      return `export enum Color {
+  Red = 'red',
+  Blue = 'blue',
+}
+const actions = { addItem: () => {}, removeItem: () => {}, reset: () => {} };
+export const { addItem: createActionAddItem, removeItem: createActionRemoveItem, ...restActions } = actions;
+const tuple = [1, 2, 3];
+export const [firstItem, ...restItems] = tuple;`;
     }
     if (
       filePath.endsWith('node_modules/mock-package-browser-conditional/package.json') ||
@@ -422,6 +453,14 @@ vi.mock('module', async (importOriginal) => {
         if (
           pkg === 'mock-package-generator-export' ||
           pkg.startsWith('mock-package-generator-export/')
+        ) {
+          const error = new Error('ERR_REQUIRE_ESM');
+          (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
+          throw error;
+        }
+        if (
+          pkg === 'mock-package-enum-destructure' ||
+          pkg.startsWith('mock-package-enum-destructure/')
         ) {
           const error = new Error('ERR_REQUIRE_ESM');
           (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
@@ -1181,6 +1220,43 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).toContain('__mf_0 = exportModule["loader"];');
     expect(generatedCode).toContain('export { __mf_0 as loader };');
+  });
+
+  it('detects enum and destructuring exports via regex fallback', () => {
+    const pkg = 'mock-package-enum-destructure';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // `export enum Color` is a runtime value and must be re-exported.
+    expect(generatedCode).toContain('exportModule["Color"]');
+    expect(generatedCode).toContain('as Color');
+    // Destructuring exports (e.g. createSlice actions) keep their bound names.
+    expect(generatedCode).toContain('exportModule["createActionAddItem"]');
+    expect(generatedCode).toContain('as createActionAddItem');
+    expect(generatedCode).toContain('exportModule["createActionRemoveItem"]');
+    expect(generatedCode).toContain('as createActionRemoveItem');
+    // Rest elements bind a real value and must be re-exported too.
+    expect(generatedCode).toContain('exportModule["restActions"]');
+    expect(generatedCode).toContain('as restActions');
+    // Array destructuring, including its rest element.
+    expect(generatedCode).toContain('exportModule["firstItem"]');
+    expect(generatedCode).toContain('as firstItem');
+    expect(generatedCode).toContain('exportModule["restItems"]');
+    expect(generatedCode).toContain('as restItems');
   });
 
   it('does not emit duplicate side-effect imports for workspace singletons in serve mode', () => {
