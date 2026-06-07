@@ -538,6 +538,14 @@ const addEntry = ({
           return viteConfig.base + file;
         };
 
+        // Strip Vite base before rebasing — paths in HTML include the base
+        // prefix (e.g. "/app/static/js/hostInit.js" with base="/app/"),
+        // but rebaseImport works against the output directory structure
+        // (e.g. "static/js/"), which is relative to the build root.
+        const basePrefix = viteConfig.base?.replace(/\/$/, '') ?? '';
+        const stripBase = (p: string) =>
+          basePrefix && p.startsWith(basePrefix + '/') ? p.slice(basePrefix.length) : p;
+
         let bootstrapIndex = 0;
         // Process each HTML file
         for (const fileName of htmlFileNames) {
@@ -551,8 +559,14 @@ const addEntry = ({
           let rewritten = false;
           htmlContent = htmlContent.replace(scriptRegex, (scriptTag, entrySrc) => {
             rewritten = true;
-            const rebasedInitPath = bootstrapDir ? rebaseImport(initPath, bootstrapDir) : initPath;
-            const rebasedEntrySrc = bootstrapDir ? rebaseImport(entrySrc, bootstrapDir) : entrySrc;
+            const strippedInit = stripBase(initPath);
+            const strippedEntry = stripBase(entrySrc);
+            const rebasedInitPath = bootstrapDir
+              ? rebaseImport(strippedInit, bootstrapDir)
+              : initPath;
+            const rebasedEntrySrc = bootstrapDir
+              ? rebaseImport(strippedEntry, bootstrapDir)
+              : entrySrc;
             const bootstrapSource = getSystemBootstrapSource(rebasedInitPath, rebasedEntrySrc);
             // Content-hash the bootstrap filename so browsers/CDNs invalidate
             // the cache on deploy. Without a hash the file ships as
