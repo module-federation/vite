@@ -258,6 +258,35 @@ describe('pluginMFManifest', () => {
     expect(stats).toBeDefined();
   });
 
+  it('applies manifest additionalData mutations to manifest and stats', async () => {
+    const emitted = await runGenerateBundleWithManifest({
+      additionalData: ({ stats }: { stats: Record<string, any> }) => {
+        stats.metaData.ssrRemoteEntry = stats.metaData.remoteEntry;
+      },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    const stats = JSON.parse(emitted['mf-stats.json']);
+
+    expect(manifest.metaData.ssrRemoteEntry).toEqual(manifest.metaData.remoteEntry);
+    expect(stats.metaData.ssrRemoteEntry).toEqual(stats.metaData.remoteEntry);
+  });
+
+  it('uses manifest additionalData return value', async () => {
+    const emitted = await runGenerateBundleWithManifest({
+      additionalData: ({ stats }: { stats: Record<string, any> }) => ({
+        ...stats,
+        custom: true,
+      }),
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    const stats = JSON.parse(emitted['mf-stats.json']);
+
+    expect(manifest.custom).toBe(true);
+    expect(stats.custom).toBe(true);
+  });
+
   it('defaults disableAssetsAnalyze to true in serve when project is consumer-only', async () => {
     const emitted = await runGenerateBundleWithManifest(
       {},

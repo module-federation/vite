@@ -361,6 +361,14 @@ export interface PluginManifestOptions {
   filePath?: string;
   disableAssetsAnalyze?: boolean;
   fileName?: string;
+  additionalData?: (options: {
+    stats: Record<string, unknown>;
+    manifest?: Record<string, unknown>;
+    pluginOptions: Record<string, unknown>;
+    compiler?: unknown;
+    compilation?: unknown;
+    bundler: 'vite';
+  }) => Promise<Record<string, unknown> | void> | Record<string, unknown> | void;
 }
 function normalizeManifest(manifest: ModuleFederationOptions['manifest']) {
   if (manifest === undefined) {
