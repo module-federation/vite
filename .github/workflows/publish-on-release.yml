@@ -63,12 +63,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate preview version
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version == 'next'
-        run: |
-          SAFE_BRANCH=$(echo "${{ github.event.inputs.branch }}" | sed 's/[^a-zA-Z0-9-]/-/g' | tr '[:upper:]' '[:lower:]')
-          npx changeset version --snapshot "$SAFE_BRANCH"
-
       - name: Verify tag matches package.json version
         if: github.event_name == 'release'
         run: |
