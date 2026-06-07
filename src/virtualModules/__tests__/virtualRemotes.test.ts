@@ -135,6 +135,9 @@ describe('generateRemotes', () => {
     const code = generateRemotes('remote/Button', 'serve');
 
     expect(code).not.toContain('await __mfRemotePending');
+    expect(code).toContain(
+      '.then((mod) => Promise.resolve(mod?.__mf_remote_dependency_pending).then(() => mod))'
+    );
     expect(code).toContain('export { exportModule as __moduleExports };');
     expect(code).toContain(
       'export const __mf_remote_pending = __mfRemotePending || Promise.resolve(exportModule);'
