@@ -125,6 +125,7 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
             ${registerRemoteCode}
             return runtime.loadRemote(${JSON.stringify(id)});
           })
+          .then((mod) => Promise.resolve(mod?.__mf_remote_dependency_pending).then(() => mod))
           .then((mod) => {
             __mfModuleCache.remote[${JSON.stringify(id)}] = mod;
             delete __mfModuleCache.remote[pendingKey];

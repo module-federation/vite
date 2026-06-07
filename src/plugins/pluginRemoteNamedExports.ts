@@ -131,6 +131,7 @@ function applyRewrites(
   // Per-file counter — deterministic regardless of file processing order.
   let counter = 0;
   let namedProxyHelperDeclared = false;
+  const dependencyPendingIds: string[] = [];
   const namedProxyHelper = `function __mfCreateNamedRemoteProxy(ns, key) {
   const target = function (...args) {
     const value = ns[key];
@@ -156,18 +157,23 @@ function applyRewrites(
         const src = JSON.stringify(imp.source);
 
         if (imp.namespaceLocal && !imp.defaultLocal && imp.named.length === 0) {
+          const pendingId = `${imp.namespaceLocal}__mf_pending`;
+          dependencyPendingIds.push(pendingId);
           // import * as ns from "remote/xxx"
           ms.overwrite(
             imp.start,
             imp.end,
-            `import { __moduleExports as ${imp.namespaceLocal} } from ${src};`
+            `import { __moduleExports as ${imp.namespaceLocal}, __mf_remote_pending as ${pendingId} } from ${src};`
           );
         } else {
           const nsId = `__mf_ns_${counter++}`;
+          const pendingId = `${nsId}_pending`;
+          dependencyPendingIds.push(pendingId);
           const importParts: string[] = [];
 
           if (imp.defaultLocal) importParts.push(`default as ${imp.defaultLocal}`);
           importParts.push(`__moduleExports as ${nsId}`);
+          importParts.push(`__mf_remote_pending as ${pendingId}`);
 
           let rewrite = `import { ${importParts.join(', ')} } from ${src};`;
           if (imp.named.length > 0) {
@@ -196,19 +202,25 @@ function applyRewrites(
       case 'reexport': {
         const src = JSON.stringify(imp.source);
         const nsId = `__mf_ns_${counter++}`;
+        const pendingId = `${nsId}_pending`;
+        dependencyPendingIds.push(pendingId);
 
         const vars = imp.specifiers.map((s) => {
           const tmp = `__mf_re_${counter++}`;
           return { ...s, tmp };
         });
 
-        const importLine = `import { __moduleExports as ${nsId} } from ${src};`;
+        const importLine = `import { __moduleExports as ${nsId}, __mf_remote_pending as ${pendingId} } from ${src};`;
         const varLines = vars
-          .map((v) => `const ${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];`)
+          .map((v) => `let ${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];`)
           .join('\n');
+        const assignLines = vars
+          .map((v) => `${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];`)
+          .join('\n');
+        const syncLine = `${pendingId}.then(() => {\n${assignLines}\n});`;
         const exportLine = `export { ${vars.map((v) => `${v.tmp} as ${v.exported}`).join(', ')} };`;
 
-        ms.overwrite(imp.start, imp.end, `${importLine}\n${varLines}\n${exportLine}`);
+        ms.overwrite(imp.start, imp.end, `${importLine}\n${varLines}\n${syncLine}\n${exportLine}`);
         changed = true;
         break;
       }
@@ -230,6 +242,13 @@ function applyRewrites(
   }
 
   if (!changed) return;
+  if (dependencyPendingIds.length > 0) {
+    ms.overwrite(
+      code.length,
+      code.length,
+      `\nexport const __mf_remote_dependency_pending = Promise.all([${dependencyPendingIds.join(', ')}]);`
+    );
+  }
   return {
     code: ms.toString(),
     map: ms.generateMap(id),
