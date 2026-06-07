@@ -4,6 +4,7 @@ import { getRemoteVirtualModule, generateRemotes } from '../virtualRemotes';
 const mockOptions = vi.hoisted(() => ({
   shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
 }));
+const hasPackageDependencyMock = vi.hoisted(() => vi.fn((_pkg: string) => false));
 
 vi.mock('../../utils/packageUtils', async () => {
   const actual = await vi.importActual<typeof import('../../utils/packageUtils')>(
@@ -11,7 +12,7 @@ vi.mock('../../utils/packageUtils', async () => {
   );
   return {
     ...actual,
-    hasPackageDependency: vi.fn(() => false),
+    hasPackageDependency: hasPackageDependencyMock,
   };
 });
 
@@ -53,6 +54,8 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
 describe('generateRemotes', () => {
   beforeEach(() => {
     mockOptions.shareStrategy = 'version-first';
+    hasPackageDependencyMock.mockReset();
+    hasPackageDependencyMock.mockReturnValue(false);
   });
 
   it('starts remote loading during wrapper evaluation for version-first', () => {
@@ -70,6 +73,20 @@ describe('generateRemotes', () => {
     expect(code).toContain('pendingPromise ||= __mfStartRemoteLoad();');
     expect(code).toContain('runtime.registerRemotes([');
     expect(code).toContain('__mfRemotePending = __mfStartRemoteLoad();');
+  });
+
+  it('uses a Vue async component proxy for pending loaded-first default imports', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'vue');
+
+    const code = generateRemotes('remote/Counter', 'serve');
+
+    expect(code).toContain(
+      'import { defineAsyncComponent as __mfDefineAsyncComponent } from "vue";'
+    );
+    expect(code).toContain('return __mfDefineAsyncComponent(() =>');
+    expect(code).toContain('ensurePending().then((mod) => mod?.default ?? mod)');
+    expect(code).not.toContain('throw ensurePending();');
   });
 
   it('loads a scoped remote module using its full id', () => {

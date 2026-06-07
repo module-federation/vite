@@ -44,6 +44,7 @@ export function getRemoteFromId(id: string, remotes: Record<string, RemoteObject
 
 export function generateRemotes(id: string, command: string, enableSsrInit = false) {
   const useReactProxy = hasPackageDependency('react');
+  const useVueProxy = !useReactProxy && hasPackageDependency('vue');
   const options = getNormalizeModuleFederationOptions();
   const isLoadedFirst = options.shareStrategy === 'loaded-first';
   const remote = getRemoteFromId(id, options.remotes);
@@ -61,6 +62,9 @@ export function generateRemotes(id: string, command: string, enableSsrInit = fal
     ? `import __mfReactDefault from "react";
     import * as __mfReactNamespace from "react";
     const __mfReact = __mfReactDefault ?? __mfReactNamespace.default ?? __mfReactNamespace;`
+    : '';
+  const vueImportLine = useVueProxy
+    ? `import { defineAsyncComponent as __mfDefineAsyncComponent } from "vue";`
     : '';
   const importLine =
     command === 'build'
@@ -134,14 +138,24 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
       ${startRemoteLoadCode}
     }
     function __mfCreateRemoteProxy(pendingPromise) {
-      const listeners = new Set();
       const ensurePending = () => {
         pendingPromise ||= __mfStartRemoteLoad();
-        pendingPromise?.finally(() => {
+        ${
+          useVueProxy
+            ? ''
+            : `pendingPromise?.finally(() => {
           for (const listener of listeners) listener();
-        });
+        });`
+        }
         return pendingPromise;
       };
+      ${
+        useVueProxy
+          ? `return __mfDefineAsyncComponent(() =>
+        ensurePending().then((mod) => mod?.default ?? mod)
+      );`
+          : `
+      const listeners = new Set();
       const getModule = () => __mfModuleCache.remote[${JSON.stringify(id)}];
       const proxyTarget = function (...args) {
         ${
@@ -222,11 +236,13 @@ export default exportModule?.__mf_is_remote_proxy ? exportModule : exportModule?
         apply(target, thisArg, args) {
           return target.apply(thisArg, args);
         }
-      });
+      });`
+      }
     }`;
 
   return `
     ${reactImportLine}
+    ${vueImportLine}
     ${importLine}
     ${remoteProxyCode}
     let __mfRemotePending;
