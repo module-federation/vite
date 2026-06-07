@@ -39,7 +39,15 @@ export default defineConfig({
       dts: false,
       filename: 'remoteEntry-[hash].js',
       varFilename: 'varRemoteEntry.js', // in cases when host's config requires remote's "type": "var"
-      manifest: true,
+      manifest: {
+        additionalData({ stats }) {
+          stats.metaData.deployEnv = process.env.NODE_ENV;
+          stats.metaData.region = 'eu';
+          stats.custom = {
+            buildId: process.env.BUILD_ID,
+          };
+        },
+      },
       shared: {
         vue: {},
         'react/': {
