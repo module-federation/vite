@@ -297,6 +297,44 @@ describe('pluginAddEntry', () => {
     expect(result).toBeUndefined();
   });
 
+  it('does not rewrap Nuxt dev client entry bootstrap request', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-dev-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = await runTransform(
+      buildPlugin,
+      'const entry = () => import("#app/entry").then((m) => m.default);\nif (true) {\n  entry();\n}\nexport default entry;',
+      '/repo/node_modules/.pnpm/nuxt@4.3.1/node_modules/nuxt/dist/app/entry.async.js?v=123&mf-entry-bootstrap'
+    );
+
+    expect(result).toBeUndefined();
+  });
+
   it('injects host init before Nuxt dev mount', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-mount-'));
     const plugins = addEntry({
@@ -863,15 +901,241 @@ describe('pluginAddEntry', () => {
       (item) =>
         item.type === 'asset' &&
         typeof item.fileName === 'string' &&
-        item.fileName.startsWith('mf-entry-bootstrap-')
+        item.fileName.includes('mf-entry-bootstrap-')
     ) as Rollup.EmittedAsset | undefined;
-    expect(bootstrapAsset?.fileName).toMatch(/^mf-entry-bootstrap-0-[a-f0-9]{8}\.js$/);
+    expect(bootstrapAsset?.fileName).toMatch(/^assets\/mf-entry-bootstrap-0-[a-f0-9]{8}\.js$/);
     expect(emitted).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: 'chunk', id: '/virtual/hostInit.js' }),
       ])
     );
     expect(bundle['indexProd.html'].source).toContain(bootstrapAsset!.fileName);
+  });
+
+  it('emits bootstrap file with directory prefix from entryFileNames pattern', () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+    const buildPlugin = plugins[1];
+    const emitted: Rollup.EmittedFile[] = [];
+    const bundle: any = {
+      'index.html': {
+        type: 'asset',
+        source:
+          '<html><head><script type="module" src="./src/main.tsx"></script></head><body></body></html>',
+      },
+    };
+
+    runConfigResolved(buildPlugin, {
+      root: '/repo/host',
+      base: '',
+      command: 'build',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'host-init-ref';
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'static/js/hostInit-abc.js',
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'bootstrap-ref-' + emitted.length;
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+
+    const bootstrapFile = emitted.find((f) =>
+      (f as Rollup.EmittedAsset).fileName?.includes('mf-entry-bootstrap')
+    ) as Rollup.EmittedAsset | undefined;
+    expect(bootstrapFile).toBeDefined();
+    expect(bootstrapFile!.fileName).toMatch(/^static\/js\/mf-entry-bootstrap-0-[a-f0-9]{8}\.js$/);
+    expect(bootstrapFile!.source as string).toContain('__mfImport("./hostInit-abc.js")');
+    expect(bootstrapFile!.source as string).toContain('__mfImport("../../src/main.tsx")');
+  });
+
+  it('emits bootstrap file at root when entryFileNames is not set', () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+    const buildPlugin = plugins[1];
+    const emitted: Rollup.EmittedFile[] = [];
+    const bundle: any = {
+      'index.html': {
+        type: 'asset',
+        source:
+          '<html><head><script type="module" src="./src/main.tsx"></script></head><body></body></html>',
+      },
+    };
+
+    runConfigResolved(buildPlugin, {
+      root: '/repo/host',
+      base: '',
+      command: 'build',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'host-init-ref';
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'hostInit-abc.js',
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'bootstrap-ref-' + emitted.length;
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+
+    const bootstrapFile = emitted.find((f) =>
+      (f as Rollup.EmittedAsset).fileName?.includes('mf-entry-bootstrap')
+    ) as Rollup.EmittedAsset | undefined;
+    expect(bootstrapFile).toBeDefined();
+    expect(bootstrapFile!.fileName).toMatch(/^mf-entry-bootstrap-0-[a-f0-9]{8}\.js$/);
+  });
+
+  it('strips Vite base before rebasing bootstrap imports (base: /app/)', () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+    const buildPlugin = plugins[1];
+    const emitted: Rollup.EmittedFile[] = [];
+    const bundle: any = {
+      'index.html': {
+        type: 'asset',
+        source:
+          '<html><head><script type="module" src="/app/src/main.tsx"></script></head><body></body></html>',
+      },
+    };
+
+    runConfigResolved(buildPlugin, {
+      root: '/repo/host',
+      base: '/app/',
+      command: 'build',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'host-init-ref';
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'static/js/hostInit-abc.js',
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'bootstrap-ref-' + emitted.length;
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+
+    const bootstrapFile = emitted.find((f) =>
+      (f as Rollup.EmittedAsset).fileName?.includes('mf-entry-bootstrap')
+    ) as Rollup.EmittedAsset | undefined;
+    expect(bootstrapFile).toBeDefined();
+    expect(bootstrapFile!.fileName).toMatch(/^static\/js\/mf-entry-bootstrap-0-[a-f0-9]{8}\.js$/);
+    expect(bootstrapFile!.source as string).toContain('__mfImport("./hostInit-abc.js")');
+    expect(bootstrapFile!.source as string).toContain('__mfImport("../../src/main.tsx")');
+  });
+
+  it('does not rebase absolute URLs from renderBuiltUrl in bootstrap', () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+    const buildPlugin = plugins[1];
+    const emitted: Rollup.EmittedFile[] = [];
+    const bundle: any = {
+      'index.html': {
+        type: 'asset',
+        source:
+          '<html><head><script type="module" src="/src/main.tsx"></script></head><body></body></html>',
+      },
+    };
+
+    runConfigResolved(buildPlugin, {
+      root: '/repo/host',
+      base: '/',
+      command: 'build',
+      experimental: {
+        renderBuiltUrl(filename: string) {
+          if (filename.includes('hostInit')) {
+            return 'https://cdn.example.com/hostInit-abc.js';
+          }
+          return { relative: true };
+        },
+      },
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'host-init-ref';
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'static/js/hostInit-abc.js',
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'bootstrap-ref-' + emitted.length;
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+
+    const bootstrapFile = emitted.find((f) =>
+      (f as Rollup.EmittedAsset).fileName?.includes('mf-entry-bootstrap')
+    ) as Rollup.EmittedAsset | undefined;
+    expect(bootstrapFile).toBeDefined();
+    expect(bootstrapFile!.source as string).toContain(
+      '__mfImport("https://cdn.example.com/hostInit-abc.js")'
+    );
   });
 
   it('wraps SvelteKit static inline startup behind host init during build', () => {

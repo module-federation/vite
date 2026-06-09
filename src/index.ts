@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
-import path from 'pathe';
+import * as path from 'node:path';
+import { pathToFileURL } from 'url';
 import type { ConfigEnv, Plugin, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
@@ -21,6 +22,7 @@ import {
   rewriteEsmProxyConsumers,
   rewriteSystemProxyConsumers,
 } from './utils/bundleHelpers';
+import { normalizePathForImport } from './utils/buildPaths';
 import {
   isFederationControlChunk,
   sanitizeFederationControlChunk,
@@ -35,7 +37,12 @@ import type {
 } from './utils/normalizeModuleFederationOptions';
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import {
+  getIsRolldown,
+  hasPackageDependency,
+  resolveImportPath,
+  setPackageDetectionCwd,
+} from './utils/packageUtils';
 import { getSsrCapabilities } from './utils/ssrCapabilities';
 import { getCommonSharedSubpaths } from './utils/pathNormalization';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
@@ -210,7 +217,7 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
 // optimizer instead of letting Vite's resolver error on the missing export.
 function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean {
   try {
-    const req = createRequire(new URL(`file://${projectRoot}/package.json`));
+    const req = createRequire(pathToFileURL(path.join(projectRoot, 'package.json')));
     req.resolve(subpath);
     return true;
   } catch {
@@ -423,8 +430,7 @@ export default __mfShared.default ?? __mfShared;`,
       });
       if (alreadyInjected) return;
 
-      const pluginRequire = createRequire(import.meta.url);
-      const projectRequire = createRequire(new URL(`file://${config.root}/package.json`));
+      const projectRequire = createRequire(pathToFileURL(path.join(config.root, 'package.json')));
       const sharedKeys = Object.keys(options.shared ?? {});
       const commonSharedPkgs = [
         'react',
@@ -442,7 +448,7 @@ export default __mfShared.default ?? __mfShared;`,
           resolvedShared[pkg] = projectRequire.resolve(pkg);
         } catch {
           try {
-            resolvedShared[pkg] = pluginRequire.resolve(pkg);
+            resolvedShared[pkg] = resolveImportPath(pkg);
           } catch {
             // Not installed at either location — ssrEntryLoader falls back to
             // runtime resolution from the host app.
@@ -455,7 +461,7 @@ export default __mfShared.default ?? __mfShared;`,
       // Users can still inject manually via runtimePlugins in that case.
       const ssrEntryLoaderSpecifier = '@module-federation/vite/ssrEntryLoader';
       try {
-        pluginRequire.resolve(ssrEntryLoaderSpecifier);
+        resolveImportPath(ssrEntryLoaderSpecifier);
         options.runtimePlugins.push([ssrEntryLoaderSpecifier, { resolvedShared }]);
       } catch {
         // lib/ not built yet — skip silently
@@ -538,7 +544,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               if (!environmentName || environmentName === 'client') return;
 
               const target = reactServerEntryMap[id];
-              const projectRequire = createRequire(new URL(`file://${process.cwd()}/package.json`));
+              const projectRequire = createRequire(
+                pathToFileURL(path.join(process.cwd(), 'package.json'))
+              );
               const reactPackageJson = projectRequire.resolve('react/package.json');
               return path.join(path.dirname(reactPackageJson), target.replace(/^react\//, ''));
             },
@@ -1021,16 +1029,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
 
-        // For Vite 8+, resolve to ESM entry
-        // because Vite 8's internal bundler cannot parse dynamic import() in .cjs files
-        let implementation = options.implementation;
-        if (isRolldown) {
-          implementation = implementation.replace(/\.cjs(\.js)?$/, '.js');
-        }
-
         appendResolveAlias(config, {
           find: '@module-federation/runtime',
-          replacement: implementation,
+          replacement: options.implementation,
         });
         config.build ||= {};
         config.build.commonjsOptions ||= {};
@@ -1174,7 +1175,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                   if (!isOutputChunk(chunk)) continue;
                   if (!chunk.code.includes('modulepreload')) continue;
                   const chunkDir = path.dirname(chunk.fileName);
-                  const prefixToRoot = chunkDir === '.' ? '' : `${path.relative(chunkDir, '.')}/`;
+                  const prefixToRoot =
+                    chunkDir === '.'
+                      ? ''
+                      : `${normalizePathForImport(path.relative(chunkDir, '.'))}/`;
                   const replacementExpr = prefixToRoot
                     ? `${escapeUnsafeJsSourceChars(JSON.stringify(prefixToRoot))}+$1`
                     : '$1';

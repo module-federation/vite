@@ -236,11 +236,14 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
                 const bareId = decodeViteId(id);
                 try {
                   const { createRequire } = await import('module');
+                  const path = await import('path');
+                  const { pathToFileURL } = await import('url');
                   const req = createRequire(
-                    new URL(`file://${(server.config as { root: string }).root}/package.json`)
+                    pathToFileURL(
+                      path.join((server.config as { root: string }).root, 'package.json')
+                    )
                   );
                   const resolved = req.resolve(bareId.replace(/^\0/, ''));
-                  const { pathToFileURL } = await import('url');
                   result = { externalize: pathToFileURL(resolved).href, type: 'module' };
                 } catch {
                   throw fetchErr;

@@ -23,9 +23,14 @@ export type RemoteEntryType =
   | string;
 
 import * as fs from 'fs';
-import * as path from 'pathe';
+import * as path from 'node:path';
 import { createModuleFederationError, mfWarn } from './logger';
-import { getInstalledPackageJson, getPackageDetectionCwd, getPackageName } from './packageUtils';
+import {
+  getInstalledPackageJson,
+  getPackageDetectionCwd,
+  getPackageName,
+  resolveImportPath,
+} from './packageUtils';
 
 interface ExposesItem {
   import: string;
@@ -361,6 +366,14 @@ export interface PluginManifestOptions {
   filePath?: string;
   disableAssetsAnalyze?: boolean;
   fileName?: string;
+  additionalData?: (options: {
+    stats: Record<string, unknown>;
+    manifest?: Record<string, unknown>;
+    pluginOptions: Record<string, unknown>;
+    compiler?: unknown;
+    compilation?: unknown;
+    bundler: 'vite';
+  }) => Promise<Record<string, unknown> | void> | Record<string, unknown> | void;
 }
 function normalizeManifest(manifest: ModuleFederationOptions['manifest']) {
   if (manifest === undefined) {
@@ -562,10 +575,10 @@ let config: NormalizedModuleFederationOptions;
 let explicitSharedKeys: Set<string> = new Set();
 
 function resolveRuntimeImplementation(): string {
-  const fallback = require.resolve('@module-federation/runtime');
+  const fallback = resolveImportPath('@module-federation/runtime');
 
   try {
-    const packageJsonPath = require.resolve('@module-federation/runtime/package.json');
+    const packageJsonPath = resolveImportPath('@module-federation/runtime/package.json');
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
       module?: string;
       exports?: {

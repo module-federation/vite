@@ -1,18 +1,17 @@
 # Releasing
 
-This repo uses Changesets for versioning, and publishes to npm via GitHub Actions trusted publishing.
+This repo uses manual `package.json` versioning and publishes to npm via GitHub Actions trusted publishing.
 
 ## Flow
 
-1. Add Changesets in feature PRs
-   - `pnpm changeset`
-2. Create + merge the release PR
-   - GitHub Actions: `Release Pull Request`
-3. Create a GitHub Release for the merge commit
+1. Create + merge a release PR
+   - Update `package.json` to the exact semver version to publish.
+   - Run `pnpm install --lockfile-only` if the lockfile needs metadata updates.
+2. Create a GitHub Release for the merge commit
    - Tag format: `<package.json version>` (example: `1.11.0`)
    - Stable: mark as a normal release
    - Pre-release: mark as a prerelease on the same stable tag (example: `1.12.0`)
-4. GitHub Actions publishes to npm
+3. GitHub Actions publishes to npm
    - Workflow: `Publish (GitHub Release)` (`.github/workflows/publish-on-release.yml`)
    - Dist-tag:
      - Release trigger: `latest` for stable releases; `next` for prereleases
@@ -31,7 +30,9 @@ This repo uses Changesets for versioning, and publishes to npm via GitHub Action
 Use the `Publish (GitHub Release)` workflow with `Run workflow`:
 
 - `version=latest`: publish current `branch` head with `latest` tag.
-- `version=next`: generate a snapshot version (`changeset version --snapshot`) and publish with `next` tag.
+- `version=next`: publish current `branch` head with `next` tag.
+
+Before running the workflow, ensure `package.json` already contains the exact version to publish.
 
 ## Notes
 

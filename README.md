@@ -59,22 +59,22 @@ With **@module-federation/vite**, the process becomes delightfully simple, you w
 You can keep Module Federation options in `module-federation.config.ts`.
 
 ```ts
-import { createModuleFederationConfig } from '@module-federation/vite';
+import { createModuleFederationConfig } from "@module-federation/vite";
 
 export default createModuleFederationConfig({
-  name: 'remote',
-  filename: 'remoteEntry.js',
+  name: "remote",
+  filename: "remoteEntry.js",
   exposes: {
-    './remote-app': './src/App.vue',
+    "./remote-app": "./src/App.vue",
   },
-  shared: ['vue'],
+  shared: ["vue"],
 });
 ```
 
 ```ts
-import { defineConfig } from 'vite';
-import { federation } from '@module-federation/vite';
-import moduleFederationConfig from './module-federation.config';
+import { defineConfig } from "vite";
+import { federation } from "@module-federation/vite";
+import moduleFederationConfig from "./module-federation.config";
 
 export default defineConfig({
   plugins: [federation(moduleFederationConfig)],
@@ -175,6 +175,19 @@ export default defineConfig({
         // It also disables the preload-helper patch used for remotes.
         // In serve for consumer-only apps, this defaults to true unless explicitly set.
         disableAssetsAnalyze: false,
+        // Optional hook to mutate generated manifest/stats data.
+        additionalData: ({ stats }) => {
+          stats.metaData.deployEnv = process.env.NODE_ENV;
+          stats.metaData.region = "eu";
+          stats.custom = {
+            buildId: process.env.BUILD_ID,
+          };
+        },
+        // Or return a replacement/merged object.
+        // additionalData: ({ stats }) => ({
+        //   ...stats,
+        //   custom: { buildId: process.env.BUILD_ID },
+        // }),
       },
     }),
   ],

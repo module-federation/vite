@@ -1,6 +1,7 @@
-import * as path from 'pathe';
+import * as path from 'node:path';
 import { fileURLToPath } from 'url';
 import type { Plugin } from 'vite';
+import { normalizePathForImport } from '../utils/buildPaths';
 import {
   addCssAssetsToAllExports,
   collectCssAssets,
@@ -166,7 +167,7 @@ export default function ({
       }
 
       const ensureRelativeImportPath = (fromFile: string, toFile: string) => {
-        let relativePath = path.relative(path.dirname(fromFile), toFile);
+        let relativePath = normalizePathForImport(path.relative(path.dirname(fromFile), toFile));
         if (!relativePath.startsWith('.')) {
           relativePath = `./${relativePath}`;
         }

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { createRequire } from 'module';
-import path from 'pathe';
+import { fileURLToPath, pathToFileURL } from 'url';
+import * as path from 'node:path';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 
@@ -24,6 +25,19 @@ export function setPackageDetectionCwd(cwd: string) {
 
 export function getPackageDetectionCwd() {
   return packageDetectionCwd || process.cwd();
+}
+
+export function resolveImportPath(specifier: string): string {
+  const resolved = import.meta.resolve(specifier);
+  if (!resolved.startsWith('file:')) return resolved;
+
+  const filePath = fileURLToPath(resolved);
+  if (!existsSync(filePath)) {
+    const error = new Error(`Cannot find module '${specifier}'`) as NodeJS.ErrnoException;
+    error.code = 'MODULE_NOT_FOUND';
+    throw error;
+  }
+  return filePath;
 }
 
 export type InstalledPackageJson = {
@@ -187,7 +201,7 @@ export function getInstalledPackageJson(
   };
 
   try {
-    const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
+    const projectRequire = createRequire(pathToFileURL(path.join(cwd, 'package.json')));
     let resolvedPath: string | undefined;
 
     if (opts?.fromResolvedEntry) {
@@ -251,7 +265,7 @@ export function getInstalledPackageEntry(
   const packageName = opts?.packageName || getPackageName(pkg);
   if (pkg !== packageName && opts?.resolveSubpathWithRequire !== false) {
     try {
-      const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
+      const projectRequire = createRequire(pathToFileURL(path.join(cwd, 'package.json')));
       return projectRequire.resolve(pkg);
     } catch {
       // Fall back to root package entry resolution below.

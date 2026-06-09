@@ -60,6 +60,9 @@ vi.mock('../../utils/packageUtils', () => ({
   }),
   setPackageDetectionCwd: vi.fn(),
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
+  resolveImportPath: vi.fn(
+    (specifier: string) => `/repo/apps/remote/node_modules/${specifier}/index.js`
+  ),
   getIsRolldown: () => false,
   packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
   getPackageName: (pkg: string) => {

@@ -1,29 +1,24 @@
 {
   "name": "@module-federation/vite",
-  "version": "1.16.3",
+  "version": "1.16.5",
   "description": "Vite plugin for Module Federation",
   "type": "module",
-  "main": "./lib/index.cjs",
-  "module": "./lib/index.mjs",
-  "types": "./lib/index.d.mts",
+  "main": "./lib/index.js",
+  "module": "./lib/index.js",
+  "types": "./lib/index.d.ts",
   "exports": {
     ".": {
-      "types": {
-        "import": "./lib/index.d.mts",
-        "require": "./lib/index.d.cts"
-      },
-      "import": "./lib/index.mjs",
-      "require": "./lib/index.cjs"
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
     },
     "./ssrEntryLoader": {
-      "types": {
-        "import": "./lib/utils/ssrEntryLoader.d.mts",
-        "require": "./lib/utils/ssrEntryLoader.d.cts"
-      },
-      "import": "./lib/utils/ssrEntryLoader.mjs",
-      "require": "./lib/utils/ssrEntryLoader.cjs"
+      "types": "./lib/utils/ssrEntryLoader.d.ts",
+      "default": "./lib/utils/ssrEntryLoader.js"
     },
     "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   },
   "files": [
     "lib/**/*"
@@ -48,9 +43,7 @@
     "multi-example": "pnpm clean && pnpm --filter 'multi-example-*' --parallel run start",
     "test": "vitest run --dir src",
     "test:integration": "vitest run integration",
-    "e2e": "playwright test",
-    "changeset": "changeset",
-    "changeset:status": "changeset status"
+    "e2e": "playwright test"
   },
   "repository": {
     "type": "git",
@@ -80,12 +73,9 @@
     "@module-federation/dts-plugin": "2.5.1",
     "@module-federation/runtime": "2.5.1",
     "@module-federation/sdk": "2.5.1",
-    "es-module-lexer": "2.0.0",
-    "estree-walker": "3.0.3",
-    "pathe": "2.0.3"
+    "es-module-lexer": "2.1.0"
   },
   "devDependencies": {
-    "@changesets/cli": "2.30.0",
     "@playwright/test": "1.58.2",
     "@types/node": "25.3.3",
     "husky": "9.1.7",

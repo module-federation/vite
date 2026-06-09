@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'fs';
-import * as path from 'pathe';
+import * as path from 'node:path';
 import type { Plugin } from 'vite';
+import { normalizePathForImport, rebaseImport } from '../utils/buildPaths';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
 import {
@@ -79,7 +80,8 @@ const addEntry = ({
   skipTransformFor = [],
 }: AddEntryOptions): Plugin[] => {
   const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
-  const ENTRY_BOOTSTRAP_QUERY = '?mf-entry-bootstrap';
+  const ENTRY_BOOTSTRAP_PARAM = 'mf-entry-bootstrap';
+  const ENTRY_BOOTSTRAP_QUERY = `?${ENTRY_BOOTSTRAP_PARAM}`;
   const waitsForInit = entryName === 'hostInit';
   const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
   let devEntryPath = '';
@@ -91,6 +93,7 @@ const addEntry = ({
   let clientInjected = forceClientInjected ?? false;
   let emittedFileName: string | undefined;
   let skipTransformIds = new Set<string>();
+  let bootstrapDir = '';
 
   function skipSvelteKitSsrBuild() {
     return (
@@ -104,6 +107,12 @@ const addEntry = ({
     return (
       hasPackageDependency('@sveltejs/kit') &&
       (id.includes('.svelte-kit/generated/') || id.includes('/@sveltejs/kit/src/runtime/server/'))
+    );
+  }
+
+  function hasEntryBootstrapParam(id: string) {
+    return (
+      id.includes(ENTRY_BOOTSTRAP_PARAM) || decodeURIComponent(id).includes(ENTRY_BOOTSTRAP_PARAM)
     );
   }
 
@@ -151,7 +160,7 @@ const addEntry = ({
   }
 
   function toRelativeImport(fromFile: string, targetFile: string) {
-    const relative = path.relative(path.dirname(fromFile), targetFile).replace(/\\/g, '/');
+    const relative = normalizePathForImport(path.relative(path.dirname(fromFile), targetFile));
     return relative.startsWith('.') ? relative : `./${relative}`;
   }
 
@@ -498,6 +507,11 @@ const addEntry = ({
         if (htmlFileNames.length === 0) return;
         const file = this.getFileName(emitFileId);
         emittedFileName = file;
+        // Derive bootstrapDir from the emitted hostInit file path.
+        // entryFileNames is normalized away by Vite/Rolldown before plugins
+        // can read it, so we extract the directory from the actual output path.
+        const lastSlash = file.lastIndexOf('/');
+        bootstrapDir = lastSlash !== -1 ? file.slice(0, lastSlash + 1) : '';
         // Helper to resolve path with proper renderBuiltUrl handling
         const resolvePath = (htmlFileName: string): string => {
           if (!viteConfig.experimental?.renderBuiltUrl) {
@@ -534,6 +548,14 @@ const addEntry = ({
           return viteConfig.base + file;
         };
 
+        // Strip Vite base before rebasing — paths in HTML include the base
+        // prefix (e.g. "/app/static/js/hostInit.js" with base="/app/"),
+        // but rebaseImport works against the output directory structure
+        // (e.g. "static/js/"), which is relative to the build root.
+        const basePrefix = viteConfig.base?.replace(/\/$/, '') ?? '';
+        const stripBase = (p: string) =>
+          basePrefix && p.startsWith(basePrefix + '/') ? p.slice(basePrefix.length) : p;
+
         let bootstrapIndex = 0;
         // Process each HTML file
         for (const fileName of htmlFileNames) {
@@ -547,7 +569,15 @@ const addEntry = ({
           let rewritten = false;
           htmlContent = htmlContent.replace(scriptRegex, (scriptTag, entrySrc) => {
             rewritten = true;
-            const bootstrapSource = getSystemBootstrapSource(initPath, entrySrc);
+            const strippedInit = stripBase(initPath);
+            const strippedEntry = stripBase(entrySrc);
+            const rebasedInitPath = bootstrapDir
+              ? rebaseImport(strippedInit, bootstrapDir)
+              : initPath;
+            const rebasedEntrySrc = bootstrapDir
+              ? rebaseImport(strippedEntry, bootstrapDir)
+              : entrySrc;
+            const bootstrapSource = getSystemBootstrapSource(rebasedInitPath, rebasedEntrySrc);
             // Content-hash the bootstrap filename so browsers/CDNs invalidate
             // the cache on deploy. Without a hash the file ships as
             // `mf-entry-bootstrap-0.js` and stale caches serve the old
@@ -556,7 +586,7 @@ const addEntry = ({
               .update(bootstrapSource)
               .digest('hex')
               .slice(0, 8);
-            const bootstrapFileName = `mf-entry-bootstrap-${bootstrapIndex++}-${bootstrapHash}.js`;
+            const bootstrapFileName = `${bootstrapDir}mf-entry-bootstrap-${bootstrapIndex++}-${bootstrapHash}.js`;
             const bootstrapRef = this.emitFile({
               type: 'asset',
               fileName: bootstrapFileName,
@@ -595,7 +625,7 @@ const addEntry = ({
       transform(code, id) {
         if (skipSvelteKitSsrBuild()) return;
         if (isSvelteKitServerModule(id)) return;
-        if (id.includes(ENTRY_BOOTSTRAP_QUERY)) return;
+        if (hasEntryBootstrapParam(id)) return;
         if (normalizeModuleId(id).endsWith('.html')) return;
         if (skipTransformIds.has(resolveProjectId(id))) return;
         // Only inject into client-side modules. In Vite 8 multi-environment mode
@@ -672,6 +702,7 @@ const addEntry = ({
           inject === 'entry' &&
           (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
           !clientInjected &&
+          !hasEntryBootstrapParam(id) &&
           !id.includes('node_modules/.vite') &&
           isNuxtEntryAsyncModule &&
           !entryFiles.some((file) => resolveProjectId(id) === file);

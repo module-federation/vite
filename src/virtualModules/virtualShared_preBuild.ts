@@ -11,7 +11,8 @@
 
 import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
 import { createRequire } from 'module';
-import path from 'pathe';
+import * as path from 'node:path';
+import { pathToFileURL } from 'url';
 import { mfWarn } from '../utils/logger';
 import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
 import {
@@ -66,7 +67,7 @@ const localRequire = createRequire(import.meta.url);
 function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
   try {
     const projectRequire = createRequire(
-      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
     );
     return projectRequire.resolve(pkg);
   } catch {
@@ -130,9 +131,7 @@ function resolveConfiguredImportPath(importSource: string): string | undefined {
   if (esmEntry) return esmEntry;
 
   try {
-    const projectRequire = createRequire(
-      new URL(`file://${path.join(projectRoot, 'package.json')}`)
-    );
+    const projectRequire = createRequire(pathToFileURL(path.join(projectRoot, 'package.json')));
     return projectRequire.resolve(importSource);
   } catch {
     return undefined;
@@ -268,7 +267,7 @@ function getPackageNamedExports(pkg: string): string[] {
     // like react are found even when the plugin is installed in a nested
     // pnpm store location where peer dependencies are not hoisted.
     const projectRequire = createRequire(
-      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
     );
     const mod = projectRequire(pkg);
     return Object.keys(mod).filter((k) => isValidEsmExportName(k));
@@ -291,7 +290,7 @@ function getSharedNamedExports(pkg: string, shareItem?: ShareItem): string[] {
 export function getLocalProviderImportPath(pkg: string): string | undefined {
   try {
     const projectRequire = createRequire(
-      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
     );
     const resolved = projectRequire.resolve(pkg);
     return isWorkspaceFilePath(resolved) ? resolved : undefined;
@@ -312,7 +311,7 @@ export function getProjectResolvedImportPath(pkg: string): string | undefined {
 
   try {
     const projectRequire = createRequire(
-      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
     );
     return projectRequire.resolve(pkg);
   } catch {
@@ -339,7 +338,7 @@ function isWorkspacePackageEntry(pkg: string, resolved: string | undefined): res
 
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
   try {
-    const projectRequire = createRequire(new URL(`file://${path.join(root, 'package.json')}`));
+    const projectRequire = createRequire(pathToFileURL(path.join(root, 'package.json')));
     return projectRequire.resolve(pkg);
   } catch {
     return undefined;
@@ -477,7 +476,7 @@ export const LOAD_SHARE_TAG = '__loadShare__';
 const loadShareCacheMap: Record<string, VirtualModule> = {};
 export function getLoadShareImportId(pkg: string, _isRolldown: boolean): string {
   if (!loadShareCacheMap[pkg]) {
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.mjs');
+    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
   }
   return loadShareCacheMap[pkg].getImportId();
 }
@@ -643,7 +642,7 @@ export function writeLoadShareModule(
   _isRolldown: boolean
 ) {
   if (!loadShareCacheMap[pkg]) {
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.mjs');
+    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
   }
   let importLine = getRuntimeModuleCacheBootstrapCode();
   const cacheKey = getSharedCacheKey(pkg, shareItem);

@@ -24,7 +24,7 @@ export function getRemoteVirtualModule(
   const { shareStrategy } = getNormalizeModuleFederationOptions();
   const cacheKey = `${remote}__${command}__${shareStrategy}__${consumer}__${enableSsrInit ? 'ssr-init' : 'no-ssr-init'}`;
   if (!cacheRemoteMap[cacheKey]) {
-    cacheRemoteMap[cacheKey] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.mjs');
+    cacheRemoteMap[cacheKey] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.js');
     cacheRemoteMap[cacheKey].writeSync(generateRemotes(remote, command, enableSsrInit, consumer));
   }
   const virtual = cacheRemoteMap[cacheKey];
@@ -262,6 +262,7 @@ export function generateRemotes(
             ${registerRemoteCode}
             return runtime.loadRemote(${JSON.stringify(id)});
           })
+          .then((mod) => Promise.resolve(mod?.__mf_remote_dependency_pending).then(() => mod))
           .then((mod) => {
             __mfModuleCache.remote[${JSON.stringify(id)}] = mod;
             delete __mfModuleCache.remote[pendingKey];

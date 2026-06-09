@@ -15,6 +15,7 @@ vi.mock('../../utils/packageUtils', () => ({
   isNuxtProjectRoot: isNuxtProjectRootMock,
   getPackageDetectionCwd: vi.fn(() => '/mock/cwd'),
   setPackageDetectionCwd: vi.fn(),
+  resolveImportPath: vi.fn((specifier: string) => `/mock/cwd/node_modules/${specifier}/index.js`),
   getPackageName: vi.fn((s: string) => s.split('/')[0]),
   getPackageNameFromNodeModulePath: vi.fn(),
   packageNameEncode: vi.fn((s: string) => s),

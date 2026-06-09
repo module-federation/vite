@@ -345,9 +345,9 @@ function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string,
 }
 
 /**
- * Fetch an HTTP ESM module, transform it, write it to a temp .mjs file and
+ * Fetch an HTTP ESM module, transform it, write it to a temp .js file and
  * return the file path. Recursively does the same for HTTP transitive imports
- * so that `import('file:///...temp.mjs')` can resolve them.
+ * so that `import('file:///...temp.js')` can resolve them.
  */
 async function fetchEsmToTempFile(
   url: string,
@@ -396,7 +396,7 @@ async function fetchEsmToTempFile(
     const { join } = await _path();
     const { writeFileSync } = await _fs();
     const hash = createHash('sha1').update(url).digest('hex').slice(0, 12);
-    const tmpFile = join(tmpDir, `${hash}.mjs`);
+    const tmpFile = join(tmpDir, `${hash}.js`);
     writeFileSync(tmpFile, code, 'utf8');
     visited.set(url, tmpFile);
     return tmpFile;

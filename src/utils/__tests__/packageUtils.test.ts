@@ -1,11 +1,13 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
-import path from 'pathe';
+import * as path from 'node:path';
 import { tmpdir } from 'os';
+import { pathToFileURL } from 'url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   getInstalledPackageEntry,
   getInstalledPackageJson,
   getPackageNameFromNodeModulePath,
+  resolveImportPath,
 } from '../packageUtils';
 
 describe('getInstalledPackageJson', () => {
@@ -81,6 +83,17 @@ describe('getInstalledPackageJson', () => {
     const entry = getInstalledPackageEntry(packageName, { cwd: hostDir });
 
     expect(entry).toBe(path.join(packageDir, 'dist/browser.js'));
+  });
+});
+
+describe('resolveImportPath', () => {
+  it('returns an existing package export path', () => {
+    expect(resolveImportPath('@module-federation/runtime')).toContain('@module-federation');
+  });
+
+  it('throws for exported paths that do not exist on disk', () => {
+    const missing = path.join(tmpdir(), `mf-vite-missing-${Date.now()}.js`);
+    expect(() => resolveImportPath(pathToFileURL(missing).href)).toThrow(/Cannot find module/);
   });
 });
 

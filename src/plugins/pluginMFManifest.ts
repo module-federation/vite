@@ -1,4 +1,4 @@
-import * as path from 'pathe';
+import * as path from 'node:path';
 import { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,
@@ -103,8 +103,8 @@ const Manifest = (): Plugin[] => {
           ) {
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Access-Control-Allow-Origin', '*');
-            res.end(
-              JSON.stringify({
+            void (async () => {
+              const manifest = await applyManifestAdditionalData({
                 ...generateMFManifest({}, disableAssetsAnalyze),
                 id: name,
                 name: name,
@@ -134,8 +134,9 @@ const Manifest = (): Plugin[] => {
                   pluginVersion: '0.2.5',
                   publicPath,
                 },
-              })
-            );
+              });
+              res.end(JSON.stringify(manifest));
+            })().catch(next);
           } else {
             next();
           }
@@ -237,17 +238,27 @@ const Manifest = (): Plugin[] => {
           filesMap = deduplicateAssets(filesMap);
         }
 
+        const manifest = await applyManifestAdditionalData(
+          generateMFManifest(filesMap, disableAssetsAnalyze),
+          undefined
+        );
+
         this.emitFile({
           type: 'asset',
           fileName: mfManifestName,
-          source: JSON.stringify(generateMFManifest(filesMap, disableAssetsAnalyze)),
+          source: JSON.stringify(manifest),
         });
 
         if (mfManifestStatsName) {
+          const stats = await applyManifestAdditionalData(
+            generateMFStats(manifest, filesMap, bundle, disableAssetsAnalyze),
+            manifest
+          );
+
           this.emitFile({
             type: 'asset',
             fileName: mfManifestStatsName,
-            source: JSON.stringify(generateMFStats(filesMap, bundle, disableAssetsAnalyze)),
+            source: JSON.stringify(stats),
           });
         }
       },
@@ -372,11 +383,11 @@ const Manifest = (): Plugin[] => {
   }
 
   function generateMFStats(
+    manifest: Record<string, any>,
     preloadMap: PreloadMap,
     bundle: Record<string, { [key: string]: any }>,
     disableAssetsAnalyze = false
   ) {
-    const baseManifest = generateMFManifest(preloadMap, disableAssetsAnalyze);
     const bundleSummary = Object.entries(bundle).map(([fileName, chunkOrAsset]) => ({
       fileName,
       type: chunkOrAsset.type,
@@ -388,10 +399,33 @@ const Manifest = (): Plugin[] => {
     }));
 
     return {
-      ...baseManifest,
+      ...manifest,
       buildOutput: bundleSummary,
       ...(disableAssetsAnalyze ? {} : { assetAnalysis: preloadMap }),
     };
+  }
+
+  async function applyManifestAdditionalData(
+    stats: Record<string, any>,
+    manifest?: Record<string, any>
+  ) {
+    if (
+      typeof manifestOptions !== 'object' ||
+      typeof manifestOptions.additionalData !== 'function'
+    ) {
+      return stats;
+    }
+
+    const nextStats = await manifestOptions.additionalData({
+      stats,
+      manifest,
+      pluginOptions: mfOptions as unknown as Record<string, unknown>,
+      compiler: undefined,
+      compilation: undefined,
+      bundler: 'vite',
+    });
+
+    return nextStats || stats;
   }
 };
 

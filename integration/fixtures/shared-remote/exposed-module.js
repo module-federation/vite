@@ -1,3 +1,3 @@
-import { join } from 'pathe';
+import { init } from 'es-module-lexer';
 
-export const nestedPath = join('shared', 'remote');
+export const parserReady = init;

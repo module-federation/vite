@@ -1,6 +1,7 @@
 import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
+import { isRollupChunk } from './helpers/assertions';
 import { buildFixture, FIXTURES } from './helpers/build';
 import { findChunk, getAllChunkCode, parseManifest } from './helpers/matchers';
 
@@ -17,17 +18,17 @@ describe('shared dependencies', () => {
   it('routes shared dep through loadShare()', async () => {
     const output = await buildFixture({
       fixture: 'shared-remote',
-      mfOptions: { ...SHARED_BASE_MF_OPTIONS, shared: { pathe: {} } },
+      mfOptions: { ...SHARED_BASE_MF_OPTIONS, shared: { 'es-module-lexer': {} } },
     });
     const allCode = getAllChunkCode(output);
     expect(allCode).toContain('loadShare');
-    expect(allCode).toContain('pathe');
+    expect(allCode).toContain('es-module-lexer');
   });
 
   it('keeps remoteEntry free of eager loadShare imports', async () => {
     const output = await buildFixture({
       fixture: 'shared-remote',
-      mfOptions: { ...SHARED_BASE_MF_OPTIONS, shared: { pathe: {} } },
+      mfOptions: { ...SHARED_BASE_MF_OPTIONS, shared: { 'es-module-lexer': {} } },
     });
     const remoteEntry = findChunk(output, 'remoteEntry');
     expect(remoteEntry).toBeDefined();
@@ -41,7 +42,7 @@ describe('shared dependencies', () => {
       fixture: 'shared-remote',
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
-        shared: { pathe: { singleton: true } },
+        shared: { 'es-module-lexer': { singleton: true } },
       },
     });
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
@@ -55,7 +56,7 @@ describe('shared dependencies', () => {
       fixture: 'shared-remote',
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
-        shared: { pathe: { requiredVersion: '^2.0.0' } },
+        shared: { 'es-module-lexer': { requiredVersion: '^2.0.0' } },
       },
     });
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
@@ -68,7 +69,7 @@ describe('shared dependencies', () => {
       fixture: 'shared-remote',
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
-        shared: { pathe: { import: false } },
+        shared: { 'es-module-lexer': { import: false } },
       },
     });
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
@@ -85,13 +86,15 @@ describe('shared dependencies', () => {
       fixture: 'shared-remote',
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
-        shared: { pathe: { import: false, singleton: true } },
+        shared: { 'es-module-lexer': { import: false, singleton: true } },
       },
     });
 
     const allCode = getAllChunkCode(output);
     const remoteEntry = findChunk(output, 'remoteEntry');
-    const loadShare = findChunk(output, /loadShare.*pathe/);
+    const loadShare = output.output
+      .filter(isRollupChunk)
+      .find((chunk) => chunk.code.includes('__mfModuleCache.share["es-module-lexer"]'));
 
     expect(remoteEntry).toBeDefined();
     expect(loadShare).toBeDefined();
@@ -101,11 +104,11 @@ describe('shared dependencies', () => {
     expect(allCode).toContain('__mfModuleCache.share[cacheKey]');
     expect(allCode).not.toContain('initRes.loadShare(pkg');
     expect(loadShare!.code).toContain('initPromise.then');
-    expect(loadShare!.code).toContain('__mfModuleCache.share["pathe"]');
-    expect(loadShare!.code).toContain('join');
+    expect(loadShare!.code).toContain('__mfModuleCache.share["es-module-lexer"]');
+    expect(loadShare!.code).toContain('init');
     expect(loadShare!.code).not.toContain('await initPromise');
-    expect(allCode).not.toContain('from"pathe"');
-    expect(allCode).not.toContain('from "pathe"');
+    expect(allCode).not.toContain('from"es-module-lexer"');
+    expect(allCode).not.toContain('from "es-module-lexer"');
   });
 
   it('includes shared deps in manifest', async () => {
@@ -114,7 +117,7 @@ describe('shared dependencies', () => {
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
         manifest: true,
-        shared: { pathe: {} },
+        shared: { 'es-module-lexer': {} },
       },
     });
     const manifest = parseManifest(output) as Record<string, unknown>;
@@ -122,9 +125,9 @@ describe('shared dependencies', () => {
     expect(manifest).toHaveProperty('shared');
 
     const shared = manifest.shared as Array<{ name: string; version: string }>;
-    const patheEntry = shared.find((s) => s.name === 'pathe');
-    expect(patheEntry).toBeDefined();
-    expect(patheEntry!.version).toBeTruthy();
+    const sharedEntry = shared.find((s) => s.name === 'es-module-lexer');
+    expect(sharedEntry).toBeDefined();
+    expect(sharedEntry!.version).toBeTruthy();
   });
 
   it('includes singleton in manifest shared entries', async () => {
@@ -133,15 +136,15 @@ describe('shared dependencies', () => {
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
         manifest: true,
-        shared: { pathe: { singleton: true } },
+        shared: { 'es-module-lexer': { singleton: true } },
       },
     });
     const manifest = parseManifest(output) as Record<string, unknown>;
     expect(manifest).toBeDefined();
 
     const shared = manifest.shared as Array<{ name: string; singleton?: boolean }>;
-    const patheEntry = shared.find((s) => s.name === 'pathe');
-    expect(patheEntry).toBeDefined();
-    expect(patheEntry?.singleton).toBe(true);
+    const sharedEntry = shared.find((s) => s.name === 'es-module-lexer');
+    expect(sharedEntry).toBeDefined();
+    expect(sharedEntry?.singleton).toBe(true);
   });
 });

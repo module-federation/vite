@@ -2,7 +2,6 @@
 
 import assert from 'node:assert';
 import path from 'path';
-import { importMetaResolve } from 'resolve-esm';
 
 import { federation } from '@module-federation/vite';
 
@@ -23,11 +22,11 @@ for (let [fn, name] of entries) {
   }
 }
 
-const moduleNames = [['@module-federation/vite', 'lib/index.mjs']];
+const moduleNames = [['@module-federation/vite', 'lib/index.js']];
 
 (async () => {
   for (let [moduleName, expectedFilename] of moduleNames) {
-    const modulePath = await importMetaResolve(moduleName);
+    const modulePath = import.meta.resolve(moduleName);
     const posixPath = modulePath.split(path.sep).join(path.posix.sep);
     console.log(`Module: ${moduleName}, path: ${posixPath}`);
     assert(posixPath.endsWith(expectedFilename));

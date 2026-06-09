@@ -4,6 +4,7 @@ import { getRemoteVirtualModule, generateRemotes, resolveRemoteInitMode } from '
 const mockOptions = vi.hoisted(() => ({
   shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
 }));
+const hasPackageDependencyMock = vi.hoisted(() => vi.fn((_pkg: string) => false));
 
 vi.mock('../../utils/packageUtils', async () => {
   const actual = await vi.importActual<typeof import('../../utils/packageUtils')>(
@@ -11,7 +12,7 @@ vi.mock('../../utils/packageUtils', async () => {
   );
   return {
     ...actual,
-    hasPackageDependency: vi.fn(() => false),
+    hasPackageDependency: hasPackageDependencyMock,
   };
 });
 
@@ -64,10 +65,10 @@ describe('resolveRemoteInitMode', () => {
 });
 
 describe('generateRemotes', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     mockOptions.shareStrategy = 'version-first';
-    const { hasPackageDependency } = await import('../../utils/packageUtils');
-    vi.mocked(hasPackageDependency).mockReturnValue(false);
+    hasPackageDependencyMock.mockReset();
+    hasPackageDependencyMock.mockReturnValue(false);
   });
 
   it('split client wrapper with SSR init loads the real remote for hydration', () => {
@@ -163,9 +164,8 @@ describe('generateRemotes', () => {
       expect(code).not.toContain('import("/virtual/hostInit.js")');
     });
 
-    it('client wrapper stays lazy when React is installed', async () => {
-      const { hasPackageDependency } = await import('../../utils/packageUtils');
-      vi.mocked(hasPackageDependency).mockReturnValue(true);
+    it('client wrapper stays lazy when React is installed', () => {
+      hasPackageDependencyMock.mockReturnValue(true);
 
       const code = generateRemotes('remote/Button', 'serve', false, 'client');
 
@@ -177,9 +177,8 @@ describe('generateRemotes', () => {
     });
   });
 
-  it('defers remote loading when React is installed for loaded-first', async () => {
-    const { hasPackageDependency } = await import('../../utils/packageUtils');
-    vi.mocked(hasPackageDependency).mockReturnValue(true);
+  it('defers remote loading when React is installed for loaded-first', () => {
+    hasPackageDependencyMock.mockReturnValue(true);
 
     mockOptions.shareStrategy = 'loaded-first';
     const code = generateRemotes('remote/Button', 'serve');
@@ -246,6 +245,9 @@ describe('generateRemotes', () => {
 
     expect(code).toContain('__mfCreateDeferredRemoteProxy()');
     expect(code).not.toContain('await ');
+    expect(code).toContain(
+      '.then((mod) => Promise.resolve(mod?.__mf_remote_dependency_pending).then(() => mod))'
+    );
     expect(code).toContain('export { exportModule as __moduleExports };');
     expect(code).toContain('export default __mfDefaultExport');
     expect(code).toContain('export const __mf_remote_pending =');
@@ -327,7 +329,7 @@ describe('generateRemotes', () => {
   it('uses ESM remote wrappers in Rollup build mode', () => {
     const virtual = getRemoteVirtualModule('remote/Card', 'build');
 
-    expect(virtual.getImportId()).toContain('.mjs');
+    expect(virtual.getImportId()).toContain('.js');
   });
 
   describe('deferred proxy invariants', () => {
