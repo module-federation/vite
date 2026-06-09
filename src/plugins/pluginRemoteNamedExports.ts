@@ -21,7 +21,6 @@
 import { init as initEsLexer, parse as parseEsImports } from 'es-module-lexer';
 import type { Plugin } from 'vite';
 import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
-import { loadWalk } from '../utils/loadWalk';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
 
@@ -67,6 +66,48 @@ type NamedSpecifierKind = 'import' | 'export';
 type ParsedNamedSpecifier<T extends NamedSpecifierKind> = T extends 'import'
   ? { imported: string; local: string }
   : { local: string; exported: string };
+
+interface WalkContext {
+  skip(): void;
+}
+
+interface WalkVisitor {
+  enter(this: WalkContext, node: any): void;
+}
+
+function isAstNode(value: unknown): value is { type: string; [key: string]: unknown } {
+  return !!value && typeof value === 'object' && typeof (value as any).type === 'string';
+}
+
+function walkAST(root: unknown, visitor: WalkVisitor): void {
+  const seen = new WeakSet<object>();
+
+  function visit(node: unknown): void {
+    if (!isAstNode(node)) return;
+    if (seen.has(node)) return;
+    seen.add(node);
+
+    let skipped = false;
+    const context: WalkContext = {
+      skip() {
+        skipped = true;
+      },
+    };
+
+    visitor.enter.call(context, node);
+    if (skipped) return;
+
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) {
+        for (const item of value) visit(item);
+      } else {
+        visit(value);
+      }
+    }
+  }
+
+  visit(root);
+}
 
 // ── Shared rewrite logic ──────────────────────────────────────────
 
@@ -262,10 +303,9 @@ async function collectFromAST(
   code: string,
   isRemoteImport: (source: string) => boolean
 ): Promise<ImportInfo[]> {
-  const walk = await loadWalk();
   const result: ImportInfo[] = [];
 
-  walk(ast, {
+  walkAST(ast, {
     enter(node: any) {
       // ── static imports ──────────────────────────────────────
       if (node.type === 'ImportDeclaration' && node.source?.value) {

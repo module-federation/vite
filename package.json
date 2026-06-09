@@ -73,8 +73,7 @@
     "@module-federation/dts-plugin": "2.5.1",
     "@module-federation/runtime": "2.5.1",
     "@module-federation/sdk": "2.5.1",
-    "es-module-lexer": "2.1.0",
-    "estree-walker": "3.0.3"
+    "es-module-lexer": "2.1.0"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",
