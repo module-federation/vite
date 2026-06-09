@@ -60,20 +60,12 @@ importers:
       '@module-federation/vite':
         specifier: workspace:*
         version: link:../../..
-    devDependencies:
-      resolve-esm:
-        specifier: 2.0.3
-        version: 2.0.3
 
   .github/publish-ci/node-standard:
     dependencies:
       '@module-federation/vite':
         specifier: workspace:*
         version: link:../../..
-    devDependencies:
-      resolve-esm:
-        specifier: 2.0.3
-        version: 2.0.3
 
   examples/rust-vite/rust-host:
     dependencies:
@@ -3986,10 +3978,6 @@ packages:
     resolution: {integrity: sha512-P8BjAsXvZS+VIDUI11hHCQEv74YT67YUi5JJFNWIqL235sBmjX4+qx9Muvls5ivyNENctx46xQLQ3aTuE7ssaQ==}
     engines: {node: '>=6'}
 
-  callsites@4.1.0:
-    resolution: {integrity: sha512-aBMbD1Xxay75ViYezwT40aQONfr+pSXTHwNKvIXhXD6+LY3F1dLIcceoC5OZKBVHbXcysz1hL9D2w0JJIMXpUw==}
-    engines: {node: '>=12.20'}
-
   camel-case@4.1.2:
     resolution: {integrity: sha512-gxGWBrTT1JuMx6R+o5PTXMmUnhnVzLQ9SNutD4YqKtI6ap897t3tKECYla6gCWEkplXnlNybEkZg9GEGxKFCgw==}
 
@@ -5952,10 +5940,6 @@ packages:
   resolve-dir@1.0.1:
     resolution: {integrity: sha512-R7uiTjECzvOsWSfdM0QKFNBVFcK27aHOUwdvK53BcW8zqnGdYp0Fbj82cy54+2A4P2tFM22J5kRfe1R+lM/1yg==}
     engines: {node: '>=0.10.0'}
-
-  resolve-esm@2.0.3:
-    resolution: {integrity: sha512-M1Bqazc53Xy3Sdken2UmlSouyiKaeugDYORcw3khZ4/+wFHCQDEE1clPMeSMd0y9JSUCpUazca5ALXewxZdIbg==}
-    engines: {node: '>=16'}
 
   resolve-from@4.0.0:
     resolution: {integrity: sha512-pb/MYmXstAkysRFx8piNI1tGFNQIFA3vkE3Gq4EuA1dF6gHp/+vgZqsCGJapvy8N3Q+4o7FwvquPJcnZ7RYy4g==}
@@ -10600,8 +10584,6 @@ snapshots:
 
   callsites@3.1.0: {}
 
-  callsites@4.1.0: {}
-
   camel-case@4.1.2:
     dependencies:
       pascal-case: 3.1.2
@@ -12567,10 +12549,6 @@ snapshots:
     dependencies:
       expand-tilde: 2.0.2
       global-modules: 1.0.0
-
-  resolve-esm@2.0.3:
-    dependencies:
-      callsites: 4.1.0
 
   resolve-from@4.0.0: {}
 

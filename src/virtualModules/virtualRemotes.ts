@@ -17,7 +17,7 @@ export const LOAD_REMOTE_TAG = '__loadRemote__';
 export function getRemoteVirtualModule(remote: string, command: string, enableSsrInit = false) {
   const cacheKey = `${remote}__${command}__${enableSsrInit ? 'ssr' : 'no-ssr'}`;
   if (!cacheRemoteMap[cacheKey]) {
-    cacheRemoteMap[cacheKey] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.mjs');
+    cacheRemoteMap[cacheKey] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.js');
     cacheRemoteMap[cacheKey].writeSync(generateRemotes(remote, command, enableSsrInit));
   }
   const virtual = cacheRemoteMap[cacheKey];

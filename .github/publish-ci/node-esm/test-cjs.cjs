@@ -20,7 +20,7 @@ for (let [fn, name] of entries) {
   }
 }
 
-const moduleNames = [['@module-federation/vite', 'lib/index.cjs']];
+const moduleNames = [['@module-federation/vite', 'lib/index.js']];
 
 for (let [moduleName, expectedFilename] of moduleNames) {
   const modulePath = require.resolve(moduleName);

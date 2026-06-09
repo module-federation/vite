@@ -178,7 +178,7 @@ describe('generateRemotes', () => {
   it('uses ESM remote wrappers in Rollup build mode', () => {
     const virtual = getRemoteVirtualModule('remote/Card', 'build');
 
-    expect(virtual.getImportId()).toContain('.mjs');
+    expect(virtual.getImportId()).toContain('.js');
   });
 
   describe('proxy invariants', () => {

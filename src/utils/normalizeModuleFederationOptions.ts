@@ -25,7 +25,12 @@ export type RemoteEntryType =
 import * as fs from 'fs';
 import * as path from 'pathe';
 import { createModuleFederationError, mfWarn } from './logger';
-import { getInstalledPackageJson, getPackageDetectionCwd, getPackageName } from './packageUtils';
+import {
+  getInstalledPackageJson,
+  getPackageDetectionCwd,
+  getPackageName,
+  resolveImportPath,
+} from './packageUtils';
 
 interface ExposesItem {
   import: string;
@@ -570,10 +575,10 @@ let config: NormalizedModuleFederationOptions;
 let explicitSharedKeys: Set<string> = new Set();
 
 function resolveRuntimeImplementation(): string {
-  const fallback = require.resolve('@module-federation/runtime');
+  const fallback = resolveImportPath('@module-federation/runtime');
 
   try {
-    const packageJsonPath = require.resolve('@module-federation/runtime/package.json');
+    const packageJsonPath = resolveImportPath('@module-federation/runtime/package.json');
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
       module?: string;
       exports?: {

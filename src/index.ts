@@ -35,7 +35,12 @@ import type {
 } from './utils/normalizeModuleFederationOptions';
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
-import { getIsRolldown, hasPackageDependency, setPackageDetectionCwd } from './utils/packageUtils';
+import {
+  getIsRolldown,
+  hasPackageDependency,
+  resolveImportPath,
+  setPackageDetectionCwd,
+} from './utils/packageUtils';
 import { getCommonSharedSubpaths } from './utils/pathNormalization';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
 import {
@@ -427,7 +432,6 @@ export default __mfShared.default ?? __mfShared;`,
       });
       if (alreadyInjected) return;
 
-      const pluginRequire = createRequire(import.meta.url);
       const projectRequire = createRequire(new URL(`file://${config.root}/package.json`));
       const sharedKeys = Object.keys(options.shared ?? {});
       const commonSharedPkgs = [
@@ -446,7 +450,7 @@ export default __mfShared.default ?? __mfShared;`,
           resolvedShared[pkg] = projectRequire.resolve(pkg);
         } catch {
           try {
-            resolvedShared[pkg] = pluginRequire.resolve(pkg);
+            resolvedShared[pkg] = resolveImportPath(pkg);
           } catch {
             // Not installed at either location — ssrEntryLoader falls back to
             // runtime resolution from the host app.
@@ -459,7 +463,7 @@ export default __mfShared.default ?? __mfShared;`,
       // Users can still inject manually via runtimePlugins in that case.
       const ssrEntryLoaderSpecifier = '@module-federation/vite/ssrEntryLoader';
       try {
-        pluginRequire.resolve(ssrEntryLoaderSpecifier);
+        resolveImportPath(ssrEntryLoaderSpecifier);
         options.runtimePlugins.push([ssrEntryLoaderSpecifier, { resolvedShared }]);
       } catch {
         // lib/ not built yet — skip silently
@@ -1020,16 +1024,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
 
-        // For Vite 8+, resolve to ESM entry
-        // because Vite 8's internal bundler cannot parse dynamic import() in .cjs files
-        let implementation = options.implementation;
-        if (isRolldown) {
-          implementation = implementation.replace(/\.cjs(\.js)?$/, '.js');
-        }
-
         appendResolveAlias(config, {
           find: '@module-federation/runtime',
-          replacement: implementation,
+          replacement: options.implementation,
         });
         config.build ||= {};
         config.build.commonjsOptions ||= {};

@@ -477,7 +477,7 @@ export const LOAD_SHARE_TAG = '__loadShare__';
 const loadShareCacheMap: Record<string, VirtualModule> = {};
 export function getLoadShareImportId(pkg: string, _isRolldown: boolean): string {
   if (!loadShareCacheMap[pkg]) {
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.mjs');
+    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
   }
   return loadShareCacheMap[pkg].getImportId();
 }
@@ -600,7 +600,7 @@ export function writeLoadShareModule(
   _isRolldown: boolean
 ) {
   if (!loadShareCacheMap[pkg]) {
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.mjs');
+    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
   }
   const importLine = getRuntimeModuleCacheBootstrapCode();
   const cacheKey = getSharedCacheKey(pkg, shareItem);

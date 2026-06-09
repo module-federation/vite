@@ -1,9 +1,10 @@
-import { defineConfig } from 'tsdown';
+import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/utils/ssrEntryLoader.ts'],
-  format: ['esm', 'cjs'],
-  outDir: 'lib',
+  entry: ["src/index.ts", "src/utils/ssrEntryLoader.ts"],
+  format: ["esm"],
+  outDir: "lib",
+  outExtensions: () => ({ js: ".js", dts: ".d.ts" }),
   dts: true,
   clean: true,
   deps: {
