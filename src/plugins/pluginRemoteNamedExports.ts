@@ -18,7 +18,6 @@
  * statically resolve the set of exported names from a federated remote at
  * build time.  Use explicit named re-exports instead.
  */
-import { init as initEsLexer, parse as parseEsImports } from 'es-module-lexer';
 import type { Plugin } from 'vite';
 import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
@@ -409,121 +408,12 @@ async function collectFromAST(
   return result;
 }
 
-// ── es-module-lexer fallback collection ───────────────────────────
+// ── Regex fallback collection ─────────────────────────────────────
 //
 // NOTE: Specifier parsing uses regex (e.g. /\{([^}]*)\}/ and .split(','))
 // which does not handle exotic specifiers like string literals
 // (`export { foo as "bar-baz" }`).  This is acceptable because federated
 // remote module names are always valid JS identifiers.
-
-async function collectFromEsLexer(
-  code: string,
-  isRemoteImport: (source: string) => boolean
-): Promise<ImportInfo[] | undefined> {
-  await initEsLexer;
-
-  let imports;
-  try {
-    [imports] = parseEsImports(code);
-  } catch {
-    // es-module-lexer cannot parse non-JS content (e.g. .vue SFC files
-    // before the vue plugin extracts the <script> block).
-    return;
-  }
-
-  const result: ImportInfo[] = [];
-
-  for (const imp of imports) {
-    // Skip import.meta (d === -2)
-    if (imp.d === -2) continue;
-    if (!imp.n || !isRemoteImport(imp.n)) continue;
-
-    const stmtText = code.slice(imp.ss, imp.se);
-
-    // ── dynamic imports: import("remote/xxx") ────────────────
-    if (imp.d >= 0) {
-      result.push({
-        kind: 'dynamic',
-        start: imp.ss,
-        end: imp.se,
-        originalText: stmtText,
-      });
-      continue;
-    }
-
-    // ── export * from "remote/xxx" (unsupported) ─────────────
-    if (/^\s*export\s*\*\s/.test(stmtText)) {
-      result.push({
-        kind: 'export-all',
-        source: imp.n,
-        start: imp.ss,
-        end: imp.se,
-      });
-      continue;
-    }
-
-    // ── re-exports: export { foo } from "remote/xxx" ────────
-    if (/^\s*export\s/.test(stmtText)) {
-      const braceMatch = stmtText.match(/\{([^}]*)\}/);
-      if (!braceMatch) continue;
-
-      const specifiers = parseNamedSpecifiers(braceMatch[1], 'export');
-      if (specifiers.length === 0) continue;
-
-      result.push({
-        kind: 'reexport',
-        source: imp.n,
-        start: imp.ss,
-        end: imp.se,
-        specifiers,
-      });
-      continue;
-    }
-
-    // ── static imports ───────────────────────────────────────
-    const importMatch = stmtText.match(/^import\s+([\s\S]*?)\s+from\s/);
-    if (!importMatch) continue;
-
-    const specifiersPart = importMatch[1].trim();
-    // Skip type-only imports: import type { ... } from "..."
-    if (/^type\s/.test(specifiersPart)) continue;
-
-    // import * as ns from "remote/xxx"
-    const nsMatch = specifiersPart.match(/^\*\s+as\s+(\w+)$/);
-    if (nsMatch) {
-      result.push({
-        kind: 'static',
-        source: imp.n,
-        start: imp.ss,
-        end: imp.se,
-        named: [],
-        namespaceLocal: nsMatch[1],
-      });
-      continue;
-    }
-
-    // Parse named specifiers from { ... }
-    const braceMatch = specifiersPart.match(/\{([^}]*)\}/);
-    if (!braceMatch) continue; // default-only
-
-    const named = parseNamedSpecifiers(braceMatch[1], 'import');
-    if (named.length === 0) continue;
-
-    // Check for default import: import Default, { ... } from ...
-    const defaultMatch = specifiersPart.match(/^(\w+)\s*,/);
-
-    result.push({
-      kind: 'static',
-      source: imp.n,
-      start: imp.ss,
-      end: imp.se,
-      named,
-      defaultLocal: defaultMatch?.[1],
-    });
-  }
-
-  return result;
-}
 
 function collectFromRegex(
   code: string,
@@ -531,7 +421,11 @@ function collectFromRegex(
 ): ImportInfo[] | undefined {
   const result: ImportInfo[] = [];
 
-  const staticRe = /^\s*import\s+([\s\S]*?)\s+from\s+(['"])([^'"]+)\2\s*;?/gm;
+  const importAttributes = String.raw`(?:\s+(?:with|assert)\s+\{[^;]*\})?`;
+  const staticRe = new RegExp(
+    String.raw`^\s*import\s+([\s\S]*?)\s+from\s+(['"])([^'"]+)\2${importAttributes}\s*;?`,
+    'gm'
+  );
   for (const match of code.matchAll(staticRe)) {
     const [full, specifiersPartRaw, , source] = match;
     if (!isRemoteImport(source)) continue;
@@ -570,7 +464,10 @@ function collectFromRegex(
     });
   }
 
-  const reexportRe = /^\s*export\s+\{([\s\S]*?)\}\s+from\s+(['"])([^'"]+)\2\s*;?/gm;
+  const reexportRe = new RegExp(
+    String.raw`^\s*export\s+\{([\s\S]*?)\}\s+from\s+(['"])([^'"]+)\2${importAttributes}\s*;?`,
+    'gm'
+  );
   for (const match of code.matchAll(reexportRe)) {
     const [full, specifiersRaw, , source] = match;
     if (!isRemoteImport(source)) continue;
@@ -587,7 +484,10 @@ function collectFromRegex(
     });
   }
 
-  const exportAllRe = /^\s*export\s+\*\s+from\s+(['"])([^'"]+)\1\s*;?/gm;
+  const exportAllRe = new RegExp(
+    String.raw`^\s*export\s+\*\s+from\s+(['"])([^'"]+)\1${importAttributes}\s*;?`,
+    'gm'
+  );
   for (const match of code.matchAll(exportAllRe)) {
     const [full, , source] = match;
     if (!isRemoteImport(source)) continue;
@@ -600,7 +500,7 @@ function collectFromRegex(
     });
   }
 
-  const dynamicRe = /import\(\s*(['"])([^'"]+)\1\s*\)/g;
+  const dynamicRe = /import\(\s*(?:\/\*[\s\S]*?\*\/\s*)?(['"])([^'"]+)\1\s*\)/g;
   for (const match of code.matchAll(dynamicRe)) {
     const [full, , source] = match;
     if (!isRemoteImport(source)) continue;
@@ -652,10 +552,11 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
         const ast = this.parse(code);
         imports = await collectFromAST(ast, code, matchesRemoteImport);
       } catch {
+        if ((id.includes('.vue') || id.includes('.svelte')) && /^\s*</.test(code)) return;
         // this.parse() delegates to acorn which does not support TypeScript
-        // syntax (import type, interfaces, generics, etc.).  Fall back to
-        // es-module-lexer so TS/TSX consumer files are still transformed.
-        imports = await collectFromEsLexer(code, matchesRemoteImport);
+        // syntax (import type, interfaces, generics, etc.). Fall back to a
+        // targeted scanner so TS/TSX consumer files are still transformed.
+        imports = collectFromRegex(code, matchesRemoteImport);
       }
 
       if ((!imports || imports.length === 0) && REGEX_FALLBACK_EXTENSIONS_RE.test(id)) {
