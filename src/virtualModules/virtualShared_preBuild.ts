@@ -511,6 +511,61 @@ export function materializeCachedLoadShareModule(options: {
   options.writeLocalSharedImportMap();
 }
 
+function generateLazyWorkspaceSingletonExports(
+  namedExports: string[],
+  importSource: string,
+  cacheKey: string,
+  eagerLocalFallback: boolean
+) {
+  const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+  const declarations =
+    namedExports.length > 0
+      ? ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join('\n    ')
+      : 'let __mf_default;';
+  const assignments =
+    namedExports.length > 0
+      ? [
+          ...namedExports.map(
+            (name, i) => `${namedExportVars[i]} = mod[${escapeGeneratedStringLiteral(name)}];`
+          ),
+          '__mf_default = mod.default ?? mod;',
+        ].join('\n      ')
+      : '__mf_default = mod.default ?? mod;';
+  const namedExportLine =
+    namedExports.length > 0
+      ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+      : '';
+
+  const body = `${declarations}
+    const __mfApplyLazyShareExports = (mod) => {
+      ${assignments}
+    };
+    let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}];
+    if (exportModule === undefined) {
+      ${
+        eagerLocalFallback
+          ? `exportModule = __mfNormalizeShareModule(__mfLocalShare);
+      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
+      __mfApplyLazyShareExports(exportModule);`
+          : `initPromise.then(() =>
+        import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
+          exportModule = __mfNormalizeShareModule(mod);
+          __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
+          __mfApplyLazyShareExports(exportModule);
+        })
+      );`
+      }
+    } else {
+      __mfApplyLazyShareExports(exportModule);
+    }
+    export { __mf_default as default };${namedExportLine}`;
+
+  return eagerLocalFallback
+    ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
+    ${body}`
+    : body;
+}
+
 function generateDeferredHostProvidedExports(
   namedExports: string[],
   pkg: string,
@@ -590,7 +645,7 @@ export function writeLoadShareModule(
   if (!loadShareCacheMap[pkg]) {
     loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
   }
-  const importLine = getRuntimeModuleCacheBootstrapCode();
+  let importLine = getRuntimeModuleCacheBootstrapCode();
   const cacheKey = getSharedCacheKey(pkg, shareItem);
 
   // import: false means the host must provide this module — the remote has no local copy.
@@ -637,7 +692,16 @@ export function writeLoadShareModule(
   const usesLazyLocalFallback = isWorkspacePackage && shareItem.shareConfig.singleton === true;
   const namedExports = getSharedNamedExports(pkg, shareItem);
   let exportLine: string;
-  if (namedExports.length > 0) {
+  let initBlock = '';
+  if (usesLazyLocalFallback) {
+    importLine = `${getRuntimeInitPromiseBootstrapCode()}\n    ${importLine}`;
+    exportLine = generateLazyWorkspaceSingletonExports(
+      namedExports,
+      lazyLocalFallbackSource,
+      cacheKey,
+      command !== 'build'
+    );
+  } else if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
     const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
     exportLine = `const __mfDefaultExport = (() => {
@@ -650,10 +714,12 @@ export function writeLoadShareModule(
     export default __mfDefaultExport;
     ${destructure}
     ${namedExportLine}`;
-  } else if (usesLazyLocalFallback) {
-    exportLine = `export default exportModule.default ?? exportModule`;
+    initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
+      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;`;
   } else {
     exportLine = `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`;
+    initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
+      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;`;
   }
 
   const staticLocalShareSource = skipServePrebuildWarmup ? devImportSource : sharedImportSource;
@@ -667,24 +733,25 @@ export function writeLoadShareModule(
       ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
       : '';
 
-  loadShareCacheMap[pkg].writeSync(
-    `
+  const moduleBody = usesLazyLocalFallback
+    ? `
+    ${prebuildImportLine}
+    ${devDynamicImportLine}
+    ${importLine}
+    ${normalizeLocalShareModuleCode}
+    ${exportLine}
+  `
+    : `
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
     ${normalizeLocalShareModuleCode}
     let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}]
     if (exportModule === undefined) {
-      ${
-        usesLazyLocalFallback
-          ? `exportModule = __mfNormalizeShareModule(await import(${escapeGeneratedStringLiteral(lazyLocalFallbackSource)}));
-      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;`
-          : `exportModule = __mfNormalizeShareModule(__mfLocalShare);
-      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;`
-      }
+      ${initBlock}
     }
     ${exportLine}
-  `,
-    true
-  );
+  `;
+
+  loadShareCacheMap[pkg].writeSync(moduleBody, true);
 }

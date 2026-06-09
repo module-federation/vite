@@ -1,4 +1,8 @@
-import { writeHostAutoInit, writeLocalSharedImportMap } from './virtualRemoteEntry';
+import {
+  getHostAutoInitPath,
+  writeHostAutoInit,
+  writeLocalSharedImportMap,
+} from './virtualRemoteEntry';
 import { writeRuntimeInitStatus } from './virtualRuntimeInitStatus';
 
 export {
@@ -46,5 +50,5 @@ export { setSsrRemotes } from './virtualRuntimeInitStatus';
 export function initVirtualModules(command: string, remoteEntryId?: string, enableSsrInit = false) {
   writeLocalSharedImportMap();
   writeHostAutoInit(remoteEntryId, command);
-  writeRuntimeInitStatus(command, enableSsrInit);
+  writeRuntimeInitStatus(command, enableSsrInit, getHostAutoInitPath());
 }

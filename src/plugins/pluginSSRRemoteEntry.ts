@@ -273,10 +273,12 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           res.end(code);
         });
 
-        // Note: no exposes-map middleware here. The /__mf_ssr__/ path is only
-        // consumed by ModuleRunner (Vite 8+), which resolves the exposes virtual
-        // module through the plugin pipeline (resolveId → load → generateExposesSSR)
-        // rather than via HTTP. Vite < 8 dev mode is not supported.
+        const exposesPath = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
+        server.middlewares.use(exposesPath, (_req, res) => {
+          res.setHeader('Content-Type', 'application/javascript');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.end(generateExposesSSR(options));
+        });
       },
 
       resolveId(id) {
