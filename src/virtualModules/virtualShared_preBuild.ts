@@ -535,22 +535,17 @@ function generateLazyWorkspaceSingletonExports(
       ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
 
-  return `${declarations}
+  return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
+    ${declarations}
     const __mfApplyLazyShareExports = (mod) => {
       ${assignments}
     };
     let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}];
     if (exportModule === undefined) {
-      initPromise.then(() =>
-        import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
-          exportModule = __mfNormalizeShareModule(mod);
-          __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
-          __mfApplyLazyShareExports(exportModule);
-        })
-      );
-    } else {
-      __mfApplyLazyShareExports(exportModule);
+      exportModule = __mfNormalizeShareModule(__mfLocalShare);
+      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
     }
+    __mfApplyLazyShareExports(exportModule);
     export { __mf_default as default };${namedExportLine}`;
 }
 

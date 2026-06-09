@@ -919,10 +919,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
            *
            * @see https://rollupjs.org/plugin-development/#synthetic-named-exports
            */
-          if (
-            !/\bexport\s+const\s+__moduleExports\b/.test(code) &&
-            !/\bexport\s*\{[^}]*__moduleExports/.test(code)
-          ) {
+          const hasModuleExports =
+            /\b(?:var|let|const)\s+__moduleExports\b/.test(code) ||
+            /\bexport\s+const\s+__moduleExports\b/.test(code) ||
+            /\bexport\s*\{[^}]*__moduleExports/.test(code);
+
+          if (!hasModuleExports) {
             const nextCode = code.replace(
               'export default exportModule',
               'export const __moduleExports = exportModule;\n' +

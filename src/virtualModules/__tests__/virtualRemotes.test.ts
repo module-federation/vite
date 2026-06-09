@@ -51,6 +51,47 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
   }),
 }));
 
+function runGeneratedRemoteModule(
+  code: string,
+  runtime: { loadRemote: ReturnType<typeof vi.fn>; registerRemotes?: ReturnType<typeof vi.fn> }
+) {
+  const start = code.indexOf('function __mfStartRemoteLoad()');
+  expect(start).toBeGreaterThanOrEqual(0);
+
+  const moduleCode = code
+    .slice(start)
+    .replace(
+      'export { exportModule as __moduleExports };',
+      'Object.defineProperty(__exports, "__moduleExports", { enumerable: true, get: () => exportModule });'
+    )
+    .replace('export const __mf_remote_pending =', 'const __mf_remote_pending =')
+    .replace(
+      'export { __mfDefaultExport as default };',
+      'Object.defineProperty(__exports, "default", { enumerable: true, get: () => __mfDefaultExport });'
+    )
+    .replace('export default __mfDefaultExport', '__exports.default = __mfDefaultExport');
+
+  return Function(
+    'runtime',
+    `
+      const __exports = {};
+      const __mfModuleCache = { remote: {}, share: {} };
+      const initPromise = Promise.resolve(runtime);
+      const __mfHostInitPromise = initPromise;
+      ${moduleCode}
+      Object.defineProperty(__exports, "__mf_remote_pending", {
+        enumerable: true,
+        get: () => __mf_remote_pending,
+      });
+      return __exports;
+    `
+  )(runtime) as {
+    default: unknown;
+    __moduleExports: Record<string, unknown>;
+    __mf_remote_pending: Promise<unknown> | { then: Promise<unknown>['then'] };
+  };
+}
+
 describe('resolveRemoteInitMode', () => {
   it.each([
     ['version-first', 'unified', 'eager'],
@@ -108,6 +149,40 @@ describe('generateRemotes', () => {
     expect(code).toContain('__mfSyncDefaultExport');
     expect(code).not.toContain('await ');
     expect(code).not.toContain('__mfCreateRemoteProxy');
+  });
+
+  it('keeps default-only imports live until the remote resolves', async () => {
+    const remoteDefault = { kind: 'default' };
+    const runtime = {
+      loadRemote: vi.fn(() => Promise.resolve({ default: remoteDefault, named: 'ready' })),
+    };
+    const exports = runGeneratedRemoteModule(
+      generateRemotes('remote/Button', 'serve', true, 'server'),
+      runtime
+    );
+
+    expect(exports.default).toBeUndefined();
+
+    await exports.__mf_remote_pending;
+
+    expect(runtime.loadRemote).toHaveBeenCalledWith('remote/Button');
+    expect(exports.default).toBe(remoteDefault);
+  });
+
+  it('resolves named imports in SSR dev after remote dependency pending settles', async () => {
+    const remoteModule = { default: 'default', named: 'named-value' };
+    const runtime = {
+      loadRemote: vi.fn(() => Promise.resolve(remoteModule)),
+    };
+    const exports = runGeneratedRemoteModule(
+      generateRemotes('remote/Button', 'serve', true, 'server'),
+      runtime
+    );
+
+    await exports.__mf_remote_pending;
+
+    expect(exports.__moduleExports.named).toBe('named-value');
+    expect(exports.__moduleExports).toBe(remoteModule);
   });
 
   it('defers browser remote loading until use for loaded-first (non-React)', () => {
@@ -249,7 +324,7 @@ describe('generateRemotes', () => {
       '.then((mod) => Promise.resolve(mod?.__mf_remote_dependency_pending).then(() => mod))'
     );
     expect(code).toContain('export { exportModule as __moduleExports };');
-    expect(code).toContain('export default __mfDefaultExport');
+    expect(code).toContain('export { __mfDefaultExport as default };');
     expect(code).toContain('export const __mf_remote_pending =');
     expect(code).not.toContain('module.exports = exportModule');
   });
@@ -277,7 +352,7 @@ describe('generateRemotes', () => {
     expect(code).toContain('__mfAssignRemoteModule');
     expect(code).not.toContain('await ');
     expect(code).toContain('export { exportModule as __moduleExports };');
-    expect(code).toContain('export default __mfDefaultExport');
+    expect(code).toContain('export { __mfDefaultExport as default };');
     expect(code).not.toContain('__mfCreateRemoteProxy');
     expect(code).toContain('__mfUnwrapRemoteDefault(exportModule)');
   });

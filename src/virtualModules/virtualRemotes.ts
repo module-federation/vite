@@ -199,16 +199,34 @@ function getEagerRemotePendingExport() {
   __mfStartRemoteLoad().then(__mfAssignRemoteModule);`;
 }
 
-function getRemoteExportBlock(command: string, deferRemoteLoad: boolean) {
+function getServerThenExport() {
+  return `export function then(onFulfilled, onRejected) {
+  return (__mfRemotePending ?? Promise.resolve(exportModule))
+    .then(__mfAssignRemoteModule)
+    .then(() => {
+      __mfSyncDefaultExport();
+      return {
+        ...exportModule,
+        default: __mfDefaultExport,
+        __moduleExports: exportModule,
+        __mf_remote_pending: __mfRemotePending,
+      };
+    })
+    .then(onFulfilled, onRejected);
+}`;
+}
+
+function getRemoteExportBlock(command: string, deferRemoteLoad: boolean, consumer: RemoteConsumer) {
   if (command !== 'serve' && command !== 'build') {
     return `__mfSyncDefaultExport();
-export default __mfDefaultExport`;
+export { __mfDefaultExport as default };`;
   }
   return `__mfSyncDefaultExport();
 __mfRemotePending?.then(__mfSyncDefaultExport);
 export { exportModule as __moduleExports };
 ${deferRemoteLoad ? getLazyRemotePendingExport() : getEagerRemotePendingExport()}
-export default __mfDefaultExport`;
+${command === 'serve' && consumer === 'server' ? getServerThenExport() : ''}
+export { __mfDefaultExport as default };`;
 }
 
 export function generateRemotes(
@@ -315,6 +333,6 @@ export function generateRemotes(
     if (exportModule === undefined) {
       ${initExportModule}
     }
-    ${getRemoteExportBlock(command, deferRemoteLoad)}
+    ${getRemoteExportBlock(command, deferRemoteLoad, consumer)}
   `;
 }

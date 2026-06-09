@@ -26,17 +26,18 @@ export function setSsrRemotes(remotes: Array<{ name: string; entry: string; type
 // enableSsrInit controls whether the server-side MF runtime initialisation block
 // is emitted in dev remote wrappers. Gating is centralized in getSsrCapabilities()
 // (Vite 8+ dev ModuleRunner; build/preview uses HTTP fetch via ssrEntryLoader).
-function getSsrNoopResolveCode(enableSsrInit: boolean, hostInitImportId?: string) {
+function getSsrNoopResolveCode(
+  enableSsrInit: boolean,
+  hostInitImportId?: string,
+  initResolveExpression = 'initResolve'
+) {
   if (!enableSsrInit) return '';
 
-  // Prefer the host auto-init chunk in dev SSR (Nuxt/Vite server environments).
-  // It resolves the same initPromise as the browser path. The ModuleRunner-based
-  // bootstrap below remains as a fallback when host init is unavailable.
   const hostInitResolveCode = hostInitImportId
     ? `import(${JSON.stringify(hostInitImportId)})
       .then(function(mod) { return mod.hostInitPromise; })
       .then(function(runtime) {
-        initResolve(runtime);
+        ${initResolveExpression}(runtime);
         return true;
       })
       .catch(function() {
@@ -65,9 +66,9 @@ function getSsrNoopResolveCode(enableSsrInit: boolean, hostInitImportId?: string
         );
       }).then(function(pair) {
         var runtime = pair[0].init({ name: '__mf_ssr_host__', remotes: ${remotesJson}, shared: {}, plugins: pair[1] });
-        initResolve(runtime);
+        ${initResolveExpression}(runtime);
       }, function() {
-        initResolve(_noop);
+        ${initResolveExpression}(_noop);
       });
     });
   }`;
@@ -105,13 +106,21 @@ globalThis[moduleCacheGlobalKey].share ||= {};
 globalThis[moduleCacheGlobalKey].remote ||= {};
 if (!globalThis[globalKey]) {
   ${getDeferredInitPromiseCode()}
-  globalThis[globalKey] = {
+globalThis[globalKey] = {
     initPromise,
     initResolve,
     initReject,
     moduleCache: globalThis[moduleCacheGlobalKey],
   };
-  ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId)}
+}
+${
+  enableSsrInit
+    ? `
+if (typeof window === 'undefined' && !globalThis[globalKey].ssrInitStarted) {
+  globalThis[globalKey].ssrInitStarted = true;
+  ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId, 'globalThis[globalKey].initResolve')}
+}`
+    : ''
 }
 globalThis[globalKey].moduleCache ||= globalThis[moduleCacheGlobalKey];
 globalThis[globalKey].moduleCache.share ||= {};
