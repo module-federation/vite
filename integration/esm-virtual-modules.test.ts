@@ -4,7 +4,7 @@ import { buildFixture, FIXTURES } from './helpers/build';
 import { getAllChunkCode } from './helpers/matchers';
 
 const SHARED_REMOTE_MF_OPTIONS = {
-  shared: { pathe: {} },
+  shared: { 'es-module-lexer': {} },
   exposes: {
     './exposed': resolve(FIXTURES, 'shared-remote', 'exposed-module.js'),
   },
@@ -17,7 +17,7 @@ describe('ESM virtual modules', () => {
       mfOptions: SHARED_REMOTE_MF_OPTIONS,
     });
     const allCode = getAllChunkCode(output);
-    expect(allCode).toContain('join');
+    expect(allCode).toContain('init');
   });
 
   it('emits ESM import/export in build output for shared modules', async () => {

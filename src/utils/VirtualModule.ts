@@ -1,4 +1,4 @@
-import { basename } from 'pathe';
+import { basename } from 'node:path';
 import { packageNameDecode, packageNameEncode } from '../utils/packageUtils';
 import { createModuleFederationError } from './logger';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';

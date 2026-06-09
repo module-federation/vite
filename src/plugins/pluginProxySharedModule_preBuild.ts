@@ -1,5 +1,6 @@
 import { createRequire } from 'module';
-import path from 'pathe';
+import * as path from 'node:path';
+import { pathToFileURL } from 'url';
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { mfWarn } from '../utils/logger';
 import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
@@ -50,7 +51,7 @@ function tryResolveFromProjectRoot(source: string): string | undefined {
   if (browserEntry) return browserEntry;
   try {
     const projectRequire = createRequire(
-      new URL(`file://${path.join(getPackageDetectionCwd(), 'package.json')}`)
+      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
     );
     return projectRequire.resolve(source);
   } catch {

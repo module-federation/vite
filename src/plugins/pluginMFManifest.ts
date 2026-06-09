@@ -1,4 +1,4 @@
-import * as path from 'pathe';
+import * as path from 'node:path';
 import { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,

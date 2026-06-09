@@ -10,8 +10,9 @@ import {
   normalizeGenerateTypesOptions,
 } from '@module-federation/dts-plugin';
 import { rpc, type DTSManagerOptions } from '@module-federation/dts-plugin/core';
-import * as path from 'pathe';
+import * as path from 'node:path';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
+import { normalizePathForImport } from '../utils/buildPaths';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency, resolveImportPath } from '../utils/packageUtils';
 import { createModuleFederationError, mfError } from '../utils/logger';
@@ -108,7 +109,7 @@ const buildDtsModuleFederationConfig = (
 const resolveOutputDir = (config: ResolvedConfig): string => {
   const { outDir } = config.build;
   if (path.isAbsolute(outDir)) {
-    return path.relative(config.root, outDir);
+    return normalizePathForImport(path.relative(config.root, outDir));
   }
   return outDir;
 };

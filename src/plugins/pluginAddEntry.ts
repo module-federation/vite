@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'fs';
-import * as path from 'pathe';
+import * as path from 'node:path';
 import type { Plugin } from 'vite';
-import { rebaseImport } from '../utils/buildPaths';
+import { normalizePathForImport, rebaseImport } from '../utils/buildPaths';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
 import {
@@ -156,7 +156,7 @@ const addEntry = ({
   }
 
   function toRelativeImport(fromFile: string, targetFile: string) {
-    const relative = path.relative(path.dirname(fromFile), targetFile).replace(/\\/g, '/');
+    const relative = normalizePathForImport(path.relative(path.dirname(fromFile), targetFile));
     return relative.startsWith('.') ? relative : `./${relative}`;
   }
 

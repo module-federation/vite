@@ -1,5 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
-import path from 'pathe';
+import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { pathToFileURL } from 'url';
 import { afterEach, describe, expect, it } from 'vitest';
