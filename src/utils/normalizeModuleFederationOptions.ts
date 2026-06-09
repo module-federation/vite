@@ -23,7 +23,7 @@ export type RemoteEntryType =
   | string;
 
 import * as fs from 'fs';
-import * as path from 'pathe';
+import * as path from 'node:path';
 import { createModuleFederationError, mfWarn } from './logger';
 import {
   getInstalledPackageJson,

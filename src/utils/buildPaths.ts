@@ -14,18 +14,27 @@ export function rebaseImport(importSrc: string, dir: string): string {
 
   if (isAbsoluteUrl(importSrc)) return importSrc;
 
-  const absPrefix = '/' + dir;
-  if (importSrc.startsWith(absPrefix)) {
-    const remainder = importSrc.slice(absPrefix.length);
+  const normalizedDir = dir.replace(/^\/+|\/+$/g, '');
+  if (!normalizedDir) return importSrc;
+
+  const stripDirPrefix = (src: string, prefix: string) => {
+    if (src === prefix) return '';
+    if (src.startsWith(prefix + '/')) return src.slice(prefix.length);
+  };
+
+  const absoluteRemainder = stripDirPrefix(importSrc, '/' + normalizedDir);
+  if (absoluteRemainder !== undefined) {
+    const remainder = absoluteRemainder.replace(/^\/+/, '');
     return remainder ? './' + remainder : './';
   }
 
-  if (importSrc.startsWith(dir)) {
-    const remainder = importSrc.slice(dir.length);
+  const relativeRemainder = stripDirPrefix(importSrc, normalizedDir);
+  if (relativeRemainder !== undefined) {
+    const remainder = relativeRemainder.replace(/^\/+/, '');
     return remainder ? './' + remainder : './';
   }
 
-  const upLevels = dir.split('/').filter(Boolean).length;
+  const upLevels = normalizedDir.split('/').filter(Boolean).length;
   const prefix = upLevels > 0 ? '../'.repeat(upLevels) : './';
 
   if (importSrc.startsWith('./')) {
@@ -38,8 +47,13 @@ export function rebaseImport(importSrc: string, dir: string): string {
   return prefix + importSrc;
 }
 
+export function normalizePathForImport(path: string): string {
+  return path.replace(/\\/g, '/');
+}
+
 export const EXTERNAL_URL_RE = /^(?:[a-z]+:|\/\/)/i;
 
 export function isAbsoluteUrl(src: string): boolean {
+  if (/^[a-z]:[\\/]/i.test(src)) return false;
   return EXTERNAL_URL_RE.test(src);
 }

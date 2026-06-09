@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import path from 'pathe';
+import { fileURLToPath, pathToFileURL } from 'url';
+import * as path from 'node:path';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 
@@ -201,7 +201,7 @@ export function getInstalledPackageJson(
   };
 
   try {
-    const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
+    const projectRequire = createRequire(pathToFileURL(path.join(cwd, 'package.json')));
     let resolvedPath: string | undefined;
 
     if (opts?.fromResolvedEntry) {
@@ -265,7 +265,7 @@ export function getInstalledPackageEntry(
   const packageName = opts?.packageName || getPackageName(pkg);
   if (pkg !== packageName && opts?.resolveSubpathWithRequire !== false) {
     try {
-      const projectRequire = createRequire(new URL(`file://${path.join(cwd, 'package.json')}`));
+      const projectRequire = createRequire(pathToFileURL(path.join(cwd, 'package.json')));
       return projectRequire.resolve(pkg);
     } catch {
       // Fall back to root package entry resolution below.

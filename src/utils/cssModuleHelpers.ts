@@ -1,4 +1,4 @@
-import path from 'pathe';
+import * as path from 'node:path';
 import { getPreBuildLibImportId } from '../virtualModules';
 
 export type ViteChunkMetadata = {

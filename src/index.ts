@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
-import path from 'pathe';
+import * as path from 'node:path';
+import { pathToFileURL } from 'url';
 import type { ConfigEnv, Plugin, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
@@ -21,6 +22,7 @@ import {
   rewriteEsmProxyConsumers,
   rewriteSystemProxyConsumers,
 } from './utils/bundleHelpers';
+import { normalizePathForImport } from './utils/buildPaths';
 import {
   isFederationControlChunk,
   sanitizeFederationControlChunk,
@@ -214,7 +216,7 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
 // optimizer instead of letting Vite's resolver error on the missing export.
 function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean {
   try {
-    const req = createRequire(new URL(`file://${projectRoot}/package.json`));
+    const req = createRequire(pathToFileURL(path.join(projectRoot, 'package.json')));
     req.resolve(subpath);
     return true;
   } catch {
@@ -432,7 +434,7 @@ export default __mfShared.default ?? __mfShared;`,
       });
       if (alreadyInjected) return;
 
-      const projectRequire = createRequire(new URL(`file://${config.root}/package.json`));
+      const projectRequire = createRequire(pathToFileURL(path.join(config.root, 'package.json')));
       const sharedKeys = Object.keys(options.shared ?? {});
       const commonSharedPkgs = [
         'react',
@@ -546,7 +548,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               if (!environmentName || environmentName === 'client') return;
 
               const target = reactServerEntryMap[id];
-              const projectRequire = createRequire(new URL(`file://${process.cwd()}/package.json`));
+              const projectRequire = createRequire(
+                pathToFileURL(path.join(process.cwd(), 'package.json'))
+              );
               const reactPackageJson = projectRequire.resolve('react/package.json');
               return path.join(path.dirname(reactPackageJson), target.replace(/^react\//, ''));
             },
@@ -1170,7 +1174,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                   if (!isOutputChunk(chunk)) continue;
                   if (!chunk.code.includes('modulepreload')) continue;
                   const chunkDir = path.dirname(chunk.fileName);
-                  const prefixToRoot = chunkDir === '.' ? '' : `${path.relative(chunkDir, '.')}/`;
+                  const prefixToRoot =
+                    chunkDir === '.'
+                      ? ''
+                      : `${normalizePathForImport(path.relative(chunkDir, '.'))}/`;
                   const replacementExpr = prefixToRoot
                     ? `${escapeUnsafeJsSourceChars(JSON.stringify(prefixToRoot))}+$1`
                     : '$1';
