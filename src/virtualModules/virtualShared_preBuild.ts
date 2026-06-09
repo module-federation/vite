@@ -514,7 +514,8 @@ export function materializeCachedLoadShareModule(options: {
 function generateLazyWorkspaceSingletonExports(
   namedExports: string[],
   importSource: string,
-  cacheKey: string
+  cacheKey: string,
+  eagerLocalFallback: boolean
 ) {
   const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
   const declarations =
@@ -535,18 +536,34 @@ function generateLazyWorkspaceSingletonExports(
       ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
 
-  return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
-    ${declarations}
+  const body = `${declarations}
     const __mfApplyLazyShareExports = (mod) => {
       ${assignments}
     };
     let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}];
     if (exportModule === undefined) {
-      exportModule = __mfNormalizeShareModule(__mfLocalShare);
+      ${
+        eagerLocalFallback
+          ? `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
+      __mfApplyLazyShareExports(exportModule);`
+          : `initPromise.then(() =>
+        import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
+          exportModule = __mfNormalizeShareModule(mod);
+          __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
+          __mfApplyLazyShareExports(exportModule);
+        })
+      );`
+      }
+    } else {
+      __mfApplyLazyShareExports(exportModule);
     }
-    __mfApplyLazyShareExports(exportModule);
     export { __mf_default as default };${namedExportLine}`;
+
+  return eagerLocalFallback
+    ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
+    ${body}`
+    : body;
 }
 
 function generateDeferredHostProvidedExports(
@@ -681,7 +698,8 @@ export function writeLoadShareModule(
     exportLine = generateLazyWorkspaceSingletonExports(
       namedExports,
       lazyLocalFallbackSource,
-      cacheKey
+      cacheKey,
+      command !== 'build'
     );
   } else if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
