@@ -65,6 +65,7 @@ function runGeneratedRemoteModule(
       'Object.defineProperty(__exports, "__moduleExports", { enumerable: true, get: () => exportModule });'
     )
     .replace('export const __mf_remote_pending =', 'const __mf_remote_pending =')
+    .replace('export function then', 'function then')
     .replace(
       'export { __mfDefaultExport as default };',
       'Object.defineProperty(__exports, "default", { enumerable: true, get: () => __mfDefaultExport });'
