@@ -1,3 +1,3 @@
-import { init } from 'es-module-lexer';
+import { init } from 'mock-shared-dep';
 
 export const parserReady = init;

@@ -1,4 +1,3 @@
-import type { ExportSpecifier, ImportSpecifier, parse as parseEsmModule } from 'es-module-lexer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareItem } from '../../utils/normalizeModuleFederationOptions';
 import {
@@ -11,9 +10,6 @@ const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
   mfWarnSpy: vi.fn(),
 }));
-const parseSpy = vi.hoisted(() =>
-  vi.fn<typeof parseEsmModule>((() => [[], []]) as unknown as typeof parseEsmModule)
-);
 
 const { hasPackageDependencyMock } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
@@ -22,17 +18,6 @@ const { hasPackageDependencyMock } = vi.hoisted(() => ({
 type MockRequire = NodeJS.Require & {
   resolve: NodeJS.RequireResolve;
 };
-
-type ParseResult = ReturnType<typeof parseEsmModule>;
-
-function createParseResult(names: string[]): ParseResult {
-  return [
-    [] as ImportSpecifier[],
-    names.map((name) => ({ n: name }) as ExportSpecifier),
-    false,
-    true,
-  ];
-}
 
 vi.mock('../../utils/logger', () => ({
   mfWarn: mfWarnSpy,
@@ -376,26 +361,6 @@ vi.mock('module', async (importOriginal) => {
     createRequire: (from: string | URL) => {
       const fromPath = String(from);
       const req = ((pkg: string) => {
-        if (pkg === 'es-module-lexer') {
-          return {
-            initSync: vi.fn(),
-            parse: parseSpy.mockImplementation((source: string) => {
-              if (source.includes('useCounter')) {
-                return createParseResult(['useCounter', 'useLogger', 'default']);
-              }
-              if (source.includes('__TYPE_ONLY_EXPORT__')) {
-                return createParseResult(['type']);
-              }
-              if (source.includes('__RUNTIME_TYPE_EXPORT__')) {
-                return createParseResult(['type', 'other']);
-              }
-              if (source.includes('__RUNTIME_REEXPORT_TYPE__')) {
-                return createParseResult(['type']);
-              }
-              return createParseResult([]);
-            }),
-          };
-        }
         if (pkg === 'mock-package-with-reserved') {
           return {
             delete: 1,
@@ -551,7 +516,6 @@ describe('writeLoadShareModule', () => {
     mfWarnSpy.mockClear();
     hasPackageDependencyMock.mockReset();
     hasPackageDependencyMock.mockReturnValue(false);
-    parseSpy.mockClear();
   });
 
   it('should alias named exports instead of using bare identifiers to avoid syntax errors', () => {
@@ -1141,10 +1105,6 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(parseSpy).toHaveBeenCalledWith(
-      expect.stringContaining('__TYPE_ONLY_EXPORT__'),
-      expect.anything()
-    );
     expect(generatedCode).toContain('__mf_0 = exportModule["SharedCounter2"];');
     expect(generatedCode).toContain('export { __mf_0 as SharedCounter2 };');
     expect(generatedCode).not.toContain('as type');
