@@ -269,9 +269,9 @@ describe('pluginRemoteNamedExports', () => {
     });
   });
 
-  // ── es-module-lexer fallback (TypeScript files) ──────────────
+  // ── scanner fallback (TypeScript files) ──────────────────────
 
-  describe('es-module-lexer fallback', () => {
+  describe('scanner fallback', () => {
     // parseError=true forces the catch path → esLexerFallbackTransform
 
     it('rewrites named import via fallback', async () => {

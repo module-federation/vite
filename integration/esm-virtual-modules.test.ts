@@ -4,7 +4,7 @@ import { buildFixture, FIXTURES } from './helpers/build';
 import { getAllChunkCode } from './helpers/matchers';
 
 const SHARED_REMOTE_MF_OPTIONS = {
-  shared: { 'es-module-lexer': {} },
+  shared: { 'mock-shared-dep': {} },
   exposes: {
     './exposed': resolve(FIXTURES, 'shared-remote', 'exposed-module.js'),
   },

@@ -62,8 +62,6 @@ const JS_IDENTIFIER_START = '[$_\\p{ID_Start}]';
 const JS_IDENTIFIER_CONTINUE = '[$_\\u200C\\u200D\\p{ID_Continue}]';
 const JS_IDENTIFIER_PATTERN = `${JS_IDENTIFIER_START}${JS_IDENTIFIER_CONTINUE}*`;
 
-const localRequire = createRequire(import.meta.url);
-
 function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
   try {
     const projectRequire = createRequire(
@@ -85,28 +83,11 @@ function getPackageEsmEntryPath(pkg: string): string | undefined {
 }
 
 function getEsmNamedExportsFromFile(entryPath: string | undefined): string[] {
-  let source = '';
   try {
     if (!entryPath) return [];
-
-    const { initSync, parse } = localRequire('es-module-lexer') as typeof import('es-module-lexer');
-    initSync();
-    source = readFileSync(entryPath, 'utf-8');
-    const [, exports] = parse(source, entryPath);
-
-    const names = exports
-      .map((item) => item.n)
-      .filter((name): name is string => isValidEsmExportName(name));
-    const regexNames = getNamedExportsViaRegex(source, entryPath);
-    const filteredNames = names.filter((name) => name !== 'type' || regexNames.includes(name));
-
-    if (filteredNames.length > 0) {
-      return Array.from(new Set([...filteredNames, ...regexNames]));
-    }
-
-    return regexNames;
+    return getNamedExportsViaRegex(readFileSync(entryPath, 'utf-8'), entryPath);
   } catch {
-    return source ? getNamedExportsViaRegex(source, entryPath) : [];
+    return [];
   }
 }
 
@@ -235,6 +216,14 @@ function getNamedExportsViaRegex(
       const name = asMatch[1];
       if (isValidEsmExportName(name)) names.add(name);
     }
+  }
+
+  const namespaceReExportRegex = new RegExp(
+    `export\\s+\\*\\s+as\\s+(${JS_IDENTIFIER_PATTERN})\\s+from\\s+['"][^'"]+['"]`,
+    'gu'
+  );
+  while ((match = namespaceReExportRegex.exec(source)) !== null) {
+    if (isValidEsmExportName(match[1])) names.add(match[1]);
   }
 
   // Handle `export * from './module'` re-exports

@@ -12,7 +12,7 @@ const ISOLATION_MF_OPTIONS = {
     './shared': resolve(FIXTURES, 'shared-remote', 'exposed-module.js'),
   },
   shared: {
-    'es-module-lexer': {},
+    'mock-shared-dep': {},
   },
   dts: false,
 } satisfies Partial<ModuleFederationOptions>;
