@@ -9,7 +9,7 @@ describe('controlChunkSanitizer', () => {
   it('strips minified preload helpers and loadShare side-effect imports', () => {
     const code =
       'import{_ as or}from"./assets/TreeLoader-KqsPzsXB.js";' +
-      'import"./assets/reproApp__loadShare__react__loadShare__.mjs-DOStu9DH.js";' +
+      'import"./assets/reproApp__loadShare__react__loadShare__.js-DOStu9DH.js";' +
       'async function load(){return or(()=>import("./assets/localSharedImportMap.js"),[],import.meta.url)}';
 
     expect(stripEmptyPreloadCalls(code)).toBe(

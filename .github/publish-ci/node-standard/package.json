@@ -8,8 +8,5 @@
   },
   "dependencies": {
     "@module-federation/vite": "workspace:*"
-  },
-  "devDependencies": {
-    "resolve-esm": "2.0.3"
   }
 }

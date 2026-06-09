@@ -3,27 +3,22 @@
   "version": "1.16.4",
   "description": "Vite plugin for Module Federation",
   "type": "module",
-  "main": "./lib/index.cjs",
-  "module": "./lib/index.mjs",
-  "types": "./lib/index.d.mts",
+  "main": "./lib/index.js",
+  "module": "./lib/index.js",
+  "types": "./lib/index.d.ts",
   "exports": {
     ".": {
-      "types": {
-        "import": "./lib/index.d.mts",
-        "require": "./lib/index.d.cts"
-      },
-      "import": "./lib/index.mjs",
-      "require": "./lib/index.cjs"
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
     },
     "./ssrEntryLoader": {
-      "types": {
-        "import": "./lib/utils/ssrEntryLoader.d.mts",
-        "require": "./lib/utils/ssrEntryLoader.d.cts"
-      },
-      "import": "./lib/utils/ssrEntryLoader.mjs",
-      "require": "./lib/utils/ssrEntryLoader.cjs"
+      "types": "./lib/utils/ssrEntryLoader.d.ts",
+      "default": "./lib/utils/ssrEntryLoader.js"
     },
     "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   },
   "files": [
     "lib/**/*"

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
 import path from 'pathe';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
@@ -24,6 +25,19 @@ export function setPackageDetectionCwd(cwd: string) {
 
 export function getPackageDetectionCwd() {
   return packageDetectionCwd || process.cwd();
+}
+
+export function resolveImportPath(specifier: string): string {
+  const resolved = import.meta.resolve(specifier);
+  if (!resolved.startsWith('file:')) return resolved;
+
+  const filePath = fileURLToPath(resolved);
+  if (!existsSync(filePath)) {
+    const error = new Error(`Cannot find module '${specifier}'`) as NodeJS.ErrnoException;
+    error.code = 'MODULE_NOT_FOUND';
+    throw error;
+  }
+  return filePath;
 }
 
 export type InstalledPackageJson = {
