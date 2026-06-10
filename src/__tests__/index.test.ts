@@ -1307,7 +1307,7 @@ describe('module-federation-fix-preload', () => {
     const bundle = {
       'preload-helper-abc.js': createChunk(
         'preload-helper-abc.js',
-        'const u = function(e) { return "/"+e };modulepreload'
+        'const u = function(e) { return "/" + e };modulepreload'
       ),
     };
 
@@ -1328,7 +1328,7 @@ describe('module-federation-fix-preload', () => {
     const bundle = {
       'preload-helper-abc.js': createChunk(
         'preload-helper-abc.js',
-        'const u = e => "/"+e;modulepreload'
+        'const u = e => "/" + e;modulepreload'
       ),
     };
 
