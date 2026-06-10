@@ -1289,15 +1289,21 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
+    expect(generatedCode).toContain('if (import.meta.env.SSR) {');
     expect(generatedCode).toContain(
-      'import * as __mfLocalShare from "/repo/packages/custom-shared-source/index.ts";'
+      'const __mfLocalShare = await import("/repo/packages/custom-shared-source/index.ts");'
     );
     expect(generatedCode).not.toContain(
-      'initPromise.then(() =>\n        import("/repo/packages/custom-shared-source/index.ts")'
+      'import * as __mfLocalShare from "/repo/packages/custom-shared-source/index.ts";'
+    );
+    expect(generatedCode).toContain(
+      'initPromise.then(() =>\n          import("/repo/packages/custom-shared-source/index.ts")'
     );
     expect(generatedCode).toContain('__mf_0 = mod["sharedValue"];');
     expect(generatedCode).toContain('__mf_1 = mod["useSharedFeature"];');
-    expect(generatedCode).not.toContain('await ');
+    expect(generatedCode).toContain(
+      'const __mfLocalShare = await import("/repo/packages/custom-shared-source/index.ts");'
+    );
   });
 
   it('detects symlinked ESM-only workspace singleton fallbacks without eager prebuild imports', () => {
