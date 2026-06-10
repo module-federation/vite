@@ -1241,7 +1241,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import("workspace-shared-lib")');
   });
 
-  it('emits static local fallback imports for workspace singletons in build mode', () => {
+  it('keeps default-only workspace singleton fallbacks lazy in build mode', () => {
     const pkg = 'workspace-shared-lib';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -1268,6 +1268,36 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('__mfLocalShare');
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode.match(/let exportModule/g)?.length ?? 0).toBe(1);
+  });
+
+  it('emits static local fallback imports for named workspace singletons in build mode', () => {
+    const pkg = 'workspace-shared-lib';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/custom-shared-source/index.ts',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "/repo/packages/custom-shared-source/index.ts";'
+    );
+    expect(generatedCode).not.toContain(
+      'initPromise.then(() =>\n        import("/repo/packages/custom-shared-source/index.ts")'
+    );
+    expect(generatedCode).toContain('__mf_0 = mod["sharedValue"];');
+    expect(generatedCode).toContain('__mf_1 = mod["useSharedFeature"];');
+    expect(generatedCode).not.toContain('await ');
   });
 
   it('detects symlinked ESM-only workspace singleton fallbacks without eager prebuild imports', () => {

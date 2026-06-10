@@ -216,6 +216,18 @@ function getServerThenExport() {
 }`;
 }
 
+function getServerRemoteAwaitBlock(consumer: RemoteConsumer) {
+  if (consumer === 'client') return '';
+  const awaitPending = `if (__mfRemotePending) {
+  await __mfRemotePending;
+  __mfSyncDefaultExport();
+}`;
+  if (consumer === 'server') return awaitPending;
+  return `if (typeof window === "undefined") {
+  ${awaitPending}
+}`;
+}
+
 function getRemoteExportBlock(command: string, deferRemoteLoad: boolean, consumer: RemoteConsumer) {
   if (command !== 'serve' && command !== 'build') {
     return `__mfSyncDefaultExport();
@@ -223,6 +235,7 @@ export { __mfDefaultExport as default };`;
   }
   return `__mfSyncDefaultExport();
 __mfRemotePending?.then(__mfSyncDefaultExport);
+${getServerRemoteAwaitBlock(consumer)}
 export { exportModule as __moduleExports };
 ${deferRemoteLoad ? getLazyRemotePendingExport() : getEagerRemotePendingExport()}
 ${command === 'serve' && consumer === 'server' ? getServerThenExport() : ''}

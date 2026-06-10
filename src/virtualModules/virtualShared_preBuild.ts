@@ -699,7 +699,7 @@ export function writeLoadShareModule(
       namedExports,
       lazyLocalFallbackSource,
       cacheKey,
-      command !== 'build'
+      command !== 'build' || namedExports.length > 0
     );
   } else if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;

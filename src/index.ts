@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
-import type { ConfigEnv, Plugin, UserConfig } from 'vite';
+import type { ConfigEnv, EnvironmentOptions, Plugin, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
@@ -1066,8 +1066,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
 
         const isAstro = hasPackageDependency('astro');
-        // Resolve target: explicit option > SSR detection > 'web'
-        const resolvedTarget = options.target ?? (config.build?.ssr ? 'node' : 'web');
+        const environmentName = (this as { environment?: { name?: string } }).environment?.name;
+        const isServerEnvironment =
+          config.build?.ssr === true || environmentName === 'ssr' || environmentName === 'server';
+        // Resolve target: explicit option > SSR / server-environment detection > 'web'
+        const resolvedTarget = options.target ?? (isServerEnvironment ? 'node' : 'web');
         const envTargetDefineValue =
           !options.target && isAstro ? 'undefined' : JSON.stringify(resolvedTarget);
 
@@ -1086,6 +1089,24 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             `ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
           );
         }
+      },
+      configEnvironment(name: string, config: EnvironmentOptions) {
+        if (!config.define) config.define = {};
+
+        const isAstro = hasPackageDependency('astro');
+        if (!options.target && isAstro) {
+          config.define['ENV_TARGET'] = 'undefined';
+          return;
+        }
+
+        const isServerEnvironment =
+          config.consumer === 'server' ||
+          name === 'ssr' ||
+          name === 'server' ||
+          config.build?.ssr === true;
+        const resolvedTarget = options.target ?? (isServerEnvironment ? 'node' : 'web');
+        // Override the root config() default — Environment API builds need per-env targets.
+        config.define['ENV_TARGET'] = JSON.stringify(resolvedTarget);
       },
     },
     ...pluginManifest(),

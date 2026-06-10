@@ -1041,6 +1041,33 @@ describe('vite:module-federation-early-init', () => {
     expect(config.define.ENV_TARGET).toBe('"node"');
   });
 
+  it('sets ENV_TARGET node for Vite Environment API ssr builds', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const plugin = getModuleFederationVitePlugin();
+    const config: any = {
+      root: process.cwd(),
+      define: {},
+      resolve: {
+        alias: [],
+      },
+      build: {},
+    };
+
+    runConfig(
+      plugin,
+      { meta: {}, environment: { name: 'ssr' } } as ConfigPluginContext & {
+        environment: { name: string };
+      },
+      config,
+      {
+        command: 'build',
+        mode: 'test',
+      }
+    );
+
+    expect(config.define.ENV_TARGET).toBe('"node"');
+  });
+
   it('does not include virtual module dir or needsInterop for Rolldown optimizeDeps', () => {
     const plugin = getModuleFederationVitePlugin();
     const config: any = {

@@ -51,7 +51,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
   }),
 }));
 
-function runGeneratedRemoteModule(
+async function runGeneratedRemoteModule(
   code: string,
   runtime: { loadRemote: ReturnType<typeof vi.fn>; registerRemotes?: ReturnType<typeof vi.fn> }
 ) {
@@ -72,7 +72,8 @@ function runGeneratedRemoteModule(
     )
     .replace('export default __mfDefaultExport', '__exports.default = __mfDefaultExport');
 
-  return Function(
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  return (await new AsyncFunction(
     'runtime',
     `
       const __exports = {};
@@ -86,7 +87,7 @@ function runGeneratedRemoteModule(
       });
       return __exports;
     `
-  )(runtime) as {
+  )(runtime)) as {
     default: unknown;
     __moduleExports: Record<string, unknown>;
     __mf_remote_pending: Promise<unknown> | { then: Promise<unknown>['then'] };
@@ -127,7 +128,7 @@ describe('generateRemotes', () => {
     expect(code).toContain('typeof window === "undefined"');
     expect(code).toContain('__mfCreateDeferredRemoteProxy()');
     expect(code).toContain('__mfStartRemoteLoad().then(__mfAssignRemoteModule)');
-    expect(code).not.toContain('await ');
+    expect(code).toContain('await __mfRemotePending');
   });
 
   it('split server wrapper with SSR init bootstraps host init on the server only', () => {
@@ -148,7 +149,7 @@ describe('generateRemotes', () => {
     expect(code).toContain('runtime.loadRemote("remote/Button")');
     expect(code).toContain('__mfAssignRemoteModule');
     expect(code).toContain('__mfSyncDefaultExport');
-    expect(code).not.toContain('await ');
+    expect(code).toContain('await __mfRemotePending');
     expect(code).not.toContain('__mfCreateRemoteProxy');
   });
 
@@ -157,14 +158,10 @@ describe('generateRemotes', () => {
     const runtime = {
       loadRemote: vi.fn(() => Promise.resolve({ default: remoteDefault, named: 'ready' })),
     };
-    const exports = runGeneratedRemoteModule(
+    const exports = await runGeneratedRemoteModule(
       generateRemotes('remote/Button', 'serve', true, 'server'),
       runtime
     );
-
-    expect(exports.default).toBeUndefined();
-
-    await exports.__mf_remote_pending;
 
     expect(runtime.loadRemote).toHaveBeenCalledWith('remote/Button');
     expect(exports.default).toBe(remoteDefault);
@@ -175,12 +172,10 @@ describe('generateRemotes', () => {
     const runtime = {
       loadRemote: vi.fn(() => Promise.resolve(remoteModule)),
     };
-    const exports = runGeneratedRemoteModule(
+    const exports = await runGeneratedRemoteModule(
       generateRemotes('remote/Button', 'serve', true, 'server'),
       runtime
     );
-
-    await exports.__mf_remote_pending;
 
     expect(exports.__moduleExports.named).toBe('named-value');
     expect(exports.__moduleExports).toBe(remoteModule);
@@ -211,7 +206,7 @@ describe('generateRemotes', () => {
 
     expect(code).toContain('if (typeof window === "undefined")');
     expect(code).toContain('__mfAssignRemoteModule');
-    expect(code).not.toContain('await ');
+    expect(code).toContain('await __mfRemotePending');
   });
 
   describe('environment-split wrappers (loaded-first dev)', () => {
@@ -234,7 +229,7 @@ describe('generateRemotes', () => {
       const code = generateRemotes('remote/Button', 'serve', false, 'server');
 
       expect(code).toContain('__mfAssignRemoteModule');
-      expect(code).not.toContain('await ');
+      expect(code).toContain('await __mfRemotePending');
       expect(code).not.toContain('typeof window === "undefined"');
       expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
       expect(code).not.toContain('import("/virtual/hostInit.js")');
@@ -320,7 +315,7 @@ describe('generateRemotes', () => {
     const code = generateRemotes('remote/Button', 'serve');
 
     expect(code).toContain('__mfCreateDeferredRemoteProxy()');
-    expect(code).not.toContain('await ');
+    expect(code).toContain('await __mfRemotePending');
     expect(code).toContain(
       '.then((mod) => Promise.resolve(mod?.__mf_remote_dependency_pending).then(() => mod))'
     );
@@ -351,7 +346,7 @@ describe('generateRemotes', () => {
     expect(code).toContain('typeof window === "undefined"');
     expect(code).toContain('__mfCreateDeferredRemoteProxy()');
     expect(code).toContain('__mfAssignRemoteModule');
-    expect(code).not.toContain('await ');
+    expect(code).toContain('await __mfRemotePending');
     expect(code).toContain('export { exportModule as __moduleExports };');
     expect(code).toContain('export { __mfDefaultExport as default };');
     expect(code).not.toContain('__mfCreateRemoteProxy');
@@ -378,7 +373,7 @@ describe('generateRemotes', () => {
       expect(code).toContain(
         '__mfRemotePending = __mfStartRemoteLoad().then(__mfAssignRemoteModule)'
       );
-      expect(code).not.toContain('await ');
+      expect(code).toContain('await __mfRemotePending');
       expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
     });
 
@@ -388,7 +383,7 @@ describe('generateRemotes', () => {
       expect(code).toContain('typeof window === "undefined"');
       expect(code).toContain('__mfCreateDeferredRemoteProxy()');
       expect(code).toContain('__mfAssignRemoteModule');
-      expect(code).not.toContain('await ');
+      expect(code).toContain('await __mfRemotePending');
     });
   });
 
