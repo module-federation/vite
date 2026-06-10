@@ -1323,6 +1323,32 @@ describe('module-federation-fix-preload', () => {
     );
   });
 
+  it('handles multi-line with semicolon in function expression pattern', () => {
+    const plugin = getFixPreloadPlugin();
+    const bundle = {
+      'preload-helper-abc.js': createChunk(
+        'preload-helper-abc.js',
+        `
+        const scriptRel = "modulepreload";
+        const assetsURL = function(dep) {
+          return "/" + dep;
+        };
+        `
+      ),
+    };
+
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
+
+    expect((bundle['preload-helper-abc.js'] as Rollup.OutputChunk).code).toContain(
+      'new URL(dep,import.meta.url).href'
+    );
+  });
+
   it('handles spaces in arrow function pattern', () => {
     const plugin = getFixPreloadPlugin();
     const bundle = {
