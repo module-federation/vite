@@ -23,6 +23,7 @@ type Middleware = (
 type MockServer = {
   config: {
     base: string;
+    root: string;
     webSocketToken: string;
     plugins: Array<{ name: string }>;
     server: {
@@ -115,6 +116,7 @@ function createServer(overrides: DeepPartial<MockServer> = {}) {
   const server: MockServer = {
     config: {
       base: overrides.config?.base ?? '/',
+      root: overrides.config?.root ?? process.cwd(),
       webSocketToken: overrides.config?.webSocketToken ?? 'dev-token',
       plugins:
         overrides.config?.plugins?.filter((plugin): plugin is { name: string } => !!plugin?.name) ??
@@ -308,6 +310,32 @@ describe('pluginDevRemoteHmr', () => {
       );
       expect(res.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', '*');
       expect(res.end).toHaveBeenCalledWith(expect.stringContaining('window.location.origin'));
+      expect(res.end).toHaveBeenCalledWith(expect.stringContaining('/@mf-react-refresh-local'));
+    });
+
+    it('should serve local react-refresh runtime for standalone remotes', () => {
+      const { server, middlewares } = createReactRemoteServer();
+      const plugin = makeRemotePlugin({
+        exposes: { './Foo': { import: './src/Foo.tsx' } },
+        remoteHmr: true,
+      });
+      runConfigureServer(plugin, server);
+
+      const res = { setHeader: vi.fn(), end: vi.fn() };
+      const next = vi.fn();
+      middlewares[0](
+        { url: '/@mf-react-refresh-local' } as IncomingMessage,
+        res as unknown as ServerResponse<IncomingMessage>,
+        next
+      );
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Type',
+        'application/javascript; charset=utf-8'
+      );
+      expect(res.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', '*');
+      expect(res.end).toHaveBeenCalledWith(expect.stringContaining('injectIntoGlobalHook'));
     });
 
     it('should pass through non-/@react-refresh requests', () => {
