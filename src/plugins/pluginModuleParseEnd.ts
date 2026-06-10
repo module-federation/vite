@@ -63,7 +63,9 @@ interface ModuleParseOptions {
 }
 
 export default function (excludeFn: Function, options: ModuleParseOptions): Plugin[] {
-  const idleTimeout = options.moduleParseIdleTimeout;
+  // Large builds can exceed a fixed total timeout while still making progress.
+  // Default to an idle timeout so we only force-resolve after parsing stalls.
+  const idleTimeout = options.moduleParseIdleTimeout ?? options.moduleParseTimeout;
   return [
     {
       name: '_',
@@ -118,6 +120,9 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
         if (parseCompleted && exposesCompleted) {
           _resolve?.(1);
         }
+      },
+      buildEnd() {
+        _resolve?.(1);
       },
     },
   ];
