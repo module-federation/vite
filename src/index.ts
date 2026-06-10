@@ -1196,7 +1196,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                   // The string literal must start with "/" to avoid matching unrelated
                   // functions like Stencil's getScopeId: (e,t)=>"sc-"+e.$tagName$
                   const replaced = chunk.code.replace(
-                  /=\s*\(?(\w+)(?:,\w+)?\)?\s*=>\s*[`"'][./][^`"']*[`"']\s*\+\s*\1/,
+                    /=\s*\(?(\w+)(?:,\w+)?\)?\s*=>\s*[`"'][./][^`"']*[`"']\s*\+\s*\1/,
                     replacement
                   );
                   if (replaced !== chunk.code) {
@@ -1205,7 +1205,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                   }
                   // Function expression: function(e){return"/"+e} (1 or 2 params)
                   chunk.code = chunk.code.replace(
-                  /=\s*function\((\w+)(?:,\w+)?\)\s*\{\s*return\s*[`"'][./][^`"']*[`"']\s*\+\s*\1\s*\}/,
+                    /=\s*function\((\w+)(?:,\w+)?\)\s*\{\s*return\s*[`"'][./][^`"']*[`"']\s*\+\s*\1\s*\}/,
                     replacement
                   );
                   chunk.code = chunk.code.replace(
