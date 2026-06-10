@@ -20,6 +20,7 @@ import {
   getInstalledPackageJson,
   getPackageDetectionCwd,
   getPackageName,
+  packageNameDecode,
   getSharedCacheKey,
 } from '../utils/packageUtils';
 import VirtualModule, { normalizeVirtualModuleId, toViteEncodedId } from '../utils/VirtualModule';
@@ -480,12 +481,20 @@ export function toViteOptimizedDepVirtualId(id: string): string {
 }
 
 export function getCachedLoadSharePkg(id: string): string | undefined {
+  // Most resolved ids are not loadShare virtual ids. Fast reject before
+  // normalization/decoding work on the resolveId hot path.
+  if (!id.includes(LOAD_SHARE_TAG)) return;
   const normalized = normalizeVirtualModuleId(id);
   if (!normalized.startsWith('virtual:mf:')) return;
 
-  const pkg = VirtualModule.findName(LOAD_SHARE_TAG, normalized);
-  if (!pkg) return;
-  return pkg;
+  const start = normalized.indexOf(LOAD_SHARE_TAG);
+  if (start === -1) return;
+
+  const encodedPkgStart = start + LOAD_SHARE_TAG.length;
+  const end = normalized.indexOf(LOAD_SHARE_TAG, encodedPkgStart);
+  if (end === -1) return;
+
+  return packageNameDecode(normalized.slice(encodedPkgStart, end));
 }
 
 export function materializeCachedLoadShareModule(options: {

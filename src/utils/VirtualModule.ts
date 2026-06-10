@@ -24,6 +24,10 @@ const cacheMap: {
   };
 } = {};
 
+// resolveId is called for every module. Keep virtual-id lookup O(1) instead of
+// scanning all virtual modules on every call.
+const idCacheMap: Record<string, VirtualModule> = {};
+
 export const VITE_ID_PREFIX = '/@id/';
 export const VITE_NULL_BYTE_PLACEHOLDER = '__x00__';
 export const VITE_ENCODED_NULL_BYTE_PREFIX = `${VITE_ID_PREFIX}${VITE_NULL_BYTE_PLACEHOLDER}`;
@@ -73,6 +77,8 @@ export default class VirtualModule {
   suffix: string;
   inited: boolean = false;
   code: string | undefined;
+  private importId: string | undefined;
+  private importIdKey: string | undefined;
 
   static findName(tag: string, str: string = ''): string | undefined {
     if (!patternMap[tag])
@@ -88,12 +94,7 @@ export default class VirtualModule {
 
   static findById(id: string): VirtualModule | undefined {
     const normalized = normalizeVirtualModuleId(id);
-    for (const modules of Object.values(cacheMap)) {
-      for (const module of Object.values(modules)) {
-        if (module.getImportId() === normalized) return module;
-      }
-    }
-    return undefined;
+    return normalized.startsWith('virtual:mf:') ? idCacheMap[normalized] : undefined;
   }
 
   constructor(name: string, tag: string = '__mf_v__', suffix = '') {
@@ -106,7 +107,14 @@ export default class VirtualModule {
 
   getImportId() {
     const { internalName: mfName } = getNormalizeModuleFederationOptions();
-    return `virtual:mf:${packageNameEncode(`${mfName}${this.tag}${this.name}${this.tag}`)}${this.suffix}`;
+    const importIdKey = `${mfName}${this.tag}${this.name}${this.tag}`;
+    if (this.importId && this.importIdKey === importIdKey) return this.importId;
+
+    if (this.importId) delete idCacheMap[this.importId];
+    this.importIdKey = importIdKey;
+    this.importId = `virtual:mf:${packageNameEncode(importIdKey)}${this.suffix}`;
+    idCacheMap[this.importId] = this;
+    return this.importId;
   }
 
   getResolvedId() {

@@ -83,8 +83,76 @@ export function findSharedKey(
   source: string,
   shared: NormalizedShared | undefined
 ): string | undefined {
-  const keys = Object.keys(shared || {});
-  return keys.find((key) => source === key) ?? keys.find((key) => matchesSharedSource(source, key));
+  return getSharedKeyMatcher(shared).find(source);
+}
+
+type SharedKeyMatcher = {
+  find(source: string): string | undefined;
+};
+
+const emptySharedKeyMatcher: SharedKeyMatcher = {
+  find: () => undefined,
+};
+
+const sharedKeyMatcherCache = new WeakMap<NormalizedShared, SharedKeyMatcher>();
+
+function getSharedKeyMatcher(shared: NormalizedShared | undefined): SharedKeyMatcher {
+  if (!shared) return emptySharedKeyMatcher;
+
+  const cached = sharedKeyMatcherCache.get(shared);
+  if (cached) return cached;
+
+  // Shared matching is on a hot resolve path. Precompute exact/subpath indexes
+  // once per normalized shared object, then cache repeated source lookups.
+  const keys = Object.keys(shared);
+  const exactKeys = new Set(keys);
+  const commonSubpathKeys = new Map<string, string>();
+  const wildcardKeys: Array<{ key: string; base: string }> = [];
+  let vueKey: string | undefined;
+
+  for (const key of keys) {
+    const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
+
+    if (!vueKey && keyBase === 'vue') vueKey = key;
+    if (key.endsWith('/')) wildcardKeys.push({ key, base: keyBase });
+
+    for (const subpath of getCommonSharedSubpaths(keyBase)) {
+      if (!commonSubpathKeys.has(subpath)) commonSubpathKeys.set(subpath, key);
+    }
+  }
+
+  const sourceCache = new Map<string, string | undefined>();
+  const matcher: SharedKeyMatcher = {
+    find(source) {
+      if (sourceCache.has(source)) return sourceCache.get(source);
+
+      let result = exactKeys.has(source) ? source : undefined;
+
+      if (!result && vueKey) {
+        if (
+          source === 'vue/dist/vue.esm-bundler.js' ||
+          source === 'vue/dist/vue.runtime.esm-bundler.js'
+        ) {
+          result = vueKey;
+        }
+      }
+
+      if (!result) result = commonSubpathKeys.get(source);
+
+      if (!result) {
+        const wildcardKey = wildcardKeys.find(
+          ({ base }) => source === base || source.startsWith(`${base}/`)
+        );
+        result = wildcardKey?.key;
+      }
+
+      sourceCache.set(source, result);
+      return result;
+    },
+  };
+
+  sharedKeyMatcherCache.set(shared, matcher);
+  return matcher;
 }
 
 function findSharedKeyForSource(
