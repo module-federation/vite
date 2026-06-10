@@ -1045,25 +1045,18 @@ describe('vite:module-federation-early-init', () => {
     hasPackageDependencyMock.mockReturnValue(false);
     const plugin = getModuleFederationVitePlugin();
     const config: any = {
-      root: process.cwd(),
       define: {},
-      resolve: {
-        alias: [],
-      },
       build: {},
     };
 
-    runConfig(
-      plugin,
-      { meta: {}, environment: { name: 'ssr' } } as ConfigPluginContext & {
-        environment: { name: string };
-      },
-      config,
-      {
-        command: 'build',
-        mode: 'test',
-      }
-    );
+    const env = { command: 'build', mode: 'test' } as ConfigEnv;
+    const hook = plugin.configEnvironment;
+    if (!hook) throw new Error('configEnvironment hook not found');
+    if (typeof hook === 'function') {
+      hook.call({} as ConfigPluginContext, 'ssr', config, env);
+    } else {
+      hook.handler.call({} as ConfigPluginContext, 'ssr', config, env);
+    }
 
     expect(config.define.ENV_TARGET).toBe('"node"');
   });

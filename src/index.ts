@@ -1066,11 +1066,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
 
         const isAstro = hasPackageDependency('astro');
-        const environmentName = (this as { environment?: { name?: string } }).environment?.name;
-        const isServerEnvironment =
-          config.build?.ssr === true || environmentName === 'ssr' || environmentName === 'server';
-        // Resolve target: explicit option > SSR / server-environment detection > 'web'
-        const resolvedTarget = options.target ?? (isServerEnvironment ? 'node' : 'web');
+        // Resolve target: explicit option > SSR detection > 'web'
+        // (Environment API server/ssr targets are set in configEnvironment.)
+        const resolvedTarget = options.target ?? (config.build?.ssr ? 'node' : 'web');
         const envTargetDefineValue =
           !options.target && isAstro ? 'undefined' : JSON.stringify(resolvedTarget);
 
