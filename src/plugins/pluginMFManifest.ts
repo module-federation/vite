@@ -18,6 +18,7 @@ import {
 } from '../utils/cssModuleHelpers';
 import { resolvePublicPath } from '../utils/pathNormalization';
 import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
+import { DEFAULT_PUBLIC_TYPES_FOLDER } from './pluginDts';
 
 /**
  * Resolves the build version for the module federation manifest.
@@ -31,6 +32,36 @@ import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntryS
  */
 function getBuildVersion(): string {
   return process.env['MF_BUILD_VERSION'] ?? '1.0.0';
+}
+
+/**
+ * Builds the manifest `metaData.types` entry.
+ *
+ * When type generation is enabled, the dts plugin serves the type archive
+ * (`<typesFolder>.zip`) and api file (`<typesFolder>.d.ts`). Consumers using
+ * `@module-federation/dts-plugin` read `metaData.types.zip` to download those
+ * types and throw `Can not get <remote>'s types archive url!` when it is absent.
+ * Advertising the relative paths here (resolved against `publicPath` by the
+ * consumer) mirrors the webpack/rspack (`@module-federation/enhanced`) plugins.
+ */
+function resolveTypesMeta(dts: ReturnType<typeof getNormalizeModuleFederationOptions>['dts']): {
+  path: string;
+  name: string;
+  zip?: string;
+  api?: string;
+} {
+  if (dts === false) return { path: '', name: '' };
+  const generateTypes = typeof dts === 'object' && dts ? dts.generateTypes : undefined;
+  if (generateTypes === false) return { path: '', name: '' };
+  const typesFolder =
+    (typeof generateTypes === 'object' && generateTypes?.typesFolder) ||
+    DEFAULT_PUBLIC_TYPES_FOLDER;
+  return {
+    path: '',
+    name: '',
+    zip: `${typesFolder}.zip`,
+    api: `${typesFolder}.d.ts`,
+  };
 }
 
 const Manifest = (): Plugin[] => {
@@ -129,7 +160,7 @@ const Manifest = (): Plugin[] => {
                         type: 'var',
                       }
                     : undefined,
-                  types: { path: '', name: '' },
+                  types: resolveTypesMeta(mfOptions.dts),
                   globalName: name,
                   pluginVersion: '0.2.5',
                   publicPath,
@@ -368,10 +399,7 @@ const Manifest = (): Plugin[] => {
         remoteEntry,
         ssrRemoteEntry,
         varRemoteEntry,
-        types: {
-          path: '',
-          name: '',
-        },
+        types: resolveTypesMeta(options.dts),
         globalName: name,
         pluginVersion: '0.2.5',
         ...(!!getPublicPath ? { getPublicPath } : { publicPath }),

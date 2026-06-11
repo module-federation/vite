@@ -126,6 +126,7 @@ async function runGenerateBundleWithManifest(
         }
       | undefined
     >;
+    dts?: unknown;
   } = {},
   command: 'serve' | 'build' = 'build',
   base = '/'
@@ -135,6 +136,7 @@ async function runGenerateBundleWithManifest(
     filename: 'remoteEntry.js',
     getPublicPath: undefined,
     varFilename: undefined,
+    dts: runtime.dts,
     manifest: manifestOptions,
     exposes: runtime.exposePaths || {},
     remotes: {},
@@ -383,6 +385,45 @@ describe('pluginMFManifest', () => {
 
     const manifest = JSON.parse(emitted['mf-manifest.json']);
     expect(manifest.metaData.publicPath).toBe('/remote/');
+  });
+
+  it('advertises the types archive url when type generation is enabled', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, { dts: { generateTypes: true } });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.metaData.types).toMatchObject({
+      zip: '@mf-types.zip',
+      api: '@mf-types.d.ts',
+    });
+  });
+
+  it('honors a custom generateTypes.typesFolder in the advertised url', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      dts: { generateTypes: { typesFolder: '@types' } },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.metaData.types).toMatchObject({
+      zip: '@types.zip',
+      api: '@types.d.ts',
+    });
+  });
+
+  it('omits the types archive url when dts is disabled', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, { dts: false });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.metaData.types).toEqual({ path: '', name: '' });
+    expect(manifest.metaData.types.zip).toBeUndefined();
+  });
+
+  it('omits the types archive url when generateTypes is disabled', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      dts: { generateTypes: false },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.metaData.types).toEqual({ path: '', name: '' });
   });
 
   it('preserves publicPath "auto" in manifest metaData', async () => {

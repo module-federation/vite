@@ -34,7 +34,7 @@ const DYNAMIC_HINTS_PLUGIN = '@module-federation/dts-plugin/dynamic-remote-type-
 const getIPv4 = () => process.env['FEDERATION_IPV4'] || '127.0.0.1';
 
 const DEV_TYPES_FOLDER = '.dev-server';
-const DEFAULT_PUBLIC_TYPES_FOLDER = '@mf-types';
+export const DEFAULT_PUBLIC_TYPES_FOLDER = '@mf-types';
 
 type DevWorkerOptions = DTSManagerOptions & {
   name: string;
