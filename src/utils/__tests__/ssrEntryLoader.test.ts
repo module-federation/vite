@@ -1,7 +1,7 @@
 /**
  * ssrEntryLoader tests.
  *
- * ssrEntryLoader has module-level caches (manifestCache, tempFileCache).
+ * ssrEntryLoader has module-level caches (ssrEntryCache, tempFileCache).
  * We use vi.resetModules() + dynamic import in each test to get a fresh
  * module instance with empty caches.
  */
@@ -435,6 +435,42 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
       'http://localhost:5001/assets/chunks/__mf_server__/remoteEntry.ssr.js',
       'http://localhost:5001/assets/chunks/remoteEntry.ssr.js',
     ]);
+  });
+
+  it('caches SSR resolution per remote entry URL, not per manifest URL', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const fetch = makeFetchMock({
+      'http://localhost:5001/__mf_server__/remoteEntry.ssr.js': { ok: false },
+      'http://localhost:5001/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: { ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' } },
+        },
+      },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export async function init() {} export async function get() {}',
+      },
+      'http://localhost:5001/remoteEntry.js': { ok: false },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    const plugin = factory();
+
+    await plugin.loadEntry!({
+      remoteInfo: { name: 'js', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+    await plugin.loadEntry!({
+      remoteInfo: { name: 'manifest', entry: 'http://localhost:5001/mf-manifest.json' },
+    });
+
+    const manifestGets = fetch.mock.calls.filter(
+      (c) => c[0] === 'http://localhost:5001/mf-manifest.json' && !c[1]?.method
+    );
+    expect(manifestGets.length).toBeGreaterThanOrEqual(2);
   });
 });
 

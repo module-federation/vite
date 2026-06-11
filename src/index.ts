@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
-import type { ConfigEnv, Plugin, UserConfig } from 'vite';
+import type { ConfigEnv, EnvironmentOptions, Plugin, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
@@ -1067,6 +1067,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
         const isAstro = hasPackageDependency('astro');
         // Resolve target: explicit option > SSR detection > 'web'
+        // (Environment API server/ssr targets are set in configEnvironment.)
         const resolvedTarget = options.target ?? (config.build?.ssr ? 'node' : 'web');
         const envTargetDefineValue =
           !options.target && isAstro ? 'undefined' : JSON.stringify(resolvedTarget);
@@ -1086,6 +1087,21 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             `ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
           );
         }
+      },
+      configEnvironment(name: string, config: EnvironmentOptions) {
+        const isServerEnvironment =
+          config.consumer === 'server' ||
+          name === 'ssr' ||
+          name === 'server' ||
+          config.build?.ssr === true;
+        // Client graphs keep ENV_TARGET from root config(); only server/ssr envs need node.
+        if (!isServerEnvironment) return;
+
+        const isAstro = hasPackageDependency('astro');
+        const envTargetDefineValue =
+          !options.target && isAstro ? 'undefined' : JSON.stringify(options.target ?? 'node');
+        // Copy define per environment — Vite may reuse the same object across envs.
+        config.define = { ...(config.define ?? {}), ENV_TARGET: envTargetDefineValue };
       },
     },
     ...pluginManifest(),
@@ -1195,7 +1211,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                   // The string literal must start with "/" to avoid matching unrelated
                   // functions like Stencil's getScopeId: (e,t)=>"sc-"+e.$tagName$
                   const replaced = chunk.code.replace(
-                    /=\(?(\w+)(?:,\w+)?\)?\s*=>\s*[`"'][./][^`"']*[`"']\s*\+\s*\1/,
+                    /=\s*\(?(\w+)(?:,\w+)?\)?\s*=>\s*[`"'][./][^`"']*[`"']\s*\+\s*\1/,
                     replacement
                   );
                   if (replaced !== chunk.code) {
@@ -1204,7 +1220,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                   }
                   // Function expression: function(e){return"/"+e} (1 or 2 params)
                   chunk.code = chunk.code.replace(
-                    /=function\((\w+)(?:,\w+)?\)\{return\s*[`"'][./][^`"']*[`"']\s*\+\s*\1\s*\}/,
+                    /=\s*function\((\w+)(?:,\w+)?\)\s*\{\s*return\s*[`"'][./][^`"']*[`"']\s*\+\s*\1;?\s*\}/,
                     replacement
                   );
                   chunk.code = chunk.code.replace(
