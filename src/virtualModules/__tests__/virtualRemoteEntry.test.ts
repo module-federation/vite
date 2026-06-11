@@ -48,6 +48,33 @@ vi.mock('../../utils/packageUtils', () => {
       shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
     hasPackageDependency: hasPackageDependencyMock,
     packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
+    getPackageName: (packageString: string) => {
+      const match = packageString.match(/^(?:@[^/]+\/)?[^/]+/);
+      return match ? match[0] : packageString;
+    },
+    getInstalledPackageJson: (pkg: string) => {
+      if (pkg === '@repro/core') {
+        return {
+          path: '/repo/packages/core/package.json',
+          dir: '/repo/packages/core',
+          packageJson: {
+            name: '@repro/core',
+            dependencies: {
+              '@repro/shared-lib': 'workspace:*',
+            },
+          },
+        };
+      }
+      if (pkg === '@repro/shared-lib') {
+        return {
+          path: '/repo/packages/shared-lib/package.json',
+          dir: '/repo/packages/shared-lib',
+          packageJson: {
+            name: '@repro/shared-lib',
+          },
+        };
+      }
+    },
   };
 });
 
@@ -415,6 +442,42 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('Object.entries(usedShared)');
     expect(code).not.toContain('"lit/decorators.js"');
+  });
+
+  it('preloads shared package dependencies before their consumers', async () => {
+    normalizedSharedMock.mockReturnValue({
+      '@repro/core': {
+        name: '@repro/core',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^1.0.0',
+          strictVersion: false,
+        },
+      },
+      '@repro/shared-lib': {
+        name: '@repro/shared-lib',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^1.0.0',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('@repro/core');
+    mod.addUsedShares('@repro/shared-lib');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+
+    expect(code.indexOf('"@repro/shared-lib"')).toBeLessThan(code.indexOf('"@repro/core"'));
   });
 
   it('does not seed a bare package for trailing slash shared packages', async () => {

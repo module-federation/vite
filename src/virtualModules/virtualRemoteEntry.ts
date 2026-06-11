@@ -5,7 +5,13 @@ import {
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
-import { getSharedCacheKey, hasPackageDependency, packageNameEncode } from '../utils/packageUtils';
+import {
+  getInstalledPackageJson,
+  getPackageName,
+  getSharedCacheKey,
+  hasPackageDependency,
+  packageNameEncode,
+} from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
 import VirtualModule from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
@@ -196,11 +202,39 @@ function getOrderedUsedShares() {
   } catch {
     // Some isolated unit tests call generators before normalized options exist.
   }
-  return Array.from(shares).sort((a, b) => {
+  const sorted = Array.from(shares).sort((a, b) => {
     const priority = (pkg: string) =>
       pkg === 'react' ? 0 : pkg === 'react-dom' ? 1 : pkg.startsWith('react/') ? 2 : 3;
     return priority(a) - priority(b) || a.localeCompare(b);
   });
+  return orderSharedDependenciesFirst(sorted);
+}
+
+function orderSharedDependenciesFirst(sharedPackages: string[]) {
+  const sharedKeyByPackageName = new Map(sharedPackages.map((pkg) => [getPackageName(pkg), pkg]));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const ordered: string[] = [];
+  const visit = (pkg: string) => {
+    if (visited.has(pkg)) return;
+    if (visiting.has(pkg)) return;
+    visiting.add(pkg);
+    const packageJson = getInstalledPackageJson(pkg)?.packageJson;
+    const dependencies = {
+      ...((packageJson?.dependencies as Record<string, string> | undefined) || {}),
+      ...((packageJson?.peerDependencies as Record<string, string> | undefined) || {}),
+      ...((packageJson?.optionalDependencies as Record<string, string> | undefined) || {}),
+    };
+    Object.keys(dependencies).forEach((dependency) => {
+      const sharedDependency = sharedKeyByPackageName.get(dependency);
+      if (sharedDependency) visit(sharedDependency);
+    });
+    visiting.delete(pkg);
+    visited.add(pkg);
+    ordered.push(pkg);
+  };
+  sharedPackages.forEach(visit);
+  return ordered;
 }
 
 function getShareItemForPreload(pkg: string) {
