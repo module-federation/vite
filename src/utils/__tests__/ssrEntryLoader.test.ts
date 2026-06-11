@@ -505,24 +505,49 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     expect(manifestGets).toHaveLength(1);
   });
 
-  it('does not treat arbitrary .json URLs as manifest entries', async () => {
+  it('supports a custom manifest fileName when used as the entry URL', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     const fetch = makeFetchMock({
-      'http://localhost:5001/config.json': { ok: false },
-      'http://localhost:5001/mf-manifest.json': { ok: false },
-      'http://localhost:5001/__mf_server__/config.ssr.js': { ok: false },
-      'http://localhost:5001/config.ssr.js': { ok: false },
+      'http://localhost:5001/dist/custom-manifest.json': {
+        ok: true,
+        json: {
+          metaData: { ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' } },
+        },
+      },
+      'http://localhost:5001/dist/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export async function init() {} export async function get() {}',
+      },
     });
     global.fetch = fetch as unknown as typeof globalThis.fetch;
     const factory = await freshLoader();
     await factory().loadEntry!({
-      remoteInfo: { name: 'r', entry: 'http://localhost:5001/config.json' },
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/dist/custom-manifest.json' },
     });
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/mf-manifest.json');
+    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/dist/custom-manifest.json');
+    expect(fetch).not.toHaveBeenCalledWith('http://localhost:5001/dist/mf-manifest.json');
     const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
-    expect(heads.map((c) => c[0])).toContain('http://localhost:5001/__mf_server__/config.ssr.js');
     expect(heads.map((c) => c[0])).not.toContain(
-      'http://localhost:5001/__mf_server__/mf-manifest.ssr.js'
+      'http://localhost:5001/dist/__mf_server__/custom-manifest.ssr.js'
     );
+  });
+
+  it('still defaults to mf-manifest.json when deriving from remoteEntry.js', async () => {
+    const fetch = makeFetchMock({
+      'http://localhost:5001/dist/custom-manifest.json': { ok: false },
+      'http://localhost:5001/dist/mf-manifest.json': { ok: false },
+      'http://localhost:5001/dist/remoteEntry.ssr.js': { ok: false },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/dist/remoteEntry.js' },
+    });
+    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/dist/mf-manifest.json');
+    expect(fetch).not.toHaveBeenCalledWith('http://localhost:5001/dist/custom-manifest.json');
   });
 });
 

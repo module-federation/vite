@@ -176,12 +176,13 @@ async function fetchManifestCached(manifestUrl: string): Promise<Manifest | null
   return manifestFetchCache.get(manifestUrl)!;
 }
 
+/** True when the host configured a manifest URL as the remote entry (any .json name). */
 function isManifestEntry(remoteEntryUrl: string): boolean {
   try {
     const { pathname } = new URL(remoteEntryUrl);
-    return /mf-manifest\.json$/i.test(pathname);
+    return /\.json$/i.test(pathname);
   } catch {
-    return /mf-manifest\.json(?:[?#]|$)/i.test(remoteEntryUrl);
+    return /\.json(?:[?#]|$)/i.test(remoteEntryUrl);
   }
 }
 
