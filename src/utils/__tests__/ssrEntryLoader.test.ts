@@ -1,7 +1,7 @@
 /**
  * ssrEntryLoader tests.
  *
- * ssrEntryLoader has module-level caches (ssrEntryCache, tempFileCache).
+ * ssrEntryLoader has module-level caches (ssrEntryCache, manifestFetchCache, tempFileCache).
  * We use vi.resetModules() + dynamic import in each test to get a fresh
  * module instance with empty caches.
  */
@@ -437,7 +437,39 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     ]);
   });
 
-  it('caches SSR resolution per remote entry URL, not per manifest URL', async () => {
+  it('caches SSR resolution per remote entry URL', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const fetch = makeFetchMock({
+      'http://localhost:5001/__mf_server__/remoteEntry.ssr.js': { ok: false },
+      'http://localhost:5001/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: { ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' } },
+        },
+      },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export async function init() {} export async function get() {}',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    const plugin = factory();
+    const entry = 'http://localhost:5001/mf-manifest.json';
+
+    await plugin.loadEntry!({ remoteInfo: { name: 'manifest', entry } });
+    await plugin.loadEntry!({ remoteInfo: { name: 'manifest', entry } });
+
+    const manifestGets = fetch.mock.calls.filter(
+      (c) => c[0] === 'http://localhost:5001/mf-manifest.json' && !c[1]?.method
+    );
+    expect(manifestGets).toHaveLength(1);
+  });
+
+  it('dedupes manifest fetches across js and manifest entry URLs', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
@@ -470,7 +502,27 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     const manifestGets = fetch.mock.calls.filter(
       (c) => c[0] === 'http://localhost:5001/mf-manifest.json' && !c[1]?.method
     );
-    expect(manifestGets.length).toBeGreaterThanOrEqual(2);
+    expect(manifestGets).toHaveLength(1);
+  });
+
+  it('does not treat arbitrary .json URLs as manifest entries', async () => {
+    const fetch = makeFetchMock({
+      'http://localhost:5001/config.json': { ok: false },
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/__mf_server__/config.ssr.js': { ok: false },
+      'http://localhost:5001/config.ssr.js': { ok: false },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/config.json' },
+    });
+    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/mf-manifest.json');
+    const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
+    expect(heads.map((c) => c[0])).toContain('http://localhost:5001/__mf_server__/config.ssr.js');
+    expect(heads.map((c) => c[0])).not.toContain(
+      'http://localhost:5001/__mf_server__/mf-manifest.ssr.js'
+    );
   });
 });
 
