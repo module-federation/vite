@@ -113,12 +113,16 @@ describe('generateRemotes', () => {
     hasPackageDependencyMock.mockReturnValue(false);
   });
 
-  it('split client wrapper with SSR init loads the real remote for hydration', () => {
+  it('split client wrapper with SSR init starts loading and keeps a stable proxy', () => {
     const code = generateRemotes('remote/Button', 'serve', true, 'client');
 
     expect(code).toContain('__mfAssignRemoteModule');
-    expect(code).not.toContain('__mfCreateDeferredRemoteProxy()');
+    expect(code).toContain('__mfCreateDeferredRemoteProxy()');
+    expect(code).toContain(
+      '__mfRemotePending = __mfStartRemoteLoad().then(__mfAssignRemoteModule)'
+    );
     expect(code).toContain('import("/virtual/hostInit.js")');
+    expect(code).not.toContain('await ');
   });
 
   it('keeps deferred client proxies on build when SSR init is enabled', () => {

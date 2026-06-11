@@ -77,21 +77,27 @@ function shouldDeferRemoteLoad(initMode: RemoteInitMode) {
   return initMode === 'loaded-first-client' || initMode === 'loaded-first-unified';
 }
 
-/** Dev SSR only — build/preview client graphs must keep deferred proxies for static imports. */
-function clientNeedsRealRemoteForHydration(command: string, enableSsrInit: boolean) {
+/** Dev client wrappers can preload remotes while exposing stable proxies. */
+function shouldEagerLoadClientRemoteInDev(command: string, enableSsrInit: boolean) {
   return enableSsrInit && command === 'serve';
+}
+
+function getEagerDeferredClientInit() {
+  return `__mfRemotePending = __mfStartRemoteLoad().then(__mfAssignRemoteModule);
+      exportModule = __mfCreateDeferredRemoteProxy();`;
 }
 
 function shouldIncludeDeferredProxy(
   initMode: RemoteInitMode,
   consumer: RemoteConsumer,
-  clientNeedsRealRemote: boolean,
+  eagerLoadClientRemote: boolean,
   deferRemoteLoad: boolean
 ) {
+  if (eagerLoadClientRemote && consumer !== 'server') return true;
   if (initMode === 'eager') {
-    return consumer !== 'server' && (consumer === 'unified' || !clientNeedsRealRemote);
+    return consumer !== 'server' && (consumer === 'unified' || !eagerLoadClientRemote);
   }
-  if (consumer === 'client' && clientNeedsRealRemote) return false;
+  if (consumer === 'client' && eagerLoadClientRemote) return false;
   return deferRemoteLoad || consumer !== 'server';
 }
 
@@ -296,9 +302,11 @@ export function generateRemotes(
 
   const realRemoteInit = `__mfRemotePending = __mfStartRemoteLoad().then(__mfAssignRemoteModule);`;
   const deferredClientInit = `exportModule = __mfCreateDeferredRemoteProxy();`;
-  const clientNeedsRealRemote = clientNeedsRealRemoteForHydration(command, enableSsrInit);
-  const eagerClientInit = clientNeedsRealRemote ? realRemoteInit : deferredClientInit;
-  const loadedFirstClientInit = clientNeedsRealRemote ? realRemoteInit : deferredClientInit;
+  const eagerLoadClientRemote = shouldEagerLoadClientRemoteInDev(command, enableSsrInit);
+  const eagerClientInit = eagerLoadClientRemote ? getEagerDeferredClientInit() : deferredClientInit;
+  const loadedFirstClientInit = eagerLoadClientRemote
+    ? getEagerDeferredClientInit()
+    : deferredClientInit;
   const environmentSplitInit = (clientInit: string, serverInit: string) =>
     consumer === 'client'
       ? clientInit
@@ -317,7 +325,7 @@ export function generateRemotes(
   const includeProxyHelper = shouldIncludeDeferredProxy(
     initMode,
     consumer,
-    clientNeedsRealRemote,
+    eagerLoadClientRemote,
     deferRemoteLoad
   );
 
