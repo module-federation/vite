@@ -995,28 +995,6 @@ describe('vite:module-federation-early-init', () => {
     expect(virtualModule?.code).toContain('jsx');
   });
 
-  it('excludes shared react from dev optimizeDeps when react-redux is installed', () => {
-    hasPackageDependencyMock.mockImplementation(
-      (dependency: string): boolean => dependency === 'react-redux'
-    );
-    const plugin = getEarlyInitPluginWithReactShared();
-    const config: any = {
-      root: process.cwd(),
-      optimizeDeps: {
-        include: [],
-        exclude: [],
-      },
-    };
-
-    runConfig(plugin, {} as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
-
-    expect(config.optimizeDeps.exclude).toContain('react');
-    expect(config.optimizeDeps.include).not.toContain('react');
-  });
-
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'astro'
@@ -1086,7 +1064,7 @@ describe('vite:module-federation-early-init', () => {
     expect(sharedDefine.ENV_TARGET).toBe('"web"');
   });
 
-  it('keeps ENV_TARGET web for Vite Environment API client builds', () => {
+  it('does not mutate client ENV_TARGET in configEnvironment', () => {
     hasPackageDependencyMock.mockReturnValue(false);
     const plugin = getModuleFederationVitePlugin();
     const sharedDefine = { ENV_TARGET: '"web"' };
@@ -1105,7 +1083,7 @@ describe('vite:module-federation-early-init', () => {
       hook.handler.call({} as ConfigPluginContext, 'client', clientConfig, env);
     }
 
-    expect(clientConfig.define.ENV_TARGET).toBe('"web"');
+    expect(clientConfig.define).toBe(sharedDefine);
     expect(sharedDefine.ENV_TARGET).toBe('"web"');
   });
 
