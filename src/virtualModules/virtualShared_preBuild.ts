@@ -515,8 +515,7 @@ function generateLazyWorkspaceSingletonExports(
   namedExports: string[],
   importSource: string,
   cacheKey: string,
-  eagerLocalFallback: boolean,
-  ssrSyncNamedFallback = false
+  eagerLocalFallback: boolean
 ) {
   const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
   const declarations =
@@ -548,22 +547,7 @@ function generateLazyWorkspaceSingletonExports(
           ? `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
       __mfApplyLazyShareExports(exportModule);`
-          : ssrSyncNamedFallback
-            ? `if (import.meta.env.SSR) {
-        const __mfLocalShare = await import(${escapeGeneratedStringLiteral(importSource)});
-        exportModule = __mfNormalizeShareModule(__mfLocalShare);
-        __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
-        __mfApplyLazyShareExports(exportModule);
-      } else {
-        initPromise.then(() =>
-          import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
-            exportModule = __mfNormalizeShareModule(mod);
-            __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
-            __mfApplyLazyShareExports(exportModule);
-          })
-        );
-      }`
-            : `initPromise.then(() =>
+          : `initPromise.then(() =>
         import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
           exportModule = __mfNormalizeShareModule(mod);
           __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
@@ -715,8 +699,7 @@ export function writeLoadShareModule(
       namedExports,
       lazyLocalFallbackSource,
       cacheKey,
-      command !== 'build',
-      command === 'build' && namedExports.length > 0
+      command !== 'build'
     );
   } else if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
