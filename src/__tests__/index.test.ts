@@ -995,6 +995,28 @@ describe('vite:module-federation-early-init', () => {
     expect(virtualModule?.code).toContain('jsx');
   });
 
+  it('excludes shared react from dev optimizeDeps when react-redux is installed', () => {
+    hasPackageDependencyMock.mockImplementation(
+      (dependency: string): boolean => dependency === 'react-redux'
+    );
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.exclude).toContain('react');
+    expect(config.optimizeDeps.include).not.toContain('react');
+  });
+
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'astro'
@@ -1285,6 +1307,74 @@ describe('module-federation-fix-preload', () => {
       'preload-helper-abc.js': createChunk(
         'preload-helper-abc.js',
         'const u=e=>`../`+e;modulepreload'
+      ),
+    };
+
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
+
+    expect((bundle['preload-helper-abc.js'] as Rollup.OutputChunk).code).toContain(
+      'new URL(e,import.meta.url).href'
+    );
+  });
+
+  it('handles spaces in function expression pattern', () => {
+    const plugin = getFixPreloadPlugin();
+    const bundle = {
+      'preload-helper-abc.js': createChunk(
+        'preload-helper-abc.js',
+        'const u = function(e) { return "/" + e };modulepreload'
+      ),
+    };
+
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
+
+    expect((bundle['preload-helper-abc.js'] as Rollup.OutputChunk).code).toContain(
+      'new URL(e,import.meta.url).href'
+    );
+  });
+
+  it('handles multi-line with semicolon in function expression pattern', () => {
+    const plugin = getFixPreloadPlugin();
+    const bundle = {
+      'preload-helper-abc.js': createChunk(
+        'preload-helper-abc.js',
+        `
+        const scriptRel = "modulepreload";
+        const assetsURL = function(dep) {
+          return "/" + dep;
+        };
+        `
+      ),
+    };
+
+    runGenerateBundle(
+      plugin,
+      {} as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle
+    );
+
+    expect((bundle['preload-helper-abc.js'] as Rollup.OutputChunk).code).toContain(
+      'new URL(dep,import.meta.url).href'
+    );
+  });
+
+  it('handles spaces in arrow function pattern', () => {
+    const plugin = getFixPreloadPlugin();
+    const bundle = {
+      'preload-helper-abc.js': createChunk(
+        'preload-helper-abc.js',
+        'const u = e => "/" + e;modulepreload'
       ),
     };
 

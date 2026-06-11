@@ -101,7 +101,7 @@ vi.mock('../../utils/VirtualModule', () => ({
   }),
 }));
 
-import { proxySharedModule } from '../pluginProxySharedModule_preBuild';
+import { findSharedKey, proxySharedModule } from '../pluginProxySharedModule_preBuild';
 import {
   NormalizedShared,
   normalizeModuleFederationOptions,
@@ -252,6 +252,35 @@ function makeShared(): NormalizedShared {
 }
 
 describe('pluginProxySharedModule_preBuild', () => {
+  describe('findSharedKey', () => {
+    it('matches exact keys, wildcard keys, Vue aliases, and common subpaths', () => {
+      const shared = makeShared();
+      shared['@scope/ui/'] = {
+        name: '@scope/ui/',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: false,
+          requiredVersion: '^1.0.0',
+          strictVersion: false,
+        },
+      };
+
+      expect(findSharedKey('react', shared)).toBe('react');
+      expect(findSharedKey('@scope/ui/button', shared)).toBe('@scope/ui/');
+      expect(findSharedKey('vue/dist/vue.esm-bundler.js', shared)).toBe('vue');
+      expect(findSharedKey('react/jsx-runtime', shared)).toBe('react');
+    });
+
+    it('caches per source without changing misses', () => {
+      const shared = makeShared();
+
+      expect(findSharedKey('missing-dep/subpath', shared)).toBeUndefined();
+      expect(findSharedKey('missing-dep/subpath', shared)).toBeUndefined();
+    });
+  });
+
   beforeEach(() => {
     hasPackageDependencyMock.mockReset();
     addUsedSharesMock.mockReset();
