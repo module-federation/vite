@@ -1095,22 +1095,19 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
       },
       configEnvironment(name: string, config: EnvironmentOptions) {
-        if (!config.define) config.define = {};
-
-        const isAstro = hasPackageDependency('astro');
-        if (!options.target && isAstro) {
-          config.define['ENV_TARGET'] = 'undefined';
-          return;
-        }
-
         const isServerEnvironment =
           config.consumer === 'server' ||
           name === 'ssr' ||
           name === 'server' ||
           config.build?.ssr === true;
-        const resolvedTarget = options.target ?? (isServerEnvironment ? 'node' : 'web');
-        // Override the root config() default — Environment API builds need per-env targets.
-        config.define['ENV_TARGET'] = JSON.stringify(resolvedTarget);
+
+        const isAstro = hasPackageDependency('astro');
+        const envTargetDefineValue =
+          !options.target && isAstro
+            ? 'undefined'
+            : JSON.stringify(options.target ?? (isServerEnvironment ? 'node' : 'web'));
+        // Copy define per environment — Vite may reuse the same object across envs.
+        config.define = { ...(config.define ?? {}), ENV_TARGET: envTargetDefineValue };
       },
     },
     ...pluginManifest(),

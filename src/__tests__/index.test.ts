@@ -1066,21 +1066,47 @@ describe('vite:module-federation-early-init', () => {
   it('sets ENV_TARGET node for Vite Environment API ssr builds', () => {
     hasPackageDependencyMock.mockReturnValue(false);
     const plugin = getModuleFederationVitePlugin();
-    const config: any = {
-      define: {},
-      build: {},
+    const sharedDefine = { ENV_TARGET: '"web"' };
+    const ssrConfig: any = {
+      define: sharedDefine,
+      build: { ssr: true },
+      consumer: 'server',
     };
 
     const env = { command: 'build', mode: 'test' } as ConfigEnv;
     const hook = plugin.configEnvironment;
     if (!hook) throw new Error('configEnvironment hook not found');
     if (typeof hook === 'function') {
-      hook.call({} as ConfigPluginContext, 'ssr', config, env);
+      hook.call({} as ConfigPluginContext, 'ssr', ssrConfig, env);
     } else {
-      hook.handler.call({} as ConfigPluginContext, 'ssr', config, env);
+      hook.handler.call({} as ConfigPluginContext, 'ssr', ssrConfig, env);
     }
 
-    expect(config.define.ENV_TARGET).toBe('"node"');
+    expect(ssrConfig.define.ENV_TARGET).toBe('"node"');
+    expect(sharedDefine.ENV_TARGET).toBe('"web"');
+  });
+
+  it('keeps ENV_TARGET web for Vite Environment API client builds', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const plugin = getModuleFederationVitePlugin();
+    const sharedDefine = { ENV_TARGET: '"web"' };
+    const clientConfig: any = {
+      define: sharedDefine,
+      build: {},
+      consumer: 'client',
+    };
+
+    const env = { command: 'serve', mode: 'test' } as ConfigEnv;
+    const hook = plugin.configEnvironment;
+    if (!hook) throw new Error('configEnvironment hook not found');
+    if (typeof hook === 'function') {
+      hook.call({} as ConfigPluginContext, 'client', clientConfig, env);
+    } else {
+      hook.handler.call({} as ConfigPluginContext, 'client', clientConfig, env);
+    }
+
+    expect(clientConfig.define.ENV_TARGET).toBe('"web"');
+    expect(sharedDefine.ENV_TARGET).toBe('"web"');
   });
 
   it('does not include virtual module dir or needsInterop for Rolldown optimizeDeps', () => {
