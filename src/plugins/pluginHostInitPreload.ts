@@ -41,7 +41,7 @@ export function pluginHostInitPreload(): Plugin {
         if (!ctx.bundle) return;
 
         const chunks = Object.values(ctx.bundle).filter(
-          (c): c is Rollup.OutputChunk => c.type === 'chunk',
+          (c): c is Rollup.OutputChunk => c.type === 'chunk'
         );
 
         const matched: Rollup.OutputChunk[] = [];
@@ -49,7 +49,7 @@ export function pluginHostInitPreload(): Plugin {
           const found = chunks.filter(c => match(c.name));
           if (found.length === 0) {
             console.warn(
-              `[module-federation-host-init-preload] expected host-init chunk "${label}" not found — MF chunk names may have changed`,
+              `[module-federation-host-init-preload] expected host-init chunk "${label}" not found — MF chunk names may have changed`
             );
             continue;
           }
@@ -66,7 +66,7 @@ export function pluginHostInitPreload(): Plugin {
               tag: 'link',
               attrs: { rel: 'modulepreload', crossorigin: true, href },
               injectTo: 'head',
-            }),
+            })
           );
 
         return tags.length > 0 ? tags : undefined;

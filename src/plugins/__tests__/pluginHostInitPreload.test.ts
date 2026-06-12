@@ -13,7 +13,9 @@ function asset(name: string, fileName: string): Rollup.OutputAsset {
   return { type: 'asset', name, fileName } as Rollup.OutputAsset;
 }
 
-function bundleOf(...entries: Array<{ fileName: string }>): Record<string, Rollup.OutputBundle[string]> {
+function bundleOf(
+  ...entries: Array<{ fileName: string }>
+): Record<string, Rollup.OutputBundle[string]> {
   return Object.fromEntries(entries.map(e => [e.fileName, e as Rollup.OutputBundle[string]]));
 }
 
@@ -29,7 +31,10 @@ ${extraPreloads}  </head>
 const allFourChunks = () => [
   chunk('hostInit', 'assets/chunk-hostInit.D8.js'),
   chunk('remoteEntry', 'assets/chunk-remoteEntry.u3.js'),
-  chunk('_virtual_mf-localSharedImportMap___app', 'assets/chunk-_virtual_mf-localSharedImportMap___app.Bl.js'),
+  chunk(
+    '_virtual_mf-localSharedImportMap___app',
+    'assets/chunk-_virtual_mf-localSharedImportMap___app.Bl.js'
+  ),
   chunk('index', 'assets/chunk-index.B_.js'),
 ];
 
@@ -40,10 +45,14 @@ const FOUR_HREFS = [
   '/assets/chunk-index.B_.js',
 ];
 
-function runTransform(html: string, bundle?: Record<string, unknown>): HtmlTagDescriptor[] | undefined {
+function runTransform(
+  html: string,
+  bundle?: Record<string, unknown>
+): HtmlTagDescriptor[] | undefined {
   const plugin = pluginHostInitPreload();
   const hook = plugin.transformIndexHtml;
-  const handler = (typeof hook === 'function' ? hook : (hook as { handler: Handler }).handler) as Handler;
+  const handler: Handler =
+    typeof hook === 'function' ? hook : (hook as { handler: Handler }).handler;
   return handler(html, { bundle } as unknown as IndexHtmlTransformContext);
 }
 
@@ -105,7 +114,10 @@ describe('pluginHostInitPreload', () => {
 
   it('ignores asset-type bundle entries even when named like a host-init chunk', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const tags = runTransform(baseHtml(), bundleOf(...allFourChunks(), asset('index', 'assets/index.AA.css')));
+    const tags = runTransform(
+      baseHtml(),
+      bundleOf(...allFourChunks(), asset('index', 'assets/index.AA.css'))
+    );
 
     expect(hrefs(tags)).toEqual(FOUR_HREFS);
     expect(warn).not.toHaveBeenCalled();
@@ -114,7 +126,10 @@ describe('pluginHostInitPreload', () => {
 
   it('warns for each missing chunk but still preloads the ones found', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const tags = runTransform(baseHtml(), bundleOf(chunk('hostInit', 'assets/chunk-hostInit.D8.js')));
+    const tags = runTransform(
+      baseHtml(),
+      bundleOf(chunk('hostInit', 'assets/chunk-hostInit.D8.js'))
+    );
 
     expect(hrefs(tags)).toEqual(['/assets/chunk-hostInit.D8.js']);
     expect(warn).toHaveBeenCalledTimes(3);
@@ -127,7 +142,10 @@ describe('pluginHostInitPreload', () => {
 
   it('returns undefined with no tags when no host-init chunks are found', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const tags = runTransform(baseHtml(), bundleOf(chunk('unrelated', 'assets/chunk-unrelated.AB.js')));
+    const tags = runTransform(
+      baseHtml(),
+      bundleOf(chunk('unrelated', 'assets/chunk-unrelated.AB.js'))
+    );
 
     expect(tags).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(4);
