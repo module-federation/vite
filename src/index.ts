@@ -13,7 +13,6 @@ import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
-import { pluginHostInitPreload } from './plugins/pluginHostInitPreload';
 import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
@@ -1098,7 +1097,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     ...pluginManifest(),
     ...pluginSSRRemoteEntry(options),
     ...pluginVarRemoteEntry(),
-    pluginHostInitPreload(),
     {
       name: 'module-federation-vinext-fix-rsc-preload-as',
       enforce: 'post' as const,
