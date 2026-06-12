@@ -244,7 +244,11 @@ async function headCheckSsrEntry(candidate: {
   return null;
 }
 
-function resolveAssetBaseUrl(entryUrl: string, manifest: Manifest | null, manifestUrl: string): string {
+function resolveAssetBaseUrl(
+  entryUrl: string,
+  manifest: Manifest | null,
+  manifestUrl: string
+): string {
   const remoteEntry = manifest?.metaData?.remoteEntry;
   if (remoteEntry?.name) return resolveEntryAssetUrl(remoteEntry, manifestUrl);
   if (!isManifestEntry(entryUrl)) return entryUrl;
