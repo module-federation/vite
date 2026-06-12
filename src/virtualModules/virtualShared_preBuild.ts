@@ -548,7 +548,8 @@ function generateLazyWorkspaceSingletonExports(
       __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
       __mfApplyLazyShareExports(exportModule);`
           : `if (import.meta.env.SSR) {
-        exportModule = __mfNormalizeShareModule(__mfLocalShare);
+        const mod = await import(${escapeGeneratedStringLiteral(importSource)});
+        exportModule = __mfNormalizeShareModule(mod);
         __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
         __mfApplyLazyShareExports(exportModule);
       } else {
@@ -566,8 +567,14 @@ function generateLazyWorkspaceSingletonExports(
     }
     export { __mf_default as default };${namedExportLine}`;
 
-  return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
-    ${body}`;
+  // Static imports always run during module evaluation, before the singleton
+  // cache is checked. Only emit them in serve mode where eager fallback is
+  // intentional; build mode uses dynamic import so host and remote share one
+  // workspace singleton instance without duplicate side effects.
+  return eagerLocalFallback
+    ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
+    ${body}`
+    : body;
 }
 
 function generateDeferredHostProvidedExports(
