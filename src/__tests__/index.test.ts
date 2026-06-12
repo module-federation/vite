@@ -995,6 +995,28 @@ describe('vite:module-federation-early-init', () => {
     expect(virtualModule?.code).toContain('jsx');
   });
 
+  it('excludes shared react from dev optimizeDeps when react-redux is installed', () => {
+    hasPackageDependencyMock.mockImplementation(
+      (dependency: string): boolean => dependency === 'react-redux'
+    );
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.exclude).toContain('react');
+    expect(config.optimizeDeps.include).not.toContain('react');
+  });
+
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'astro'
