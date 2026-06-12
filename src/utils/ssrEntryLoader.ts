@@ -205,6 +205,20 @@ function getEntryFilename(entryUrl: string): string {
   );
 }
 
+function getSsrEntryBasename(entryUrl: string): string {
+  try {
+    const { pathname } = new URL(entryUrl);
+    return (pathname.split('/').pop() ?? 'remoteEntry.ssr.js').replace(/[?#].*$/, '');
+  } catch {
+    return (
+      entryUrl
+        .split('/')
+        .pop()
+        ?.replace(/[?#].*$/, '') ?? 'remoteEntry.ssr.js'
+    );
+  }
+}
+
 function resolveEntryAssetUrl(entry: { name: string; path?: string }, manifestUrl: string): string {
   const base = manifestUrl.replace(/\/[^/]+$/, '/');
   return new URL(`${entry.path || ''}${entry.name}`, base).href;
@@ -307,7 +321,16 @@ async function resolveSSREntryImpl(
   remoteEntryUrl: string
 ): Promise<{ url: string; type: string } | null> {
   if (isSsrEntry(remoteEntryUrl)) {
-    return headCheckSsrEntry({ url: remoteEntryUrl, type: 'module' });
+    const direct = await headCheckSsrEntry({ url: remoteEntryUrl, type: 'module' });
+    if (direct) return direct;
+    // Runtime may pre-resolve manifest ssrRemoteEntry to publicPath/<name> while the
+    // server actually serves the file under /__mf_ssr__/ or /__mf_server__/ (preview).
+    const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
+    const basename = getSsrEntryBasename(remoteEntryUrl);
+    return resolveFirstReachableCandidate([
+      { url: `${remoteOrigin}/__mf_ssr__/${basename}`, type: 'module' },
+      { url: `${remoteOrigin}/__mf_server__/${basename}`, type: 'module' },
+    ]);
   }
 
   // For JS entries, probe the dedicated server build before fetching the manifest.
@@ -520,21 +543,22 @@ async function loadSSRRemoteEntry(
       // virtual SSR entry ID, so `runner.import()` traverses the full Vite
       // plugin pipeline and returns real, fully-transformed module source.
       //
-      // Vite < 8 falls through here with runner === null. Rather than attempting
-      // a broken fallback (fetchEsmToTempFile can't serialise React components),
-      // we return null so the MF runtime falls back to client-only rendering.
-      // To add Vite < 8 dev-mode support, implement an alternative loader here
-      // and expose a corresponding endpoint from pluginSSRRemoteEntry.configureServer.
+      // Production preview also serves built SSR entries at `/__mf_ssr__/`
+      // via static middleware — when ModuleRunner is unavailable, fall through
+      // to the HTTP temp-file loader below instead of returning null.
       const remoteOrigin = urlObj.origin;
       const runner = await getOrCreateRunner(remoteOrigin);
-      if (!runner) return null;
-      try {
-        const mod = await (runner as { import: (id: string) => Promise<unknown> }).import(
-          urlObj.pathname
-        );
-        return mod as { init: unknown; get: unknown };
-      } catch {
-        return null;
+      if (runner) {
+        try {
+          const mod = await (runner as { import: (id: string) => Promise<unknown> }).import(
+            urlObj.pathname
+          );
+          if (mod && typeof mod === 'object' && 'init' in mod) {
+            return mod as { init: unknown; get: unknown };
+          }
+        } catch {
+          // fall through to fetchEsmToTempFile
+        }
       }
     }
 
