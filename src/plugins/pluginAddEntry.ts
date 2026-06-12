@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'node:path';
-import type { Plugin } from 'vite';
+import type { Plugin, Rollup } from 'vite';
 import { normalizePathForImport, rebaseImport } from '../utils/buildPaths';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
@@ -26,6 +26,49 @@ interface AddEntryOptions {
   /** When true, skip the SSR fallback bootstrap wrapper (used for MF remotes whose HTML is never browser-requested). */
   forceClientInjected?: boolean;
   skipTransformFor?: string[];
+}
+
+const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
+  (name) => name === 'hostInit',
+  (name) => name === 'remoteEntry',
+  (name) => name.startsWith('_virtual_mf'),
+  (name) => name === 'index',
+];
+
+function escapeHtmlAttr(value: string) {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+function getExistingHrefSet(html: string) {
+  return new Set(Array.from(html.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi), (match) => match[1]));
+}
+
+function injectHostInitPreloads(
+  html: string,
+  bundle: Rollup.OutputBundle,
+  resolvePath: (fileName: string) => string
+) {
+  const existingHrefs = getExistingHrefSet(html);
+  const seenFiles = new Set<string>();
+  const hrefs: string[] = [];
+
+  for (const chunk of Object.values(bundle)) {
+    if (chunk.type !== 'chunk') continue;
+    if (!HOST_INIT_PRELOAD_CHUNKS.some((match) => match(chunk.name))) continue;
+    if (seenFiles.has(chunk.fileName)) continue;
+    seenFiles.add(chunk.fileName);
+    const href = resolvePath(chunk.fileName);
+    if (existingHrefs.has(href)) continue;
+    existingHrefs.add(href);
+    hrefs.push(href);
+  }
+
+  if (hrefs.length === 0) return html;
+
+  const tags = hrefs
+    .map((href) => `<link rel="modulepreload" crossorigin href="${escapeHtmlAttr(href)}">`)
+    .join('');
+  return html.includes('</head>') ? html.replace('</head>', `${tags}</head>`) : `${tags}${html}`;
 }
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
@@ -513,12 +556,12 @@ const addEntry = ({
         const lastSlash = file.lastIndexOf('/');
         bootstrapDir = lastSlash !== -1 ? file.slice(0, lastSlash + 1) : '';
         // Helper to resolve path with proper renderBuiltUrl handling
-        const resolvePath = (htmlFileName: string): string => {
+        const resolvePath = (builtFileName: string, htmlFileName: string): string => {
           if (!viteConfig.experimental?.renderBuiltUrl) {
-            return viteConfig.base + file;
+            return viteConfig.base + builtFileName;
           }
 
-          const result = viteConfig.experimental.renderBuiltUrl(file, {
+          const result = viteConfig.experimental.renderBuiltUrl(builtFileName, {
             hostId: htmlFileName,
             hostType: 'html',
             type: 'asset',
@@ -537,15 +580,15 @@ const addEntry = ({
                 'renderBuiltUrl returned runtime code for HTML injection. ' +
                   'Runtime code cannot be used in <script src="">. Falling back to base path.'
               );
-              return viteConfig.base + file;
+              return viteConfig.base + builtFileName;
             }
             if (result.relative) {
-              return file;
+              return builtFileName;
             }
           }
 
           // Fallback for undefined or unexpected values
-          return viteConfig.base + file;
+          return viteConfig.base + builtFileName;
         };
 
         // Strip Vite base before rebasing — paths in HTML include the base
@@ -563,7 +606,7 @@ const addEntry = ({
           if (htmlAsset.type === 'chunk') return;
 
           let htmlContent = htmlAsset.source.toString() || '';
-          const initPath = resolvePath(fileName);
+          const initPath = resolvePath(file, fileName);
           const scriptRegex =
             /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=["']([^"']+)["'])[^>]*>\s*<\/script>/gi;
           let rewritten = false;
@@ -599,13 +642,18 @@ const addEntry = ({
           if (!rewritten) {
             const svelteKitHtml = rewriteSvelteKitInlineStart(htmlContent, initPath);
             if (svelteKitHtml !== htmlContent) {
-              htmlAsset.source = svelteKitHtml;
-              continue;
-            }
-            const scriptContent = `
+              htmlContent = svelteKitHtml;
+            } else {
+              const scriptContent = `
           <script type="module" src="${initPath}"></script>
         `;
-            htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
+              htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
+            }
+          }
+          if (waitsForInit) {
+            htmlContent = injectHostInitPreloads(htmlContent, bundle, (builtFileName) =>
+              resolvePath(builtFileName, fileName)
+            );
           }
           htmlAsset.source = htmlContent;
         }
