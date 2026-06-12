@@ -1241,7 +1241,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import("workspace-shared-lib")');
   });
 
-  it('emits static local fallback imports for workspace singletons in build mode', () => {
+  it('uses sync local fallback in build mode for SSR and lazy init on client', () => {
     const pkg = 'workspace-shared-lib';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -1259,13 +1259,14 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).not.toContain(
+    expect(generatedCode).toContain(
       'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
     );
+    expect(generatedCode).toContain('if (import.meta.env.SSR) {');
+    expect(generatedCode).toContain('__mfLocalShare');
     expect(generatedCode).toContain(
       'import("/repo/packages/workspace-shared-lib/src/index.tsx").then((mod) => {'
     );
-    expect(generatedCode).not.toContain('__mfLocalShare');
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode.match(/let exportModule/g)?.length ?? 0).toBe(1);
   });
@@ -1288,12 +1289,13 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).not.toContain('import * as __mfLocalShare');
+    expect(generatedCode).toContain('import * as __mfLocalShare');
+    expect(generatedCode).toContain('if (import.meta.env.SSR) {');
     expect(generatedCode).not.toContain('export * from');
     expect(generatedCode).toContain(
       'import("/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts").then((mod) => {'
     );
-    expect(generatedCode).not.toContain('__mfLocalShare');
+    expect(generatedCode).toContain('__mfLocalShare');
   });
 
   it('does not treat parent package.json name mismatches as workspace package matches', () => {
