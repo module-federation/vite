@@ -218,15 +218,8 @@ describe('pluginAddEntry', () => {
       '/src/main.tsx'
     )) as { code: string } | undefined;
 
-    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
-    expect(result?.code).toContain('await __mfHostInit.__tla;');
-    expect(result?.code).toContain('const { initHost } = __mfHostInit;');
-    expect(result?.code).toContain('await initHost();');
-    // Regression (Safari TLA-lowering race): the emulated `__tla` promise must
-    // be awaited BEFORE initHost() runs, or `initHost` reads undefined.
-    const bootstrap = result?.code ?? '';
-    expect(bootstrap.indexOf('await __mfHostInit.__tla;')).toBeLessThan(
-      bootstrap.indexOf('await initHost();')
+    expect(result?.code).toContain(
+      'await import("/virtual/hostInit.js").then(({ initHost }) => initHost());'
     );
     expect(result?.code).toContain('})().then(() => import("/src/main.tsx?mf-entry-bootstrap"));');
     expect(result?.code).not.toContain('globalThis.System.import(src)');
@@ -260,10 +253,9 @@ describe('pluginAddEntry', () => {
       '/virtual/client-entry.tsx'
     )) as { code: string } | undefined;
 
-    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
-    expect(result?.code).toContain('await __mfHostInit.__tla;');
-    expect(result?.code).toContain('const { initHost } = __mfHostInit;');
-    expect(result?.code).toContain('await initHost();');
+    expect(result?.code).toContain(
+      'await import("/virtual/hostInit.js").then(({ initHost }) => initHost());'
+    );
     expect(result?.code).toContain(
       '})().then(() => import("/virtual/client-entry.tsx?mf-entry-bootstrap"));'
     );
@@ -524,7 +516,9 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('__mfPreloadRemote');
     expect(result?.code).not.toContain('loadRemote');
     expect(result?.code).not.toContain('__mfRemotePreloads');
-    expect(result?.code).toContain('await initHost();');
+    expect(result?.code).toContain(
+      'await import("/virtual/hostInit.js").then(({ initHost }) => initHost());'
+    );
     expect(result?.code).toContain('})().then(() => import("/src/main.ts?mf-entry-bootstrap"));');
   });
 
@@ -651,11 +645,8 @@ describe('pluginAddEntry', () => {
     // The proxy module must import both init and entry as resolvable paths
     // (no base prefix — Vite's server-side resolver handles base itself)
     expect(code).toContain(
-      `const __mfHostInit = await import("${VITE_ID_PREFIX}virtual:mf-host-init");`
+      `await import("${VITE_ID_PREFIX}virtual:mf-host-init").then(({ initHost }) => initHost());`
     );
-    expect(code).toContain('await __mfHostInit.__tla;');
-    expect(code).toContain('const { initHost } = __mfHostInit;');
-    expect(code).toContain('await initHost();');
     expect(code).toContain('})().then(() => import("/src/main.tsx"));');
     expect(code).not.toContain('globalThis.System.import(src)');
     expect(code).not.toContain('/foo/');
