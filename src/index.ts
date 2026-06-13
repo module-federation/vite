@@ -54,6 +54,7 @@ import {
   initVirtualModules,
   LOAD_REMOTE_TAG,
   LOAD_SHARE_TAG,
+  PREBUILD_TAG,
   setSsrRemotes,
   writeLocalSharedImportMap,
 } from './virtualModules';
@@ -629,7 +630,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           id.includes(getHostAutoInitImportId()) ||
           id.includes(remoteEntryId) ||
           id.includes(virtualExposesId) ||
-          id.includes(getLocalSharedImportMapPath())
+          id.includes(getLocalSharedImportMapPath()) ||
+          id.includes(LOAD_SHARE_TAG) ||
+          id.includes(PREBUILD_TAG)
         );
       },
       {
@@ -1102,7 +1105,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         const envTargetDefineValue =
           !options.target && isAstro ? 'undefined' : JSON.stringify(options.target ?? 'node');
         // Copy define per environment — Vite may reuse the same object across envs.
-        config.define = { ...(config.define ?? {}), ENV_TARGET: envTargetDefineValue };
+        config.define = { ...(config.define ?? {}) };
+        if (!('ENV_TARGET' in config.define)) {
+          config.define['ENV_TARGET'] = envTargetDefineValue;
+        }
+
+        if (options.target && config.define['ENV_TARGET'] !== JSON.stringify(options.target)) {
+          mfWarn(
+            `ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
+          );
+        }
       },
     },
     ...pluginManifest(),

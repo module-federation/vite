@@ -14,6 +14,8 @@ import {
   toViteOptimizedDepVirtualId,
 } from '../virtualModules/virtualShared_preBuild';
 import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
+import { callHook } from '../utils/__tests__/viteHookHelpers';
+import { parsePromise } from '../plugins/pluginModuleParseEnd';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>((_dependency: string) => false),
@@ -40,7 +42,7 @@ vi.mock('../utils/logger', async () => {
 
 import { federation } from '../index';
 import VirtualModule from '../utils/VirtualModule';
-import { getPreBuildLibImportId, LOAD_SHARE_TAG } from '../virtualModules';
+import { getPreBuildLibImportId, LOAD_SHARE_TAG, PREBUILD_TAG } from '../virtualModules';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
 type FederationPlugin = Plugin;
@@ -173,6 +175,13 @@ function getModuleFederationVitePlugin(): FederationPlugin {
   return plugin;
 }
 
+function resolvesQuickly(promise: Promise<unknown>) {
+  return Promise.race([
+    promise.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 25)),
+  ]);
+}
+
 function runConfig(
   plugin: FederationPlugin,
   ctx: ConfigPluginContext,
@@ -246,6 +255,42 @@ describe('federation in test environment', () => {
       filename: 'remoteEntry.js',
     });
     expect(plugins.length).toBeGreaterThan(0);
+  });
+});
+
+describe('module parse wiring', () => {
+  it('does not wait for generated load-share or prebuild modules', async () => {
+    const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
+    let plugins: Plugin[];
+    try {
+      plugins = federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          react: {},
+        },
+      }) as Plugin[];
+    } finally {
+      if (previousNoTestEnvCheck === undefined) {
+        delete process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+      } else {
+        process.env.MFE_VITE_NO_TEST_ENV_CHECK = previousNoTestEnvCheck;
+      }
+    }
+    const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
+    const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
+    if (!parseStart || !parseEnd) throw new Error('parse plugins not found');
+    const ctx = {} as any;
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, `virtual:mf:host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js`);
+    callHook(parseStart.load, ctx, `virtual:mf:host${PREBUILD_TAG}react${PREBUILD_TAG}.js`);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+
+    callHook(parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
+
+    expect(await resolvesQuickly(parsePromise)).toBe(true);
   });
 });
 
@@ -1066,7 +1111,7 @@ describe('vite:module-federation-early-init', () => {
   it('sets ENV_TARGET node for Vite Environment API ssr builds', () => {
     hasPackageDependencyMock.mockReturnValue(false);
     const plugin = getModuleFederationVitePlugin();
-    const sharedDefine = { ENV_TARGET: '"web"' };
+    const sharedDefine = { __APP__: 'true' };
     const ssrConfig: any = {
       define: sharedDefine,
       build: { ssr: true },
@@ -1083,6 +1128,29 @@ describe('vite:module-federation-early-init', () => {
     }
 
     expect(ssrConfig.define.ENV_TARGET).toBe('"node"');
+    expect(sharedDefine).not.toHaveProperty('ENV_TARGET');
+  });
+
+  it('preserves env-level ENV_TARGET in Vite Environment API ssr builds', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const plugin = getModuleFederationVitePlugin();
+    const sharedDefine = { ENV_TARGET: '"web"' };
+    const ssrConfig: any = {
+      define: sharedDefine,
+      build: { ssr: true },
+      consumer: 'server',
+    };
+
+    const env = { command: 'build', mode: 'test' } as ConfigEnv;
+    const hook = plugin.configEnvironment;
+    if (!hook) throw new Error('configEnvironment hook not found');
+    if (typeof hook === 'function') {
+      hook.call({} as ConfigPluginContext, 'ssr', ssrConfig, env);
+    } else {
+      hook.handler.call({} as ConfigPluginContext, 'ssr', ssrConfig, env);
+    }
+
+    expect(ssrConfig.define.ENV_TARGET).toBe('"web"');
     expect(sharedDefine.ENV_TARGET).toBe('"web"');
   });
 

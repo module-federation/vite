@@ -927,6 +927,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     });
 
     expect(result).toBeUndefined();
+    expect(fetch).not.toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
   });
 
   it('returns undefined when vite/module-runner is unavailable (Vite < 8)', async () => {
@@ -974,5 +975,6 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     });
 
     expect(result).toBeUndefined();
+    expect(fetch).not.toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
   });
 });

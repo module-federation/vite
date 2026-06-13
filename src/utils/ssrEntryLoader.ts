@@ -542,23 +542,20 @@ async function loadSSRRemoteEntry(
       // `resolveId` hook that maps `/__mf_ssr__/<filename>.ssr.js` to the
       // virtual SSR entry ID, so `runner.import()` traverses the full Vite
       // plugin pipeline and returns real, fully-transformed module source.
-      //
-      // Production preview also serves built SSR entries at `/__mf_ssr__/`
-      // via static middleware — when ModuleRunner is unavailable, fall through
-      // to the HTTP temp-file loader below instead of returning null.
       const remoteOrigin = urlObj.origin;
       const runner = await getOrCreateRunner(remoteOrigin);
-      if (runner) {
-        try {
-          const mod = await (runner as { import: (id: string) => Promise<unknown> }).import(
-            urlObj.pathname
-          );
-          if (mod && typeof mod === 'object' && 'init' in mod) {
-            return mod as { init: unknown; get: unknown };
-          }
-        } catch {
-          // fall through to fetchEsmToTempFile
+      if (!runner) return null;
+
+      try {
+        const mod = await (runner as { import: (id: string) => Promise<unknown> }).import(
+          urlObj.pathname
+        );
+        if (mod && typeof mod === 'object' && 'init' in mod) {
+          return mod as { init: unknown; get: unknown };
         }
+        return null;
+      } catch {
+        return null;
       }
     }
 
