@@ -57,7 +57,7 @@ export const reactAdapter: HmrAdapter = {
   name: 'react',
   pluginNames: [
     'vite:react-refresh', // @vitejs/plugin-react
-    'vite:react-swc:refresh', // @vitejs/plugin-react-swc
+    'vite:react-swc', // @vitejs/plugin-react-swc
   ],
   remote: {
     configureServer({ server }) {

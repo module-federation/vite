@@ -34,7 +34,7 @@ function createCtx(): { ctx: AdapterContext; middlewares: Middleware[] } {
 describe('reactAdapter', () => {
   it('declares the React-specific plugin names', () => {
     expect(reactAdapter.pluginNames).toEqual(
-      expect.arrayContaining(['vite:react-refresh', 'vite:react-swc:refresh'])
+      expect.arrayContaining(['vite:react-refresh', 'vite:react-swc'])
     );
   });
 
