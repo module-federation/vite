@@ -8,9 +8,7 @@ describe('HMR adapter registry', () => {
 
   it('resolves the matching adapter by plugin name', () => {
     expect(resolveAdapters([{ name: 'vite:react-refresh' }]).map((a) => a.name)).toEqual(['react']);
-    expect(resolveAdapters([{ name: 'vite:react-swc:refresh' }]).map((a) => a.name)).toEqual([
-      'react',
-    ]);
+    expect(resolveAdapters([{ name: 'vite:react-swc' }]).map((a) => a.name)).toEqual(['react']);
     expect(resolveAdapters([{ name: 'vite:vue' }]).map((a) => a.name)).toEqual(['vue']);
     expect(resolveAdapters([{ name: 'vite:vue-jsx' }]).map((a) => a.name)).toEqual(['vue']);
   });

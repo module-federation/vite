@@ -294,9 +294,20 @@ const addEntry = ({
   await Promise.allSettled(__mfRemotePreloads);`
       : `await initHost();`;
 
+    // The hostInit chunk's top-level await may be lowered to an emulated
+    // `__tla` promise (e.g. by vite-plugin-top-level-await, or any build target
+    // below es2022). Under that lowering the dynamic import resolves after the
+    // module's *synchronous* evaluation — before its async init assigns
+    // `initHost` — so destructuring `initHost` immediately races the init and
+    // reads `undefined` in engines that settle the import microtask first
+    // (notably Safari/JavaScriptCore; V8 happens to win the race). Await the
+    // module's exported `__tla` promise before reading `initHost`. No-op under
+    // native TLA, where `__tla` is undefined.
     const importCode = `
 (async () => {
-  const { initHost } = await ${importExpression(initSrc)};
+  const __mfHostInit = await ${importExpression(initSrc)};
+  await __mfHostInit.__tla;
+  const { initHost } = __mfHostInit;
   ${preloadBlock}
 })().then(() => ${importExpression(entrySrc)});
 `;
