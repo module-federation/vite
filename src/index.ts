@@ -394,7 +394,9 @@ export default __mfShared.default ?? __mfShared;`,
             // interop for transitive dependencies used by prebuild fallbacks.
             const shouldBypassOptimizeDep =
               isLitShare(key) || (key === 'react' && hasPackageDependency('react-redux', root));
-            if (shouldBypassOptimizeDep) {
+            if (optimizeDeps.include.includes(key)) {
+              optimizeDeps.exclude = optimizeDeps.exclude.filter((dep) => dep !== key);
+            } else if (shouldBypassOptimizeDep) {
               optimizeDeps.exclude.push(key);
             } else {
               optimizeDeps.include.push(key);
