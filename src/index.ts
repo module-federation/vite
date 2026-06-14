@@ -1083,6 +1083,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         if (!('ENV_TARGET' in config.define)) {
           config.define['ENV_TARGET'] = envTargetDefineValue;
         }
+        if (
+          resolvedTarget === 'node' &&
+          !('FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN' in config.define)
+        ) {
+          config.define['FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN'] = 'true';
+        }
 
         if (
           options.target &&
@@ -1110,6 +1116,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.define = { ...(config.define ?? {}) };
         if (!('ENV_TARGET' in config.define)) {
           config.define['ENV_TARGET'] = envTargetDefineValue;
+        }
+        if (!('FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN' in config.define)) {
+          config.define['FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN'] = 'true';
         }
 
         if (options.target && config.define['ENV_TARGET'] !== JSON.stringify(options.target)) {

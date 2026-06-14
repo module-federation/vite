@@ -544,19 +544,25 @@ async function loadSSRRemoteEntry(
       // plugin pipeline and returns real, fully-transformed module source.
       const remoteOrigin = urlObj.origin;
       const runner = await getOrCreateRunner(remoteOrigin);
-      if (!runner) return null;
-
-      try {
-        const mod = await (runner as { import: (id: string) => Promise<unknown> }).import(
-          urlObj.pathname
-        );
-        if (mod && typeof mod === 'object' && 'init' in mod) {
-          return mod as { init: unknown; get: unknown };
+      if (!runner) {
+        if (process.env.NODE_ENV !== 'production') return null;
+      } else {
+        try {
+          const mod = await (runner as { import: (id: string) => Promise<unknown> }).import(
+            urlObj.pathname
+          );
+          if (mod && typeof mod === 'object' && 'init' in mod) {
+            return mod as { init: unknown; get: unknown };
+          }
+          if (process.env.NODE_ENV !== 'production') return null;
+        } catch {
+          if (process.env.NODE_ENV !== 'production') return null;
         }
-        return null;
-      } catch {
-        return null;
       }
+
+      // Production previews can mount built SSR assets under /__mf_ssr__/
+      // without exposing the dev-only ModuleRunner endpoint. In that case the
+      // static file is safe to import through the temp-file HTTP loader below.
     }
 
     // Production build HTTP entries: fetch source and write to temp file so

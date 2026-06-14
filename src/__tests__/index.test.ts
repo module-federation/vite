@@ -1128,6 +1128,7 @@ describe('vite:module-federation-early-init', () => {
     });
 
     expect(config.define.ENV_TARGET).toBe('"node"');
+    expect(config.define.FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN).toBe('true');
   });
 
   it('sets ENV_TARGET node for Vite Environment API ssr builds', () => {
@@ -1150,7 +1151,9 @@ describe('vite:module-federation-early-init', () => {
     }
 
     expect(ssrConfig.define.ENV_TARGET).toBe('"node"');
+    expect(ssrConfig.define.FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN).toBe('true');
     expect(sharedDefine).not.toHaveProperty('ENV_TARGET');
+    expect(sharedDefine).not.toHaveProperty('FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN');
   });
 
   it('preserves env-level ENV_TARGET in Vite Environment API ssr builds', () => {
@@ -1173,7 +1176,29 @@ describe('vite:module-federation-early-init', () => {
     }
 
     expect(ssrConfig.define.ENV_TARGET).toBe('"web"');
+    expect(ssrConfig.define.FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN).toBe('true');
     expect(sharedDefine.ENV_TARGET).toBe('"web"');
+  });
+
+  it('preserves env-level snapshot plugin define in Vite Environment API ssr builds', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const plugin = getModuleFederationVitePlugin();
+    const ssrConfig: any = {
+      define: { FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN: 'false' },
+      build: { ssr: true },
+      consumer: 'server',
+    };
+
+    const env = { command: 'build', mode: 'test' } as ConfigEnv;
+    const hook = plugin.configEnvironment;
+    if (!hook) throw new Error('configEnvironment hook not found');
+    if (typeof hook === 'function') {
+      hook.call({} as ConfigPluginContext, 'ssr', ssrConfig, env);
+    } else {
+      hook.handler.call({} as ConfigPluginContext, 'ssr', ssrConfig, env);
+    }
+
+    expect(ssrConfig.define.FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN).toBe('false');
   });
 
   it('does not mutate client ENV_TARGET in configEnvironment', () => {
@@ -1197,6 +1222,7 @@ describe('vite:module-federation-early-init', () => {
 
     expect(clientConfig.define).toBe(sharedDefine);
     expect(sharedDefine.ENV_TARGET).toBe('"web"');
+    expect(sharedDefine).not.toHaveProperty('FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN');
   });
 
   it('does not include virtual module dir or needsInterop for Rolldown optimizeDeps', () => {

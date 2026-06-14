@@ -878,103 +878,170 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
   });
 
   it('returns null when ModuleRunner import throws (no silent fallback)', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
     vi.resetModules();
-    const failingRunner = { import: vi.fn().mockRejectedValue(new Error('runner failed')) };
-    vi.doMock('vite/module-runner', () => ({
-      ModuleRunner: vi.fn(function (this: unknown) {
-        return failingRunner;
-      }),
-      ESModulesEvaluator: vi.fn(function (this: unknown) {
-        return {};
-      }),
-    }));
-    vi.doMock('path', () => ({
-      default: {
+    try {
+      const failingRunner = { import: vi.fn().mockRejectedValue(new Error('runner failed')) };
+      vi.doMock('vite/module-runner', () => ({
+        ModuleRunner: vi.fn(function (this: unknown) {
+          return failingRunner;
+        }),
+        ESModulesEvaluator: vi.fn(function (this: unknown) {
+          return {};
+        }),
+      }));
+      vi.doMock('path', () => ({
+        default: {
+          join: (...p: string[]) => p.join('/'),
+          dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+        },
         join: (...p: string[]) => p.join('/'),
         dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
-      },
-      join: (...p: string[]) => p.join('/'),
-      dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
-    }));
-    vi.doMock('fs', () => ({
-      default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
-      mkdirSync: vi.fn(),
-      writeFileSync: vi.fn(),
-      rmSync: vi.fn(),
-    }));
-    vi.doMock('module', () => ({ default: { createRequire: vi.fn() }, createRequire: vi.fn() }));
+      }));
+      vi.doMock('fs', () => ({
+        default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
+        mkdirSync: vi.fn(),
+        writeFileSync: vi.fn(),
+        rmSync: vi.fn(),
+      }));
+      vi.doMock('module', () => ({ default: { createRequire: vi.fn() }, createRequire: vi.fn() }));
 
-    const { default: factory } = await import('../ssrEntryLoader');
+      const { default: factory } = await import('../ssrEntryLoader');
 
-    const fetch = makeFetchMock({
-      'http://localhost:4175/mf-manifest.json': {
-        ok: true,
-        json: {
-          metaData: {
-            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+      const fetch = makeFetchMock({
+        'http://localhost:4175/mf-manifest.json': {
+          ok: true,
+          json: {
+            metaData: {
+              ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+            },
           },
         },
-      },
-      'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
-        ok: true,
-        headers: { 'content-type': 'application/javascript' },
-      },
-    });
-    global.fetch = fetch as unknown as typeof globalThis.fetch;
+        'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
+          ok: true,
+          headers: { 'content-type': 'application/javascript' },
+        },
+      });
+      global.fetch = fetch as unknown as typeof globalThis.fetch;
 
-    const result = await factory().loadEntry!({
-      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
-    });
+      const result = await factory().loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+      });
 
-    expect(result).toBeUndefined();
-    expect(fetch).not.toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
+      expect(result).toBeUndefined();
+      expect(fetch).not.toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+    }
   });
 
   it('returns undefined when vite/module-runner is unavailable (Vite < 8)', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
     vi.resetModules();
-    // Simulate Vite < 8 — dev-mode SSR is not supported on older Vite versions.
+    try {
+      // Simulate Vite < 8 — dev-mode SSR is not supported on older Vite versions.
+      vi.doMock('vite/module-runner', () => {
+        throw new Error('module not found');
+      });
+      vi.doMock('path', () => ({
+        default: {
+          join: (...p: string[]) => p.join('/'),
+          dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+        },
+        join: (...p: string[]) => p.join('/'),
+        dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+      }));
+      vi.doMock('fs', () => ({
+        default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
+        mkdirSync: vi.fn(),
+        writeFileSync: vi.fn(),
+        rmSync: vi.fn(),
+      }));
+      vi.doMock('module', () => ({ default: { createRequire: vi.fn() }, createRequire: vi.fn() }));
+
+      const { default: factory } = await import('../ssrEntryLoader');
+
+      const fetch = makeFetchMock({
+        'http://localhost:4175/mf-manifest.json': {
+          ok: true,
+          json: {
+            metaData: {
+              ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+            },
+          },
+        },
+        'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
+          ok: true,
+          headers: { 'content-type': 'application/javascript' },
+        },
+      });
+      global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+      const result = await factory().loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+      });
+
+      expect(result).toBeUndefined();
+      expect(fetch).not.toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+    }
+  });
+
+  it('falls back to temp-file import for production preview /__mf_ssr__/ entries', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    vi.resetModules();
     vi.doMock('vite/module-runner', () => {
       throw new Error('module not found');
     });
-    vi.doMock('path', () => ({
-      default: {
-        join: (...p: string[]) => p.join('/'),
-        dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
-      },
-      join: (...p: string[]) => p.join('/'),
-      dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
-    }));
-    vi.doMock('fs', () => ({
-      default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
-      mkdirSync: vi.fn(),
-      writeFileSync: vi.fn(),
-      rmSync: vi.fn(),
-    }));
-    vi.doMock('module', () => ({ default: { createRequire: vi.fn() }, createRequire: vi.fn() }));
+    vi.doUnmock('path');
+    vi.doUnmock('fs');
+    vi.doUnmock('module');
 
-    const { default: factory } = await import('../ssrEntryLoader');
+    try {
+      const { default: factory } = await import('../ssrEntryLoader');
 
-    const fetch = makeFetchMock({
-      'http://localhost:4175/mf-manifest.json': {
-        ok: true,
-        json: {
-          metaData: {
-            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+      const fetch = makeFetchMock({
+        'http://localhost:4175/mf-manifest.json': {
+          ok: true,
+          json: {
+            metaData: {
+              ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+            },
           },
         },
-      },
-      'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
-        ok: true,
-        headers: { 'content-type': 'application/javascript' },
-      },
-    });
-    global.fetch = fetch as unknown as typeof globalThis.fetch;
+        'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
+          ok: true,
+          headers: { 'content-type': 'application/javascript' },
+          text: 'export async function init() {} export async function get() {}',
+        },
+      });
+      global.fetch = fetch as unknown as typeof globalThis.fetch;
 
-    const result = await factory().loadEntry!({
-      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
-    });
+      const result = await factory().loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+      });
 
-    expect(result).toBeUndefined();
-    expect(fetch).not.toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
+      expect(typeof result?.init).toBe('function');
+      expect(typeof result?.get).toBe('function');
+      expect(fetch).toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+    }
   });
 });
