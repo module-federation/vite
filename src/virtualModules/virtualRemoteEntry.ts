@@ -211,7 +211,14 @@ function getOrderedUsedShares() {
 }
 
 function orderSharedDependenciesFirst(sharedPackages: string[]) {
-  const sharedKeyByPackageName = new Map(sharedPackages.map((pkg) => [getPackageName(pkg), pkg]));
+  const sharedKeyByPackageName = new Map<string, string>();
+  sharedPackages.forEach((pkg) => {
+    const packageName = getPackageName(pkg);
+    const existing = sharedKeyByPackageName.get(packageName);
+    if (!existing || pkg === packageName) {
+      sharedKeyByPackageName.set(packageName, pkg);
+    }
+  });
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const ordered: string[] = [];

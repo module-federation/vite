@@ -353,11 +353,16 @@ function getDependencyNames(packageJson: Record<string, unknown> | undefined) {
 function hasCyclicWorkspaceSingletonDependency(pkg: string) {
   const options = getNormalizeModuleFederationOptions();
   const shared = options?.shared || {};
-  const sharedKeyByPackageName = new Map(
-    Object.entries(shared)
-      .filter(([, item]) => item.shareConfig.singleton === true)
-      .map(([key]) => [getPackageName(key), key])
-  );
+  const sharedKeyByPackageName = new Map<string, string>();
+  Object.entries(shared)
+    .filter(([, item]) => item.shareConfig.singleton === true)
+    .forEach(([key]) => {
+      const packageName = getPackageName(key);
+      const existing = sharedKeyByPackageName.get(packageName);
+      if (!existing || key === packageName) {
+        sharedKeyByPackageName.set(packageName, key);
+      }
+    });
 
   const visit = (current: string, seen: Set<string>): boolean => {
     const packageJson = getWorkspacePackageJson(current);

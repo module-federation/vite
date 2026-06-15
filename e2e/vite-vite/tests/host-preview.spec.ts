@@ -69,6 +69,7 @@ test.describe('vite-vite host preview', () => {
 
     await page.goto('/');
     // Wait for all remote modules to load and render
+    await expect(page.getByTestId('shared-consumer-event')).toHaveText('CurrentRowChangedEvent');
     await expect(page.getByTestId('shared-counter-[shared-lib] Host')).toBeVisible();
     await expect(page.getByTestId('shared-counter-[shared-lib] Remote')).toBeVisible();
 

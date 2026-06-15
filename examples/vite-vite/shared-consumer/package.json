@@ -1,0 +1,12 @@
+{
+  "name": "@vite-vite/shared-consumer",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@vite-vite/shared-lib": "workspace:*"
+  }
+}

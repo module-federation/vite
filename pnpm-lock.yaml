@@ -176,6 +176,12 @@ importers:
         specifier: 8.0.10
         version: 8.0.10(@types/node@25.3.3)(esbuild@0.27.3)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.2)
 
+  examples/vite-vite/shared-consumer:
+    dependencies:
+      '@vite-vite/shared-lib':
+        specifier: workspace:*
+        version: link:../shared-lib
+
   examples/vite-vite/shared-lib:
     dependencies:
       typescript:
@@ -203,6 +209,9 @@ importers:
       '@mui/material':
         specifier: 7.3.2
         version: 7.3.2(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(@types/react@19.2.14)(react@19.2.4))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@vite-vite/shared-consumer':
+        specifier: workspace:*
+        version: link:../shared-consumer
       '@vite-vite/shared-lib':
         specifier: workspace:*
         version: link:../shared-lib
