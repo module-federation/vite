@@ -1,5 +1,7 @@
 export { SharedCounter } from "./components";
 
+export class BaseEvent {}
+
 export type { TCardVariant } from "./components";
 // Re-exports via `export * from` through nested directories.
 // This structure tests two bugs in the module federation plugin:

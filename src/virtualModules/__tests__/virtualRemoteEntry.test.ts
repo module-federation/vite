@@ -444,7 +444,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('"lit/decorators.js"');
   });
 
-  it('preloads shared package dependencies before their consumers', async () => {
+  it('preloads root shared package dependencies before consumers and subpaths', async () => {
     normalizedSharedMock.mockReturnValue({
       '@repro/core': {
         name: '@repro/core',
@@ -468,16 +468,29 @@ describe('virtualRemoteEntry', () => {
           strictVersion: false,
         },
       },
+      '@repro/shared-lib/media': {
+        name: '@repro/shared-lib/media',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^1.0.0',
+          strictVersion: false,
+        },
+      },
     });
     const mod = await import('../virtualRemoteEntry');
 
     mod.getUsedShares().clear();
     mod.addUsedShares('@repro/core');
     mod.addUsedShares('@repro/shared-lib');
+    mod.addUsedShares('@repro/shared-lib/media');
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
     expect(code.indexOf('"@repro/shared-lib"')).toBeLessThan(code.indexOf('"@repro/core"'));
+    expect(code.indexOf('"@repro/core"')).toBeLessThan(code.indexOf('"@repro/shared-lib/media"'));
   });
 
   it('does not seed a bare package for trailing slash shared packages', async () => {
