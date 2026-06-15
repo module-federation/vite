@@ -1310,9 +1310,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
-      'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
-    );
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
     expect(generatedCode).toContain('if (import.meta.env.SSR) {');
     expect(generatedCode).toContain('__mfNormalizeShareModule(__mfLocalShare)');
     expect(generatedCode).toContain(
@@ -1321,6 +1319,32 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('initPromise.then');
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode.match(/let exportModule/g)?.length ?? 0).toBe(1);
+  });
+
+  it('prepends workspace singleton static import for SSR build loads only', async () => {
+    const { prependWorkspaceSingletonSsrImport } = await import('../virtualShared_preBuild');
+    const pkg = 'workspace-shared-lib';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
+    const ssrCode = prependWorkspaceSingletonSsrImport(generatedCode);
+    expect(ssrCode).toContain(
+      'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
+    );
+    expect(prependWorkspaceSingletonSsrImport(ssrCode)).toBe(ssrCode);
   });
 
   it('detects symlinked ESM-only workspace singleton fallbacks without eager prebuild imports', () => {
@@ -1341,9 +1365,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
-      'import * as __mfLocalShare from "/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts";'
-    );
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
     expect(generatedCode).toContain('if (import.meta.env.SSR) {');
     expect(generatedCode).toContain('__mfNormalizeShareModule(__mfLocalShare)');
     expect(generatedCode).not.toContain('export * from');

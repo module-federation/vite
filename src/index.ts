@@ -65,6 +65,7 @@ import { virtualRuntimeInitStatus } from './virtualModules/virtualRuntimeInitSta
 import {
   getLoadShareModulePath,
   materializeCachedLoadShareModule,
+  prependWorkspaceSingletonSsrImport,
   toViteOptimizedDepVirtualId,
   writeLoadShareModule,
   writePreBuildLibPath,
@@ -898,6 +899,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
           const virtualModule = VirtualModule.findById(id);
           let code = virtualModule?.code ?? readFileSync(id, 'utf-8');
+
+          const environmentName = (this as { environment?: { name?: string } }).environment?.name;
+          if (environmentName && environmentName !== 'client') {
+            code = prependWorkspaceSingletonSsrImport(code);
+          }
 
           // Remove static imports/re-exports of prebuild modules to prevent
           // Rollup from merging them into the loadShare chunk.  Without this,
