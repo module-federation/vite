@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ShareItem } from '../../utils/normalizeModuleFederationOptions';
+import {
+  normalizeModuleFederationOptions,
+  ShareItem,
+} from '../../utils/normalizeModuleFederationOptions';
 import {
   getProjectResolvedImportPath,
   writeLoadShareModule,
@@ -31,6 +34,7 @@ vi.mock('../../utils/packageUtils', () => ({
     shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
+  resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
   getInstalledPackageEntry: vi.fn((pkg: string) => {
     if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
       return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
@@ -75,6 +79,12 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'workspace-esm-symlink') {
       return '/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts';
     }
+    if (pkg === 'workspace-cycle-a') {
+      return '/repo/packages/workspace-cycle-a/src/index.ts';
+    }
+    if (pkg === 'workspace-cycle-b') {
+      return '/repo/packages/workspace-cycle-b/src/index.ts';
+    }
   }),
   getInstalledPackageJson: vi.fn((pkg: string, opts?: { fromResolvedEntry?: string }) => {
     if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-shared-lib/')) {
@@ -91,6 +101,26 @@ vi.mock('../../utils/packageUtils', () => ({
         path: '/repo/packages/workspace-esm-symlink/package.json',
         dir: '/repo/packages/workspace-esm-symlink',
         packageJson: { name: 'workspace-esm-symlink' },
+      };
+    }
+    if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-cycle-a/')) {
+      return {
+        path: '/repo/packages/workspace-cycle-a/package.json',
+        dir: '/repo/packages/workspace-cycle-a',
+        packageJson: {
+          name: 'workspace-cycle-a',
+          dependencies: { 'workspace-cycle-b': 'workspace:*' },
+        },
+      };
+    }
+    if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-cycle-b/')) {
+      return {
+        path: '/repo/packages/workspace-cycle-b/package.json',
+        dir: '/repo/packages/workspace-cycle-b',
+        packageJson: {
+          name: 'workspace-cycle-b',
+          dependencies: { 'workspace-cycle-a': 'workspace:*' },
+        },
       };
     }
     if (pkg === 'mock-package-browser-conditional') {
@@ -160,6 +190,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-browser-conditional/dist/server.js') ||
       filePath.endsWith('/repo/packages/workspace-shared-lib/package.json') ||
       filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-cycle-a/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-cycle-b/package.json') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts')
   ),
   readFileSync: vi.fn((filePath: string) => {
@@ -324,6 +356,18 @@ export const [firstItem, ...restItems] = tuple;`;
     if (filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json')) {
       return JSON.stringify({ name: 'different-package-name' });
     }
+    if (filePath.endsWith('/repo/packages/workspace-cycle-a/package.json')) {
+      return JSON.stringify({
+        name: 'workspace-cycle-a',
+        dependencies: { 'workspace-cycle-b': 'workspace:*' },
+      });
+    }
+    if (filePath.endsWith('/repo/packages/workspace-cycle-b/package.json')) {
+      return JSON.stringify({
+        name: 'workspace-cycle-b',
+        dependencies: { 'workspace-cycle-a': 'workspace:*' },
+      });
+    }
     if (filePath.endsWith('/repo/packages/custom-shared-source/index.ts')) {
       return `export const sharedValue = 'shared';
               export function useSharedFeature() {
@@ -482,6 +526,12 @@ vi.mock('module', async (importOriginal) => {
           if (pkg === 'workspace-name-mismatch') {
             return '/repo/packages/workspace-name-mismatch/src/index.ts';
           }
+          if (pkg === 'workspace-cycle-a') {
+            return '/repo/packages/workspace-cycle-a/src/index.ts';
+          }
+          if (pkg === 'workspace-cycle-b') {
+            return '/repo/packages/workspace-cycle-b/src/index.ts';
+          }
           if (
             pkg === 'mock-package-reexport-type' ||
             pkg.startsWith('mock-package-reexport-type/')
@@ -516,6 +566,7 @@ describe('writeLoadShareModule', () => {
     mfWarnSpy.mockClear();
     hasPackageDependencyMock.mockReset();
     hasPackageDependencyMock.mockReturnValue(false);
+    normalizeModuleFederationOptions({ name: 'test' });
   });
 
   it('should alias named exports instead of using bare identifiers to avoid syntax errors', () => {
@@ -1241,7 +1292,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import("workspace-shared-lib")');
   });
 
-  it('emits static local fallback imports for workspace singletons in build mode', () => {
+  it('keeps non-cyclic workspace singletons lazy in build mode', () => {
     const pkg = 'workspace-shared-lib';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -1265,7 +1316,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'import("/repo/packages/workspace-shared-lib/src/index.tsx").then((mod) => {'
     );
-    expect(generatedCode).not.toContain('__mfLocalShare');
+    expect(generatedCode).toContain('initPromise.then');
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode.match(/let exportModule/g)?.length ?? 0).toBe(1);
   });
@@ -1288,12 +1339,48 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).not.toContain('import * as __mfLocalShare');
+    expect(generatedCode).not.toContain(
+      'import * as __mfLocalShare from "/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts";'
+    );
     expect(generatedCode).not.toContain('export * from');
     expect(generatedCode).toContain(
       'import("/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts").then((mod) => {'
     );
     expect(generatedCode).not.toContain('__mfLocalShare');
+  });
+
+  it('emits live local re-exports for cyclic workspace singletons in build mode', () => {
+    normalizeModuleFederationOptions({
+      name: 'host',
+      shared: {
+        'workspace-cycle-a': { singleton: true },
+        'workspace-cycle-b': { singleton: true },
+      },
+    });
+    const pkg = 'workspace-cycle-a';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "/repo/packages/workspace-cycle-a/src/index.ts";'
+    );
+    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).not.toContain('initPromise.then');
+    expect(generatedCode).not.toContain('await ');
+    expect(generatedCode).toContain('Promise.resolve().then');
   });
 
   it('does not treat parent package.json name mismatches as workspace package matches', () => {
