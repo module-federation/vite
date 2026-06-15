@@ -325,6 +325,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   })
                 );
                 build.onResolve({ filter: /.*/ }, (args: any) => {
+                  if (args.kind === 'entry-point') return;
                   if (!args.importer || args.namespace === 'mf-shared') return;
                   if (isSharedResolverInternalImporter(args.importer)) return;
                   const key = findSharedKey(args.path, shared);

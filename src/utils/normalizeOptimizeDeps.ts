@@ -16,4 +16,11 @@ export default {
     if (!optimizeDeps.exclude) optimizeDeps.exclude = [];
     if (!optimizeDeps.needsInterop) optimizeDeps.needsInterop = [];
   },
+  configResolved: (config: { optimizeDeps?: UserConfig['optimizeDeps'] }) => {
+    const include = config.optimizeDeps?.include;
+    const exclude = config.optimizeDeps?.exclude;
+    if (!include?.length || !exclude?.length) return;
+    const included = new Set(include);
+    config.optimizeDeps!.exclude = exclude.filter((dep) => !included.has(dep));
+  },
 };
