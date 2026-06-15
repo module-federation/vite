@@ -29,9 +29,13 @@ vi.mock('../../utils/logger', () => ({
 vi.mock('../../utils/packageUtils', () => ({
   getSharedCacheKey: (
     pkg: string,
-    shareItem: { version?: string; shareConfig: { singleton?: boolean } }
-  ) =>
-    shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
+    shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
+  ) => {
+    const prefix = `${shareItem.scope || 'default'}:`;
+    return shareItem.shareConfig.singleton || !shareItem.version
+      ? `${prefix}${pkg}`
+      : `${prefix}${pkg}@${shareItem.version}`;
+  },
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
@@ -712,7 +716,7 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).toContain('const __mfCacheGlobalKey =');
-    expect(generatedCode).toContain('__mfModuleCache.share["mock-package-with-reserved"]');
+    expect(generatedCode).toContain('__mfModuleCache.share["default:mock-package-with-reserved"]');
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode).not.toContain('import { initPromise } from');
     expect(generatedCode).not.toContain('require("mock-import-id")');
@@ -736,8 +740,8 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).not.toContain('__mfModuleCache.share["zustand"]');
-    expect(generatedCode).toContain('__mfModuleCache.share["zustand@4.5.7"]');
+    expect(generatedCode).not.toContain('__mfModuleCache.share["default:zustand"]');
+    expect(generatedCode).toContain('__mfModuleCache.share["default:zustand@4.5.7"]');
   });
 
   it('unwraps default exports for shared ESM modules', () => {
@@ -895,7 +899,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('__mfModuleCache.share["react"]');
+    expect(generatedCode).toContain('__mfModuleCache.share["default:react"]');
     expect(generatedCode).not.toContain('providerModulePromise');
     expect(generatedCode).not.toContain('await ');
   });
@@ -971,7 +975,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toMatch(/import\s+["']host-only-dep["']/);
     // Should not have export * (no local source to re-export from)
     expect(generatedCode).not.toContain('export *');
-    expect(generatedCode).toContain('__mfModuleCache.share["host-only-dep"]');
+    expect(generatedCode).toContain('__mfModuleCache.share["default:host-only-dep"]');
     expect(generatedCode).toContain('export { __mf_default as default }');
   });
 
@@ -997,7 +1001,7 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('export *');
-    expect(generatedCode).toContain('__mfModuleCache.share["host-only-dep"]');
+    expect(generatedCode).toContain('__mfModuleCache.share["default:host-only-dep"]');
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode).toContain('initPromise.then');
     expect(generatedCode).toContain('export { __mf_default as default }');
@@ -1026,7 +1030,7 @@ describe('writeLoadShareModule', () => {
 
     // Should NOT reference prebuild modules
     expect(generatedCode).not.toContain('__prebuild__');
-    expect(generatedCode).toContain('__mfModuleCache.share["mock-package-with-reserved"]');
+    expect(generatedCode).toContain('__mfModuleCache.share["default:mock-package-with-reserved"]');
     // Should have named exports destructured from the runtime-provided module
     expect(generatedCode).toContain('__mf_0 as delete');
     expect(generatedCode).toContain('__mf_1 as get');

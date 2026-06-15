@@ -42,9 +42,13 @@ vi.mock('fs', async (importOriginal) => {
 vi.mock('../../utils/packageUtils', () => ({
   getSharedCacheKey: (
     pkg: string,
-    shareItem: { version?: string; shareConfig: { singleton?: boolean } }
-  ) =>
-    shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
+    shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
+  ) => {
+    const prefix = `${shareItem.scope || 'default'}:`;
+    return shareItem.shareConfig.singleton || !shareItem.version
+      ? `${prefix}${pkg}`
+      : `${prefix}${pkg}@${shareItem.version}`;
+  },
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: getInstalledPackageEntryMock,
   getInstalledPackageJson: vi.fn((pkg: string) => {
