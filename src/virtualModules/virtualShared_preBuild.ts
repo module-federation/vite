@@ -635,8 +635,7 @@ function generateLazyWorkspaceSingletonExports(
       __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
       __mfApplyLazyShareExports(exportModule);`
           : `if (import.meta.env.SSR) {
-        const mod = await import(${escapeGeneratedStringLiteral(importSource)});
-        exportModule = __mfNormalizeShareModule(mod);
+        exportModule = __mfNormalizeShareModule(__mfLocalShare);
         __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
         __mfApplyLazyShareExports(exportModule);
       } else {
@@ -654,14 +653,12 @@ function generateLazyWorkspaceSingletonExports(
     }
     export { __mf_default as default };${namedExportLine}`;
 
-  // Static imports always run during module evaluation, before the singleton
-  // cache is checked. Only emit them in serve mode where eager fallback is
-  // intentional; build mode uses dynamic import so host and remote share one
-  // workspace singleton instance without duplicate side effects.
-  return eagerLocalFallback
-    ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
-    ${body}`
-    : body;
+  // Static import is gated behind import.meta.env.SSR in build mode. Vite
+  // replaces that flag per environment, so client bundles dead-code-eliminate
+  // the SSR branch and this import; SSR bundles keep a synchronous graph with
+  // no top-level await (required for require(esm) and Nuxt-style wrappers).
+  return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
+    ${body}`;
 }
 
 function generateDeferredHostProvidedExports(
