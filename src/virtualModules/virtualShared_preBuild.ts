@@ -14,7 +14,11 @@ import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
 import { mfWarn } from '../utils/logger';
-import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
+import {
+  getNormalizeModuleFederationOptions,
+  type NormalizedShared,
+  type ShareItem,
+} from '../utils/normalizeModuleFederationOptions';
 import {
   getInstalledPackageEntry,
   getInstalledPackageJson,
@@ -326,6 +330,56 @@ function isWorkspacePackageEntry(pkg: string, resolved: string | undefined): res
   });
 }
 
+function getWorkspacePackageJson(pkg: string) {
+  const resolved = getLocalProviderImportPath(pkg) || getProjectResolvedImportPath(pkg);
+  if (!isWorkspacePackageEntry(pkg, resolved)) return;
+  return getInstalledPackageJson(pkg, {
+    packageName: getPackageName(pkg),
+    fromResolvedEntry: resolved,
+  })?.packageJson;
+}
+
+function getDependencyNames(packageJson: Record<string, unknown> | undefined) {
+  if (!packageJson) return [];
+  const names = new Set<string>();
+  for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
+    const deps = packageJson[field];
+    if (!deps || typeof deps !== 'object') continue;
+    for (const dep of Object.keys(deps)) names.add(dep);
+  }
+  return Array.from(names);
+}
+
+function hasCyclicWorkspaceSingletonDependency(pkg: string) {
+  const options = getNormalizeModuleFederationOptions();
+  const shared = options?.shared || {};
+  const sharedKeyByPackageName = new Map<string, string>();
+  Object.entries(shared)
+    .filter(([, item]) => item.shareConfig.singleton === true)
+    .forEach(([key]) => {
+      const packageName = getPackageName(key);
+      const existing = sharedKeyByPackageName.get(packageName);
+      if (!existing || key === packageName) {
+        sharedKeyByPackageName.set(packageName, key);
+      }
+    });
+
+  const visit = (current: string, seen: Set<string>): boolean => {
+    const packageJson = getWorkspacePackageJson(current);
+    for (const dependency of getDependencyNames(packageJson)) {
+      const sharedDependency = sharedKeyByPackageName.get(dependency);
+      if (!sharedDependency) continue;
+      if (sharedDependency === pkg) return true;
+      if (seen.has(sharedDependency)) continue;
+      seen.add(sharedDependency);
+      if (visit(sharedDependency, seen)) return true;
+    }
+    return false;
+  };
+
+  return visit(pkg, new Set([pkg]));
+}
+
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
   try {
     const projectRequire = createRequire(pathToFileURL(path.join(root, 'package.json')));
@@ -520,6 +574,30 @@ export function materializeCachedLoadShareModule(options: {
   options.writeLocalSharedImportMap();
 }
 
+function generateEagerWorkspaceSingletonExports(
+  namedExports: string[],
+  importSource: string,
+  cacheKey: string
+) {
+  const namedExportLine =
+    namedExports.length > 0
+      ? `\n    export { ${namedExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+      : '';
+
+  return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
+    let exportModule = __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}];
+    if (exportModule === undefined) {
+      Promise.resolve().then(() => {
+        if (__mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] === undefined) {
+          __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = __mfNormalizeShareModule(__mfLocalShare);
+        }
+      });
+      exportModule = __mfLocalShare;
+    }
+    const __mf_default = exportModule.default ?? exportModule;
+    export { __mf_default as default };${namedExportLine}`;
+}
+
 function generateLazyWorkspaceSingletonExports(
   namedExports: string[],
   importSource: string,
@@ -709,11 +787,19 @@ export function writeLoadShareModule(
   const lazyLocalFallbackSource =
     concreteSharedImportSource || localProviderPath || sharedImportSource;
   const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
-  const usesLazyLocalFallback = isWorkspacePackage && shareItem.shareConfig.singleton === true;
+  const isWorkspaceSingleton = isWorkspacePackage && shareItem.shareConfig.singleton === true;
+  const usesEagerWorkspaceFallback =
+    isWorkspaceSingleton && hasCyclicWorkspaceSingletonDependency(pkg);
   const namedExports = getSharedNamedExports(pkg, shareItem);
   let exportLine: string;
   let initBlock = '';
-  if (usesLazyLocalFallback) {
+  if (usesEagerWorkspaceFallback) {
+    exportLine = generateEagerWorkspaceSingletonExports(
+      namedExports,
+      lazyLocalFallbackSource,
+      cacheKey
+    );
+  } else if (isWorkspaceSingleton) {
     importLine = `${getRuntimeInitPromiseBootstrapCode()}\n    ${importLine}`;
     exportLine = generateLazyWorkspaceSingletonExports(
       namedExports,
@@ -744,7 +830,7 @@ export function writeLoadShareModule(
 
   const staticLocalShareSource = skipServePrebuildWarmup ? devImportSource : sharedImportSource;
   const prebuildImportLine =
-    usesLazyLocalFallback || (isWorkspacePackage && command !== 'build')
+    isWorkspaceSingleton || (isWorkspacePackage && command !== 'build')
       ? ''
       : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
   const devDynamicImportLine = isWorkspacePackage
@@ -753,7 +839,7 @@ export function writeLoadShareModule(
       ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
       : '';
 
-  const moduleBody = usesLazyLocalFallback
+  const moduleBody = isWorkspaceSingleton
     ? `
     ${prebuildImportLine}
     ${devDynamicImportLine}

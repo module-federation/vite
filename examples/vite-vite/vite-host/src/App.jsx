@@ -1,4 +1,5 @@
 import { SharedCounter, formatLabel, createFilter, capitalize } from "@vite-vite/shared-lib";
+import { getCurrentRowChangedEventName } from "@vite-vite/shared-consumer";
 import R from "react";
 import RD from "react-dom/client";
 
@@ -31,6 +32,7 @@ export default function HostApp() {
         <i> {import.meta.env.DEV ? " Dev " : " prod "} mode </i>
       </p>
       <h2>{capitalize("shared library")}</h2>
+      <p data-testid="shared-consumer-event">{getCurrentRowChangedEventName()}</p>
       <SharedCounter label={formatLabel("Host")} />
       <p>
         <code>createFilter</code> result for "an":{" "}
