@@ -161,6 +161,18 @@ function getEarlyInitPluginWithReactShared(): FederationPlugin {
   return plugin;
 }
 
+function getNormalizeOptimizeDepsPlugin(): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'normalizeOptimizeDeps');
+
+  if (!plugin) throw new Error('normalizeOptimizeDeps plugin not found');
+  return plugin;
+}
+
 function getModuleFederationVitePlugin(): FederationPlugin {
   const plugin = (
     federation({
@@ -770,6 +782,50 @@ describe('vite:module-federation-early-init', () => {
     expect(result.contents).not.toContain(`from ${JSON.stringify(loadSharePath)}`);
   });
 
+  it('does not proxy shared deps when esbuild resolves optimizeDeps entry points', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          'entry-shared': {
+            singleton: true,
+          },
+        },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const optimizeSharedProxy = config.optimizeDeps.esbuildOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-proxy'
+    );
+    const onResolveHandlers: any[] = [];
+    optimizeSharedProxy.setup({
+      onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
+      onLoad: () => undefined,
+    });
+
+    expect(
+      onResolveHandlers[1]({
+        path: 'entry-shared',
+        importer: '/repo/node_modules/.vite/deps/_metadata.js',
+        kind: 'entry-point',
+      })
+    ).toBeUndefined();
+  });
+
   it('redirects System.register commonjs-proxy consumers to loadShare chunks', () => {
     const plugin = getEsmShimsPlugin();
     const proxyFileName = `assets/host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js_commonjs-proxy-abc.js`;
@@ -1037,6 +1093,24 @@ describe('vite:module-federation-early-init', () => {
 
     expect(config.optimizeDeps.include).toContain('react');
     expect(config.optimizeDeps.exclude).not.toContain('react');
+  });
+
+  it('removes deps from optimizeDeps exclude when another plugin includes them later', () => {
+    const plugin = getNormalizeOptimizeDepsPlugin();
+    const config: any = {
+      optimizeDeps: {
+        include: ['react'],
+        exclude: ['react', 'remoteApp'],
+      },
+    };
+
+    const hook = plugin.configResolved;
+    if (typeof hook !== 'function') {
+      throw new Error('normalizeOptimizeDeps configResolved hook not found');
+    }
+    hook.call({} as MinimalPluginContextWithoutEnvironment, config);
+
+    expect(config.optimizeDeps.exclude).toEqual(['remoteApp']);
   });
 
   it('leaves ENV_TARGET undefined for Astro mixed builds', () => {
