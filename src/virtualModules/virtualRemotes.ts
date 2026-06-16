@@ -228,7 +228,7 @@ function getRemoteExportBlock(command: string, deferRemoteLoad: boolean, consume
 export { __mfDefaultExport as default };`;
   }
   return `__mfSyncDefaultExport();
-__mfRemotePending?.then(__mfSyncDefaultExport);
+__mfRemotePending?.then(__mfSyncDefaultExport, () => {});
 export { exportModule as __moduleExports };
 ${deferRemoteLoad ? getLazyRemotePendingExport() : getEagerRemotePendingExport()}
 ${command === 'serve' && consumer === 'server' ? getServerThenExport() : ''}
@@ -275,8 +275,9 @@ export function generateRemotes(
             delete __mfModuleCache.remote[pendingKey];
             throw error;
           })`
-      : `.catch(() => {
+      : `.catch((error) => {
             delete __mfModuleCache.remote[pendingKey];
+            throw error;
           })`;
   const startRemoteLoadCode = `
       const pendingKey = ${JSON.stringify(`__mf_pending__${id}`)};
