@@ -47,7 +47,7 @@ pnpm run multi-example
 
 ## Getting started 🚀
 
-[https://module-federation.io/guide/build-plugins/plugins-vite.html](https://module-federation.io/guide/build-plugins/plugins-vite.html)
+[https://module-federation.io/integrations/build-tool/vite](https://module-federation.io/integrations/build-tool/vite)
 
 With **@module-federation/vite**, the process becomes delightfully simple, you will only find the differences from a normal Vite configuration.
 
