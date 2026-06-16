@@ -199,9 +199,10 @@ function normalizeShareItem(
       }
 ): ShareItem {
   const isImportFalse = typeof shareItem === 'object' && shareItem.import === false;
-  const explicitVersion =
+  const explicitVersion = typeof shareItem === 'object' ? shareItem.version : undefined;
+  const inferredVersion =
     typeof shareItem === 'object'
-      ? shareItem.version || inferVersionFromRequiredVersion(shareItem.requiredVersion)
+      ? inferVersionFromRequiredVersion(shareItem.requiredVersion)
       : undefined;
 
   // Version resolution is required even when import: false.
@@ -216,7 +217,7 @@ function normalizeShareItem(
   //
   // Errors are only thrown when version resolution fails for non-import:false
   // modules, as those are expected to be resolvable.
-  const version = explicitVersion || searchPackageVersion(key);
+  const version = explicitVersion || searchPackageVersion(key) || inferredVersion;
   if (typeof shareItem === 'string') {
     return {
       name: shareItem,

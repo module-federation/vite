@@ -288,6 +288,43 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
+    it('prefers the installed package version over an inferred requiredVersion', () => {
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const fixtureRoot = path.join(require('node:os').tmpdir(), 'mf-vite-required-version');
+      fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      const reactDir = path.join(fixtureRoot, 'node_modules/react');
+      fs.mkdirSync(reactDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(fixtureRoot, 'package.json'),
+        JSON.stringify({ name: 'consumer-app', dependencies: { react: '19.2.7' } })
+      );
+      fs.writeFileSync(
+        path.join(reactDir, 'package.json'),
+        JSON.stringify({ name: 'react', version: '19.2.7', main: 'index.js' })
+      );
+      fs.writeFileSync(path.join(reactDir, 'index.js'), '');
+
+      setPackageDetectionCwd(fixtureRoot);
+
+      try {
+        const shared = normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: {
+            react: {
+              singleton: true,
+              requiredVersion: '^19.1.1',
+            },
+          },
+        }).shared;
+
+        expect(shared.react.version).toBe('19.2.7');
+        expect(shared.react.shareConfig.requiredVersion).toBe('^19.1.1');
+      } finally {
+        setPackageDetectionCwd(process.cwd());
+      }
+    });
+
     it('ignores module federation runtime packages in explicit shared arrays', () => {
       const shared = normalizeModuleFederationOptions({
         ...minimalOptions,
