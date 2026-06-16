@@ -459,13 +459,29 @@ export function generateRemoteEntry(
               if (__mfModuleCache.share[cacheKey] !== undefined) continue;
               const mod = typeof provider.lib === "function" ? provider.lib() : provider.lib;
               const resolved = await Promise.resolve(mod);
-              __mfModuleCache.share[cacheKey] = __mfNormalizeRuntimeShare(resolved);
+              const normalized = __mfNormalizeRuntimeShare(resolved);
+              __mfModuleCache.share[cacheKey] = normalized;
+              const usedShare = usedShared?.[pkg];
+              if (provider.shareConfig?.singleton && usedShare) {
+                const usedCacheKey = __mfGetSharedCacheKey(pkg, usedShare.shareConfig?.singleton, usedShare.version, usedShare.scope);
+                if (__mfModuleCache.share[usedCacheKey] === undefined) {
+                  __mfModuleCache.share[usedCacheKey] = normalized;
+                }
+              }
             }
           }
         }
       }
     } catch (e) {
       console.error('[Module Federation] Failed to bridge external shared modules', e)
+    }
+    for (const [pkg, share] of Object.entries(usedShared)) {
+      const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);
+      if (__mfModuleCache.share[cacheKey] !== undefined) continue;
+      const singletonCacheKey = __mfGetSharedCacheKey(pkg, true, share.version, share.scope);
+      if (__mfModuleCache.share[singletonCacheKey] !== undefined) {
+        __mfModuleCache.share[cacheKey] = __mfModuleCache.share[singletonCacheKey];
+      }
     }
     ${generateDirectSharedCacheSeedCode(command)}
     const __browserPlugins = [${pluginImportNames
