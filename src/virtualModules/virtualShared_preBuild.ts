@@ -631,6 +631,9 @@ function generateLazyWorkspaceSingletonExports(
     namedExports.length > 0
       ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
+  const applyLocalFallback = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
+      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
+      __mfApplyLazyShareExports(exportModule);`;
 
   const body = `${declarations}
     const __mfApplyLazyShareExports = (mod) => {
@@ -640,26 +643,48 @@ function generateLazyWorkspaceSingletonExports(
     if (exportModule === undefined) {
       ${
         eagerLocalFallback
-          ? `exportModule = __mfNormalizeShareModule(__mfLocalShare);
-      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
-      __mfApplyLazyShareExports(exportModule);`
-          : `initPromise.then(() =>
-        import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
-          exportModule = __mfNormalizeShareModule(mod);
-          __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
-          __mfApplyLazyShareExports(exportModule);
-        })
-      );`
+          ? applyLocalFallback
+          : `if (import.meta.env.SSR) {
+        ${applyLocalFallback}
+      } else {
+        initPromise.then(() =>
+          import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
+            exportModule = __mfNormalizeShareModule(mod);
+            __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
+            __mfApplyLazyShareExports(exportModule);
+          })
+        );
+      }`
       }
     } else {
       __mfApplyLazyShareExports(exportModule);
     }
     export { __mf_default as default };${namedExportLine}`;
 
+  // Serve mode eagerly binds the local fallback. Build mode omits the static
+  // import here so client chunks never evaluate workspace singleton side effects
+  // before federation init; the SSR build prepends it in the load hook instead.
   return eagerLocalFallback
     ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
     ${body}`
     : body;
+}
+
+const WORKSPACE_SINGLETON_SSR_LOCAL_SHARE = '__mfNormalizeShareModule(__mfLocalShare)';
+
+export function prependWorkspaceSingletonSsrImport(code: string): string {
+  if (!code.includes('if (import.meta.env.SSR)')) return code;
+  if (!code.includes(WORKSPACE_SINGLETON_SSR_LOCAL_SHARE)) return code;
+  if (code.includes('import * as __mfLocalShare')) return code;
+
+  const importMatch = code.match(
+    /initPromise\.then\(\(\)\s*=>\s*\n\s*import\((["'])(.+?)\1\)\.then\(\(mod\)\s*=>\s*\{[\s\S]*?__mfApplyLazyShareExports/
+  );
+  if (!importMatch) return code;
+
+  const quote = importMatch[1];
+  const importSource = importMatch[2];
+  return `import * as __mfLocalShare from ${quote}${importSource}${quote};\n${code}`;
 }
 
 function generateDeferredHostProvidedExports(
