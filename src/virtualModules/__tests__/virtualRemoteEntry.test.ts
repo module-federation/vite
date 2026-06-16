@@ -674,4 +674,16 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('__mfModuleCache.share["default:some-dep"]');
     expect(code).toContain('await import');
   });
+
+  it('emits a scope-aware runtime shared cache key helper', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+
+    expect(code).toContain('const normalizedScope = Array.isArray(scope) ? scope[0] : scope;');
+    expect(code).toContain('const prefix = (normalizedScope || "default") + ":";');
+    expect(code).toContain(
+      'const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);'
+    );
+  });
 });

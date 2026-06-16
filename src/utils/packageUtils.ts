@@ -155,7 +155,7 @@ export function getPackageNameFromNodeModulePath(source: string): string | undef
 }
 
 export function getSharedCacheKey(pkg: string, shareItem: ShareItem) {
-  const prefix = `${shareItem.scope}:`;
+  const prefix = `${shareItem.scope || 'default'}:`;
   return shareItem.shareConfig.singleton || !shareItem.version
     ? `${prefix}${pkg}`
     : `${prefix}${pkg}@${shareItem.version}`;

@@ -274,7 +274,8 @@ function generateSharedCacheSeedItem(pkg: string, shareItem: ShareItem, importPa
 }
 
 const sharedCacheKeyHelperCode = `const __mfGetSharedCacheKey = (pkg, singleton, version, scope) => {
-            const prefix = scope ? (scope + ":") : "";
+            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
+            const prefix = (normalizedScope || "default") + ":";
             return singleton || !version ? prefix + pkg : prefix + pkg + "@" + version;
           };`;
 
