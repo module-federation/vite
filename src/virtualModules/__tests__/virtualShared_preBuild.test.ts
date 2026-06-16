@@ -85,6 +85,12 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'workspace-cycle-b') {
       return '/repo/packages/workspace-cycle-b/src/index.ts';
     }
+    if (pkg === 'workspace-producer' || pkg.startsWith('workspace-producer/')) {
+      return '/repo/packages/workspace-producer/src/index.ts';
+    }
+    if (pkg === 'workspace-consumer') {
+      return '/repo/packages/workspace-consumer/src/index.ts';
+    }
   }),
   getInstalledPackageJson: vi.fn((pkg: string, opts?: { fromResolvedEntry?: string }) => {
     if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-shared-lib/')) {
@@ -120,6 +126,23 @@ vi.mock('../../utils/packageUtils', () => ({
         packageJson: {
           name: 'workspace-cycle-b',
           dependencies: { 'workspace-cycle-a': 'workspace:*' },
+        },
+      };
+    }
+    if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-producer/')) {
+      return {
+        path: '/repo/packages/workspace-producer/package.json',
+        dir: '/repo/packages/workspace-producer',
+        packageJson: { name: 'workspace-producer' },
+      };
+    }
+    if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-consumer/')) {
+      return {
+        path: '/repo/packages/workspace-consumer/package.json',
+        dir: '/repo/packages/workspace-consumer',
+        packageJson: {
+          name: 'workspace-consumer',
+          dependencies: { 'workspace-producer': 'workspace:*' },
         },
       };
     }
@@ -192,6 +215,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json') ||
       filePath.endsWith('/repo/packages/workspace-cycle-a/package.json') ||
       filePath.endsWith('/repo/packages/workspace-cycle-b/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-producer/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-consumer/package.json') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts')
   ),
   readFileSync: vi.fn((filePath: string) => {
@@ -531,6 +556,12 @@ vi.mock('module', async (importOriginal) => {
           }
           if (pkg === 'workspace-cycle-b') {
             return '/repo/packages/workspace-cycle-b/src/index.ts';
+          }
+          if (pkg === 'workspace-producer' || pkg.startsWith('workspace-producer/')) {
+            return '/repo/packages/workspace-producer/src/index.ts';
+          }
+          if (pkg === 'workspace-consumer') {
+            return '/repo/packages/workspace-consumer/src/index.ts';
           }
           if (
             pkg === 'mock-package-reexport-type' ||
@@ -1380,6 +1411,47 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('export { __mf_default as default };');
     expect(generatedCode).not.toContain('initPromise.then');
     expect(generatedCode).not.toContain('await ');
+    expect(generatedCode).toContain('Promise.resolve().then');
+  });
+
+  it('emits eager local re-exports for acyclic workspace singletons consumed by a peer', () => {
+    // Reproduces issue #823: an acyclic (DAG) shared-singleton graph where
+    // `workspace-producer` is shared together with one of its subpath exports and
+    // is depended on by a peer shared singleton (`workspace-consumer`). The peer
+    // reads the producer's bindings at module-evaluation time, so the producer must
+    // assign its exports synchronously. Before the fix only cyclic graphs triggered
+    // the eager path, leaving this case lazy and crashing at startup with
+    // "Cannot read properties of undefined".
+    normalizeModuleFederationOptions({
+      name: 'host',
+      shared: {
+        'workspace-producer': { singleton: true },
+        'workspace-producer/extra': { singleton: true },
+        'workspace-consumer': { singleton: true },
+      },
+    });
+    const pkg = 'workspace-producer';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "/repo/packages/workspace-producer/src/index.ts";'
+    );
+    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).not.toContain('initPromise.then');
     expect(generatedCode).toContain('Promise.resolve().then');
   });
 

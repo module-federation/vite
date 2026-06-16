@@ -350,7 +350,7 @@ function getDependencyNames(packageJson: Record<string, unknown> | undefined) {
   return Array.from(names);
 }
 
-function hasCyclicWorkspaceSingletonDependency(pkg: string) {
+function isWorkspaceSingletonConsumedByPeer(pkg: string) {
   const options = getNormalizeModuleFederationOptions();
   const shared = options?.shared || {};
   const sharedKeyByPackageName = new Map<string, string>();
@@ -364,7 +364,14 @@ function hasCyclicWorkspaceSingletonDependency(pkg: string) {
       }
     });
 
-  const visit = (current: string, seen: Set<string>): boolean => {
+  // A workspace singleton must assign its exports synchronously (eager) when a
+  // peer shared singleton can read them at module-evaluation time. That happens
+  // whenever another shared singleton depends on `pkg`: the bundler may evaluate
+  // the consumer before `pkg`'s lazy `loadShare` wrapper has populated the share
+  // cache, leaving the consumer's top-level read of `pkg`'s bindings undefined.
+  // This covers both cyclic graphs and acyclic ones where a package is shared
+  // together with one of its subpath exports (see issue #823).
+  const reachesPkg = (current: string, seen: Set<string>): boolean => {
     const packageJson = getWorkspacePackageJson(current);
     for (const dependency of getDependencyNames(packageJson)) {
       const sharedDependency = sharedKeyByPackageName.get(dependency);
@@ -372,12 +379,14 @@ function hasCyclicWorkspaceSingletonDependency(pkg: string) {
       if (sharedDependency === pkg) return true;
       if (seen.has(sharedDependency)) continue;
       seen.add(sharedDependency);
-      if (visit(sharedDependency, seen)) return true;
+      if (reachesPkg(sharedDependency, seen)) return true;
     }
     return false;
   };
 
-  return visit(pkg, new Set([pkg]));
+  return Array.from(sharedKeyByPackageName.values()).some(
+    (sharedPkg) => sharedPkg !== pkg && reachesPkg(sharedPkg, new Set([sharedPkg]))
+  );
 }
 
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
@@ -778,7 +787,7 @@ export function writeLoadShareModule(
   const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
   const isWorkspaceSingleton = isWorkspacePackage && shareItem.shareConfig.singleton === true;
   const usesEagerWorkspaceFallback =
-    isWorkspaceSingleton && hasCyclicWorkspaceSingletonDependency(pkg);
+    isWorkspaceSingleton && isWorkspaceSingletonConsumedByPeer(pkg);
   const namedExports = getSharedNamedExports(pkg, shareItem);
   let exportLine: string;
   let initBlock = '';
