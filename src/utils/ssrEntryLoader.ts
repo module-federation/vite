@@ -535,14 +535,12 @@ async function loadSSRRemoteEntry(
           if (process.env.NODE_ENV !== 'production') return null;
         }
       }
-
-      // Production previews can mount built SSR assets under /__mf_ssr__/
-      // without exposing the dev-only ModuleRunner endpoint. In that case the
-      // static file is safe to import through the temp-file HTTP loader below.
     }
 
     // Production build HTTP entries: fetch source and write to temp file so
     // Node can import it via file:// URL (avoids --experimental-network-imports).
+    // Production previews may also mount built SSR assets under /__mf_ssr__/
+    // without exposing the dev-only ModuleRunner endpoint, so they fall through here.
     const { mkdirSync } = await _fs();
     const cacheDir = await getSSRCacheDir();
     mkdirSync(cacheDir, { recursive: true });

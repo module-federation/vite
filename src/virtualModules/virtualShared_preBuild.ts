@@ -631,6 +631,9 @@ function generateLazyWorkspaceSingletonExports(
     namedExports.length > 0
       ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
+  const applyLocalFallback = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
+      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
+      __mfApplyLazyShareExports(exportModule);`;
 
   const body = `${declarations}
     const __mfApplyLazyShareExports = (mod) => {
@@ -640,13 +643,9 @@ function generateLazyWorkspaceSingletonExports(
     if (exportModule === undefined) {
       ${
         eagerLocalFallback
-          ? `exportModule = __mfNormalizeShareModule(__mfLocalShare);
-      __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
-      __mfApplyLazyShareExports(exportModule);`
+          ? applyLocalFallback
           : `if (import.meta.env.SSR) {
-        exportModule = __mfNormalizeShareModule(__mfLocalShare);
-        __mfModuleCache.share[${escapeGeneratedStringLiteral(cacheKey)}] = exportModule;
-        __mfApplyLazyShareExports(exportModule);
+        ${applyLocalFallback}
       } else {
         initPromise.then(() =>
           import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
