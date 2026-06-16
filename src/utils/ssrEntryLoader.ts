@@ -145,8 +145,24 @@ interface Manifest {
   metaData?: ManifestMetaData;
 }
 
-// Process-level cache: manifest URL → { ssrEntry URL, type }
-const manifestCache = new Map<string, Promise<{ url: string; type: string } | null>>();
+// Process-level cache: remote entry URL → resolved SSR entry
+const ssrEntryCache = new Map<string, Promise<{ url: string; type: string } | null>>();
+// Dedupe manifest fetches when multiple entry URLs resolve to the same manifest.
+const manifestFetchCache = new Map<string, Promise<Manifest | null>>();
+
+interface EntryContext {
+  entryUrl: string;
+  manifestUrl: string;
+  manifest: Manifest | null;
+  assetBaseUrl: string;
+  filename: string;
+  remoteOrigin: string;
+}
+
+interface SsrEntryCandidate {
+  url: string;
+  type: string;
+}
 
 async function fetchManifest(manifestUrl: string): Promise<Manifest | null> {
   try {
@@ -158,14 +174,48 @@ async function fetchManifest(manifestUrl: string): Promise<Manifest | null> {
   }
 }
 
+async function fetchManifestCached(manifestUrl: string): Promise<Manifest | null> {
+  if (!manifestFetchCache.has(manifestUrl)) {
+    manifestFetchCache.set(manifestUrl, fetchManifest(manifestUrl));
+  }
+  return manifestFetchCache.get(manifestUrl)!;
+}
+
+/** True when the host configured a manifest URL as the remote entry (any .json name). */
+function isManifestEntry(remoteEntryUrl: string): boolean {
+  try {
+    const { pathname } = new URL(remoteEntryUrl);
+    return /\.json$/i.test(pathname);
+  } catch {
+    return /\.json(?:[?#]|$)/i.test(remoteEntryUrl);
+  }
+}
+
+function isSsrEntry(remoteEntryUrl: string): boolean {
+  return /\.ssr\.js(?:[?#].*)?$/.test(remoteEntryUrl);
+}
+
 function getManifestUrl(remoteEntryUrl: string): string {
+  if (isManifestEntry(remoteEntryUrl)) return remoteEntryUrl;
   return remoteEntryUrl.replace(/\/[^/]+$/, '/mf-manifest.json');
 }
 
-function resolveSSREntryUrl(
-  manifest: Manifest,
-  manifestUrl: string
-): { url: string; type: string } | null {
+function getEntryFilename(entryUrl: string): string {
+  return (
+    entryUrl
+      .split('/')
+      .pop()
+      ?.replace(/[?#].*$/, '')
+      .replace(/\.[^.]+$/, '') ?? 'remoteEntry'
+  );
+}
+
+function resolveEntryAssetUrl(entry: { name: string; path?: string }, manifestUrl: string): string {
+  const base = manifestUrl.replace(/\/[^/]+$/, '/');
+  return new URL(`${entry.path || ''}${entry.name}`, base).href;
+}
+
+function resolveSSREntryUrl(manifest: Manifest, manifestUrl: string): SsrEntryCandidate | null {
   const meta = manifest?.metaData;
   if (!meta?.ssrRemoteEntry?.name) return null;
 
@@ -184,7 +234,7 @@ function resolveSSREntryUrl(
 async function headCheckSsrEntry(candidate: {
   url: string;
   type: string;
-}): Promise<{ url: string; type: string } | null> {
+}): Promise<SsrEntryCandidate | null> {
   try {
     const res = await fetch(candidate.url, { method: 'HEAD' });
     const ct = res.headers.get('content-type') ?? '';
@@ -196,27 +246,53 @@ async function headCheckSsrEntry(candidate: {
   return null;
 }
 
-async function getSSREntryByConvention(
-  remoteEntryUrl: string,
+function resolveAssetBaseUrl(
+  entryUrl: string,
+  manifest: Manifest | null,
+  manifestUrl: string
+): string {
+  const remoteEntry = manifest?.metaData?.remoteEntry;
+  if (remoteEntry?.name) return resolveEntryAssetUrl(remoteEntry, manifestUrl);
+  if (!isManifestEntry(entryUrl)) return entryUrl;
+  return new URL('remoteEntry.js', manifestUrl.replace(/\/[^/]+$/, '/')).href;
+}
+
+async function buildEntryContext(entryUrl: string): Promise<EntryContext> {
+  const manifestUrl = getManifestUrl(entryUrl);
+  const manifest = await fetchManifestCached(manifestUrl);
+  const assetBaseUrl = resolveAssetBaseUrl(entryUrl, manifest, manifestUrl);
+  const filename = getEntryFilename(assetBaseUrl);
+  const remoteOrigin = assetBaseUrl.replace(/\/[^/]+$/, '');
+
+  return { entryUrl, manifestUrl, manifest, assetBaseUrl, filename, remoteOrigin };
+}
+
+function buildSsrEntryCandidates(
+  ctx: EntryContext,
   options: { skipServerBuild?: boolean } = {}
-): Promise<{ url: string; type: string } | null> {
-  const base = remoteEntryUrl.replace(/\.[^.]+$/, '');
-  const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
-  const filename =
-    remoteEntryUrl
-      .split('/')
-      .pop()
-      ?.replace(/\.[^.]+$/, '') ?? 'remoteEntry';
-  const candidates = [
-    // SSR graph from a dedicated server build (Environment API or `vite build --ssr`).
-    // Must be tried before the client-emitted .ssr.js entry, which pulls browser
-    // loadRemote chunks and can recurse indefinitely for nested remotes.
-    ...(options.skipServerBuild
-      ? []
-      : [{ url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`, type: 'module' as const }]),
+): SsrEntryCandidate[] {
+  const { assetBaseUrl, filename, remoteOrigin } = ctx;
+  const base = assetBaseUrl.replace(/\.[^.]+$/, '');
+  const candidates: SsrEntryCandidate[] = [];
+
+  if (!options.skipServerBuild) {
+    candidates.push({
+      url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
+      type: 'module',
+    });
+  }
+
+  candidates.push(
     { url: `${base}.ssr.js`, type: 'module' },
-    { url: `${remoteOrigin}/__mf_ssr__/${filename}.ssr.js`, type: 'module' },
-  ];
+    { url: `${remoteOrigin}/__mf_ssr__/${filename}.ssr.js`, type: 'module' }
+  );
+
+  return candidates;
+}
+
+async function resolveFirstReachableCandidate(
+  candidates: SsrEntryCandidate[]
+): Promise<SsrEntryCandidate | null> {
   for (const candidate of candidates) {
     const hit = await headCheckSsrEntry(candidate);
     if (hit) return hit;
@@ -224,37 +300,37 @@ async function getSSREntryByConvention(
   return null;
 }
 
-async function getSSREntry(remoteEntryUrl: string): Promise<{ url: string; type: string } | null> {
-  const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
-  const filename =
-    remoteEntryUrl
-      .split('/')
-      .pop()
-      ?.replace(/\.[^.]+$/, '') ?? 'remoteEntry';
-
-  const manifestUrl = getManifestUrl(remoteEntryUrl);
-  if (!manifestCache.has(manifestUrl)) {
-    manifestCache.set(
-      manifestUrl,
-      (async () => {
-        // Prefer a server-build SSR entry when the remote serves dist/server (preview/production).
-        const fromServerBuild = await headCheckSsrEntry({
-          url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
-          type: 'module',
-        });
-        if (fromServerBuild) return fromServerBuild;
-
-        const manifest = await fetchManifest(manifestUrl);
-        if (manifest) {
-          const fromManifest = resolveSSREntryUrl(manifest, manifestUrl);
-          if (fromManifest) return fromManifest;
-        }
-        // Manifest absent or has no ssrRemoteEntry — fall back to URL convention.
-        return getSSREntryByConvention(remoteEntryUrl, { skipServerBuild: true });
-      })()
-    );
+async function resolveSSREntryImpl(remoteEntryUrl: string): Promise<SsrEntryCandidate | null> {
+  if (isSsrEntry(remoteEntryUrl)) {
+    return { url: remoteEntryUrl, type: 'module' };
   }
-  return manifestCache.get(manifestUrl)!;
+
+  // For JS entries, probe the dedicated server build before fetching the manifest.
+  if (!isManifestEntry(remoteEntryUrl)) {
+    const filename = getEntryFilename(remoteEntryUrl);
+    const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
+    const fromServerBuild = await headCheckSsrEntry({
+      url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
+      type: 'module',
+    });
+    if (fromServerBuild) return fromServerBuild;
+  }
+
+  const ctx = await buildEntryContext(remoteEntryUrl);
+  if (ctx.manifest) {
+    const fromManifest = resolveSSREntryUrl(ctx.manifest, ctx.manifestUrl);
+    if (fromManifest) return fromManifest;
+  }
+  return resolveFirstReachableCandidate(
+    buildSsrEntryCandidates(ctx, { skipServerBuild: !isManifestEntry(remoteEntryUrl) })
+  );
+}
+
+async function getSSREntry(remoteEntryUrl: string): Promise<SsrEntryCandidate | null> {
+  if (!ssrEntryCache.has(remoteEntryUrl)) {
+    ssrEntryCache.set(remoteEntryUrl, resolveSSREntryImpl(remoteEntryUrl));
+  }
+  return ssrEntryCache.get(remoteEntryUrl)!;
 }
 
 // ---------------------------------------------------------------------------
@@ -442,27 +518,29 @@ async function loadSSRRemoteEntry(
       // `resolveId` hook that maps `/__mf_ssr__/<filename>.ssr.js` to the
       // virtual SSR entry ID, so `runner.import()` traverses the full Vite
       // plugin pipeline and returns real, fully-transformed module source.
-      //
-      // Vite < 8 falls through here with runner === null. Rather than attempting
-      // a broken fallback (fetchEsmToTempFile can't serialise React components),
-      // we return null so the MF runtime falls back to client-only rendering.
-      // To add Vite < 8 dev-mode support, implement an alternative loader here
-      // and expose a corresponding endpoint from pluginSSRRemoteEntry.configureServer.
       const remoteOrigin = urlObj.origin;
       const runner = await getOrCreateRunner(remoteOrigin);
-      if (!runner) return null;
-      try {
-        const mod = await (runner as { import: (id: string) => Promise<unknown> }).import(
-          urlObj.pathname
-        );
-        return mod as { init: unknown; get: unknown };
-      } catch {
-        return null;
+      if (!runner) {
+        if (process.env.NODE_ENV !== 'production') return null;
+      } else {
+        try {
+          const mod = await (runner as { import: (id: string) => Promise<unknown> }).import(
+            urlObj.pathname
+          );
+          if (mod && typeof mod === 'object' && 'init' in mod) {
+            return mod as { init: unknown; get: unknown };
+          }
+          if (process.env.NODE_ENV !== 'production') return null;
+        } catch {
+          if (process.env.NODE_ENV !== 'production') return null;
+        }
       }
     }
 
     // Production build HTTP entries: fetch source and write to temp file so
     // Node can import it via file:// URL (avoids --experimental-network-imports).
+    // Production previews may also mount built SSR assets under /__mf_ssr__/
+    // without exposing the dev-only ModuleRunner endpoint, so they fall through here.
     const { mkdirSync } = await _fs();
     const cacheDir = await getSSRCacheDir();
     mkdirSync(cacheDir, { recursive: true });
