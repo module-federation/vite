@@ -499,6 +499,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
   let command: string;
   let desiredRolldownOutput: OutputNameOptions[] | undefined;
+  let isSsrBuild = false;
 
   return [
     {
@@ -653,6 +654,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       enforce: 'pre',
       apply: 'build',
       config(config: UserConfig) {
+        isSsrBuild = config.build?.ssr === true;
         // Force loadShare modules and runtimeInitStatus into separate chunks.
         //
         // For Vite 8+: loadShare chunks need separate async init barriers
@@ -901,7 +903,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           let code = virtualModule?.code ?? readFileSync(id, 'utf-8');
 
           const environmentName = (this as { environment?: { name?: string } }).environment?.name;
-          if (environmentName && environmentName !== 'client') {
+          // Vite 5-7 SSR builds do not expose `this.environment`, so fall back to root
+          // build.ssr to ensure SSR-only local fallback imports are still prepended.
+          if (
+            (environmentName && environmentName !== 'client') ||
+            (!environmentName && isSsrBuild)
+          ) {
             code = prependWorkspaceSingletonSsrImport(code);
           }
 
@@ -1043,6 +1050,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       _options: options,
       config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
+        isSsrBuild = _command === 'build' && config.build?.ssr === true;
 
         appendResolveAlias(config, {
           find: '@module-federation/runtime',

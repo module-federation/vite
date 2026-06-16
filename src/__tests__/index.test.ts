@@ -336,6 +336,42 @@ describe('module-federation-esm-shims', () => {
     expect(deps).toEqual(['assets/index.js']);
   });
 
+  it('prepends workspace singleton imports for legacy SSR build load hooks', () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = {
+      build: { ssr: true },
+    };
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+
+    const virtualModule = new VirtualModule('legacy-workspace-singleton', LOAD_SHARE_TAG, '.js');
+    virtualModule.write(`
+      let __mf_default;
+      const __mfApplyLazyShareExports = (mod) => {
+        __mf_default = mod.default ?? mod;
+      };
+      if (import.meta.env.SSR) {
+        const exportModule = __mfNormalizeShareModule(__mfLocalShare);
+        __mfApplyLazyShareExports(exportModule);
+      } else {
+        initPromise.then(() =>
+          import("/repo/packages/workspace-shared-lib/src/index.tsx").then((mod) => {
+            const exportModule = __mfNormalizeShareModule(mod);
+            __mfApplyLazyShareExports(exportModule);
+          })
+        );
+      }
+      export { __mf_default as default };
+    `);
+
+    const result = callHook(plugin.load, {} as any, virtualModule.getImportId()) as {
+      code: string;
+    };
+
+    expect(result.code).toContain(
+      'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
+    );
+  });
+
   it('filters federation control chunks from js dynamic modulepreload deps', () => {
     const plugin = getEsmShimsPlugin();
     const config: any = {

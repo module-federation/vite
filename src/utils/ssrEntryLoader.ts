@@ -159,6 +159,11 @@ interface EntryContext {
   remoteOrigin: string;
 }
 
+interface SsrEntryCandidate {
+  url: string;
+  type: string;
+}
+
 async function fetchManifest(manifestUrl: string): Promise<Manifest | null> {
   try {
     const res = await fetch(manifestUrl);
@@ -205,29 +210,12 @@ function getEntryFilename(entryUrl: string): string {
   );
 }
 
-function getSsrEntryBasename(entryUrl: string): string {
-  try {
-    const { pathname } = new URL(entryUrl);
-    return (pathname.split('/').pop() ?? 'remoteEntry.ssr.js').replace(/[?#].*$/, '');
-  } catch {
-    return (
-      entryUrl
-        .split('/')
-        .pop()
-        ?.replace(/[?#].*$/, '') ?? 'remoteEntry.ssr.js'
-    );
-  }
-}
-
 function resolveEntryAssetUrl(entry: { name: string; path?: string }, manifestUrl: string): string {
   const base = manifestUrl.replace(/\/[^/]+$/, '/');
   return new URL(`${entry.path || ''}${entry.name}`, base).href;
 }
 
-function resolveSSREntryUrl(
-  manifest: Manifest,
-  manifestUrl: string
-): { url: string; type: string } | null {
+function resolveSSREntryUrl(manifest: Manifest, manifestUrl: string): SsrEntryCandidate | null {
   const meta = manifest?.metaData;
   if (!meta?.ssrRemoteEntry?.name) return null;
 
@@ -246,7 +234,7 @@ function resolveSSREntryUrl(
 async function headCheckSsrEntry(candidate: {
   url: string;
   type: string;
-}): Promise<{ url: string; type: string } | null> {
+}): Promise<SsrEntryCandidate | null> {
   try {
     const res = await fetch(candidate.url, { method: 'HEAD' });
     const ct = res.headers.get('content-type') ?? '';
@@ -282,15 +270,10 @@ async function buildEntryContext(entryUrl: string): Promise<EntryContext> {
 function buildSsrEntryCandidates(
   ctx: EntryContext,
   options: { skipServerBuild?: boolean } = {}
-): Array<{ url: string; type: string }> {
-  const { manifest, manifestUrl, assetBaseUrl, filename, remoteOrigin } = ctx;
+): SsrEntryCandidate[] {
+  const { assetBaseUrl, filename, remoteOrigin } = ctx;
   const base = assetBaseUrl.replace(/\.[^.]+$/, '');
-  const candidates: Array<{ url: string; type: string }> = [];
-
-  if (manifest) {
-    const fromManifest = resolveSSREntryUrl(manifest, manifestUrl);
-    if (fromManifest) candidates.push(fromManifest);
-  }
+  const candidates: SsrEntryCandidate[] = [];
 
   if (!options.skipServerBuild) {
     candidates.push({
@@ -308,8 +291,8 @@ function buildSsrEntryCandidates(
 }
 
 async function resolveFirstReachableCandidate(
-  candidates: Array<{ url: string; type: string }>
-): Promise<{ url: string; type: string } | null> {
+  candidates: SsrEntryCandidate[]
+): Promise<SsrEntryCandidate | null> {
   for (const candidate of candidates) {
     const hit = await headCheckSsrEntry(candidate);
     if (hit) return hit;
@@ -317,20 +300,9 @@ async function resolveFirstReachableCandidate(
   return null;
 }
 
-async function resolveSSREntryImpl(
-  remoteEntryUrl: string
-): Promise<{ url: string; type: string } | null> {
+async function resolveSSREntryImpl(remoteEntryUrl: string): Promise<SsrEntryCandidate | null> {
   if (isSsrEntry(remoteEntryUrl)) {
-    const direct = await headCheckSsrEntry({ url: remoteEntryUrl, type: 'module' });
-    if (direct) return direct;
-    // Runtime may pre-resolve manifest ssrRemoteEntry to publicPath/<name> while the
-    // server actually serves the file under /__mf_ssr__/ or /__mf_server__/ (preview).
-    const remoteOrigin = remoteEntryUrl.replace(/\/[^/]+$/, '');
-    const basename = getSsrEntryBasename(remoteEntryUrl);
-    return resolveFirstReachableCandidate([
-      { url: `${remoteOrigin}/__mf_ssr__/${basename}`, type: 'module' },
-      { url: `${remoteOrigin}/__mf_server__/${basename}`, type: 'module' },
-    ]);
+    return { url: remoteEntryUrl, type: 'module' };
   }
 
   // For JS entries, probe the dedicated server build before fetching the manifest.
@@ -345,12 +317,16 @@ async function resolveSSREntryImpl(
   }
 
   const ctx = await buildEntryContext(remoteEntryUrl);
+  if (ctx.manifest) {
+    const fromManifest = resolveSSREntryUrl(ctx.manifest, ctx.manifestUrl);
+    if (fromManifest) return fromManifest;
+  }
   return resolveFirstReachableCandidate(
     buildSsrEntryCandidates(ctx, { skipServerBuild: !isManifestEntry(remoteEntryUrl) })
   );
 }
 
-async function getSSREntry(remoteEntryUrl: string): Promise<{ url: string; type: string } | null> {
+async function getSSREntry(remoteEntryUrl: string): Promise<SsrEntryCandidate | null> {
   if (!ssrEntryCache.has(remoteEntryUrl)) {
     ssrEntryCache.set(remoteEntryUrl, resolveSSREntryImpl(remoteEntryUrl));
   }

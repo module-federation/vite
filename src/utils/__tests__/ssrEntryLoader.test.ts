@@ -240,8 +240,11 @@ describe('ssrEntryLoaderPlugin — URL convention fallback', () => {
 
 describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
   it('loads an already-resolved SSR entry URL directly', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     const fetch = makeFetchMock({
-      'http://localhost:5001/__mf_ssr__/remoteEntry.ssr.js': {
+      'http://localhost:5001/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
         text: 'export async function init() {} export async function get() {}',
@@ -250,12 +253,10 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     global.fetch = fetch as unknown as typeof globalThis.fetch;
     const factory = await freshLoader();
     await factory().loadEntry!({
-      remoteInfo: { name: 'r', entry: 'http://localhost:5001/__mf_ssr__/remoteEntry.ssr.js' },
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.ssr.js' },
     });
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/__mf_ssr__/remoteEntry.ssr.js', {
-      method: 'HEAD',
-    });
-    expect(fetch).not.toHaveBeenCalledWith('http://localhost:5001/__mf_ssr__/mf-manifest.json');
+    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/remoteEntry.ssr.js');
+    expect(fetch).not.toHaveBeenCalledWith('http://localhost:5001/mf-manifest.json');
   });
 
   it('fetches the manifest URL directly when entry is mf-manifest.json', async () => {
@@ -344,7 +345,7 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     ]);
   });
 
-  it('falls back to __mf_server__ when manifest ssrRemoteEntry URL is unreachable', async () => {
+  it('uses manifest ssrRemoteEntry directly instead of probing fallbacks first', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
@@ -358,7 +359,11 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
           },
         },
       },
-      'http://localhost:5001/remoteEntry.ssr.js': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export async function init() {} export async function get() {}',
+      },
       'http://localhost:5001/__mf_server__/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
@@ -371,10 +376,8 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/mf-manifest.json' },
     });
     const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
-    expect(heads.map((c) => c[0])).toEqual([
-      'http://localhost:5001/remoteEntry.ssr.js',
-      'http://localhost:5001/__mf_server__/remoteEntry.ssr.js',
-    ]);
+    expect(heads.map((c) => c[0])).toEqual([]);
+    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/remoteEntry.ssr.js');
   });
 
   it('falls back to convention using remoteEntry.name when __mf_server__ is absent', async () => {
@@ -582,8 +585,8 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
     const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
     expect(heads.map((c) => c[0])).toEqual([
       'http://localhost:5001/__mf_server__/remoteEntry.ssr.js',
-      'http://localhost:5001/remoteEntry.ssr.js',
     ]);
+    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/remoteEntry.ssr.js');
   });
 
   it('resolves SSR entry URL with path prefix from manifest', async () => {
