@@ -181,6 +181,8 @@ function generateUsedSharedPreloadConfig() {
           const shareItem = getShareItemForPreload(pkg);
           if (!shareItem) return null;
           return `${JSON.stringify(pkg)}: {
+            version: ${JSON.stringify(shareItem.version)},
+            scope: ${JSON.stringify(shareItem.scope)},
             shareConfig: {
               singleton: ${shareItem.shareConfig.singleton},
               requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
@@ -270,6 +272,12 @@ function generateSharedCacheSeedItem(pkg: string, shareItem: ShareItem, importPa
         __mfModuleCache.share[${JSON.stringify(cacheKey)}] = exportModule;
       }`;
 }
+
+const sharedCacheKeyHelperCode = `const __mfGetSharedCacheKey = (pkg, singleton, version, scope) => {
+            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
+            const prefix = (normalizedScope || "default") + ":";
+            return singleton || !version ? prefix + pkg : prefix + pkg + "@" + version;
+          };`;
 
 const normalizeRuntimeShareCode = `const __mfNormalizeRuntimeShare = (mod) => {
             let current = mod;
@@ -435,6 +443,7 @@ export function generateRemoteEntry(
   }
 
   async function init(shared = {}, initScope = []) {
+    ${sharedCacheKeyHelperCode}
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
     try {
       const allInstances = globalThis.__FEDERATION__?.__SHARE__;
@@ -446,7 +455,7 @@ export function generateRemoteEntry(
           for (const [pkg, versionMap] of Object.entries(scopeShare)) {
             for (const [version, provider] of Object.entries(versionMap)) {
               if (!provider.lib) continue;
-              const cacheKey = provider.shareConfig?.singleton ? pkg : \`\${pkg}@\${version}\`;
+              const cacheKey = __mfGetSharedCacheKey(pkg, provider.shareConfig?.singleton, version, ${JSON.stringify(options.shareScope)});
               if (__mfModuleCache.share[cacheKey] !== undefined) continue;
               const mod = typeof provider.lib === "function" ? provider.lib() : provider.lib;
               const resolved = await Promise.resolve(mod);
@@ -500,7 +509,7 @@ export function generateRemoteEntry(
       console.error('[Module Federation]', e)
     }
     for (const [pkg, share] of Object.entries(usedShared)) {
-      const cacheKey = share.shareConfig?.singleton || !share.version ? pkg : \`\${pkg}@\${share.version}\`;
+      const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);
       if (share.shareConfig?.import !== false || __mfModuleCache.share[cacheKey] !== undefined) continue;
       ${normalizeRuntimeShareCode}
       const versions = shared?.[pkg];
@@ -547,12 +556,13 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
           const remoteEntry = await import(${remoteEntryImport});
           const runtime = await remoteEntry.init();
           const usedShared = ${generateUsedSharedPreloadConfig()};
+          ${sharedCacheKeyHelperCode}
           ${normalizeRuntimeShareCode}
           ${
             shouldPreloadShares
               ? `
           for (const [pkg, share] of Object.entries(usedShared)) {
-            const cacheKey = share.shareConfig?.singleton || !share.version ? pkg : \`\${pkg}@\${share.version}\`;
+            const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);
             if (__mfModuleCache.share[cacheKey] !== undefined) {
               continue;
             }

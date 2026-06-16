@@ -94,7 +94,7 @@ describe('shared dependencies', () => {
     const remoteEntry = findChunk(output, 'remoteEntry');
     const loadShare = output.output
       .filter(isRollupChunk)
-      .find((chunk) => chunk.code.includes('__mfModuleCache.share["mock-shared-dep"]'));
+      .find((chunk) => chunk.code.includes('__mfModuleCache.share["default:mock-shared-dep"]'));
 
     expect(remoteEntry).toBeDefined();
     expect(loadShare).toBeDefined();
@@ -104,7 +104,7 @@ describe('shared dependencies', () => {
     expect(allCode).toContain('__mfModuleCache.share[cacheKey]');
     expect(allCode).not.toContain('initRes.loadShare(pkg');
     expect(loadShare!.code).toContain('initPromise.then');
-    expect(loadShare!.code).toContain('__mfModuleCache.share["mock-shared-dep"]');
+    expect(loadShare!.code).toContain('__mfModuleCache.share["default:mock-shared-dep"]');
     expect(loadShare!.code).toContain('init');
     expect(loadShare!.code).not.toContain('await initPromise');
     expect(allCode).not.toContain('from"mock-shared-dep"');
