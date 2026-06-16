@@ -7,6 +7,7 @@ import {
   getInstalledPackageEntry,
   getInstalledPackageJson,
   getPackageNameFromNodeModulePath,
+  getSharedCacheKey,
   resolveImportPath,
 } from '../packageUtils';
 
@@ -107,5 +108,36 @@ describe('getPackageNameFromNodeModulePath', () => {
 
   it('returns undefined for non-node_modules paths', () => {
     expect(getPackageNameFromNodeModulePath('/repo/vendor/vue.js')).toBeUndefined();
+  });
+});
+
+describe('getSharedCacheKey', () => {
+  it('prefixes singleton shared cache keys with share scope', () => {
+    expect(
+      getSharedCacheKey('react', {
+        scope: 'react-18',
+        version: '18.3.1',
+        shareConfig: { singleton: true },
+      } as any)
+    ).toBe('react-18:react');
+  });
+
+  it('prefixes versioned shared cache keys with share scope', () => {
+    expect(
+      getSharedCacheKey('react', {
+        scope: 'react-19',
+        version: '19.2.4',
+        shareConfig: { singleton: false },
+      } as any)
+    ).toBe('react-19:react@19.2.4');
+  });
+
+  it('falls back to default scope when scope is missing', () => {
+    expect(
+      getSharedCacheKey('vue', {
+        version: '3.5.0',
+        shareConfig: { singleton: true },
+      } as any)
+    ).toBe('default:vue');
   });
 });

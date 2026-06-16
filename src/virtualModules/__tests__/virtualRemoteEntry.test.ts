@@ -43,9 +43,13 @@ vi.mock('../../utils/packageUtils', () => {
   return {
     getSharedCacheKey: (
       pkg: string,
-      shareItem: { version?: string; shareConfig: { singleton?: boolean } }
-    ) =>
-      shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`,
+      shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
+    ) => {
+      const prefix = `${shareItem.scope || 'default'}:`;
+      return shareItem.shareConfig.singleton || !shareItem.version
+        ? `${prefix}${pkg}`
+        : `${prefix}${pkg}@${shareItem.version}`;
+    },
     hasPackageDependency: hasPackageDependencyMock,
     packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
     getPackageName: (packageString: string) => {
@@ -538,9 +542,9 @@ describe('virtualRemoteEntry', () => {
 
     const code = mod.generateDirectSharedCacheSeedCode('build');
 
-    expect(code).toContain('__mfModuleCache.share["wildcard-pkg/button"]');
+    expect(code).toContain('__mfModuleCache.share["default:wildcard-pkg/button"]');
     expect(code).toContain('await import("/repo/node_modules/wildcard-pkg/dist/button.js")');
-    expect(code).not.toContain('__mfModuleCache.share["wildcard-pkg"]');
+    expect(code).not.toContain('__mfModuleCache.share["default:wildcard-pkg"]');
   });
 
   it('does not seed import:false shared modules in hostAutoInit during build', async () => {
@@ -580,8 +584,8 @@ describe('virtualRemoteEntry', () => {
 
     // Build mode must NOT generate static imports for import:false modules
     // to avoid bundler resolution failures on transitive dependencies.
-    expect(code).not.toContain('__mfModuleCache.share["some-dep"] === undefined');
-    expect(code).not.toContain('__mfModuleCache.share["vue"] === undefined');
+    expect(code).not.toContain('__mfModuleCache.share["default:some-dep"] === undefined');
+    expect(code).not.toContain('__mfModuleCache.share["default:vue"] === undefined');
     expect(code).not.toContain('some-dep/dist');
     // The runtime.loadShare loop should still be present
     expect(code).toContain('runtime.loadShare(pkg');
@@ -667,7 +671,19 @@ describe('virtualRemoteEntry', () => {
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
     // Serve mode should still pre-seed the cache (dev server resolves on-demand)
-    expect(code).toContain('__mfModuleCache.share["some-dep"]');
+    expect(code).toContain('__mfModuleCache.share["default:some-dep"]');
     expect(code).toContain('await import');
+  });
+
+  it('emits a scope-aware runtime shared cache key helper', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+
+    expect(code).toContain('const normalizedScope = Array.isArray(scope) ? scope[0] : scope;');
+    expect(code).toContain('const prefix = (normalizedScope || "default") + ":";');
+    expect(code).toContain(
+      'const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);'
+    );
   });
 });
