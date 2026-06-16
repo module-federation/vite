@@ -686,4 +686,90 @@ describe('virtualRemoteEntry', () => {
       'const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);'
     );
   });
+
+  it('aliases external singleton providers to the remote share cache key', async () => {
+    normalizedSharedMock.mockReturnValue({
+      react: {
+        name: 'react',
+        from: '',
+        version: '18.3.1',
+        scope: 'default',
+        shareConfig: {
+          singleton: false,
+          requiredVersion: '^18.3.1',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    expect(code).toContain('const usedShare = usedShared?.[pkg];');
+    expect(code).toContain('if (provider.shareConfig?.singleton && usedShare) {');
+    expect(code).toContain('__mfModuleCache.share[usedCacheKey] = normalized;');
+  });
+
+  it('reuses an already cached singleton for a versioned remote share key', async () => {
+    normalizedSharedMock.mockReturnValue({
+      react: {
+        name: 'react',
+        from: '',
+        version: '18.3.1',
+        scope: 'default',
+        shareConfig: {
+          singleton: false,
+          requiredVersion: '^18.3.1',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    expect(code).toContain(
+      'const singletonCacheKey = __mfGetSharedCacheKey(pkg, true, share.version, share.scope);'
+    );
+    expect(code).toContain(
+      '__mfModuleCache.share[cacheKey] = __mfModuleCache.share[singletonCacheKey];'
+    );
+    expect(code.indexOf('const singletonCacheKey')).toBeLessThan(
+      code.indexOf('if (__mfModuleCache.share["default:react@18.3.1"] === undefined)')
+    );
+  });
 });
