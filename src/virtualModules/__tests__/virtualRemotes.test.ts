@@ -190,6 +190,17 @@ describe('generateRemotes', () => {
     expect(exports.__moduleExports).toBe(remoteModule);
   });
 
+  it('rejects remote pending when dev loadRemote fails', async () => {
+    const loadError = new Error('remote failed');
+    const runtime = {
+      loadRemote: vi.fn(() => Promise.reject(loadError)),
+    };
+    const exports = runGeneratedRemoteModule(generateRemotes('remote/Button', 'serve'), runtime);
+
+    await expect(Promise.resolve(exports.__mf_remote_pending)).rejects.toBe(loadError);
+    expect(runtime.loadRemote).toHaveBeenCalledWith('remote/Button');
+  });
+
   it('defers browser remote loading until use for loaded-first (non-React)', () => {
     mockOptions.shareStrategy = 'loaded-first';
     const code = generateRemotes('remote/Button', 'serve');
