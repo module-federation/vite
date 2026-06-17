@@ -745,6 +745,11 @@ const addEntry = ({
           );
         }
 
+        // SSR hosts without index.html (Nitro, TanStack Start) and
+        // hostInitInjectLocation:'entry' have no rollup input in dev. Match the
+        // client module that hydrates/mounts React so host init runs before
+        // hydrateRoot — required for @module-federation/bridge-react remotes that
+        // call getInstance() on first render.
         const isHydrationEntryFallback =
           inject === 'entry' &&
           entryFiles.length === 0 &&
@@ -793,13 +798,11 @@ const addEntry = ({
             isNuxtClientEntryFallback);
         if (shouldInject) {
           clientInjected = true;
-          // For the dev-mode entry fallback (inject:'entry' with no known entry
-          // files), always use a simple import injection. The getBootstrapSource
-          // wrapper is incompatible with SSR module evaluation — the async IIFE
-          // it generates prevents the module from exporting synchronously.
-          const usesDevEntryFallback =
-            _command === 'serve' && inject === 'entry' && isHydrationEntryFallback;
-          if (!waitsForInit || usesDevEntryFallback) {
+          // Non-hostInit injections only need a side-effect import. Host-init
+          // bootstrap must await initHost() before the app entry runs — in both
+          // build and serve — so bridge-react remotes do not hit
+          // "Module Federation runtime is not initialized" on first paint.
+          if (!waitsForInit) {
             const injection = `import ${JSON.stringify(getEntryPath())};\n`;
             return mapCodeToCodeWithSourcemap(injection + code);
           }

@@ -269,6 +269,53 @@ describe('pluginAddEntry', () => {
     );
   });
 
+  // Nitro/TanStack Start + hostInitInjectLocation:'entry' + bridge-react: dev must
+  // use the same await initHost() bootstrap as build, not a bare side-effect import.
+  it('wraps hydration entry fallback behind host init during dev serve', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-serve-hydration-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);',
+      '/src/entry-client.tsx'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain('await __mfHostInit.__tla;');
+    expect(result?.code).toContain('const { initHost } = __mfHostInit;');
+    expect(result?.code).toContain('await initHost();');
+    expect(result?.code).toContain(
+      '})().then(() => import("/src/entry-client.tsx?mf-entry-bootstrap"));'
+    );
+    expect(result?.code).not.toMatch(/^import "\/virtual\/hostInit\.js";\nimport/m);
+  });
+
   it('does not wrap Nuxt dev entry.async (mount hook handles host init)', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-dev-'));
     const plugins = addEntry({
