@@ -64,6 +64,22 @@ function resolveTypesMeta(dts: ReturnType<typeof getNormalizeModuleFederationOpt
   };
 }
 
+function resolveDevRemoteEntryFileName(fileName: string): string {
+  if (!fileName.includes('[hash')) return fileName;
+
+  const normalized = fileName.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
+  const baseName = path.basename(normalized);
+
+  return path.extname(baseName) ? normalized : `${normalized}.js`;
+}
+
+function createRemoteEntryAssetMap(fileName: string) {
+  return {
+    js: { async: [], sync: [fileName] },
+    css: { async: [], sync: [] },
+  };
+}
+
 const Manifest = (): Plugin[] => {
   const mfOptions = getNormalizeModuleFederationOptions();
   const { name, filename, getPublicPath, manifest: manifestOptions, varFilename } = mfOptions;
@@ -129,6 +145,15 @@ const Manifest = (): Plugin[] => {
             next();
             return;
           }
+          const devRemoteEntryFile = resolveDevRemoteEntryFileName(filename);
+          if (
+            devRemoteEntryFile !== filename &&
+            req.url?.startsWith((viteConfig.base + devRemoteEntryFile).replace(/^\/?/, '/'))
+          ) {
+            req.url = req.url.replace(devRemoteEntryFile, filename);
+            next();
+            return;
+          }
           if (
             req.url?.replace(/\?.*/, '') === (viteConfig.base + mfManifestName).replace(/^\/?/, '/')
           ) {
@@ -144,12 +169,12 @@ const Manifest = (): Plugin[] => {
                   type: 'app',
                   buildInfo: { buildVersion: getBuildVersion(), buildName: name },
                   remoteEntry: {
-                    name: filename,
+                    name: devRemoteEntryFile,
                     path: '',
                     type: 'module',
                   },
                   ssrRemoteEntry: {
-                    name: getSsrRemoteEntryFileName(filename),
+                    name: getSsrRemoteEntryFileName(devRemoteEntryFile),
                     path: '/__mf_ssr__/',
                     type: 'module',
                   },
@@ -218,7 +243,9 @@ const Manifest = (): Plugin[] => {
         let filesMap: PreloadMap = {};
 
         const foundRemoteEntryFile = findRemoteEntryFile(mfOptions.filename, bundle);
-        const expectedSsrRemoteEntryFile = getSsrRemoteEntryFileName(mfOptions.filename);
+        const expectedSsrRemoteEntryFile = getSsrRemoteEntryFileName(
+          foundRemoteEntryFile || mfOptions.filename
+        );
         const foundSsrRemoteEntryFile = Object.values(bundle).find(
           (file) => file.fileName === expectedSsrRemoteEntryFile
         )?.fileName;
@@ -227,7 +254,11 @@ const Manifest = (): Plugin[] => {
         if (foundRemoteEntryFile) {
           remoteEntryFile = foundRemoteEntryFile;
         }
-        ssrRemoteEntryFile = foundSsrRemoteEntryFile || expectedSsrRemoteEntryFile;
+        ssrRemoteEntryFile =
+          foundSsrRemoteEntryFile ||
+          (_command === 'serve'
+            ? getSsrRemoteEntryFileName(resolveDevRemoteEntryFileName(mfOptions.filename))
+            : expectedSsrRemoteEntryFile);
 
         // Second pass: Collect all CSS assets
         const allCssAssets =
@@ -304,13 +335,21 @@ const Manifest = (): Plugin[] => {
   function generateMFManifest(preloadMap: PreloadMap, disableAssetsAnalyze = false) {
     const options = getNormalizeModuleFederationOptions();
     const { name, varFilename } = options;
+    const resolvedRemoteEntryFile =
+      _command === 'serve'
+        ? remoteEntryFile || resolveDevRemoteEntryFileName(filename)
+        : remoteEntryFile;
     const remoteEntry = {
-      name: remoteEntryFile,
+      name: resolvedRemoteEntryFile,
       path: '',
       type: 'module',
     };
     const ssrRemoteEntry = {
-      name: ssrRemoteEntryFile || getSsrRemoteEntryFileName(filename),
+      name:
+        ssrRemoteEntryFile ||
+        getSsrRemoteEntryFileName(
+          _command === 'serve' ? resolveDevRemoteEntryFileName(filename) : filename
+        ),
       path: _command === 'serve' ? '/__mf_ssr__/' : '',
       type: 'module',
     };
@@ -340,7 +379,11 @@ const Manifest = (): Plugin[] => {
       // shareItem can be undefined when a key was added to usedShares before
       // excludeSharedSubDependencies removed it from options.shared in dev mode.
       if (!shareItem) return [];
-      const assets = preloadMap[shareKey] || createEmptyAssetMap();
+      const assets =
+        preloadMap[shareKey] ||
+        (_command === 'serve' && resolvedRemoteEntryFile
+          ? createRemoteEntryAssetMap(resolvedRemoteEntryFile)
+          : createEmptyAssetMap());
 
       return [
         {
@@ -367,7 +410,11 @@ const Manifest = (): Plugin[] => {
     const exposes = Object.entries(options.exposes).map(([key, value]) => {
       const formatKey = key.replace('./', '');
       const sourceFile = value.import;
-      const assets = preloadMap[sourceFile] || createEmptyAssetMap();
+      const assets =
+        preloadMap[sourceFile] ||
+        (_command === 'serve' && resolvedRemoteEntryFile
+          ? createRemoteEntryAssetMap(resolvedRemoteEntryFile)
+          : createEmptyAssetMap());
 
       return {
         id: `${name}:${formatKey}`,
