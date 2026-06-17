@@ -164,6 +164,29 @@ interface SsrEntryCandidate {
   type: string;
 }
 
+class SsrEntryHttpError extends Error {
+  constructor(
+    readonly url: string,
+    readonly status: number,
+    readonly statusText: string,
+    readonly bodyPreview: string
+  ) {
+    super(
+      `Failed to fetch SSR module "${url}": ${status} ${statusText}` +
+        (bodyPreview ? `\npreview: ${bodyPreview}` : '')
+    );
+    this.name = 'SsrEntryHttpError';
+  }
+}
+
+function getBodyPreview(body: string): string {
+  return body.slice(0, 240).replace(/\s+/g, ' ').trim();
+}
+
+function isSsrEntryHttpError(error: unknown): error is SsrEntryHttpError {
+  return error instanceof SsrEntryHttpError;
+}
+
 async function fetchManifest(manifestUrl: string): Promise<Manifest | null> {
   try {
     const res = await fetch(manifestUrl);
@@ -420,6 +443,10 @@ function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string,
   return code;
 }
 
+function isVitePreloadHelperSpecifier(specifier: string): boolean {
+  return specifier.includes('preload-helper');
+}
+
 /**
  * Fetch an HTTP ESM module, transform it, write it to a temp .js file and
  * return the file path. Recursively does the same for HTTP transitive imports
@@ -437,6 +464,10 @@ async function fetchEsmToTempFile(
   const promise = (async () => {
     const res = await fetch(url);
     let code = await res.text();
+    if (!res.ok) {
+      throw new SsrEntryHttpError(url, res.status, res.statusText, getBodyPreview(code));
+    }
+
     const base = url.replace(/\/[^/]*$/, '/');
 
     // Collect relative HTTP imports before transforming. Keep this pattern
@@ -445,7 +476,10 @@ async function fetchEsmToTempFile(
     const relRegex = /(?:from|export\s*\*\s*from|import\s*(?:\(|\s))\s*["'`]([^"'`\s]+)["'`]/g;
     let m: RegExpExecArray | null;
     while ((m = relRegex.exec(code)) !== null) {
-      if (m[1].startsWith('./') || m[1].startsWith('../')) {
+      if (
+        (m[1].startsWith('./') || m[1].startsWith('../')) &&
+        !isVitePreloadHelperSpecifier(m[1])
+      ) {
         relImports.push(new URL(m[1], base).href);
       }
     }
@@ -554,7 +588,8 @@ async function loadSSRRemoteEntry(
     try {
       const tmpFile = await fetchEsmToTempFile(url, cacheDir, new Map(), sharedPkgMap);
       return await importTempModule(tmpFile);
-    } catch {
+    } catch (error) {
+      if (isSsrEntryHttpError(error)) throw error;
       return null;
     }
   }

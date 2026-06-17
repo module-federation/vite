@@ -13,6 +13,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 type FetchEntry = {
   ok: boolean;
+  status?: number;
+  statusText?: string;
   text?: string;
   json?: unknown;
   headers?: Record<string, string>;
@@ -23,7 +25,8 @@ function makeFetchMock(responses: Record<string, FetchEntry>) {
     const entry = responses[url] ?? { ok: false };
     return {
       ok: entry.ok,
-      status: entry.ok ? 200 : 404,
+      status: entry.status ?? (entry.ok ? 200 : 404),
+      statusText: entry.statusText ?? (entry.ok ? 'OK' : 'Not Found'),
       text: async () => entry.text ?? '',
       json: async () => entry.json ?? {},
       headers: { get: (h: string) => entry.headers?.[h] ?? null },
@@ -656,6 +659,72 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
 // ---------------------------------------------------------------------------
 
 describe('ssrEntryLoaderPlugin — code transformation', () => {
+  it('throws HTTP status details instead of importing a non-ok SSR entry response', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export async function init() { return "loaded-from-404"; }',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await expect(
+      factory().loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:5001/mf-manifest.json' },
+      })
+    ).rejects.toThrow(
+      'Failed to fetch SSR module "http://localhost:5001/remoteEntry.ssr.js": 404 Not Found'
+    );
+    expect(fsMock.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it('throws the missing transitive HTTP module URL when a nested import response is non-ok', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'import { t } from "./assets/missing.js";export async function init() {}',
+      },
+      'http://localhost:5001/assets/missing.js': {
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: { 'content-type': 'text/plain' },
+        text: 'missing chunk',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await expect(
+      factory().loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+      })
+    ).rejects.toThrow(
+      'Failed to fetch SSR module "http://localhost:5001/assets/missing.js": 500 Internal Server Error'
+    );
+    expect(fsMock.writeFileSync).not.toHaveBeenCalled();
+  });
+
   it('fetches transitive relative imports', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
