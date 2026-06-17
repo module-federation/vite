@@ -281,6 +281,7 @@ describe('pluginMFManifest', () => {
       type: 'module',
     });
     expect(manifest.shared[0].assets.js.sync).toEqual(['remoteEntry.js']);
+    expect(manifest.exposes[0].assets.js.sync).toEqual(['remoteEntry.js']);
   });
 
   it('serves hash-pattern dev remoteEntry through stable manifest filename', async () => {
@@ -355,6 +356,7 @@ describe('pluginMFManifest', () => {
 
     expect(manifest.metaData.remoteEntry.name).toBe('remoteEntry.js');
     expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry.ssr.js');
+    expect(manifest.exposes[0].assets.js.sync).toEqual(['remoteEntry.js']);
   });
 
   it('keeps build manifest remoteEntry resolved from emitted bundle', async () => {

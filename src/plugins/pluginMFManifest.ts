@@ -73,6 +73,13 @@ function resolveDevRemoteEntryFileName(fileName: string): string {
   return path.extname(baseName) ? normalized : `${normalized}.js`;
 }
 
+function createRemoteEntryAssetMap(fileName: string) {
+  return {
+    js: { async: [], sync: [fileName] },
+    css: { async: [], sync: [] },
+  };
+}
+
 const Manifest = (): Plugin[] => {
   const mfOptions = getNormalizeModuleFederationOptions();
   const { name, filename, getPublicPath, manifest: manifestOptions, varFilename } = mfOptions;
@@ -375,10 +382,7 @@ const Manifest = (): Plugin[] => {
       const assets =
         preloadMap[shareKey] ||
         (_command === 'serve' && resolvedRemoteEntryFile
-          ? {
-              js: { async: [], sync: [resolvedRemoteEntryFile] },
-              css: { async: [], sync: [] },
-            }
+          ? createRemoteEntryAssetMap(resolvedRemoteEntryFile)
           : createEmptyAssetMap());
 
       return [
@@ -406,7 +410,11 @@ const Manifest = (): Plugin[] => {
     const exposes = Object.entries(options.exposes).map(([key, value]) => {
       const formatKey = key.replace('./', '');
       const sourceFile = value.import;
-      const assets = preloadMap[sourceFile] || createEmptyAssetMap();
+      const assets =
+        preloadMap[sourceFile] ||
+        (_command === 'serve' && resolvedRemoteEntryFile
+          ? createRemoteEntryAssetMap(resolvedRemoteEntryFile)
+          : createEmptyAssetMap());
 
       return {
         id: `${name}:${formatKey}`,
