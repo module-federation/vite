@@ -127,13 +127,15 @@ async function runGenerateBundleWithManifest(
       | undefined
     >;
     dts?: unknown;
+    filename?: string;
+    bundle?: OutputBundle;
   } = {},
   command: 'serve' | 'build' = 'build',
   base = '/'
 ): Promise<Record<string, string>> {
   getNormalizeModuleFederationOptions.mockReturnValue({
     name: 'basicRemote',
-    filename: 'remoteEntry.js',
+    filename: runtime.filename || 'remoteEntry.js',
     getPublicPath: undefined,
     varFilename: undefined,
     dts: runtime.dts,
@@ -199,7 +201,7 @@ async function runGenerateBundleWithManifest(
       }) as ResolvedId,
   };
 
-  await runGenerateBundle(buildPlugin, ctx, makeBundle());
+  await runGenerateBundle(buildPlugin, ctx, runtime.bundle || makeBundle());
   return emitted;
 }
 
@@ -246,6 +248,128 @@ describe('pluginMFManifest', () => {
       path: '/__mf_ssr__/',
       type: 'module',
     });
+  });
+
+  it('uses a served remoteEntry filename for hash patterns in serve manifest', async () => {
+    const emitted = await runGenerateBundleWithManifest(
+      true,
+      {
+        filename: 'remoteEntry-[hash]',
+        exposePaths: {
+          './exposed': { import: './src/exposed.js' },
+        },
+        usedShares: new Set(['react']),
+        shareItems: {
+          react: {
+            version: '18.0.0',
+            shareConfig: { requiredVersion: '^18.0.0', singleton: true },
+          },
+        },
+      },
+      'serve'
+    );
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.metaData.remoteEntry).toMatchObject({
+      name: 'remoteEntry.js',
+      type: 'module',
+    });
+    expect(manifest.metaData.ssrRemoteEntry).toMatchObject({
+      name: 'remoteEntry.ssr.js',
+      path: '/__mf_ssr__/',
+      type: 'module',
+    });
+    expect(manifest.shared[0].assets.js.sync).toEqual(['remoteEntry.js']);
+  });
+
+  it('serves hash-pattern dev remoteEntry through stable manifest filename', async () => {
+    getNormalizeModuleFederationOptions.mockReturnValue({
+      name: 'basicRemote',
+      filename: 'remoteEntry-[hash]',
+      getPublicPath: undefined,
+      varFilename: undefined,
+      manifest: true,
+      exposes: { './exposed': { import: './src/exposed.js' } },
+      remotes: {},
+      shared: {},
+      publicPath: 'auto',
+      bundleAllCSS: false,
+      shareStrategy: 'version-first',
+      implementation: 'module-federation-runtime',
+      runtimePlugins: [],
+      virtualModuleDir: '__mf__virtual',
+      hostInitInjectLocation: 'html',
+      moduleParseTimeout: 10,
+      ignoreOrigin: false,
+    });
+    getUsedRemotesMap.mockReturnValue(new Map());
+    getUsedShares.mockReturnValue(new Set());
+
+    const [servePlugin, buildPlugin] = manifestPlugin();
+    const handlers: Function[] = [];
+
+    callHook(buildPlugin.config, {} as ConfigPluginContext, {}, { command: 'serve', mode: 'test' });
+    callHook(
+      buildPlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        root: '/',
+        base: '/',
+        build: {},
+        server: { origin: 'http://localhost' },
+      } as unknown as ResolvedConfig
+    );
+    callHook(
+      servePlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        base: '/',
+      } as unknown as ResolvedConfig
+    );
+    callHook(
+      servePlugin.configureServer,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        middlewares: { use: (handler: Function) => handlers.push(handler) },
+      } as any
+    );
+
+    const remoteEntryReq = { url: '/remoteEntry.js?cache=1' };
+    const next = vi.fn();
+    handlers[0](remoteEntryReq, {}, next);
+    expect(remoteEntryReq.url).toBe('/remoteEntry-[hash]?cache=1');
+    expect(next).toHaveBeenCalledOnce();
+
+    const source = await new Promise<string>((resolve, reject) => {
+      handlers[0](
+        { url: '/mf-manifest.json' },
+        {
+          setHeader: vi.fn(),
+          end: resolve,
+        },
+        reject
+      );
+    });
+    const manifest = JSON.parse(source);
+
+    expect(manifest.metaData.remoteEntry.name).toBe('remoteEntry.js');
+    expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry.ssr.js');
+  });
+
+  it('keeps build manifest remoteEntry resolved from emitted bundle', async () => {
+    const bundle = makeBundle();
+    const remoteEntry = bundle['remoteEntry.js'] as OutputChunk;
+    remoteEntry.fileName = 'remoteEntry-a1b2c3d4.js';
+    const emitted = await runGenerateBundleWithManifest(true, {
+      filename: 'remoteEntry-[hash]',
+      bundle,
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.metaData.remoteEntry.name).toBe('remoteEntry-a1b2c3d4.js');
+    expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry-a1b2c3d4.ssr.js');
   });
 
   it('emits companion stats file using manifest fileName suffix', async () => {
