@@ -2,6 +2,10 @@
 
 [![npm](https://img.shields.io/npm/v/@module-federation/vite.svg)](https://www.npmjs.com/package/@module-federation/vite)
 
+## Vite and VoidZero recommend this plugin
+
+[Read the announcement](https://www.linkedin.com/posts/voidzero_github-module-federationvite-vite-plugin-activity-7449452398202241024-JyAL).
+
 ## Reason why 🤔
 
 [Microservices](https://martinfowler.com/articles/microservices.html) nowadays is a well-known concept and maybe you are using it in your current company.
