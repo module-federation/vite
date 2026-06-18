@@ -916,8 +916,40 @@ describe('pluginAddEntry', () => {
       '/repo/remote-app/src/main.ts'
     );
 
-    // With forceClientInjected, the fallback path is skipped
+    // With forceClientInjected, the dev HTML fallback path is skipped
     expect(result).toBeUndefined();
+  });
+
+  it('still wraps hydration entry when forceClientInjected is true and inject is entry', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-force-client-hydration-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      forceClientInjected: true,
+    });
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);',
+      '/src/entry-client.tsx'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('await initHost();');
   });
 
   it('does not replace exposed modules that are also rollup inputs', async () => {

@@ -23,7 +23,7 @@ interface AddEntryOptions {
   entryPath: string | (() => string);
   fileName?: string;
   inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
-  /** When true, skip the SSR fallback bootstrap wrapper (used for MF remotes whose HTML is never browser-requested). */
+  /** When true, skip the dev HTML-entry fallback (used for MF remotes whose index.html is never browser-requested). */
   forceClientInjected?: boolean;
   skipTransformFor?: string[];
 }
@@ -133,7 +133,11 @@ const addEntry = ({
   let _command: string;
   let emitFileId: string;
   let viteConfig: any;
-  let clientInjected = forceClientInjected ?? false;
+  // Producer remotes are consumed via federation entry URLs, not their index.html.
+  // Skip only the broad dev HTML fallback — not isHydrationEntryFallback, which
+  // SSR producer apps without index.html still need when hostInitInjectLocation is 'entry'.
+  let skipHtmlDevFallback = forceClientInjected ?? false;
+  let clientInjected = false;
   let emittedFileName: string | undefined;
   let skipTransformIds = new Set<string>();
   let bootstrapDir = '';
@@ -790,6 +794,7 @@ const addEntry = ({
               inject === 'html' &&
               !isVinext &&
               !clientInjected &&
+              !skipHtmlDevFallback &&
               !id.startsWith('\0') &&
               !id.includes('node_modules') &&
               /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) ||

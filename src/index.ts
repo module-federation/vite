@@ -619,6 +619,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       entryName: 'hostInit',
       entryPath: () => getHostAutoInitPath(),
       inject: hostInitInjectLocation,
+      forceClientInjected: Object.keys(options.exposes).length > 0,
       skipTransformFor: Object.values(options.exposes).map((expose) => expose.import),
     }),
     ...addEntry({
