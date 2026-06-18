@@ -1132,6 +1132,43 @@ describe('vite:module-federation-early-init', () => {
     expect(virtualModule?.code).toContain('jsx');
   });
 
+  it('registers zustand shared subpath loadShare modules during early init', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          zustand: {
+            singleton: true,
+          },
+        },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const vanillaImportId = getLoadShareModulePath('zustand/vanilla', false);
+    const reactImportId = getLoadShareModulePath('zustand/react', false);
+    const optimizeDeps = [...config.optimizeDeps.include, ...config.optimizeDeps.exclude];
+
+    expect(VirtualModule.findById(vanillaImportId)?.code).toBeTruthy();
+    expect(VirtualModule.findById(reactImportId)?.code).toBeTruthy();
+    expect(optimizeDeps).toContain('zustand/vanilla');
+    expect(optimizeDeps).toContain('zustand/react');
+  });
+
   it('excludes shared react from dev optimizeDeps when react-redux is installed', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'react-redux'

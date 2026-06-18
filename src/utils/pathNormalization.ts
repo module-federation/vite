@@ -4,6 +4,7 @@ export const COMMON_SHARED_SUBPATHS: Record<string, string[]> = {
   react: ['react/jsx-runtime', 'react/jsx-dev-runtime', 'react/compiler-runtime'],
   'react-dom': ['react-dom/client', 'react-dom/server', 'react-dom/server.browser'],
   'solid-js': ['solid-js/web', 'solid-js/store', 'solid-js/html', 'solid-js/h'],
+  zustand: ['zustand/vanilla', 'zustand/react'],
 };
 
 export function removeTrailingSlash(value: string): string {

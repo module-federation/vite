@@ -140,6 +140,7 @@ const addEntry = ({
   let clientInjected = false;
   let emittedFileName: string | undefined;
   let skipTransformIds = new Set<string>();
+  let injectedTransformIds = new Set<string>();
   let bootstrapDir = '';
 
   function skipSvelteKitSsrBuild() {
@@ -345,6 +346,13 @@ const addEntry = ({
     return normalizeModuleId(path.isAbsolute(id) ? id : path.resolve(viteConfig.root, id));
   }
 
+  function isFederationInternalVirtualId(id: string) {
+    const normalized = decodeViteId(id).replace(/^\0+/, '');
+    return (
+      normalized.includes('virtual:mf:') || /__(?:loadShare|prebuild|loadRemote)__/.test(normalized)
+    );
+  }
+
   function addEntryFile(file: string) {
     const normalized = normalizeModuleId(file);
     if (!entryFiles.includes(normalized)) entryFiles.push(normalized);
@@ -517,11 +525,11 @@ const addEntry = ({
         if (!inputOptions) {
           htmlFilePath = path.resolve(config.root, 'index.html');
         } else if (typeof inputOptions === 'string') {
-          entryFiles = [normalizeModuleId(inputOptions)];
+          entryFiles = [resolveProjectId(inputOptions)];
         } else if (Array.isArray(inputOptions)) {
-          entryFiles = inputOptions.map(normalizeModuleId);
+          entryFiles = inputOptions.map(resolveProjectId);
         } else if (typeof inputOptions === 'object') {
-          entryFiles = Object.values(inputOptions).map((input) => normalizeModuleId(String(input)));
+          entryFiles = Object.values(inputOptions).map((input) => resolveProjectId(String(input)));
         }
 
         if (entryFiles.length > 0) {
@@ -690,7 +698,8 @@ const addEntry = ({
         if (isSvelteKitServerModule(id)) return;
         if (hasEntryBootstrapParam(id)) return;
         if (normalizeModuleId(id).endsWith('.html')) return;
-        if (skipTransformIds.has(resolveProjectId(id))) return;
+        const projectId = resolveProjectId(id);
+        if (skipTransformIds.has(projectId)) return;
         // Only inject into client-side modules. In Vite 8 multi-environment mode
         // this transform also runs for ssr/server environments — injecting there
         // would set clientInjected=true and prevent the real client injection.
@@ -763,6 +772,7 @@ const addEntry = ({
           entryFiles.length === 0 &&
           (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
           !clientInjected &&
+          !isFederationInternalVirtualId(id) &&
           !id.includes('node_modules') &&
           (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
           (/hydrateRoot|createRoot|ReactDOM\.render/.test(code) ||
@@ -779,7 +789,7 @@ const addEntry = ({
           !hasEntryBootstrapParam(id) &&
           !id.includes('node_modules/.vite') &&
           isNuxtEntryAsyncModule &&
-          !entryFiles.some((file) => resolveProjectId(id) === file);
+          !entryFiles.some((file) => projectId === file);
 
         // Nuxt dev loads entry.async.js as the HTML module script; wrapping it in
         // the async host-init bootstrap sets clientInjected before entry.js is
@@ -788,7 +798,8 @@ const addEntry = ({
 
         const shouldInject =
           !skipNuxtDevEntryAsyncInject &&
-          ((injectEntry() && entryFiles.some((file) => resolveProjectId(id) === file)) ||
+          (injectedTransformIds.has(projectId) ||
+            (injectEntry() && entryFiles.some((file) => projectId === file)) ||
             // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
             (_command === 'serve' &&
               inject === 'html' &&
@@ -809,6 +820,7 @@ const addEntry = ({
             isNuxtClientEntryFallback);
         if (shouldInject) {
           clientInjected = true;
+          injectedTransformIds.add(projectId);
           // Non-hostInit injections only need a side-effect import. Host-init
           // bootstrap must await initHost() before the app entry runs — in both
           // build and serve — so bridge-react remotes do not hit
