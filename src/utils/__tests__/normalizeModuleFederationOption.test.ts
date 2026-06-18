@@ -288,6 +288,43 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
+    it('normalizes docs-style trailing slash keys for common subpath shares', () => {
+      const shared = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          'react/': {
+            singleton: true,
+            requiredVersion: '^19.0.0',
+          },
+          'react-dom/': {
+            singleton: true,
+            import: false,
+          },
+          '@scope/ui/': {
+            singleton: true,
+          },
+        },
+      }).shared;
+
+      expect(shared.react).toMatchObject({
+        name: 'react',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^19.0.0',
+        },
+      });
+      expect(shared['react-dom']).toMatchObject({
+        name: 'react-dom',
+        shareConfig: {
+          import: false,
+          singleton: true,
+        },
+      });
+      expect(shared['react/']).toBeUndefined();
+      expect(shared['react-dom/']).toBeUndefined();
+      expect(shared['@scope/ui/']).toBeDefined();
+    });
+
     it('prefers the installed package version over an inferred requiredVersion', () => {
       const path = require('node:path');
       const fs = require('node:fs');

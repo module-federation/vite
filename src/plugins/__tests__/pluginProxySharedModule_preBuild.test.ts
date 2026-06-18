@@ -275,6 +275,7 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(findSharedKey('@scope/ui/button', shared)).toBe('@scope/ui/');
       expect(findSharedKey('vue/dist/vue.esm-bundler.js', shared)).toBe('vue');
       expect(findSharedKey('react/jsx-runtime', shared)).toBe('react');
+      expect(findSharedKey('react-dom/client', shared)).toBe('react-dom');
     });
 
     it('caches per source without changing misses', () => {
