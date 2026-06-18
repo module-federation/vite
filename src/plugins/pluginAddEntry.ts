@@ -747,9 +747,13 @@ const addEntry = ({
 
         // SSR hosts without index.html (Nitro, TanStack Start) and
         // hostInitInjectLocation:'entry' have no rollup input in dev. Match the
-        // client module that hydrates/mounts React so host init runs before
-        // hydrateRoot — required for @module-federation/bridge-react remotes that
-        // call getInstance() on first render.
+        // client module that hydrates/mounts the app so host init runs before
+        // hydrateRoot / app.mount — required for @module-federation/bridge-*
+        // remotes that call getInstance() on first render. Covers React
+        // (hydrateRoot / createRoot / ReactDOM.render) and Vue clients. Vue
+        // entries frequently mount via `app.mount('#app')` while the
+        // createApp/createSSRApp call lives in a separate module, so match a
+        // selector-string mount on its own as well as a co-located createApp.
         const isHydrationEntryFallback =
           inject === 'entry' &&
           entryFiles.length === 0 &&
@@ -757,7 +761,9 @@ const addEntry = ({
           !clientInjected &&
           !id.includes('node_modules') &&
           (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
-          /hydrateRoot|createRoot|ReactDOM\.render/.test(code);
+          (/hydrateRoot|createRoot|ReactDOM\.render/.test(code) ||
+            /\.mount\s*\(\s*['"#]/.test(code) ||
+            (/\.mount\s*\(/.test(code) && /createSSRApp|createApp/.test(code)));
 
         const isNuxtEntryAsyncModule =
           /(?:^|\/)nuxt\/dist\/app\/entry\.async\.js(?:\?|$)/.test(id) && code.includes('entry();');

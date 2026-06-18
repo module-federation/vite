@@ -316,6 +316,54 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toMatch(/^import "\/virtual\/hostInit\.js";\nimport/m);
   });
 
+  // Custom Vue SSR clients (Nitro, not Nuxt) mount via `app.mount('#root')` with
+  // createSSRApp/createApp in a separate module, so the React hydrateRoot match
+  // never fires. The selector-string mount must trigger the same host-init
+  // bootstrap so bridge-vue remotes find an initialized runtime on first render.
+  it('wraps Vue mount entry fallback behind host init during dev serve', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-serve-vue-mount-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      "import { bootstrapApp } from './appBootstrap';\nconst { app } = bootstrapApp();\napp.mount('#root', true);",
+      '/src/entry-client.ts'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain('await __mfHostInit.__tla;');
+    expect(result?.code).toContain('const { initHost } = __mfHostInit;');
+    expect(result?.code).toContain('await initHost();');
+    expect(result?.code).toContain(
+      '})().then(() => import("/src/entry-client.ts?mf-entry-bootstrap"));'
+    );
+  });
+
   it('does not wrap Nuxt dev entry.async (mount hook handles host init)', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-dev-'));
     const plugins = addEntry({
