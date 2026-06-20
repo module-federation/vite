@@ -173,6 +173,28 @@ function appendResolveAlias(config: UserConfig, alias: ResolveAliasEntry): void 
   ];
 }
 
+function hasImportFalseShared(options: NormalizedModuleFederationOptions): boolean {
+  return Object.values(options.shared ?? {}).some((share) => share?.shareConfig?.import === false);
+}
+
+function getRuntimeHelpersImplementation(runtimeImplementation: string): string {
+  const indexEntryMatch = runtimeImplementation.match(/^(.*[\\/])index(\.[cm]?js)$/);
+  if (indexEntryMatch) {
+    return `${indexEntryMatch[1]}helpers${indexEntryMatch[2]}`;
+  }
+
+  const extension = path.extname(runtimeImplementation);
+  if (extension) {
+    return path.join(path.dirname(runtimeImplementation), `helpers${extension}`);
+  }
+
+  if (path.isAbsolute(runtimeImplementation) || runtimeImplementation.startsWith('.')) {
+    return path.join(runtimeImplementation, 'helpers');
+  }
+
+  return `${runtimeImplementation.replace(/\/$/, '')}/helpers`;
+}
+
 const UNSAFE_JS_SOURCE_CHAR_MAP: Record<string, string> = {
   '<': '\\u003C',
   '>': '\\u003E',
@@ -1051,9 +1073,17 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
         isSsrBuild = _command === 'build' && config.build?.ssr === true;
+        const needsSharedProviderSelectionHelper = hasImportFalseShared(options);
+
+        if (needsSharedProviderSelectionHelper) {
+          appendResolveAlias(config, {
+            find: /^@module-federation\/runtime\/helpers$/,
+            replacement: getRuntimeHelpersImplementation(options.implementation),
+          });
+        }
 
         appendResolveAlias(config, {
-          find: '@module-federation/runtime',
+          find: /^@module-federation\/runtime$/,
           replacement: options.implementation,
         });
         config.build ||= {};
@@ -1062,6 +1092,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
+        if (needsSharedProviderSelectionHelper) {
+          config.optimizeDeps.include.push('@module-federation/runtime/helpers');
+        }
 
         // Add all runtime plugins to optimizeDeps to prevent 504 re-optimization.
         // SSR-only plugins import Node modules — exclude them from browser optimisation.

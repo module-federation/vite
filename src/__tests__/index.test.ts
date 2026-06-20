@@ -187,6 +187,25 @@ function getModuleFederationVitePlugin(): FederationPlugin {
   return plugin;
 }
 
+function getModuleFederationVitePluginWithImportFalse(implementation?: string): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      implementation,
+      shared: {
+        react: {
+          singleton: true,
+          import: false,
+        },
+      },
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'module-federation-vite');
+
+  if (!plugin) throw new Error('module-federation-vite plugin not found');
+  return plugin;
+}
+
 function resolvesQuickly(promise: Promise<unknown>) {
   return Promise.race([
     promise.then(() => true),
@@ -1413,12 +1432,111 @@ describe('vite:module-federation-early-init', () => {
     });
 
     const runtimeAlias = config.resolve.alias.find(
-      (alias: { find: string }) => alias.find === '@module-federation/runtime'
+      (alias: { find: string | RegExp }) =>
+        alias.find instanceof RegExp && alias.find.test('@module-federation/runtime')
+    );
+    const runtimeHelpersAlias = config.resolve.alias.find(
+      (alias: { find: string | RegExp }) =>
+        alias.find instanceof RegExp && alias.find.test('@module-federation/runtime/helpers')
     );
 
+    expect(runtimeHelpersAlias).toBeUndefined();
+    expect(runtimeAlias.find).toBeInstanceOf(RegExp);
+    expect((runtimeAlias.find as RegExp).test('@module-federation/runtime/helpers')).toBe(false);
     expect(runtimeAlias.replacement).toEqual(
       expect.stringMatching(/@module-federation\/runtime\/dist\/index\.js$/)
     );
+    expect(config.optimizeDeps.include).toContain('@module-federation/runtime');
+    expect(config.optimizeDeps.include).not.toContain('@module-federation/runtime/helpers');
+  });
+
+  it('aliases runtime helpers to the same runtime package for import:false provider selection', () => {
+    const plugin = getModuleFederationVitePluginWithImportFalse();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      resolve: {
+        alias: [],
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const runtimeAlias = config.resolve.alias.find(
+      (alias: { find: string | RegExp }) =>
+        alias.find instanceof RegExp && alias.find.test('@module-federation/runtime')
+    );
+    const runtimeHelpersAlias = config.resolve.alias.find(
+      (alias: { find: string | RegExp }) =>
+        alias.find instanceof RegExp && alias.find.test('@module-federation/runtime/helpers')
+    );
+
+    expect(runtimeHelpersAlias.find).toBeInstanceOf(RegExp);
+    expect(
+      (runtimeHelpersAlias.find as RegExp).test('@module-federation/runtime/helpers/extra')
+    ).toBe(false);
+    expect(runtimeHelpersAlias.replacement).toEqual(
+      expect.stringMatching(/@module-federation\/runtime\/dist\/helpers\.js$/)
+    );
+    expect(runtimeAlias.replacement).toEqual(
+      expect.stringMatching(/@module-federation\/runtime\/dist\/index\.js$/)
+    );
+    expect(config.optimizeDeps.include).toContain('@module-federation/runtime/helpers');
+  });
+
+  it('derives the runtime helpers alias from custom runtime implementations', () => {
+    const plugin = getModuleFederationVitePluginWithImportFalse('/custom/runtime/dist/index.js');
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      resolve: {
+        alias: [],
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const runtimeHelpersAlias = config.resolve.alias.find(
+      (alias: { find: string | RegExp }) =>
+        alias.find instanceof RegExp && alias.find.test('@module-federation/runtime/helpers')
+    );
+
+    expect(runtimeHelpersAlias.replacement).toBe('/custom/runtime/dist/helpers.js');
+  });
+
+  it('derives the runtime helpers alias from custom runtime package paths', () => {
+    const plugin = getModuleFederationVitePluginWithImportFalse('/custom/runtime');
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      resolve: {
+        alias: [],
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const runtimeHelpersAlias = config.resolve.alias.find(
+      (alias: { find: string | RegExp }) =>
+        alias.find instanceof RegExp && alias.find.test('@module-federation/runtime/helpers')
+    );
+
+    expect(runtimeHelpersAlias.replacement).toBe('/custom/runtime/helpers');
   });
 });
 

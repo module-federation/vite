@@ -21,6 +21,33 @@ function getLastCallFirstArg<T>(mockFn: { mock: { calls: T[][] } }): T | undefin
   return calls.length > 0 ? calls[calls.length - 1][0] : undefined;
 }
 
+type SharedProviderSelector = (
+  versions: Record<string, unknown> | undefined,
+  pkg: string,
+  share: {
+    scope?: string | string[];
+    from?: string;
+    shareConfig: {
+      singleton?: boolean;
+      requiredVersion?: string | false;
+      strictVersion?: boolean;
+    };
+  },
+  strategy: 'version-first' | 'loaded-first'
+) => unknown;
+
+async function getSharedProviderSelector() {
+  const [mod, { share: runtimeShare }] = await Promise.all([
+    import('../virtualRemoteEntry'),
+    import('@module-federation/runtime/helpers'),
+  ]);
+
+  return new Function(
+    'runtimeShare',
+    `${mod.sharedProviderSelectionHelperCode}; return __mfSelectSharedProvider;`
+  )(runtimeShare) as SharedProviderSelector;
+}
+
 vi.mock('../../utils/VirtualModule', () => {
   return {
     default: class MockVirtualModule {
@@ -770,6 +797,200 @@ describe('virtualRemoteEntry', () => {
     );
     expect(code.indexOf('const singletonCacheKey')).toBeLessThan(
       code.indexOf('if (__mfModuleCache.share["default:react@18.3.1"] === undefined)')
+    );
+  });
+
+  it('selects the runtime provider for import:false singleton shares with version-first', async () => {
+    const selectProvider = await getSharedProviderSelector();
+    const react18 = { from: 'host-react-18', lib: () => ({ marker: 'react-18' }), loaded: true };
+    const react19 = { from: 'host-react-19', lib: () => ({ marker: 'react-19' }) };
+
+    expect(
+      selectProvider(
+        {
+          '18.3.1': react18,
+          '19.2.7': react19,
+        },
+        'react',
+        {
+          shareConfig: {
+            singleton: true,
+            requiredVersion: '^19.0.0',
+          },
+        },
+        'version-first'
+      )
+    ).toBe(react19);
+  });
+
+  it('prefers an already loaded provider for import:false shares with loaded-first', async () => {
+    const selectProvider = await getSharedProviderSelector();
+    const loadedReact18 = { from: 'loaded-host-react-18', loaded: true };
+    const react19 = { from: 'host-react-19' };
+
+    expect(
+      selectProvider(
+        {
+          '18.3.1': loadedReact18,
+          '19.2.7': react19,
+        },
+        'react',
+        {
+          shareConfig: {
+            singleton: true,
+            requiredVersion: '^18.0.0',
+          },
+        },
+        'loaded-first'
+      )
+    ).toBe(loadedReact18);
+  });
+
+  it('matches tilde major ranges when selecting import:false providers', async () => {
+    const selectProvider = await getSharedProviderSelector();
+    const react100 = { from: 'host-react-1.0.0' };
+    const react130 = { from: 'host-react-1.3.0' };
+    const react200 = { from: 'host-react-2.0.0' };
+
+    expect(
+      selectProvider(
+        {
+          '1.0.0': react100,
+          '1.3.0': react130,
+          '2.0.0': react200,
+        },
+        'react',
+        {
+          shareConfig: {
+            requiredVersion: '~1',
+          },
+        },
+        'version-first'
+      )
+    ).toBe(react100);
+  });
+
+  it('matches hyphen ranges when selecting import:false providers', async () => {
+    const selectProvider = await getSharedProviderSelector();
+    const dep123 = { from: 'host-dep-1.2.3' };
+    const dep234 = { from: 'host-dep-2.3.4' };
+    const dep240 = { from: 'host-dep-2.4.0' };
+
+    expect(
+      selectProvider(
+        {
+          '1.2.3': dep123,
+          '2.3.4': dep234,
+          '2.4.0': dep240,
+        },
+        'dep',
+        {
+          shareConfig: {
+            requiredVersion: '1.2.3 - 2.3.4',
+          },
+        },
+        'version-first'
+      )
+    ).toBe(dep123);
+  });
+
+  it('does not import runtime share helpers when no import:false share is configured', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    expect(code).not.toContain(
+      'import {share as runtimeShare} from "@module-federation/runtime/helpers";'
+    );
+    expect(code).not.toContain('const __mfSelectSharedProvider');
+  });
+
+  it('uses provider selection helper for import:false remote entry bridging', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: {
+          react: {
+            name: 'react',
+            version: '19.2.0',
+            scope: ['default'],
+            shareConfig: {
+              singleton: true,
+              import: false,
+              requiredVersion: '^19.0.0',
+            },
+          },
+        },
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    expect(code).toContain(
+      'import {share as runtimeShare} from "@module-federation/runtime/helpers";'
+    );
+    expect(code).toContain("__mfSelectSharedProvider(versions, pkg, share, 'version-first')");
+    expect(code).not.toContain('versions[Object.keys(versions)[0]]');
+  });
+
+  it('uses provider selection helper before seeding import:false shares from the global share scope', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: {
+          react: {
+            name: 'react',
+            version: '19.2.0',
+            scope: ['default'],
+            shareConfig: {
+              singleton: true,
+              import: false,
+              requiredVersion: '^19.0.0',
+            },
+          },
+        },
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    expect(code).toContain('const usedShare = usedShared?.[pkg];');
+    expect(code).toContain('const providerEntries = usedShare?.shareConfig?.import === false');
+    expect(code).toContain("__mfSelectSharedProvider(versionMap, pkg, usedShare, 'version-first')");
+    expect(code.indexOf('__mfSelectSharedProvider(versionMap')).toBeLessThan(
+      code.indexOf('for (const [version, provider] of providerEntries)')
     );
   });
 });
