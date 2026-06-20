@@ -31,6 +31,7 @@ import {
   getPackageName,
   resolveImportPath,
 } from './packageUtils';
+import { getCommonSharedSubpaths } from './pathNormalization';
 
 interface ExposesItem {
   import: string;
@@ -247,6 +248,12 @@ function normalizeShareItem(
   };
 }
 
+function normalizeSharedKey(key: string): string {
+  if (!key.endsWith('/')) return key;
+  const baseKey = key.slice(0, -1);
+  return getCommonSharedSubpaths(baseKey).length > 0 ? baseKey : key;
+}
+
 function normalizeShared(
   shared:
     | string[]
@@ -297,17 +304,19 @@ function normalizeShared(
   if (Array.isArray(shared)) {
     shared.forEach((key) => {
       if (isModuleFederationRuntimePackage(key)) return;
-      result[key] = normalizeShareItem(key, key);
-      explicitSharedKeys.add(key);
-      sourceEntries.push([key, key]);
+      const normalizedKey = normalizeSharedKey(key);
+      result[normalizedKey] = normalizeShareItem(normalizedKey, normalizedKey);
+      explicitSharedKeys.add(normalizedKey);
+      sourceEntries.push([normalizedKey, normalizedKey]);
     });
   } else if (typeof shared === 'object') {
     Object.keys(shared).forEach((key) => {
       if (isModuleFederationRuntimePackage(key)) return;
+      const normalizedKey = normalizeSharedKey(key);
       const value = shared[key] as any;
-      result[key] = normalizeShareItem(key, value);
-      explicitSharedKeys.add(key);
-      sourceEntries.push([key, value]);
+      result[normalizedKey] = normalizeShareItem(normalizedKey, value);
+      explicitSharedKeys.add(normalizedKey);
+      sourceEntries.push([normalizedKey, value]);
     });
   }
 

@@ -2,6 +2,10 @@
 
 [![npm](https://img.shields.io/npm/v/@module-federation/vite.svg)](https://www.npmjs.com/package/@module-federation/vite)
 
+## Vite and VoidZero recommend this plugin
+
+[Read the announcement](https://www.linkedin.com/posts/voidzero_github-module-federationvite-vite-plugin-activity-7449452398202241024-JyAL).
+
 ## Reason why 🤔
 
 [Microservices](https://martinfowler.com/articles/microservices.html) nowadays is a well-known concept and maybe you are using it in your current company.
@@ -143,7 +147,9 @@ export default defineConfig({
       // Optional parameter that controls where the host initialization script is injected.
       // By default, it is injected into the index.html file.
       // You can set this to "entry" to inject it into the entry script instead.
-      // Useful if your application does not load from index.html.
+      // Recommended for SSR hosts without index.html (Nitro, TanStack Start) so
+      // initHost() completes before hydrateRoot and @module-federation/bridge-react
+      // remotes render on first paint.
       hostInitInjectLocation: "html", // or "entry"
       // Controls whether all CSS assets from the bundle should be added to every exposed module.
       // When false (default), the plugin will not process any CSS assets.

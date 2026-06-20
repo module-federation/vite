@@ -1,6 +1,6 @@
 {
   "name": "@module-federation/vite",
-  "version": "1.16.8",
+  "version": "1.16.9",
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "main": "./lib/index.js",

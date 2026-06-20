@@ -269,6 +269,242 @@ describe('pluginAddEntry', () => {
     );
   });
 
+  // Nitro/TanStack Start + hostInitInjectLocation:'entry' + bridge-react: dev must
+  // use the same await initHost() bootstrap as build, not a bare side-effect import.
+  it('wraps hydration entry fallback behind host init during dev serve', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-serve-hydration-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);',
+      '/src/entry-client.tsx'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain('await __mfHostInit.__tla;');
+    expect(result?.code).toContain('const { initHost } = __mfHostInit;');
+    expect(result?.code).toContain('await initHost();');
+    expect(result?.code).toContain(
+      '})().then(() => import("/src/entry-client.tsx?mf-entry-bootstrap"));'
+    );
+    expect(result?.code).not.toMatch(/^import "\/virtual\/hostInit\.js";\nimport/m);
+  });
+
+  it('wraps the same dev hydration fallback entry on repeated transforms', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-repeat-hydration-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const code = 'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);';
+    const id = '/src/entry-client.tsx';
+    const first = (await runTransform(buildPlugin, code, id)) as { code: string } | undefined;
+    const second = (await runTransform(buildPlugin, code, id)) as { code: string } | undefined;
+    const other = await runTransform(
+      buildPlugin,
+      'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(otherDocument, otherApp);',
+      '/src/other-client.tsx'
+    );
+
+    expect(first?.code).toContain(
+      '})().then(() => import("/src/entry-client.tsx?mf-entry-bootstrap"));'
+    );
+    expect(second?.code).toContain(
+      '})().then(() => import("/src/entry-client.tsx?mf-entry-bootstrap"));'
+    );
+    expect(other).toBeUndefined();
+  });
+
+  it('does not consume hydration fallback on MF internal virtual share modules', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-mf-virtual-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const internalResult = await runTransform(
+      buildPlugin,
+      'export const hydrateRoot = localShare.hydrateRoot;',
+      '\0virtual:mf:__mfe_internal__host__loadShare__react_mf_2_dom_mf_1_client__loadShare__.js'
+    );
+
+    expect(internalResult).toBeUndefined();
+
+    const entryResult = (await runTransform(
+      buildPlugin,
+      'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);',
+      '/src/entry-client.tsx'
+    )) as { code: string } | undefined;
+
+    expect(entryResult?.code).toContain(
+      'const __mfHostInit = await import("/virtual/hostInit.js");'
+    );
+    expect(entryResult?.code).toContain(
+      '})().then(() => import("/src/entry-client.tsx?mf-entry-bootstrap"));'
+    );
+  });
+
+  // Custom Vue SSR clients (Nitro, not Nuxt) mount via `app.mount('#root')` with
+  // createSSRApp/createApp in a separate module, so the React hydrateRoot match
+  // never fires. The selector-string mount must trigger the same host-init
+  // bootstrap so bridge-vue remotes find an initialized runtime on first render.
+  it('wraps Vue mount entry fallback behind host init during dev serve', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-serve-vue-mount-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      "import { bootstrapApp } from './appBootstrap';\nconst { app } = bootstrapApp();\napp.mount('#root', true);",
+      '/src/entry-client.ts'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain('await __mfHostInit.__tla;');
+    expect(result?.code).toContain('const { initHost } = __mfHostInit;');
+    expect(result?.code).toContain('await initHost();');
+    expect(result?.code).toContain(
+      '})().then(() => import("/src/entry-client.ts?mf-entry-bootstrap"));'
+    );
+  });
+
+  it('wraps relative string rollup input during dev serve', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-relative-input-'));
+    const entryFile = path.join(tempDir, 'app/entry-client.ts');
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: { input: './app/entry-client.ts' } } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: { input: './app/entry-client.ts' } },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      "import { bootstrapApp } from './appBootstrap';\nconst { app } = bootstrapApp();\napp.mount('#root', true);",
+      entryFile
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain(
+      `})().then(() => import(${JSON.stringify(`${entryFile}?mf-entry-bootstrap`)}));`
+    );
+  });
+
   it('does not wrap Nuxt dev entry.async (mount hook handles host init)', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-nuxt-dev-'));
     const plugins = addEntry({
@@ -821,8 +1057,40 @@ describe('pluginAddEntry', () => {
       '/repo/remote-app/src/main.ts'
     );
 
-    // With forceClientInjected, the fallback path is skipped
+    // With forceClientInjected, the dev HTML fallback path is skipped
     expect(result).toBeUndefined();
+  });
+
+  it('still wraps hydration entry when forceClientInjected is true and inject is entry', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-force-client-hydration-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      forceClientInjected: true,
+    });
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);',
+      '/src/entry-client.tsx'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('await initHost();');
   });
 
   it('does not replace exposed modules that are also rollup inputs', async () => {

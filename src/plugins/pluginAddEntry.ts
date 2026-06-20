@@ -23,7 +23,7 @@ interface AddEntryOptions {
   entryPath: string | (() => string);
   fileName?: string;
   inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
-  /** When true, skip the SSR fallback bootstrap wrapper (used for MF remotes whose HTML is never browser-requested). */
+  /** When true, skip the dev HTML-entry fallback (used for MF remotes whose index.html is never browser-requested). */
   forceClientInjected?: boolean;
   skipTransformFor?: string[];
 }
@@ -133,9 +133,14 @@ const addEntry = ({
   let _command: string;
   let emitFileId: string;
   let viteConfig: any;
-  let clientInjected = forceClientInjected ?? false;
+  // Producer remotes are consumed via federation entry URLs, not their index.html.
+  // Skip only the broad dev HTML fallback — not isHydrationEntryFallback, which
+  // SSR producer apps without index.html still need when hostInitInjectLocation is 'entry'.
+  let skipHtmlDevFallback = forceClientInjected ?? false;
+  let clientInjected = false;
   let emittedFileName: string | undefined;
   let skipTransformIds = new Set<string>();
+  let injectedTransformIds = new Set<string>();
   let bootstrapDir = '';
 
   function skipSvelteKitSsrBuild() {
@@ -341,6 +346,13 @@ const addEntry = ({
     return normalizeModuleId(path.isAbsolute(id) ? id : path.resolve(viteConfig.root, id));
   }
 
+  function isFederationInternalVirtualId(id: string) {
+    const normalized = decodeViteId(id).replace(/^\0+/, '');
+    return (
+      normalized.includes('virtual:mf:') || /__(?:loadShare|prebuild|loadRemote)__/.test(normalized)
+    );
+  }
+
   function addEntryFile(file: string) {
     const normalized = normalizeModuleId(file);
     if (!entryFiles.includes(normalized)) entryFiles.push(normalized);
@@ -513,11 +525,11 @@ const addEntry = ({
         if (!inputOptions) {
           htmlFilePath = path.resolve(config.root, 'index.html');
         } else if (typeof inputOptions === 'string') {
-          entryFiles = [normalizeModuleId(inputOptions)];
+          entryFiles = [resolveProjectId(inputOptions)];
         } else if (Array.isArray(inputOptions)) {
-          entryFiles = inputOptions.map(normalizeModuleId);
+          entryFiles = inputOptions.map(resolveProjectId);
         } else if (typeof inputOptions === 'object') {
-          entryFiles = Object.values(inputOptions).map((input) => normalizeModuleId(String(input)));
+          entryFiles = Object.values(inputOptions).map((input) => resolveProjectId(String(input)));
         }
 
         if (entryFiles.length > 0) {
@@ -686,7 +698,8 @@ const addEntry = ({
         if (isSvelteKitServerModule(id)) return;
         if (hasEntryBootstrapParam(id)) return;
         if (normalizeModuleId(id).endsWith('.html')) return;
-        if (skipTransformIds.has(resolveProjectId(id))) return;
+        const projectId = resolveProjectId(id);
+        if (skipTransformIds.has(projectId)) return;
         // Only inject into client-side modules. In Vite 8 multi-environment mode
         // this transform also runs for ssr/server environments — injecting there
         // would set clientInjected=true and prevent the real client injection.
@@ -745,14 +758,26 @@ const addEntry = ({
           );
         }
 
+        // SSR hosts without index.html (Nitro, TanStack Start) and
+        // hostInitInjectLocation:'entry' have no rollup input in dev. Match the
+        // client module that hydrates/mounts the app so host init runs before
+        // hydrateRoot / app.mount — required for @module-federation/bridge-*
+        // remotes that call getInstance() on first render. Covers React
+        // (hydrateRoot / createRoot / ReactDOM.render) and Vue clients. Vue
+        // entries frequently mount via `app.mount('#app')` while the
+        // createApp/createSSRApp call lives in a separate module, so match a
+        // selector-string mount on its own as well as a co-located createApp.
         const isHydrationEntryFallback =
           inject === 'entry' &&
           entryFiles.length === 0 &&
           (!htmlFilePath || !fs.existsSync(htmlFilePath)) &&
           !clientInjected &&
+          !isFederationInternalVirtualId(id) &&
           !id.includes('node_modules') &&
           (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
-          /hydrateRoot|createRoot|ReactDOM\.render/.test(code);
+          (/hydrateRoot|createRoot|ReactDOM\.render/.test(code) ||
+            /\.mount\s*\(\s*['"#]/.test(code) ||
+            (/\.mount\s*\(/.test(code) && /createSSRApp|createApp/.test(code)));
 
         const isNuxtEntryAsyncModule =
           /(?:^|\/)nuxt\/dist\/app\/entry\.async\.js(?:\?|$)/.test(id) && code.includes('entry();');
@@ -764,7 +789,7 @@ const addEntry = ({
           !hasEntryBootstrapParam(id) &&
           !id.includes('node_modules/.vite') &&
           isNuxtEntryAsyncModule &&
-          !entryFiles.some((file) => resolveProjectId(id) === file);
+          !entryFiles.some((file) => projectId === file);
 
         // Nuxt dev loads entry.async.js as the HTML module script; wrapping it in
         // the async host-init bootstrap sets clientInjected before entry.js is
@@ -773,12 +798,14 @@ const addEntry = ({
 
         const shouldInject =
           !skipNuxtDevEntryAsyncInject &&
-          ((injectEntry() && entryFiles.some((file) => resolveProjectId(id) === file)) ||
+          (injectedTransformIds.has(projectId) ||
+            (injectEntry() && entryFiles.some((file) => projectId === file)) ||
             // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
             (_command === 'serve' &&
               inject === 'html' &&
               !isVinext &&
               !clientInjected &&
+              !skipHtmlDevFallback &&
               !id.startsWith('\0') &&
               !id.includes('node_modules') &&
               /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) ||
@@ -793,13 +820,12 @@ const addEntry = ({
             isNuxtClientEntryFallback);
         if (shouldInject) {
           clientInjected = true;
-          // For the dev-mode entry fallback (inject:'entry' with no known entry
-          // files), always use a simple import injection. The getBootstrapSource
-          // wrapper is incompatible with SSR module evaluation — the async IIFE
-          // it generates prevents the module from exporting synchronously.
-          const usesDevEntryFallback =
-            _command === 'serve' && inject === 'entry' && isHydrationEntryFallback;
-          if (!waitsForInit || usesDevEntryFallback) {
+          injectedTransformIds.add(projectId);
+          // Non-hostInit injections only need a side-effect import. Host-init
+          // bootstrap must await initHost() before the app entry runs — in both
+          // build and serve — so bridge-react remotes do not hit
+          // "Module Federation runtime is not initialized" on first paint.
+          if (!waitsForInit) {
             const injection = `import ${JSON.stringify(getEntryPath())};\n`;
             return mapCodeToCodeWithSourcemap(injection + code);
           }
