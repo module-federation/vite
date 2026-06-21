@@ -100,7 +100,8 @@ describe('shared dependencies', () => {
     expect(loadShare).toBeDefined();
     expect(allCode).toContain('const versions =');
     expect(allCode).toContain('[pkg]');
-    expect(allCode).toContain('const provider = versions && versions[Object.keys(versions)[0]]');
+    expect(allCode).toContain('__mfSelectSharedProvider');
+    expect(allCode).not.toContain('versions[Object.keys(versions)[0]]');
     expect(allCode).toContain('__mfModuleCache.share[cacheKey]');
     expect(allCode).not.toContain('initRes.loadShare(pkg');
     expect(loadShare!.code).toContain('initPromise.then');
