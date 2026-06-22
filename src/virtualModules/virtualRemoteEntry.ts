@@ -142,6 +142,7 @@ export function generateLocalSharedImportMap() {
             shareConfig: {
               singleton: ${shareItem.shareConfig.singleton},
               requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
+              strictVersion: ${shareItem.shareConfig.strictVersion},
               ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
             }
           }
@@ -186,6 +187,7 @@ function generateUsedSharedPreloadConfig() {
             shareConfig: {
               singleton: ${shareItem.shareConfig.singleton},
               requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
+              strictVersion: ${shareItem.shareConfig.strictVersion},
               ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
             }
           }`;
@@ -291,6 +293,43 @@ const normalizeRuntimeShareCode = `const __mfNormalizeRuntimeShare = (mod) => {
             return current;
           };`;
 
+// Emitted into remoteEntry for import:false shared provider selection.
+export const sharedProviderSelectionHelperCode = `const __mfOriginalProviderKey = Symbol("mf.originalSharedProvider");
+          const __mfResolveShareHook = { emit: (params) => params };
+          const __mfCreateProviderSelectionVersions = (versions, strategy) => {
+            if (strategy !== "version-first") return versions;
+            const selectionVersions = {};
+            for (const [version, provider] of Object.entries(versions)) {
+              selectionVersions[version] = Object.assign({}, provider, {
+                loaded: false,
+                loading: undefined,
+                lib: undefined,
+                [__mfOriginalProviderKey]: provider
+              });
+            }
+            return selectionVersions;
+          };
+          const __mfSelectSharedProvider = (versions, pkg, share, strategy) => {
+            if (!versions || !share) return undefined;
+            const scopes = Array.isArray(share.scope) ? share.scope : [share.scope || "default"];
+            const selectionVersions = __mfCreateProviderSelectionVersions(versions, strategy);
+            const shareScopeMap = {};
+            for (const scope of scopes) {
+              shareScopeMap[scope || "default"] = { [pkg]: selectionVersions };
+            }
+            const selected = runtimeShare.getRegisteredShare(
+              shareScopeMap,
+              pkg,
+              { ...share, scope: scopes, strategy },
+              __mfResolveShareHook
+            )?.shared;
+            return selected?.[__mfOriginalProviderKey] || selected;
+          };`;
+
+function hasImportFalseShared(options: NormalizedModuleFederationOptions): boolean {
+  return Object.values(options.shared ?? {}).some((share) => share?.shareConfig?.import === false);
+}
+
 export function generateDirectSharedCacheSeedCode(command = 'build') {
   return getOrderedUsedShares()
     .map((pkg) => {
@@ -368,6 +407,7 @@ export function generateRemoteEntry(
   virtualExposesId = getVirtualExposesId(options),
   command = 'build'
 ): string {
+  const needsSharedProviderSelectionHelper = hasImportFalseShared(options);
   const pluginImportNames = options.runtimePlugins.map((p, i) => {
     if (typeof p === 'string') {
       return [`$runtimePlugin_${i}`, `import $runtimePlugin_${i} from "${p}";`, `undefined`];
@@ -390,6 +430,11 @@ export function generateRemoteEntry(
     globalThis.__VUE_HMR_RUNTIME__ = { createRecord() {}, rerender() {}, reload() {} };
   }
   import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
+  ${
+    needsSharedProviderSelectionHelper
+      ? 'import {share as runtimeShare} from "@module-federation/runtime/helpers";'
+      : ''
+  }
   ${pluginImportNames
     .filter((item) => !isSsrOnlyPlugin(item[1]))
     .map((item) => item[1])
@@ -424,6 +469,7 @@ export function generateRemoteEntry(
       }
     }
   }
+  ${needsSharedProviderSelectionHelper ? sharedProviderSelectionHelperCode : ''}
 
   async function getLocalSharedImportMap() {
     if (!localSharedImportMapPromise) {
@@ -453,7 +499,14 @@ export function generateRemoteEntry(
           const scopeShare = scopes?.['${options.shareScope}'];
           if (!scopeShare) continue;
           for (const [pkg, versionMap] of Object.entries(scopeShare)) {
-            for (const [version, provider] of Object.entries(versionMap)) {
+            const usedShare = usedShared?.[pkg];
+            const selectedProvider = usedShare?.shareConfig?.import === false
+              ? __mfSelectSharedProvider(versionMap, pkg, usedShare, '${options.shareStrategy}')
+              : undefined;
+            const providerEntries = usedShare?.shareConfig?.import === false
+              ? Object.entries(versionMap).filter(([, provider]) => provider === selectedProvider)
+              : Object.entries(versionMap);
+            for (const [version, provider] of providerEntries) {
               if (!provider.lib) continue;
               const cacheKey = __mfGetSharedCacheKey(pkg, provider.shareConfig?.singleton, version, ${JSON.stringify(options.shareScope)});
               if (__mfModuleCache.share[cacheKey] !== undefined) continue;
@@ -461,7 +514,6 @@ export function generateRemoteEntry(
               const resolved = await Promise.resolve(mod);
               const normalized = __mfNormalizeRuntimeShare(resolved);
               __mfModuleCache.share[cacheKey] = normalized;
-              const usedShare = usedShared?.[pkg];
               if (provider.shareConfig?.singleton && usedShare) {
                 const usedCacheKey = __mfGetSharedCacheKey(pkg, usedShare.shareConfig?.singleton, usedShare.version, usedShare.scope);
                 if (__mfModuleCache.share[usedCacheKey] === undefined) {
@@ -529,7 +581,7 @@ export function generateRemoteEntry(
       if (share.shareConfig?.import !== false || __mfModuleCache.share[cacheKey] !== undefined) continue;
       ${normalizeRuntimeShareCode}
       const versions = shared?.[pkg];
-      const provider = versions && versions[Object.keys(versions)[0]];
+      const provider = __mfSelectSharedProvider(versions, pkg, share, '${options.shareStrategy}');
       if (!provider) continue;
       const factory = provider.lib || (provider.loading ? await provider.loading : await provider.get?.());
       const mod = typeof factory === "function" ? factory() : factory;
