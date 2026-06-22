@@ -135,6 +135,19 @@ globalThis[__mfCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[__mfCacheGlobalKey].share ||= {};
 globalThis[__mfCacheGlobalKey].remote ||= {};
 const __mfModuleCache = globalThis[__mfCacheGlobalKey];
+for (const __mfShareKey of Object.keys(__mfModuleCache.share)) {
+  if (__mfShareKey.startsWith("default:")) {
+    const __mfLegacyShareKey = __mfShareKey.slice("default:".length);
+    if (__mfModuleCache.share[__mfLegacyShareKey] === undefined) {
+      __mfModuleCache.share[__mfLegacyShareKey] = __mfModuleCache.share[__mfShareKey];
+    }
+  } else if (!__mfShareKey.includes(":")) {
+    const __mfDefaultShareKey = "default:" + __mfShareKey;
+    if (__mfModuleCache.share[__mfDefaultShareKey] === undefined) {
+      __mfModuleCache.share[__mfDefaultShareKey] = __mfModuleCache.share[__mfShareKey];
+    }
+  }
+}
 `;
 }
 
