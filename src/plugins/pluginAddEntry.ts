@@ -317,12 +317,24 @@ const addEntry = ({
     // (notably Safari/JavaScriptCore; V8 happens to win the race). Await the
     // module's exported `__tla` promise before reading `initHost`. No-op under
     // native TLA, where `__tla` is undefined.
+    // After initHost, also await any pending share loads queued by loadShare
+    // modules during init(). When init() seeds the cache with the loadShare
+    // module's _exports (getters returning undefined), the loadShare module
+    // defers real value assignment to an initPromise.then() + ESM import
+    // callback. Those promises are tracked in __mfModuleCache.pendingShareLoads
+    // so the bootstrap can await them before importing the entry, preventing
+    // a race where the entry renders before the ESM import resolves.
+    const pendingShareLoadsAwait = `
+  if (__mfModuleCache.pendingShareLoads) {
+    await Promise.all(__mfModuleCache.pendingShareLoads);
+  }`;
+
     const importCode = `
 (async () => {
   const __mfHostInit = await ${importExpression(initSrc)};
   await __mfHostInit.__tla;
   const { initHost } = __mfHostInit;
-  ${preloadBlock}
+  ${preloadBlock}${pendingShareLoadsAwait}
 })().then(() => ${importExpression(entrySrc)});
 `;
 

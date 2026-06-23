@@ -1647,4 +1647,125 @@ describe('writePreBuildLibPath', () => {
       'export default __mfPrebuildExports.default ?? __mfPrebuildExports;'
     );
   });
+
+  // ── pendingShareLoads: deferred export assignment ──────────────────────────
+  //
+  // Race condition: init() seeds __mfModuleCache.share with the loadShare
+  // module's _exports object (getters returning undefined until initPromise
+  // resolves + ESM import completes). When a cached exportModule exists at
+  // loadShare evaluation time (seeded by initHost → runtime.loadShare), the
+  // else branch must NOT synchronously call __mfApplyLazyShareExports /
+  // __mfApplyHostProvidedExports — that would read the stale undefined getters.
+  // Instead, both branches push their async load promise into
+  // __mfModuleCache.pendingShareLoads so the bootstrap can await them.
+
+  it('pushes lazy share load to pendingShareLoads in else branch (build mode)', () => {
+    const pkg = 'workspace-shared-lib';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // The else branch (cached exportModule) must defer to pendingShareLoads
+    // instead of synchronously calling __mfApplyLazyShareExports.
+    // The asyncLoadCode (initPromise.then → import → __mfApplyLazyShareExports)
+    // must be pushed to pendingShareLoads, not called directly.
+    expect(generatedCode).toContain('__mfModuleCache.pendingShareLoads');
+    // The push must appear in the else branch — verify by checking that
+    // the else block contains pendingShareLoads, not a bare apply.
+    const elseIndex = generatedCode.indexOf('} else {');
+    if (elseIndex !== -1) {
+      const afterElse = generatedCode.slice(elseIndex);
+      expect(afterElse).toContain('pendingShareLoads');
+    }
+  });
+
+  it('pushes lazy share load to pendingShareLoads in client-side undefined branch (build mode)', () => {
+    const pkg = 'workspace-shared-lib';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // The non-SSR undefined branch must also use pendingShareLoads
+    // instead of a bare initPromise.then()
+    expect(generatedCode).toContain('pendingShareLoads');
+    expect(generatedCode).toContain('initPromise.then');
+
+    // Must use the ||= pattern for lazy initialization
+    expect(generatedCode).toContain('||= []');
+  });
+
+  it('does not use bare initPromise.then without pendingShareLoads in build mode', () => {
+    const pkg = 'workspace-shared-lib';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // Every initPromise.then() must be wrapped in a pendingShareLoads push.
+    const pushCount = (generatedCode.match(/pendingShareLoads/g) || []).length;
+    const thenCount = (generatedCode.match(/initPromise\.then/g) || []).length;
+    expect(pushCount).toBeGreaterThanOrEqual(thenCount);
+  });
+
+  it('pushes host-provided share load to pendingShareLoads in else branch (import: false)', () => {
+    const pkg = 'host-only-dep';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // For import:false shares using generateDeferredHostProvidedExports,
+    // the else branch must also defer to pendingShareLoads
+    expect(generatedCode).toContain('pendingShareLoads');
+    expect(generatedCode).toContain('__mfModuleCache.share');
+    expect(generatedCode).toContain('initPromise.then');
+    expect(generatedCode).toContain('||= []');
+  });
 });
