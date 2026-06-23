@@ -359,6 +359,54 @@ describe('pluginMFManifest', () => {
     expect(manifest.exposes[0].assets.js.sync).toEqual(['remoteEntry.js']);
   });
 
+  it('serves hash-pattern dev remoteEntry through stable filename without manifest', () => {
+    getNormalizeModuleFederationOptions.mockReturnValue({
+      name: 'basicRemote',
+      filename: 'remoteEntry-[hash]',
+      getPublicPath: undefined,
+      varFilename: undefined,
+      manifest: undefined,
+      exposes: { './exposed': { import: './src/exposed.js' } },
+      remotes: {},
+      shared: {},
+      publicPath: 'auto',
+      bundleAllCSS: false,
+      shareStrategy: 'version-first',
+      implementation: 'module-federation-runtime',
+      runtimePlugins: [],
+      virtualModuleDir: '__mf__virtual',
+      hostInitInjectLocation: 'html',
+      moduleParseTimeout: 10,
+      ignoreOrigin: false,
+    });
+
+    const [servePlugin, buildPlugin] = manifestPlugin();
+    const handlers: Function[] = [];
+
+    callHook(buildPlugin.config, {} as ConfigPluginContext, {}, { command: 'serve', mode: 'test' });
+    callHook(
+      servePlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        base: '/',
+      } as unknown as ResolvedConfig
+    );
+    callHook(
+      servePlugin.configureServer,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        middlewares: { use: (handler: Function) => handlers.push(handler) },
+      } as any
+    );
+
+    const remoteEntryReq = { url: '/remoteEntry.js?cache=1' };
+    const next = vi.fn();
+    handlers[0](remoteEntryReq, {}, next);
+
+    expect(remoteEntryReq.url).toBe('/remoteEntry-[hash]?cache=1');
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it('keeps build manifest remoteEntry resolved from emitted bundle', async () => {
     const bundle = makeBundle();
     const remoteEntry = bundle['remoteEntry.js'] as OutputChunk;
