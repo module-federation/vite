@@ -91,6 +91,9 @@ type CodeSplittingGroup = {
   priority?: number;
 };
 
+type ViteWatchOptions = NonNullable<NonNullable<UserConfig['server']>['watch']>;
+type ViteWatchConfig = ViteWatchOptions | boolean | null | undefined;
+
 function normalizeVinextRscPreloadHints(code: string): string {
   return code
     .replace(/(:HL\[[^\]\n]*?,)"stylesheet"/g, '$1"style"')
@@ -102,19 +105,26 @@ function ignoreFederationGeneratedFiles(
   options: NormalizedModuleFederationOptions
 ): void {
   config.server ??= {};
-  config.server.watch ??= {};
+  const watch = config.server.watch as ViteWatchConfig;
+
+  if (watch === false || watch === null) {
+    return;
+  }
+
+  const watchOptions = watch === true || watch === undefined ? {} : watch;
+  config.server.watch = watchOptions;
 
   const federationIgnore = (file: string) => shouldIgnoreFile(file, options);
-  const ignored = config.server.watch.ignored;
+  const ignored = watchOptions.ignored;
   if (!ignored) {
-    config.server.watch.ignored = federationIgnore;
+    watchOptions.ignored = federationIgnore;
     return;
   }
   if (Array.isArray(ignored)) {
     ignored.push(federationIgnore);
     return;
   }
-  config.server.watch.ignored = [ignored, federationIgnore];
+  watchOptions.ignored = [ignored, federationIgnore];
 }
 
 function isSharedResolverInternalImporter(importer: string | undefined): boolean {
