@@ -72,8 +72,7 @@
   "dependencies": {
     "@module-federation/dts-plugin": "2.6.0",
     "@module-federation/runtime": "2.6.0",
-    "@module-federation/sdk": "2.6.0",
-    "strip-literal": "^3.1.0"
+    "@module-federation/sdk": "2.6.0"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",

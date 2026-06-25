@@ -18,7 +18,6 @@
  * statically resolve the set of exported names from a federated remote at
  * build time.  Use explicit named re-exports instead.
  */
-import { stripLiteral } from 'strip-literal';
 import type { Plugin } from 'vite';
 import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
@@ -426,39 +425,24 @@ async function collectFromAST(
 // (`export { foo as "bar-baz" }`).  This is acceptable because federated
 // remote module names are always valid JS identifiers.
 
-/** Keyword-aligned bounds for a scan match and its source string, read from the original `code`. */
-function readMatch(match: RegExpMatchArray, code: string, sourceGroup: number) {
-  const indices = match.indices!;
-  const [srcStart, srcEnd] = indices[sourceGroup]!;
-  return {
-    start: match.index! + match[0].search(/\S/),
-    end: match.index! + match[0].length,
-    source: code.slice(srcStart, srcEnd),
-    indices,
-  };
-}
-
 function collectFromRegex(
   code: string,
   isRemoteImport: (source: string) => boolean
 ): ImportInfo[] | undefined {
-  // Match against a comment/string-masked copy of `code` so in-comment
-  // specifiers don't match. stripLiteral also blanks the module-name string,
-  // so we read it (and any other capture) from the original `code` using
-  // per-group indices exposed by the `d` regex flag.
-  const scan = stripLiteral(code);
   const result: ImportInfo[] = [];
+  const codePositions = createCodePositionMap(code);
 
   const importAttributes = String.raw`(?:\s+(?:with|assert)\s+\{[^;]*\})?`;
   const staticRe = new RegExp(
     String.raw`^\s*import\s+([\s\S]*?)\s+from\s+(['"])([^'"]+)\2${importAttributes}\s*;?`,
-    'gmd'
+    'gm'
   );
-  for (const match of scan.matchAll(staticRe)) {
-    const { start, end, source, indices } = readMatch(match, code, 3);
+  for (const match of code.matchAll(staticRe)) {
+    const [full, specifiersPartRaw, , source] = match;
+    if (!codePositions[match.index!]) continue;
     if (!isRemoteImport(source)) continue;
-    const [specStart, specEnd] = indices[1]!;
-    const specifiersPart = code.slice(specStart, specEnd).trim();
+
+    const specifiersPart = specifiersPartRaw.trim();
     if (/^type\s/.test(specifiersPart)) continue;
 
     const nsMatch = specifiersPart.match(/^\*\s+as\s+(\w+)$/);
@@ -466,8 +450,8 @@ function collectFromRegex(
       result.push({
         kind: 'static',
         source,
-        start,
-        end,
+        start: match.index!,
+        end: match.index! + full.length,
         named: [],
         namespaceLocal: nsMatch[1],
       });
@@ -485,8 +469,8 @@ function collectFromRegex(
     result.push({
       kind: 'static',
       source,
-      start,
-      end,
+      start: match.index!,
+      end: match.index! + full.length,
       named,
       defaultLocal: defaultMatch?.[1],
     });
@@ -494,54 +478,109 @@ function collectFromRegex(
 
   const reexportRe = new RegExp(
     String.raw`^\s*export\s+\{([\s\S]*?)\}\s+from\s+(['"])([^'"]+)\2${importAttributes}\s*;?`,
-    'gmd'
+    'gm'
   );
-  for (const match of scan.matchAll(reexportRe)) {
-    const { start, end, source, indices } = readMatch(match, code, 3);
+  for (const match of code.matchAll(reexportRe)) {
+    const [full, specifiersRaw, , source] = match;
+    if (!codePositions[match.index!]) continue;
     if (!isRemoteImport(source)) continue;
-    const [specStart, specEnd] = indices[1]!;
-    const specifiers = parseNamedSpecifiers(code.slice(specStart, specEnd), 'export');
+
+    const specifiers = parseNamedSpecifiers(specifiersRaw, 'export');
     if (specifiers.length === 0) continue;
 
     result.push({
       kind: 'reexport',
       source,
-      start,
-      end,
+      start: match.index!,
+      end: match.index! + full.length,
       specifiers,
     });
   }
 
   const exportAllRe = new RegExp(
     String.raw`^\s*export\s+\*\s+from\s+(['"])([^'"]+)\1${importAttributes}\s*;?`,
-    'gmd'
+    'gm'
   );
-  for (const match of scan.matchAll(exportAllRe)) {
-    const { start, end, source } = readMatch(match, code, 2);
+  for (const match of code.matchAll(exportAllRe)) {
+    const [full, , source] = match;
+    if (!codePositions[match.index!]) continue;
     if (!isRemoteImport(source)) continue;
 
     result.push({
       kind: 'export-all',
       source,
-      start,
-      end,
+      start: match.index!,
+      end: match.index! + full.length,
     });
   }
 
-  const dynamicRe = /import\(\s*(?:\/\*[\s\S]*?\*\/\s*)?(['"])([^'"]+)\1\s*\)/dg;
-  for (const match of scan.matchAll(dynamicRe)) {
-    const { start, end, source } = readMatch(match, code, 2);
+  const dynamicRe = /import\(\s*(?:\/\*[\s\S]*?\*\/\s*)?(['"])([^'"]+)\1\s*\)/g;
+  for (const match of code.matchAll(dynamicRe)) {
+    const [full, , source] = match;
+    if (!codePositions[match.index!]) continue;
     if (!isRemoteImport(source)) continue;
 
     result.push({
       kind: 'dynamic',
-      start,
-      end,
-      originalText: code.slice(start, end),
+      start: match.index!,
+      end: match.index! + full.length,
+      originalText: full,
     });
   }
 
   return result.length > 0 ? result : undefined;
+}
+
+function createCodePositionMap(code: string): boolean[] {
+  const positions = Array(code.length).fill(true);
+
+  function mask(start: number, end: number): void {
+    for (let i = start; i < end; i++) positions[i] = false;
+  }
+
+  for (let i = 0; i < code.length; ) {
+    const char = code[i];
+    const next = code[i + 1];
+
+    if (char === '/' && next === '/') {
+      const start = i;
+      i += 2;
+      while (i < code.length && code[i] !== '\n' && code[i] !== '\r') i++;
+      mask(start, i);
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      const start = i;
+      i += 2;
+      while (i < code.length && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i = Math.min(code.length, i + 2);
+      mask(start, i);
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char;
+      const start = i++;
+      while (i < code.length) {
+        if (code[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (code[i] === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      mask(start, i);
+      continue;
+    }
+
+    i++;
+  }
+
+  return positions;
 }
 
 // ── Plugin factory ────────────────────────────────────────────────
@@ -575,22 +614,18 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
       const matchesRemoteImport = (source: string) => isRemoteImport(source, id);
 
       let imports: ImportInfo[] | undefined;
-      // Only fall through to the regex tier when acorn threw.
-      // A clean parse with no matches means there are no remote imports.
-      let parsedSuccessfully = false;
 
       try {
         const ast = this.parse(code);
         imports = await collectFromAST(ast, code, matchesRemoteImport);
-        parsedSuccessfully = true;
       } catch {
         if ((id.includes('.vue') || id.includes('.svelte')) && /^\s*</.test(code)) return;
-        // Acorn rejects TS/JSX; handled by the regex fallback below.
-      }
-
-      if (!parsedSuccessfully) {
+        // this.parse() delegates to acorn which does not support TypeScript
+        // syntax (import type, interfaces, generics, etc.). Fall back to a
+        // targeted scanner so TS/TSX consumer files are still transformed.
         imports = collectFromRegex(code, matchesRemoteImport);
       }
+
       if (!imports) return;
       return applyRewrites(code, imports, id);
     },

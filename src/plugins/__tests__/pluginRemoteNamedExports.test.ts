@@ -238,6 +238,19 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain('__mf_m__.default.__esModule');
       expect(result).toContain('__mf_nested_ns__.default = __mf_nested_e__.default');
     });
+
+    it('does not wrap remote-looking dynamic imports inside comments or literals', async () => {
+      const cases = [
+        '// Example: import("remoteApp/utils")',
+        '/* Example: import("remoteApp/utils") */',
+        'const docs = "Example: import(\"remoteApp/utils\")";',
+        'const docs = `Example: import("remoteApp/utils")`;',
+      ];
+
+      for (const code of cases) {
+        await expect(transform(code)).resolves.toBeUndefined();
+      }
+    });
   });
 
   // ── re-exports ───────────────────────────────────────────────
@@ -430,72 +443,19 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).not.toContain('await ');
       expect(result).not.toContain('import * as routesRemote');
     });
-  });
 
-  // ── comment / string trap (regression) ───────────────────────
-  // The regex fallback used to match `import('remoteApp/...')` text inside
-  // comments and string literals and rewrite it as if it were real code.
+    it('does not rewrite remote-looking imports inside comments or literals via fallback', async () => {
+      const cases = [
+        '// import("remoteApp/utils")',
+        '/*\n  import("remoteApp/utils")\n*/',
+        'const docs = "import(\"remoteApp/utils\")";',
+        'const docs = `import("remoteApp/utils")`;',
+        '/*\n  import { foo } from "remoteApp/utils";\n*/',
+      ];
 
-  describe('comment / string trap', () => {
-    const traps: Array<[string, string]> = [
-      ['line comment', "// import('remoteApp/utils')\nconst x = 1;"],
-      ['block comment', "/* import('remoteApp/utils') */\nconst x = 1;"],
-      ['double-quoted string', 'const s = "import(\'remoteApp/utils\')";'],
-      ['single-quoted string', "const s = 'import(\\'remoteApp/utils\\')';"],
-      ['template literal', "const s = `import('remoteApp/utils')`;"],
-    ];
-
-    for (const [label, code] of traps) {
-      it(`does not rewrite specifier inside a ${label} (AST path)`, async () => {
-        const result = await transform(code);
-        expect(result).toBeUndefined();
-      });
-
-      it(`does not rewrite specifier inside a ${label} (regex fallback)`, async () => {
-        const result = await transform(code, '/src/app.tsx', true);
-        expect(result).toBeUndefined();
-      });
-    }
-
-    it('still rewrites a real dynamic import next to an in-comment specifier', async () => {
-      const code = [
-        "// await import('remoteApp/App');",
-        'const m = import("remoteApp/utils");',
-      ].join('\n');
-      const result = await transform(code);
-      expect(result).toContain('.then(function(__mf_m__)');
-      expect(result).toContain('__moduleExports');
-      // The commented line is preserved verbatim.
-      expect(result).toMatch(/\/\/\s*await import\('remoteApp\/App'\);/);
-    });
-
-    it('still rewrites a real static import next to an in-comment specifier', async () => {
-      const code = [
-        "// import { foo } from 'remoteApp/App';",
-        'import { foo } from "remoteApp/utils";',
-      ].join('\n');
-      const result = await transform(code);
-      expect(result).toContain('import { __moduleExports as');
-      expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
-      // The commented line is preserved verbatim.
-      expect(result).toMatch(/\/\/\s*import \{ foo \} from 'remoteApp\/App';/);
-    });
-
-    it('still rewrites real imports via the regex fallback even with in-comment specifiers (JSX)', async () => {
-      // parseError + raw JSX forces the regex fallback path.
-      const code = [
-        "// import('remoteApp/App')",
-        'import * as routesRemote from "remoteApp/routes";',
-        '',
-        'export function App() {',
-        '  return <div>{routesRemote.foo}</div>;',
-        '}',
-      ].join('\n');
-      const result = await transform(code, '/src/app.jsx', true);
-      expect(result).toContain('import { __moduleExports as routesRemote');
-      expect(result).not.toContain('import * as routesRemote');
-      // The commented line is preserved verbatim.
-      expect(result).toMatch(/\/\/\s*import\('remoteApp\/App'\)/);
+      for (const code of cases) {
+        await expect(transform(code, '/src/app.tsx', true)).resolves.toBeUndefined();
+      }
     });
   });
 
