@@ -6,6 +6,23 @@
 
 [Read the announcement](https://www.linkedin.com/posts/voidzero_github-module-federationvite-vite-plugin-activity-7449452398202241024-JyAL).
 
+<div align="center">
+  <h2>Gold Sponsor</h2>
+  <a href="https://www.zephyr-cloud.io/">
+    <img src="./docs/sponsors/zephyr-logo.png" alt="Zephyr Cloud" width="360" />
+  </a>
+
+  <h3>Sponsors</h3>
+  <p>
+    <a href="https://github.com/thecoder93">
+      <img src="https://github.com/thecoder93.png?size=96" alt="thecoder93" width="64" height="64" />
+    </a>
+    <a href="https://github.com/stephanelgrg">
+      <img src="https://github.com/stephanelgrg.png?size=96" alt="stephanelgrg" width="64" height="64" />
+    </a>
+  </p>
+</div>
+
 ## Reason why 🤔
 
 [Microservices](https://martinfowler.com/articles/microservices.html) nowadays is a well-known concept and maybe you are using it in your current company.
