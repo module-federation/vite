@@ -303,12 +303,19 @@ export function rewriteSystemProxyConsumers(
 }
 
 export function findRemoteEntryFile(filename: string, bundle: Record<string, OutputBundleItem>) {
-  for (const [_, fileData] of Object.entries(bundle)) {
+  // The container is emitted with this exact `fileName`, so match it directly: matching
+  // by `name` alone can pick a same-named expose chunk, which lacks the container's
+  // `init`/`get`. The name heuristic stays as a fallback for hashed/dev filenames.
+  const strippedName = filename.replace(/[\[\]]/g, '_').replace(/\.[^/.]+$/, '');
+  let fallback: string | undefined;
+  for (const fileData of Object.values(bundle)) {
+    if (fileData.fileName === filename) return fileData.fileName;
     if (
-      filename.replace(/[\[\]]/g, '_').replace(/\.[^/.]+$/, '') === fileData.name ||
-      fileData.name === 'remoteEntry'
+      fallback === undefined &&
+      (strippedName === fileData.name || fileData.name === 'remoteEntry')
     ) {
-      return fileData.fileName; // We can return early since we only need to find remoteEntry once
+      fallback = fileData.fileName;
     }
   }
+  return fallback;
 }

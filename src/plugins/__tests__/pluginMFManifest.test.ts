@@ -422,6 +422,31 @@ describe('pluginMFManifest', () => {
     expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry-a1b2c3d4.ssr.js');
   });
 
+  // An expose basenamed like the container gets the same chunk name; even emitted first,
+  // the manifest must point at the container, not the expose. Covers a camelCase
+  // `remoteEntry.js` and a kebab `remote-entry.js` filename.
+  it.each(['remote-entry', 'remoteEntry'])(
+    'resolves the build remoteEntry to the %s container, not a same-named expose',
+    async (base) => {
+      const filename = `${base}.js`;
+      const exposeFile = `assets/${base}-abc123.js`;
+      const container = {
+        ...(makeBundle()['remoteEntry.js'] as OutputChunk),
+        fileName: filename,
+        name: base,
+      };
+      const bundle: OutputBundle = {
+        [exposeFile]: { ...container, fileName: exposeFile, facadeModuleId: '/src/expose.js' },
+        [filename]: container,
+      };
+
+      const emitted = await runGenerateBundleWithManifest(true, { bundle, filename });
+      const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+      expect(manifest.metaData.remoteEntry.name).toBe(filename);
+    }
+  );
+
   it('emits companion stats file using manifest fileName suffix', async () => {
     const emitted = await runGenerateBundleWithManifest({
       fileName: 'path/custom-manifest.json',
