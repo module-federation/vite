@@ -1187,6 +1187,15 @@ describe('vite:module-federation-early-init', () => {
     expect(
       resolver.resolveId('react/jsx-runtime', '/repo/src/App.cjs', { kind: 'require-call' })
     ).toBeUndefined();
+    expect(resolver.resolveId('react', '/repo/src/App.cjs', { kind: 'require-call' })).toEqual({
+      id: 'module-federation:optimized-require-react',
+    });
+    expect(
+      resolver.resolveId(toViteOptimizedDepVirtualId(getLoadShareModulePath('react', true)))
+    ).toEqual({
+      id: toViteOptimizedDepVirtualId(getLoadShareModulePath('react', true)),
+      external: true,
+    });
     expect(resolver.resolveId('react/jsx-runtime', '/repo/src/App.tsx')).toEqual({
       id: getLoadShareModulePath('react/jsx-runtime', true),
       external: true,

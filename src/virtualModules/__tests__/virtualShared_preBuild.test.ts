@@ -28,6 +28,18 @@ vi.mock('../../utils/logger', () => ({
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
+  getSharedCacheDescriptor: (
+    pkg: string,
+    shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
+  ) => {
+    const scope = shareItem.scope || 'default';
+    const id =
+      shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`;
+    return {
+      canonical: `${scope}:${id}`,
+      ...(scope === 'default' ? { aliases: [id] } : {}),
+    };
+  },
   getSharedCacheKey: (
     pkg: string,
     shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
@@ -37,6 +49,35 @@ vi.mock('../../utils/packageUtils', () => ({
       ? `${prefix}${pkg}`
       : `${prefix}${pkg}@${shareItem.version}`;
   },
+  sharedCacheHelperCode: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
+            const scopeName = normalizedScope || "default";
+            const id = singleton || !version ? pkg : pkg + "@" + version;
+            const descriptor = { canonical: scopeName + ":" + id };
+            if (scopeName === "default") descriptor.aliases = [id];
+            return descriptor;
+          };
+          const __mfReadSharedCache = (cache, descriptor) => {
+            const value = cache[descriptor.canonical];
+            if (value !== undefined) return value;
+            const aliases = descriptor.aliases || [];
+            for (const alias of aliases) {
+              const aliasValue = cache[alias];
+              if (aliasValue !== undefined) {
+                cache[descriptor.canonical] = aliasValue;
+                return aliasValue;
+              }
+            }
+            return undefined;
+          };
+          const __mfWriteSharedCache = (cache, descriptor, value) => {
+            cache[descriptor.canonical] = value;
+            const aliases = descriptor.aliases || [];
+            for (const alias of aliases) {
+              if (cache[alias] === undefined) cache[alias] = value;
+            }
+            return value;
+          };`,
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
@@ -806,7 +847,9 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).toContain('const __mfCacheGlobalKey =');
-    expect(generatedCode).toContain('__mfModuleCache.share["default:mock-package-with-reserved"]');
+    expect(generatedCode).toContain(
+      '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:mock-package-with-reserved","aliases":["mock-package-with-reserved"]})'
+    );
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode).not.toContain('import { initPromise } from');
     expect(generatedCode).not.toContain('require("mock-import-id")');
@@ -830,8 +873,39 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).not.toContain('__mfModuleCache.share["default:zustand"]');
-    expect(generatedCode).toContain('__mfModuleCache.share["default:zustand@4.5.7"]');
+    expect(generatedCode).not.toContain('"canonical":"default:zustand","aliases":["zustand"]');
+    expect(generatedCode).toContain('"canonical":"default:zustand@4.5.7"');
+    expect(generatedCode).toContain('"aliases":["zustand@4.5.7"]');
+  });
+
+  it('uses shared cache compatibility helpers in loadShare modules', () => {
+    const pkg = 'react';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '19.2.7',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^19.2.7',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const __mfGetSharedCacheDescriptor =');
+    expect(generatedCode).toContain(
+      '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:react","aliases":["react"]})'
+    );
+    expect(generatedCode).toContain(
+      '__mfWriteSharedCache(__mfModuleCache.share, {"canonical":"default:react","aliases":["react"]}, exportModule)'
+    );
+    expect(generatedCode).not.toContain(
+      'let exportModule = __mfModuleCache.share["default:react"]'
+    );
   });
 
   it('unwraps default exports for shared ESM modules', () => {
@@ -989,9 +1063,36 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('__mfModuleCache.share["default:react"]');
+    expect(generatedCode).toContain(
+      '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:react","aliases":["react"]})'
+    );
     expect(generatedCode).not.toContain('providerModulePromise');
     expect(generatedCode).not.toContain('await ');
+  });
+
+  it('reads React compiler runtime internals from the compatible React cache key', () => {
+    const pkg = 'react/compiler-runtime';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '19.2.7',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^19.2.7',
+      },
+      scope: 'default',
+    };
+
+    writePreBuildLibPath(pkg, mockShareItem);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const __mfGetSharedCacheDescriptor =');
+    expect(generatedCode).toContain(
+      '__mfReadSharedCache(cache, {"canonical":"default:react","aliases":["react"]})'
+    );
+    expect(generatedCode).not.toContain("cache?.['react']");
   });
 
   it('falls back to parsing ESM exports when require() cannot load the shared package', () => {
@@ -1065,7 +1166,9 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toMatch(/import\s+["']host-only-dep["']/);
     // Should not have export * (no local source to re-export from)
     expect(generatedCode).not.toContain('export *');
-    expect(generatedCode).toContain('__mfModuleCache.share["default:host-only-dep"]');
+    expect(generatedCode).toContain(
+      '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:host-only-dep","aliases":["host-only-dep"]})'
+    );
     expect(generatedCode).toContain('export { __mf_default as default }');
   });
 
@@ -1091,7 +1194,9 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('export *');
-    expect(generatedCode).toContain('__mfModuleCache.share["default:host-only-dep"]');
+    expect(generatedCode).toContain(
+      '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:host-only-dep","aliases":["host-only-dep"]})'
+    );
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode).toContain('initPromise.then');
     expect(generatedCode).toContain('export { __mf_default as default }');
@@ -1120,7 +1225,9 @@ describe('writeLoadShareModule', () => {
 
     // Should NOT reference prebuild modules
     expect(generatedCode).not.toContain('__prebuild__');
-    expect(generatedCode).toContain('__mfModuleCache.share["default:mock-package-with-reserved"]');
+    expect(generatedCode).toContain(
+      '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:mock-package-with-reserved","aliases":["mock-package-with-reserved"]})'
+    );
     // Should have named exports destructured from the runtime-provided module
     expect(generatedCode).toContain('__mf_0 as delete');
     expect(generatedCode).toContain('__mf_1 as get');

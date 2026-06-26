@@ -8,9 +8,10 @@ import {
 import {
   getInstalledPackageJson,
   getPackageName,
-  getSharedCacheKey,
+  getSharedCacheDescriptor,
   hasPackageDependency,
   packageNameEncode,
+  sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
 import VirtualModule from '../utils/VirtualModule';
@@ -261,8 +262,8 @@ function getShareItemForPreload(pkg: string) {
 }
 
 function generateSharedCacheSeedItem(pkg: string, shareItem: ShareItem, importPath: string) {
-  const cacheKey = getSharedCacheKey(pkg, shareItem);
-  return `if (__mfModuleCache.share[${JSON.stringify(cacheKey)}] === undefined) {
+  const cacheDescriptor = getSharedCacheDescriptor(pkg, shareItem);
+  return `if (__mfReadSharedCache(__mfModuleCache.share, ${JSON.stringify(cacheDescriptor)}) === undefined) {
         const mod = await import(${JSON.stringify(importPath)});
         ${normalizeRuntimeShareCode}
         const normalizedModule = __mfNormalizeRuntimeShare(mod);
@@ -271,15 +272,9 @@ function generateSharedCacheSeedItem(pkg: string, shareItem: ShareItem, importPa
           value: true,
           enumerable: false
         });
-        __mfModuleCache.share[${JSON.stringify(cacheKey)}] = exportModule;
+        __mfWriteSharedCache(__mfModuleCache.share, ${JSON.stringify(cacheDescriptor)}, exportModule);
       }`;
 }
-
-const sharedCacheKeyHelperCode = `const __mfGetSharedCacheKey = (pkg, singleton, version, scope) => {
-            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
-            const prefix = (normalizedScope || "default") + ":";
-            return singleton || !version ? prefix + pkg : prefix + pkg + "@" + version;
-          };`;
 
 const normalizeRuntimeShareCode = `const __mfNormalizeRuntimeShare = (mod) => {
             let current = mod;
@@ -489,7 +484,7 @@ export function generateRemoteEntry(
   }
 
   async function init(shared = {}, initScope = []) {
-    ${sharedCacheKeyHelperCode}
+    ${sharedCacheHelperCode}
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
     try {
       const allInstances = globalThis.__FEDERATION__?.__SHARE__;
@@ -508,16 +503,16 @@ export function generateRemoteEntry(
               : Object.entries(versionMap);
             for (const [version, provider] of providerEntries) {
               if (!provider.lib) continue;
-              const cacheKey = __mfGetSharedCacheKey(pkg, provider.shareConfig?.singleton, version, ${JSON.stringify(options.shareScope)});
-              if (__mfModuleCache.share[cacheKey] !== undefined) continue;
+              const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, provider.shareConfig?.singleton, version, ${JSON.stringify(options.shareScope)});
+              if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) continue;
               const mod = typeof provider.lib === "function" ? provider.lib() : provider.lib;
               const resolved = await Promise.resolve(mod);
               const normalized = __mfNormalizeRuntimeShare(resolved);
-              __mfModuleCache.share[cacheKey] = normalized;
+              __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, normalized);
               if (provider.shareConfig?.singleton && usedShare) {
-                const usedCacheKey = __mfGetSharedCacheKey(pkg, usedShare.shareConfig?.singleton, usedShare.version, usedShare.scope);
-                if (__mfModuleCache.share[usedCacheKey] === undefined) {
-                  __mfModuleCache.share[usedCacheKey] = normalized;
+                const usedCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, usedShare.shareConfig?.singleton, usedShare.version, usedShare.scope);
+                if (__mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor) === undefined) {
+                  __mfWriteSharedCache(__mfModuleCache.share, usedCacheDescriptor, normalized);
                 }
               }
             }
@@ -528,11 +523,12 @@ export function generateRemoteEntry(
       console.error('[Module Federation] Failed to bridge external shared modules', e)
     }
     for (const [pkg, share] of Object.entries(usedShared)) {
-      const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);
-      if (__mfModuleCache.share[cacheKey] !== undefined) continue;
-      const singletonCacheKey = __mfGetSharedCacheKey(pkg, true, share.version, share.scope);
-      if (__mfModuleCache.share[singletonCacheKey] !== undefined) {
-        __mfModuleCache.share[cacheKey] = __mfModuleCache.share[singletonCacheKey];
+      const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+      if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) continue;
+      const singletonCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, true, share.version, share.scope);
+      const singletonModule = __mfReadSharedCache(__mfModuleCache.share, singletonCacheDescriptor);
+      if (singletonModule !== undefined) {
+        __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, singletonModule);
       }
     }
     ${generateDirectSharedCacheSeedCode(command)}
@@ -577,8 +573,8 @@ export function generateRemoteEntry(
       console.error('[Module Federation]', e)
     }
     for (const [pkg, share] of Object.entries(usedShared)) {
-      const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);
-      if (share.shareConfig?.import !== false || __mfModuleCache.share[cacheKey] !== undefined) continue;
+      const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+      if (share.shareConfig?.import !== false || __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) continue;
       ${normalizeRuntimeShareCode}
       const versions = shared?.[pkg];
       const provider = __mfSelectSharedProvider(versions, pkg, share, '${options.shareStrategy}');
@@ -586,7 +582,7 @@ export function generateRemoteEntry(
       const factory = provider.lib || (provider.loading ? await provider.loading : await provider.get?.());
       const mod = typeof factory === "function" ? factory() : factory;
       const resolved = await Promise.resolve(mod);
-      __mfModuleCache.share[cacheKey] = __mfNormalizeRuntimeShare(resolved);
+      __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, __mfNormalizeRuntimeShare(resolved));
     }
     return initRes
   }
@@ -620,18 +616,18 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
     async function initHost() {
       if (!hostInitPromise) {
         hostInitPromise = (async () => {
+          ${sharedCacheHelperCode}
           ${generateHostAutoInitSharedCacheSeedCode(_command)}
           const remoteEntry = await import(${remoteEntryImport});
           const runtime = await remoteEntry.init();
           const usedShared = ${generateUsedSharedPreloadConfig()};
-          ${sharedCacheKeyHelperCode}
           ${normalizeRuntimeShareCode}
           ${
             shouldPreloadShares
               ? `
           for (const [pkg, share] of Object.entries(usedShared)) {
-            const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);
-            if (__mfModuleCache.share[cacheKey] !== undefined) {
+            const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+            if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) {
               continue;
             }
             await runtime.loadShare(pkg, {
@@ -639,7 +635,7 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
             }).then((factory) => {
               const mod = typeof factory === "function" ? factory() : factory;
               return Promise.resolve(mod).then((resolved) => {
-                __mfModuleCache.share[cacheKey] = __mfNormalizeRuntimeShare(resolved);
+                __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, __mfNormalizeRuntimeShare(resolved));
               });
             });
           }
