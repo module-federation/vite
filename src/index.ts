@@ -327,14 +327,45 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             optimizeDeps.rolldownOptions.plugins ??= [];
             optimizeDeps.rolldownOptions.plugins.push({
               name: 'module-federation:optimize-shared-resolver',
+              load(id: string) {
+                if (id !== 'module-federation:optimized-require-react') return;
+                const loadSharePath = getLoadShareModulePath('react', isRolldown);
+                const optimizedLoadSharePath = toViteOptimizedDepVirtualId(loadSharePath);
+                const source = JSON.stringify(optimizedLoadSharePath);
+                return (
+                  'import * as __mfShared from ' +
+                  source +
+                  ';\n' +
+                  'export * from ' +
+                  source +
+                  ';\n' +
+                  'export default __mfShared.default ?? __mfShared;'
+                );
+              },
               resolveId(source: string, importer?: string, options?: { kind?: string }) {
-                if (options?.kind?.startsWith('require')) return;
+                if (createViteEncodedIdPrefixRegExp('virtual:mf:').test(source)) {
+                  return { id: source, external: true };
+                }
                 if (isSharedResolverInternalImporter(importer)) return;
-                if (isCommonJsImporter(importer)) return;
                 const key = findSharedKey(source, shared);
                 if (!key) return;
                 if (source.endsWith('.css')) return;
                 const shareItem = shared[key];
+                const isReactSingleton =
+                  source === 'react' &&
+                  key === 'react' &&
+                  shareItem.shareConfig?.singleton === true;
+                const isReactRequire = options?.kind?.startsWith('require') && isReactSingleton;
+                if (options?.kind?.startsWith('require') && !isReactSingleton) return;
+                if (isCommonJsImporter(importer) && !isReactSingleton) return;
+                if (isReactRequire) {
+                  writeLoadShareModule(source, shareItem, _command, isRolldown);
+                  if (shareItem.shareConfig?.import !== false) {
+                    writePreBuildLibPath(source, shareItem);
+                  }
+                  addUsedShares(source);
+                  return { id: 'module-federation:optimized-require-react' };
+                }
                 const loadSharePath = getLoadShareModulePath(source, isRolldown);
                 writeLoadShareModule(source, shareItem, _command, isRolldown);
                 if (shareItem.shareConfig?.import !== false) {
