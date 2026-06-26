@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type {
   ConfigEnv,
   ConfigPluginContext,
@@ -44,6 +45,8 @@ import { federation } from '../index';
 import VirtualModule from '../utils/VirtualModule';
 import { getPreBuildLibImportId, LOAD_SHARE_TAG, PREBUILD_TAG } from '../virtualModules';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
+
+const REACT_EXAMPLE_ROOT = path.join(process.cwd(), 'examples/vite-vite/vite-host');
 
 type FederationPlugin = Plugin;
 function createChunk(fileName: string, code: string): Rollup.OutputBundle[string] {
@@ -1193,7 +1196,7 @@ describe('vite:module-federation-early-init', () => {
   it('registers common shared subpath loadShare modules during early init', () => {
     const plugin = getEarlyInitPluginWithReactShared();
     const config: any = {
-      root: process.cwd(),
+      root: REACT_EXAMPLE_ROOT,
       optimizeDeps: {
         include: [],
         exclude: [],

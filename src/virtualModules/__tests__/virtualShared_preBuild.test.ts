@@ -283,6 +283,7 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/workspace-cycle-a/package.json') ||
       filePath.endsWith('/repo/packages/workspace-cycle-b/package.json') ||
       filePath.endsWith('/repo/packages/workspace-producer/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-producer/src/index.ts') ||
       filePath.endsWith('/repo/packages/workspace-consumer/package.json') ||
       filePath.endsWith('/repo/packages/workspace-dual-format/package.json') ||
       filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js') ||
@@ -462,6 +463,9 @@ export const [firstItem, ...restItems] = tuple;`;
         dependencies: { 'workspace-cycle-a': 'workspace:*' },
       });
     }
+    if (filePath.endsWith('/repo/packages/workspace-producer/src/index.ts')) {
+      return 'export const useProducer = () => 1; export function createProducer() {}';
+    }
     if (filePath.endsWith('/repo/packages/workspace-dual-format/package.json')) {
       return JSON.stringify({
         name: 'workspace-dual-format',
@@ -536,6 +540,14 @@ vi.mock('module', async (importOriginal) => {
             ångstrom: 1,
             café: 2,
             default: 3,
+            __esModule: true,
+          };
+        }
+        if (pkg === 'workspace-producer') {
+          return {
+            useProducer: () => 1,
+            createProducer: () => ({}),
+            default: {},
             __esModule: true,
           };
         }
@@ -1641,6 +1653,10 @@ describe('writeLoadShareModule', () => {
       'import * as __mfLocalShare from "/repo/packages/workspace-producer/src/index.ts";'
     );
     expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).toContain('const __mf_0 = exportModule["useProducer"];');
+    expect(generatedCode).toContain('const __mf_1 = exportModule["createProducer"];');
+    expect(generatedCode).toContain('export { __mf_0 as useProducer, __mf_1 as createProducer };');
+    expect(generatedCode).not.toContain('export { useProducer, createProducer } from');
     expect(generatedCode).not.toContain('initPromise.then');
     expect(generatedCode).toContain('Promise.resolve().then');
   });

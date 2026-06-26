@@ -1,9 +1,12 @@
+import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { HtmlTagDescriptor, MinimalPluginContextWithoutEnvironment } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from '../pluginDevRemoteHmr';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
+
+const REACT_EXAMPLE_ROOT = path.join(process.cwd(), 'examples/vite-vite/vite-remote');
 const { mfWarn } = vi.hoisted(() => ({
   mfWarn: vi.fn(),
 }));
@@ -283,7 +286,10 @@ describe('pluginDevRemoteHmr', () => {
 
     function createReactRemoteServer() {
       return createServer({
-        config: { plugins: [{ name: 'vite:react-refresh' }] },
+        config: {
+          root: REACT_EXAMPLE_ROOT,
+          plugins: [{ name: 'vite:react-refresh' }],
+        },
       });
     }
 
