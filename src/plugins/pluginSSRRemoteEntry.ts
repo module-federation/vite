@@ -30,6 +30,8 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let isRolldown = false;
   let ssrOutputFilename = '';
   let ssrOutputFiles = new Set<string>();
+  let ssrOutputDir = '';
+  let clientOutputDir = '';
 
   // MF internal packages must be external for the SSR entry (Node resolves
   // them via its module cache) but must NOT be global externals — they need
@@ -397,33 +399,42 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
       writeBundle(outputOptions) {
         const environmentName = (this as { environment?: { name?: string } }).environment?.name;
-        if (environmentName !== 'ssr' || ssrOutputFiles.size === 0) return;
-
-        const ssrOutDir = outputOptions.dir;
-        const clientOutDir = viteConfig?.environments?.client?.build?.outDir;
-        if (!ssrOutDir || !clientOutDir) return;
-
-        const root = viteConfig?.root ?? process.cwd();
-        const ssrDir = path.resolve(root, ssrOutDir);
-        const clientDir = path.resolve(root, clientOutDir);
-        if (ssrDir === clientDir || !fs.existsSync(ssrDir) || !fs.existsSync(clientDir)) return;
-
-        // This runs for each environment build, including framework-managed
-        // builds that do not invoke Vite's buildApp orchestration. Publish only
-        // the SSR entry's reachable output graph; existing client files win.
-        for (const fileName of ssrOutputFiles) {
-          const source = path.resolve(ssrDir, fileName);
-          const destination = path.resolve(clientDir, fileName);
-          if (!isWithinDirectory(source, ssrDir) || !isWithinDirectory(destination, clientDir)) {
-            continue;
-          }
-          if (!fs.existsSync(source) || fs.existsSync(destination)) continue;
-          fs.mkdirSync(path.dirname(destination), { recursive: true });
-          fs.copyFileSync(source, destination);
+        if (environmentName === 'ssr' && outputOptions.dir) {
+          ssrOutputDir = outputOptions.dir;
+        } else if (environmentName === 'client' && outputOptions.dir) {
+          clientOutputDir = outputOptions.dir;
         }
+        publishSsrOutputFiles(
+          ssrOutputDir,
+          clientOutputDir || viteConfig?.environments?.client?.build?.outDir
+        );
       },
     },
   ];
+
+  function publishSsrOutputFiles(ssrOutDir?: string, clientOutDir?: string) {
+    if (ssrOutputFiles.size === 0 || !ssrOutDir || !clientOutDir) return;
+
+    const root = viteConfig?.root ?? process.cwd();
+    const ssrDir = path.resolve(root, ssrOutDir);
+    const clientDir = path.resolve(root, clientOutDir);
+    if (ssrDir === clientDir || !fs.existsSync(ssrDir)) return;
+    fs.mkdirSync(clientDir, { recursive: true });
+
+    // This runs for each environment build, including framework-managed
+    // builds that do not invoke Vite's buildApp orchestration. Publish only
+    // the SSR entry's reachable output graph; existing client files win.
+    for (const fileName of ssrOutputFiles) {
+      const source = path.resolve(ssrDir, fileName);
+      const destination = path.resolve(clientDir, fileName);
+      if (!isWithinDirectory(source, ssrDir) || !isWithinDirectory(destination, clientDir)) {
+        continue;
+      }
+      if (!fs.existsSync(source) || fs.existsSync(destination)) continue;
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(source, destination);
+    }
+  }
 }
 
 type OutputFile = {
