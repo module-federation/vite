@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SERVER_ENV_GUARD } from '../../utils/ssrCapabilities';
 import { getRemoteVirtualModule, generateRemotes, resolveRemoteInitMode } from '../virtualRemotes';
 
 const mockOptions = vi.hoisted(() => ({
@@ -128,7 +129,7 @@ describe('generateRemotes', () => {
   it('keeps deferred client proxies on build when SSR init is enabled', () => {
     const code = generateRemotes('remote/Button', 'build', true);
 
-    expect(code).toContain('typeof window === "undefined"');
+    expect(code).toContain(SERVER_ENV_GUARD);
     expect(code).toContain('__mfCreateDeferredRemoteProxy()');
     expect(code).toContain('__mfStartRemoteLoad().then(__mfAssignRemoteModule)');
     expect(code).not.toContain('await ');
@@ -137,7 +138,7 @@ describe('generateRemotes', () => {
   it('split server wrapper with SSR init bootstraps host init on the server only', () => {
     const code = generateRemotes('remote/Button', 'serve', true, 'server');
 
-    expect(code).toContain("typeof window === 'undefined'");
+    expect(code).toContain(SERVER_ENV_GUARD);
     expect(code).toContain('import("/virtual/hostInit.js")');
     expect(code).not.toMatch(
       /import\("\/virtual\/hostInit\.js"\)\s*\n\s*\.then\(\(mod\) => mod\.hostInitPromise\)\s*\n\s*\.then\(initResolve, initReject\)/
@@ -147,7 +148,7 @@ describe('generateRemotes', () => {
   it('starts remote loading during wrapper evaluation for version-first', () => {
     const code = generateRemotes('remote/Button', 'serve');
 
-    expect(code).toContain('typeof window === "undefined"');
+    expect(code).toContain(SERVER_ENV_GUARD);
     expect(code).toContain('__mfCreateDeferredRemoteProxy()');
     expect(code).toContain('runtime.loadRemote("remote/Button")');
     expect(code).toContain('__mfAssignRemoteModule');
@@ -207,11 +208,11 @@ describe('generateRemotes', () => {
 
     expect(code).toContain('__mfCreateDeferredRemoteProxy()');
     expect(code).toContain('runtime.registerRemotes([');
-    expect(code).toContain('typeof window === "undefined"');
+    expect(code).toContain(SERVER_ENV_GUARD);
     expect(code).not.toContain('__mfReact');
     expect(code).not.toContain('__mfCreateRemoteProxy');
     expect(code).not.toMatch(
-      /typeof window === "undefined"[\s\S]*?} else \{\s*__mfRemotePending = __mfStartRemoteLoad\(\)/
+      /process\.versions\.node[\s\S]*?} else \{\s*__mfRemotePending = __mfStartRemoteLoad\(\)/
     );
     expect(code).not.toContain('Promise.resolve(exportModule)');
     expect(code).toContain('export const __mf_remote_pending = __mfRemotePending ?? {');
@@ -224,7 +225,7 @@ describe('generateRemotes', () => {
     mockOptions.shareStrategy = 'loaded-first';
     const code = generateRemotes('remote/Button', 'serve');
 
-    expect(code).toContain('if (typeof window === "undefined")');
+    expect(code).toContain(`if (${SERVER_ENV_GUARD})`);
     expect(code).toContain('__mfAssignRemoteModule');
     expect(code).not.toContain('await ');
   });
@@ -238,7 +239,7 @@ describe('generateRemotes', () => {
       const code = generateRemotes('remote/Button', 'serve', false, 'client');
 
       expect(code).toContain('__mfCreateDeferredRemoteProxy()');
-      expect(code).not.toContain('typeof window === "undefined"');
+      expect(code).not.toContain(SERVER_ENV_GUARD);
       expect(code).toContain('import("/virtual/hostInit.js")');
       expect(code).not.toContain('await ');
       expect(code).not.toContain('Promise.resolve(exportModule)');
@@ -250,7 +251,7 @@ describe('generateRemotes', () => {
 
       expect(code).toContain('__mfAssignRemoteModule');
       expect(code).not.toContain('await ');
-      expect(code).not.toContain('typeof window === "undefined"');
+      expect(code).not.toContain(SERVER_ENV_GUARD);
       expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
       expect(code).not.toContain('import("/virtual/hostInit.js")');
     });
@@ -264,7 +265,7 @@ describe('generateRemotes', () => {
       expect(code).not.toContain('__mfRemotePending = __mfStartRemoteLoad();');
       expect(code).not.toContain('__mfCreateRemoteProxy');
       expect(code).not.toContain('__mfReact');
-      expect(code).not.toContain('typeof window === "undefined"');
+      expect(code).not.toContain(SERVER_ENV_GUARD);
     });
   });
 
@@ -278,7 +279,7 @@ describe('generateRemotes', () => {
     expect(code).toContain('pendingPromise ||= __mfStartRemoteLoad();');
     expect(code).toContain('runtime.registerRemotes([');
     expect(code).not.toMatch(
-      /typeof window === "undefined"[\s\S]*?} else \{\s*__mfRemotePending = __mfStartRemoteLoad\(\)/
+      /process\.versions\.node[\s\S]*?} else \{\s*__mfRemotePending = __mfStartRemoteLoad\(\)/
     );
     expect(code).not.toContain('__mfCreateRemoteProxy');
     expect(code).not.toContain('__mfReact');
@@ -363,7 +364,7 @@ describe('generateRemotes', () => {
   it('uses build remote wrappers with unified remote resolution (version-first)', () => {
     const code = generateRemotes('remote/App', 'build');
 
-    expect(code).toContain('typeof window === "undefined"');
+    expect(code).toContain(SERVER_ENV_GUARD);
     expect(code).toContain('__mfCreateDeferredRemoteProxy()');
     expect(code).toContain('__mfAssignRemoteModule');
     expect(code).not.toContain('await ');
@@ -397,10 +398,10 @@ describe('generateRemotes', () => {
       expect(code).not.toContain('__mfCreateDeferredRemoteProxy');
     });
 
-    it('unified build keeps browser deferral and SSR promise chain via typeof window', () => {
+    it('unified build keeps browser deferral and SSR promise chain via the Node guard', () => {
       const code = generateRemotes('remote/App', 'build');
 
-      expect(code).toContain('typeof window === "undefined"');
+      expect(code).toContain(SERVER_ENV_GUARD);
       expect(code).toContain('__mfCreateDeferredRemoteProxy()');
       expect(code).toContain('__mfAssignRemoteModule');
       expect(code).not.toContain('await ');

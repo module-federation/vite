@@ -90,13 +90,17 @@ describe('ssrEntryLoaderPlugin factory', () => {
 // ---------------------------------------------------------------------------
 
 describe('ssrEntryLoaderPlugin — browser guard', () => {
-  it('returns undefined when window is defined', async () => {
+  it('still intercepts on Node when a DOM shim defines window', async () => {
     (globalThis as Record<string, unknown>).window = {};
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
     const factory = await freshLoader();
-    const result = await factory().loadEntry!({
+    await factory().loadEntry!({
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
     });
-    expect(result).toBeUndefined();
+    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/mf-manifest.json');
     delete (globalThis as Record<string, unknown>).window;
   });
 });

@@ -129,6 +129,7 @@ async function runGenerateBundleWithManifest(
     dts?: unknown;
     filename?: string;
     bundle?: OutputBundle;
+    environmentName?: string;
   } = {},
   command: 'serve' | 'build' = 'build',
   base = '/'
@@ -201,6 +202,10 @@ async function runGenerateBundleWithManifest(
       }) as ResolvedId,
   };
 
+  if (runtime.environmentName) {
+    Object.assign(ctx, { environment: { name: runtime.environmentName } });
+  }
+
   await runGenerateBundle(buildPlugin, ctx, runtime.bundle || makeBundle());
   return emitted;
 }
@@ -208,6 +213,19 @@ async function runGenerateBundleWithManifest(
 describe('pluginMFManifest', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('does not emit the browser manifest in the ssr environment', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, { environmentName: 'ssr' });
+
+    expect(emitted['mf-manifest.json']).toBeUndefined();
+    expect(emitted['mf-stats.json']).toBeUndefined();
+  });
+
+  it('emits the browser manifest in the client environment', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, { environmentName: 'client' });
+
+    expect(emitted['mf-manifest.json']).toBeDefined();
   });
 
   it('emits manifest and mf-stats artifacts by default', async () => {

@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Plugin, ResolvedConfig } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
@@ -27,6 +29,9 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
   let isRolldown = false;
   let ssrOutputFilename = '';
+  let ssrOutputFiles = new Set<string>();
+  let ssrOutputDir = '';
+  let clientOutputDir = '';
 
   // MF internal packages must be external for the SSR entry (Node resolves
   // them via its module cache) but must NOT be global externals — they need
@@ -131,6 +136,10 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
     },
     {
       name: 'mf:ssr-remote-entry',
+      // The post-build publisher consumes the SSR environment's generated
+      // bundle graph, so Vite 8 must use this same plugin instance for every
+      // build environment and the top-level buildApp hook.
+      sharedDuringBuild: true,
       // No `apply: 'build'` — resolveId/load must run in serve too.
       // buildStart and generateBundle are guarded internally.
 
@@ -375,6 +384,10 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           );
         }
 
+        if ((this as { environment?: { name?: string } }).environment?.name === 'ssr') {
+          ssrOutputFiles = collectEntryOutputFiles(bundle, ssrOutputFilename);
+        }
+
         // Vite 8+ (Rolldown) only — the chunk was emitted via the chunk path in buildStart.
         // No post-processing needed; Rolldown emits ESM natively.
         // On Vite 5–7 the SSR entry was emitted as a pre-generated asset, so nothing to do here.
@@ -383,6 +396,100 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         if (!chunk || chunk.type !== 'chunk') return;
         // Verify the chunk exists and was emitted correctly — no transform needed for Rolldown.
       },
+
+      writeBundle(outputOptions) {
+        const environmentName = (this as { environment?: { name?: string } }).environment?.name;
+        if (environmentName === 'ssr' && outputOptions.dir) {
+          ssrOutputDir = outputOptions.dir;
+        } else if (environmentName === 'client' && outputOptions.dir) {
+          clientOutputDir = outputOptions.dir;
+        }
+        publishSsrOutputFiles(
+          ssrOutputDir,
+          clientOutputDir || viteConfig?.environments?.client?.build?.outDir
+        );
+      },
     },
   ];
+
+  function publishSsrOutputFiles(ssrOutDir?: string, clientOutDir?: string) {
+    if (ssrOutputFiles.size === 0 || !ssrOutDir || !clientOutDir) return;
+
+    const root = viteConfig?.root ?? process.cwd();
+    const ssrDir = path.resolve(root, ssrOutDir);
+    const clientDir = path.resolve(root, clientOutDir);
+    if (ssrDir === clientDir || !fs.existsSync(ssrDir)) return;
+    fs.mkdirSync(clientDir, { recursive: true });
+
+    // This runs for each environment build, including framework-managed
+    // builds that do not invoke Vite's buildApp orchestration. Publish only
+    // the SSR entry's reachable output graph; existing client files win.
+    for (const fileName of ssrOutputFiles) {
+      const source = path.resolve(ssrDir, fileName);
+      const destination = path.resolve(clientDir, fileName);
+      if (!isWithinDirectory(source, ssrDir) || !isWithinDirectory(destination, clientDir)) {
+        continue;
+      }
+      if (!fs.existsSync(source) || fs.existsSync(destination)) continue;
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(source, destination);
+    }
+  }
+}
+
+type OutputFile = {
+  type: 'asset' | 'chunk';
+  fileName: string;
+  code?: string;
+  source?: string | Uint8Array;
+  imports?: string[];
+  dynamicImports?: string[];
+  implicitlyLoadedBefore?: string[];
+  referencedFiles?: string[];
+};
+
+const RELATIVE_IMPORT_RE =
+  /(?:\bfrom|\bimport\s*(?:\(\s*)?|\bexport\s*\*\s*from)\s*["'`](\.\.?\/[^"'`]+)["'`]/g;
+
+function collectEntryOutputFiles(
+  bundle: Record<string, OutputFile>,
+  entryFileName: string
+): Set<string> {
+  const files = new Set<string>();
+  const visit = (fileName: string) => {
+    if (files.has(fileName)) return;
+    const file = bundle[fileName];
+    if (!file) return;
+    files.add(fileName);
+
+    const dependencies = new Set([
+      ...(file.imports || []),
+      ...(file.dynamicImports || []),
+      ...(file.implicitlyLoadedBefore || []),
+      ...(file.referencedFiles || []),
+    ]);
+    const source =
+      typeof file.code === 'string'
+        ? file.code
+        : typeof file.source === 'string'
+          ? file.source
+          : '';
+    if (source) {
+      const directory = path.posix.dirname(fileName);
+      for (const match of source.matchAll(RELATIVE_IMPORT_RE)) {
+        dependencies.add(path.posix.normalize(path.posix.join(directory, match[1])));
+      }
+    }
+
+    for (const dependency of dependencies) {
+      visit(dependency);
+    }
+  };
+  visit(entryFileName);
+  return files;
+}
+
+function isWithinDirectory(filePath: string, directory: string): boolean {
+  const relative = path.relative(directory, filePath);
+  return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..';
 }

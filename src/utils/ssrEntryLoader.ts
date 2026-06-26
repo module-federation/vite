@@ -7,7 +7,7 @@
  * `loadScriptNode` — if the hook returns a value, the runtime uses it directly.
  *
  * Strategy:
- *  - In Node (typeof window === 'undefined'), fetch the remote's mf-manifest.json
+ *  - In Node (detected through process.versions.node), fetch the remote's mf-manifest.json
  *    to discover the ssrRemoteEntry URL and its type.
  *  - ESM entry: use a dynamic `import()` — the SSR entry has no browser
  *    globals and all shared packages are external.
@@ -28,12 +28,18 @@
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
-// away when the caller is guarded by typeof window checks.
+// away when the caller is guarded by a Node environment check.
 const importCache = new Map<string, Promise<unknown>>();
 async function nodeImport(id: string): Promise<unknown> {
   if (!importCache.has(id)) importCache.set(id, import(/* @vite-ignore */ id));
   return importCache.get(id);
 }
+
+// DOM shims can define window/document on the server. Node's version marker is
+// not affected by those shims, and is absent in real browser environments.
+const isNodeServer = (): boolean =>
+  typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node ===
+  'string';
 
 // ---------------------------------------------------------------------------
 // Vite 8+ ModuleRunner path (dev mode only)
@@ -628,7 +634,7 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
     name: 'mf-vite:ssr-entry-loader',
     async loadEntry({ remoteInfo }: { remoteInfo: RemoteInfo }) {
       // Only intercept on the server — browser should use the normal path.
-      if (typeof (globalThis as Record<string, unknown>).window !== 'undefined') return;
+      if (!isNodeServer()) return;
 
       const ssrEntry = await getSSREntry(remoteInfo.entry);
       if (!ssrEntry) return;

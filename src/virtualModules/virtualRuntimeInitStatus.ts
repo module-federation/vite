@@ -1,4 +1,5 @@
 import VirtualModule from '../utils/VirtualModule';
+import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
 
 export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
@@ -55,7 +56,7 @@ function getSsrNoopResolveCode(
   //
   // Falls back to noops if the runtime is unavailable.
   const remotesJson = JSON.stringify(_ssrRemotes);
-  return `if (typeof window === 'undefined') {
+  return `if (${SERVER_ENV_GUARD}) {
     var _noop = { loadRemote: function() { return Promise.resolve(undefined); }, loadShare: function() { return Promise.resolve(undefined); } };
     ${hostInitResolveCode}.then(function(resolved) {
       if (resolved) return;
@@ -116,7 +117,7 @@ globalThis[globalKey] = {
 ${
   enableSsrInit
     ? `
-if (typeof window === 'undefined' && !globalThis[globalKey].ssrInitStarted) {
+if (${SERVER_ENV_GUARD} && !globalThis[globalKey].ssrInitStarted) {
   globalThis[globalKey].ssrInitStarted = true;
   ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId, 'globalThis[globalKey].initResolve')}
 }`
