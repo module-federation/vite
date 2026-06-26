@@ -760,6 +760,67 @@ describe('vite:module-federation-early-init', () => {
     expect(federationIgnored('/repo/src/App.vue')).toBe(false);
   });
 
+  it('skips dev server watch ignores when watching is disabled', () => {
+    const plugin = getEarlyInitPlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      server: {
+        watch: false,
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.server.watch).toBe(false);
+  });
+
+  it('preserves disabled Vite fs watching', () => {
+    const plugin = getEarlyInitPlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      server: {
+        watch: null,
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.server.watch).toBeNull();
+  });
+
+  it('normalizes enabled dev server watch before adding federation ignores', () => {
+    const plugin = getEarlyInitPlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      server: {
+        watch: true,
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(typeof config.server.watch.ignored).toBe('function');
+    expect(config.server.watch.ignored('/repo/src/__mf__virtual/loadShare.js')).toBe(true);
+  });
+
   it('skips pure virtual optimizeDeps includes in Rolldown serve', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {
@@ -1192,6 +1253,26 @@ describe('vite:module-federation-early-init', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'react-redux'
     );
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.exclude).toContain('react');
+    expect(config.optimizeDeps.include).not.toContain('react');
+  });
+
+  it('excludes shared singleton react from dev optimizeDeps without react-redux', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
     const plugin = getEarlyInitPluginWithReactShared();
     const config: any = {
       root: process.cwd(),

@@ -141,16 +141,17 @@ const Manifest = (): Plugin[] => {
        */
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
-          if (!mfManifestName) {
-            next();
-            return;
-          }
           const devRemoteEntryFile = resolveDevRemoteEntryFileName(filename);
           if (
             devRemoteEntryFile !== filename &&
+            Object.keys(mfOptions.exposes).length > 0 &&
             req.url?.startsWith((viteConfig.base + devRemoteEntryFile).replace(/^\/?/, '/'))
           ) {
             req.url = req.url.replace(devRemoteEntryFile, filename);
+            next();
+            return;
+          }
+          if (!mfManifestName) {
             next();
             return;
           }

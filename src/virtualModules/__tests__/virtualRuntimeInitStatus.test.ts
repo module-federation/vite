@@ -46,6 +46,40 @@ describe('virtualRuntimeInitStatus', () => {
     expect(cache.remote).toBe(remote);
   });
 
+  it('aliases default-scoped and legacy share cache keys both ways', async () => {
+    const { getRuntimeModuleCacheBootstrapCode } = await import('../virtualRuntimeInitStatus');
+    const legacyReact = { source: 'legacy-react' };
+    const legacyVersioned = { source: 'legacy-versioned' };
+    const defaultVue = { source: 'default-vue' };
+    const defaultVersioned = { source: 'default-versioned' };
+    const customScoped = { source: 'custom-scope' };
+    const existingDefaultReact = { source: 'existing-default-react' };
+    (globalThis as any).__mf_module_cache__ = {
+      share: {
+        react: legacyReact,
+        'default:react': existingDefaultReact,
+        'react@1.2.3': legacyVersioned,
+        'default:vue': defaultVue,
+        'default:vue@2.0.0': defaultVersioned,
+        'react-18:react': customScoped,
+      },
+      remote: {},
+    };
+
+    const share = runCode<Record<string, unknown>>(
+      getRuntimeModuleCacheBootstrapCode(),
+      'return __mfModuleCache.share;'
+    );
+
+    expect(share['default:react']).toBe(existingDefaultReact);
+    expect(share.react).toBe(legacyReact);
+    expect(share['default:react@1.2.3']).toBe(legacyVersioned);
+    expect(share.vue).toBe(defaultVue);
+    expect(share['vue@2.0.0']).toBe(defaultVersioned);
+    expect(share['react-18:react']).toBe(customScoped);
+    expect(share['default:react-18:react']).toBeUndefined();
+  });
+
   it('promise bootstrap with enableSsrInit resolves to SSR no-op runtime', async () => {
     const { getRuntimeInitPromiseBootstrapCode } = await import('../virtualRuntimeInitStatus');
 

@@ -7,6 +7,7 @@ import type {
   ResolvedConfig,
   Rollup,
   UserConfig,
+  ViteDevServer,
 } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
@@ -81,6 +82,11 @@ async function runTransformIndexHtml(
 async function runLoad(plugin: AddEntryPlugin, id: string) {
   if (!plugin.load) throw new Error(`${plugin.name} load hook not found`);
   return await callHook(plugin.load, {} as Rollup.PluginContext, id);
+}
+
+function runConfigureServer(plugin: AddEntryPlugin, server: ViteDevServer): void {
+  if (!plugin.configureServer) throw new Error(`${plugin.name} configureServer hook not found`);
+  callHook(plugin.configureServer, {} as MinimalPluginContextWithoutEnvironment, server);
 }
 
 function runBuildStart(
@@ -168,6 +174,37 @@ describe('pluginAddEntry', () => {
     );
 
     expect(result).toBeUndefined();
+  });
+
+  it('serves stable remoteEntry.js for hash-pattern dev entries', () => {
+    const plugins = addEntry({
+      entryName: 'remoteEntry',
+      entryPath: 'virtual:mf-remote-entry',
+      fileName: 'remoteEntry-[hash]',
+    });
+    const servePlugin = plugins[0];
+    const handlers: Function[] = [];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(servePlugin, {
+      root: '/',
+      base: '/',
+    } as unknown as ResolvedConfig);
+    runConfigureServer(servePlugin, {
+      middlewares: { use: (handler: Function) => handlers.push(handler) },
+    } as unknown as ViteDevServer);
+
+    const req = { url: '/remoteEntry.js?cache=1' };
+    const next = vi.fn();
+    handlers[0](req, {}, next);
+
+    expect(req.url).toBe('/@id/virtual:mf-remote-entry');
+    expect(next).toHaveBeenCalledOnce();
   });
 
   it('injects host init into html-script entry during serve when inject is entry', async () => {

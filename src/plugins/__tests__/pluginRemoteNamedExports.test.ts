@@ -238,6 +238,19 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain('__mf_m__.default.__esModule');
       expect(result).toContain('__mf_nested_ns__.default = __mf_nested_e__.default');
     });
+
+    it('does not wrap remote-looking dynamic imports inside comments or literals', async () => {
+      const cases = [
+        '// Example: import("remoteApp/utils")',
+        '/* Example: import("remoteApp/utils") */',
+        'const docs = "Example: import(\"remoteApp/utils\")";',
+        'const docs = `Example: import("remoteApp/utils")`;',
+      ];
+
+      for (const code of cases) {
+        await expect(transform(code)).resolves.toBeUndefined();
+      }
+    });
   });
 
   // ── re-exports ───────────────────────────────────────────────
@@ -429,6 +442,20 @@ describe('pluginRemoteNamedExports', () => {
       );
       expect(result).not.toContain('await ');
       expect(result).not.toContain('import * as routesRemote');
+    });
+
+    it('does not rewrite remote-looking imports inside comments or literals via fallback', async () => {
+      const cases = [
+        '// import("remoteApp/utils")',
+        '/*\n  import("remoteApp/utils")\n*/',
+        'const docs = "import(\"remoteApp/utils\")";',
+        'const docs = `import("remoteApp/utils")`;',
+        '/*\n  import { foo } from "remoteApp/utils";\n*/',
+      ];
+
+      for (const code of cases) {
+        await expect(transform(code, '/src/app.tsx', true)).resolves.toBeUndefined();
+      }
     });
   });
 

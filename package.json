@@ -1,6 +1,6 @@
 {
   "name": "@module-federation/vite",
-  "version": "1.16.9",
+  "version": "1.16.11",
   "description": "Vite plugin for Module Federation",
   "type": "module",
   "main": "./lib/index.js",
@@ -70,9 +70,9 @@
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "dependencies": {
-    "@module-federation/dts-plugin": "2.5.1",
-    "@module-federation/runtime": "2.5.1",
-    "@module-federation/sdk": "2.5.1"
+    "@module-federation/dts-plugin": "2.6.0",
+    "@module-federation/runtime": "2.6.0",
+    "@module-federation/sdk": "2.6.0"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",
@@ -83,7 +83,7 @@
     "rollup": "4.47.1",
     "tsdown": "0.21.0",
     "typescript": "5.9.3",
-    "vite": "8.0.10",
+    "vite": "8.1.0",
     "vitest": "4.0.18"
   }
 }
