@@ -40,6 +40,19 @@ vi.mock('fs', async (importOriginal) => {
 });
 
 vi.mock('../../utils/packageUtils', () => ({
+  getSharedCacheDescriptor: (
+    pkg: string,
+    shareItem: { version?: string; scope?: string | string[]; shareConfig: { singleton?: boolean } }
+  ) => {
+    const normalizedScope = Array.isArray(shareItem.scope) ? shareItem.scope[0] : shareItem.scope;
+    const scope = normalizedScope || 'default';
+    const id =
+      shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`;
+    return {
+      canonical: `${scope}:${id}`,
+      ...(scope === 'default' ? { aliases: [id] } : {}),
+    };
+  },
   getSharedCacheKey: (
     pkg: string,
     shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
@@ -49,6 +62,35 @@ vi.mock('../../utils/packageUtils', () => ({
       ? `${prefix}${pkg}`
       : `${prefix}${pkg}@${shareItem.version}`;
   },
+  sharedCacheHelperCode: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
+            const scopeName = normalizedScope || "default";
+            const id = singleton || !version ? pkg : pkg + "@" + version;
+            const descriptor = { canonical: scopeName + ":" + id };
+            if (scopeName === "default") descriptor.aliases = [id];
+            return descriptor;
+          };
+          const __mfReadSharedCache = (cache, descriptor) => {
+            const value = cache[descriptor.canonical];
+            if (value !== undefined) return value;
+            const aliases = descriptor.aliases || [];
+            for (const alias of aliases) {
+              const aliasValue = cache[alias];
+              if (aliasValue !== undefined) {
+                cache[descriptor.canonical] = aliasValue;
+                return aliasValue;
+              }
+            }
+            return undefined;
+          };
+          const __mfWriteSharedCache = (cache, descriptor, value) => {
+            cache[descriptor.canonical] = value;
+            const aliases = descriptor.aliases || [];
+            for (const alias of aliases) {
+              if (cache[alias] === undefined) cache[alias] = value;
+            }
+            return value;
+          };`,
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: getInstalledPackageEntryMock,
   getInstalledPackageJson: vi.fn((pkg: string) => {

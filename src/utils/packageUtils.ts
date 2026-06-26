@@ -154,12 +154,75 @@ export function getPackageNameFromNodeModulePath(source: string): string | undef
   return parts[0];
 }
 
-export function getSharedCacheKey(pkg: string, shareItem: ShareItem) {
-  const prefix = `${shareItem.scope || 'default'}:`;
-  return shareItem.shareConfig.singleton || !shareItem.version
-    ? `${prefix}${pkg}`
-    : `${prefix}${pkg}@${shareItem.version}`;
+type SharedCacheDescriptor = {
+  canonical: string;
+  aliases?: string[];
+};
+
+type SharedCacheKeyInput = {
+  pkg: string;
+  singleton?: boolean;
+  version?: string;
+  scope?: string | string[];
+};
+
+export function getSharedCacheKeyParts(input: SharedCacheKeyInput) {
+  const normalizedScope = Array.isArray(input.scope) ? input.scope[0] : input.scope;
+  const scope = normalizedScope || 'default';
+  const id = input.singleton || !input.version ? input.pkg : `${input.pkg}@${input.version}`;
+  return {
+    scope,
+    id,
+    key: `${scope}:${id}`,
+  };
 }
+
+export function getSharedCacheDescriptor(pkg: string, shareItem: ShareItem): SharedCacheDescriptor {
+  const parts = getSharedCacheKeyParts({
+    pkg,
+    singleton: shareItem.shareConfig.singleton,
+    version: shareItem.version,
+    scope: shareItem.scope,
+  });
+  return {
+    canonical: parts.key,
+    ...(parts.scope === 'default' ? { aliases: [parts.id] } : {}),
+  };
+}
+
+export function getSharedCacheKey(pkg: string, shareItem: ShareItem) {
+  return getSharedCacheDescriptor(pkg, shareItem).canonical;
+}
+
+export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
+            const scopeName = normalizedScope || "default";
+            const id = singleton || !version ? pkg : pkg + "@" + version;
+            const descriptor = { canonical: scopeName + ":" + id };
+            if (scopeName === "default") descriptor.aliases = [id];
+            return descriptor;
+          };
+          const __mfReadSharedCache = (cache, descriptor) => {
+            const value = cache[descriptor.canonical];
+            if (value !== undefined) return value;
+            const aliases = descriptor.aliases || [];
+            for (const alias of aliases) {
+              const aliasValue = cache[alias];
+              if (aliasValue !== undefined) {
+                cache[descriptor.canonical] = aliasValue;
+                return aliasValue;
+              }
+            }
+            return undefined;
+          };
+          const __mfWriteSharedCache = (cache, descriptor, value) => {
+            cache[descriptor.canonical] = value;
+            const aliases = descriptor.aliases || [];
+            for (const alias of aliases) {
+              if (cache[alias] === undefined) cache[alias] = value;
+            }
+            return value;
+          };`;
 
 export function getInstalledPackageJson(
   pkg: string,

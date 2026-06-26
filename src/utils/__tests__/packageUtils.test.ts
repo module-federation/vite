@@ -7,8 +7,10 @@ import {
   getInstalledPackageEntry,
   getInstalledPackageJson,
   getPackageNameFromNodeModulePath,
+  getSharedCacheDescriptor,
   getSharedCacheKey,
   resolveImportPath,
+  sharedCacheHelperCode,
 } from '../packageUtils';
 
 describe('getInstalledPackageJson', () => {
@@ -139,5 +141,87 @@ describe('getSharedCacheKey', () => {
         shareConfig: { singleton: true },
       } as any)
     ).toBe('default:vue');
+  });
+
+  it('exposes a compatibility alias for default-scope singleton keys', () => {
+    expect(
+      getSharedCacheDescriptor('react', {
+        scope: 'default',
+        version: '19.2.7',
+        shareConfig: { singleton: true },
+      } as any)
+    ).toEqual({
+      canonical: 'default:react',
+      aliases: ['react'],
+    });
+  });
+
+  it('does not expose a compatibility alias for custom share scopes', () => {
+    expect(
+      getSharedCacheDescriptor('react', {
+        scope: 'react-19',
+        version: '19.2.7',
+        shareConfig: { singleton: true },
+      } as any)
+    ).toEqual({
+      canonical: 'react-19:react',
+    });
+  });
+
+  it('promotes default-scope alias cache reads to the canonical key', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return { read: __mfReadSharedCache, write: __mfWriteSharedCache };`
+    )() as {
+      read: (
+        cache: Record<string, unknown>,
+        descriptor: { canonical: string; aliases?: string[] }
+      ) => unknown;
+      write: (
+        cache: Record<string, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown
+      ) => void;
+    };
+    const cache = { react: { marker: 'aliased-react' } };
+
+    expect(
+      runtime.read(cache, {
+        canonical: 'default:react',
+        aliases: ['react'],
+      })
+    ).toBe(cache.react);
+    expect(cache).toHaveProperty('default:react', cache.react);
+  });
+
+  it('writes default-scope cache values to the canonical and alias keys', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return { read: __mfReadSharedCache, write: __mfWriteSharedCache };`
+    )() as {
+      read: (
+        cache: Record<string, unknown>,
+        descriptor: { canonical: string; aliases?: string[] }
+      ) => unknown;
+      write: (
+        cache: Record<string, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown
+      ) => void;
+    };
+    const cache: Record<string, unknown> = {};
+    const react = { marker: 'host-react' };
+
+    runtime.write(
+      cache,
+      {
+        canonical: 'default:react',
+        aliases: ['react'],
+      },
+      react
+    );
+
+    expect(cache['default:react']).toBe(react);
+    expect(cache.react).toBe(react);
   });
 });

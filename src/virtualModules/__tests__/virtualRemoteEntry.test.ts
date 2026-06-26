@@ -68,6 +68,23 @@ vi.mock('../../utils/VirtualModule', () => {
 
 vi.mock('../../utils/packageUtils', () => {
   return {
+    getSharedCacheDescriptor: (
+      pkg: string,
+      shareItem: {
+        version?: string;
+        scope?: string | string[];
+        shareConfig: { singleton?: boolean };
+      }
+    ) => {
+      const normalizedScope = Array.isArray(shareItem.scope) ? shareItem.scope[0] : shareItem.scope;
+      const scope = normalizedScope || 'default';
+      const id =
+        shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`;
+      return {
+        canonical: `${scope}:${id}`,
+        ...(scope === 'default' ? { aliases: [id] } : {}),
+      };
+    },
     getSharedCacheKey: (
       pkg: string,
       shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
@@ -77,6 +94,35 @@ vi.mock('../../utils/packageUtils', () => {
         ? `${prefix}${pkg}`
         : `${prefix}${pkg}@${shareItem.version}`;
     },
+    sharedCacheHelperCode: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
+            const scopeName = normalizedScope || "default";
+            const id = singleton || !version ? pkg : pkg + "@" + version;
+            const descriptor = { canonical: scopeName + ":" + id };
+            if (scopeName === "default") descriptor.aliases = [id];
+            return descriptor;
+          };
+          const __mfReadSharedCache = (cache, descriptor) => {
+            const value = cache[descriptor.canonical];
+            if (value !== undefined) return value;
+            const aliases = descriptor.aliases || [];
+            for (const alias of aliases) {
+              const aliasValue = cache[alias];
+              if (aliasValue !== undefined) {
+                cache[descriptor.canonical] = aliasValue;
+                return aliasValue;
+              }
+            }
+            return undefined;
+          };
+          const __mfWriteSharedCache = (cache, descriptor, value) => {
+            cache[descriptor.canonical] = value;
+            const aliases = descriptor.aliases || [];
+            for (const alias of aliases) {
+              if (cache[alias] === undefined) cache[alias] = value;
+            }
+            return value;
+          };`,
     hasPackageDependency: hasPackageDependencyMock,
     packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
     getPackageName: (packageString: string) => {
@@ -569,9 +615,11 @@ describe('virtualRemoteEntry', () => {
 
     const code = mod.generateDirectSharedCacheSeedCode('build');
 
-    expect(code).toContain('__mfModuleCache.share["default:wildcard-pkg/button"]');
+    expect(code).toContain(
+      '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:wildcard-pkg/button","aliases":["wildcard-pkg/button"]})'
+    );
     expect(code).toContain('await import("/repo/node_modules/wildcard-pkg/dist/button.js")');
-    expect(code).not.toContain('__mfModuleCache.share["default:wildcard-pkg"]');
+    expect(code).not.toContain('"canonical":"default:wildcard-pkg","aliases":["wildcard-pkg"]');
   });
 
   it('does not seed import:false shared modules in hostAutoInit during build', async () => {
@@ -698,20 +746,37 @@ describe('virtualRemoteEntry', () => {
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
     // Serve mode should still pre-seed the cache (dev server resolves on-demand)
-    expect(code).toContain('__mfModuleCache.share["default:some-dep"]');
+    expect(code).toContain(
+      '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:some-dep","aliases":["some-dep"]})'
+    );
     expect(code).toContain('await import');
   });
 
-  it('emits a scope-aware runtime shared cache key helper', async () => {
+  it('emits a scope-aware runtime shared cache descriptor helper', async () => {
     const mod = await import('../virtualRemoteEntry');
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
     expect(code).toContain('const normalizedScope = Array.isArray(scope) ? scope[0] : scope;');
-    expect(code).toContain('const prefix = (normalizedScope || "default") + ":";');
+    expect(code).toContain('const scopeName = normalizedScope || "default";');
+    expect(code).toContain('if (scopeName === "default") descriptor.aliases = [id];');
     expect(code).toContain(
-      'const cacheKey = __mfGetSharedCacheKey(pkg, share.shareConfig?.singleton, share.version, share.scope);'
+      'const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);'
     );
+  });
+
+  it('emits shared cache compatibility helpers for host auto init preloads', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+
+    expect(code).toContain('const __mfGetSharedCacheDescriptor =');
+    expect(code).toContain('__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor)');
+    expect(code).toContain('__mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor');
+    expect(code).not.toContain('__mfModuleCache.share[cacheKey]');
   });
 
   it('aliases external singleton providers to the remote share cache key', async () => {
@@ -751,7 +816,10 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('const usedShare = usedShared?.[pkg];');
     expect(code).toContain('if (provider.shareConfig?.singleton && usedShare) {');
-    expect(code).toContain('__mfModuleCache.share[usedCacheKey] = normalized;');
+    expect(code).toContain(
+      '__mfWriteSharedCache(__mfModuleCache.share, usedCacheDescriptor, normalized);'
+    );
+    expect(code).not.toContain('__mfModuleCache.share[usedCacheKey] = normalized;');
   });
 
   it('reuses an already cached singleton for a versioned remote share key', async () => {
@@ -790,13 +858,15 @@ describe('virtualRemoteEntry', () => {
     );
 
     expect(code).toContain(
-      'const singletonCacheKey = __mfGetSharedCacheKey(pkg, true, share.version, share.scope);'
+      'const singletonCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, true, share.version, share.scope);'
     );
     expect(code).toContain(
-      '__mfModuleCache.share[cacheKey] = __mfModuleCache.share[singletonCacheKey];'
+      '__mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, singletonModule);'
     );
-    expect(code.indexOf('const singletonCacheKey')).toBeLessThan(
-      code.indexOf('if (__mfModuleCache.share["default:react@18.3.1"] === undefined)')
+    expect(code.indexOf('const singletonCacheDescriptor')).toBeLessThan(
+      code.indexOf(
+        'if (__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:react@18.3.1","aliases":["react@18.3.1"]}) === undefined)'
+      )
     );
   });
 
