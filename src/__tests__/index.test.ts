@@ -1271,6 +1271,26 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).not.toContain('react');
   });
 
+  it('excludes shared singleton react from dev optimizeDeps without react-redux', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.exclude).toContain('react');
+    expect(config.optimizeDeps.include).not.toContain('react');
+  });
+
   it('keeps included shared react out of dev optimizeDeps exclude when react-redux is installed', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'react-redux'

@@ -427,7 +427,7 @@ export default __mfShared.default ?? __mfShared;`,
             // shared deps should remain optimizable so Vite can apply CJS
             // interop for transitive dependencies used by prebuild fallbacks.
             const shouldBypassOptimizeDep =
-              isLitShare(key) || (key === 'react' && hasPackageDependency('react-redux', root));
+              isLitShare(key) || (key === 'react' && shareItem.shareConfig?.singleton === true);
             if (optimizeDeps.include.includes(key)) {
               optimizeDeps.exclude = optimizeDeps.exclude.filter((dep) => dep !== key);
             } else if (shouldBypassOptimizeDep) {
