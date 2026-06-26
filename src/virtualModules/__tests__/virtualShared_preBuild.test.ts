@@ -4,6 +4,7 @@ import {
   ShareItem,
 } from '../../utils/normalizeModuleFederationOptions';
 import {
+  getConcreteSharedImportSource,
   getProjectResolvedImportPath,
   writeLoadShareModule,
   writePreBuildLibPath,
@@ -80,7 +81,7 @@ vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
-  getInstalledPackageEntry: vi.fn((pkg: string) => {
+  getInstalledPackageEntry: vi.fn((pkg: string, opts?: { cwd?: string }) => {
     if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
       return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
     }
@@ -136,6 +137,12 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'workspace-consumer') {
       return '/repo/packages/workspace-consumer/src/index.ts';
     }
+    if (pkg === 'workspace-dual-format') {
+      return '/repo/packages/workspace-dual-format/dist/index.js';
+    }
+    if (pkg === 'workspace-parent-dual-format' && opts?.cwd === '/repo') {
+      return '/repo/packages/workspace-parent-dual-format/dist/index.js';
+    }
   }),
   getInstalledPackageJson: vi.fn((pkg: string, opts?: { fromResolvedEntry?: string }) => {
     if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-shared-lib/')) {
@@ -188,6 +195,21 @@ vi.mock('../../utils/packageUtils', () => ({
         packageJson: {
           name: 'workspace-consumer',
           dependencies: { 'workspace-producer': 'workspace:*' },
+        },
+      };
+    }
+    if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-dual-format/')) {
+      return {
+        path: '/repo/packages/workspace-dual-format/package.json',
+        dir: '/repo/packages/workspace-dual-format',
+        packageJson: {
+          name: 'workspace-dual-format',
+          exports: {
+            '.': {
+              import: { default: './dist/index.js' },
+              require: { default: './dist/index.cjs' },
+            },
+          },
         },
       };
     }
@@ -262,6 +284,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/workspace-cycle-b/package.json') ||
       filePath.endsWith('/repo/packages/workspace-producer/package.json') ||
       filePath.endsWith('/repo/packages/workspace-consumer/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-dual-format/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts')
   ),
   readFileSync: vi.fn((filePath: string) => {
@@ -438,6 +462,20 @@ export const [firstItem, ...restItems] = tuple;`;
         dependencies: { 'workspace-cycle-a': 'workspace:*' },
       });
     }
+    if (filePath.endsWith('/repo/packages/workspace-dual-format/package.json')) {
+      return JSON.stringify({
+        name: 'workspace-dual-format',
+        exports: {
+          '.': {
+            import: { default: './dist/index.js' },
+            require: { default: './dist/index.cjs' },
+          },
+        },
+      });
+    }
+    if (filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js')) {
+      return 'export const sharedValue = 42; export function increment() { return sharedValue + 1; }';
+    }
     if (filePath.endsWith('/repo/packages/custom-shared-source/index.ts')) {
       return `export const sharedValue = 'shared';
               export function useSharedFeature() {
@@ -567,6 +605,12 @@ vi.mock('module', async (importOriginal) => {
             }
             return '/repo/packages/pkg-b/dist/index.js';
           }
+          if (pkg === 'workspace-parent-dual-format') {
+            if (!fromPath.includes('/repo/package.json')) {
+              throw new Error('MODULE_NOT_FOUND');
+            }
+            return '/repo/packages/workspace-parent-dual-format/dist/index.cjs';
+          }
           if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
             return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
           }
@@ -607,6 +651,9 @@ vi.mock('module', async (importOriginal) => {
           }
           if (pkg === 'workspace-consumer') {
             return '/repo/packages/workspace-consumer/src/index.ts';
+          }
+          if (pkg === 'workspace-dual-format') {
+            return '/repo/packages/workspace-dual-format/dist/index.cjs';
           }
           if (
             pkg === 'mock-package-reexport-type' ||
@@ -1206,6 +1253,12 @@ describe('writeLoadShareModule', () => {
     );
   });
 
+  it('uses parent-root cwd when resolving workspace ESM entries', () => {
+    expect(getConcreteSharedImportSource('workspace-parent-dual-format')).toBe(
+      '/repo/packages/workspace-parent-dual-format/dist/index.js'
+    );
+  });
+
   it('uses project require resolution for package subpath import paths', () => {
     expect(getProjectResolvedImportPath('mock-package-subpath/feature')).toBe(
       '/repo/apps/remote/node_modules/mock-package-subpath/dist/require-feature.js'
@@ -1722,6 +1775,30 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('export * from');
     expect(generatedCode).not.toContain('module.exports = exportModule');
     expect(generatedCode).not.toContain('await ');
+  });
+
+  it('resolves workspace packages with dual ESM/CJS exports to the ESM entry instead of CJS', () => {
+    const pkg = 'workspace-dual-format';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // Should use ESM entry (.js), not CJS entry (.cjs)
+    expect(generatedCode).toContain('/dist/index.js');
+    expect(generatedCode).not.toContain('/dist/index.cjs');
+    expect(generatedCode).not.toContain('module.exports');
   });
 });
 

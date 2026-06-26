@@ -291,7 +291,7 @@ export function getLocalProviderImportPath(pkg: string): string | undefined {
     const projectRequire = createRequire(
       pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
     );
-    const resolved = projectRequire.resolve(pkg);
+    const resolved = resolveWorkspaceEsmEntry(pkg, projectRequire.resolve(pkg));
     return isWorkspaceFilePath(resolved) ? resolved : undefined;
   } catch {
     const resolved = getInstalledPackageEntry(pkg, {
@@ -312,7 +312,7 @@ export function getProjectResolvedImportPath(pkg: string): string | undefined {
     const projectRequire = createRequire(
       pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
     );
-    return projectRequire.resolve(pkg);
+    return resolveWorkspaceEsmEntry(pkg, projectRequire.resolve(pkg));
   } catch {
     return undefined;
   }
@@ -325,6 +325,30 @@ function isWorkspaceFilePath(resolved: string | undefined): resolved is string {
     realResolved = realpathSync.native(resolved);
   } catch {}
   return !realResolved.includes('/node_modules/') && !realResolved.includes('\\node_modules\\');
+}
+
+/**
+ * When createRequire resolves a workspace package to a CJS entry (e.g. dist/index.cjs),
+ * re-resolve via getInstalledPackageEntry with ESM-preferring conditions.
+ *
+ * Workspace packages produce browser code, so they must use the ESM build — CJS files
+ * contain `module.exports` which is undefined in the browser. createRequire().resolve()
+ * follows Node.js CJS conditions ["node", "require"], which matches exports["."].require.default
+ * and returns the .cjs path for packages with dual ESM/CJS exports.
+ */
+function resolveWorkspaceEsmEntry(
+  pkg: string,
+  resolved: string,
+  cwd = getPackageDetectionCwd()
+): string {
+  if (!isWorkspaceFilePath(resolved)) return resolved;
+  const esmEntry = getInstalledPackageEntry(pkg, {
+    cwd,
+    conditions: ['browser', 'import', 'module', 'default'],
+    resolveSubpathWithRequire: false,
+  });
+  if (esmEntry && isWorkspaceFilePath(esmEntry)) return esmEntry;
+  return resolved;
 }
 
 function isWorkspacePackageEntry(pkg: string, resolved: string | undefined): resolved is string {
@@ -397,7 +421,7 @@ function isWorkspaceSingletonConsumedByPeer(pkg: string) {
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
   try {
     const projectRequire = createRequire(pathToFileURL(path.join(root, 'package.json')));
-    return projectRequire.resolve(pkg);
+    return resolveWorkspaceEsmEntry(pkg, projectRequire.resolve(pkg), root);
   } catch {
     return undefined;
   }
