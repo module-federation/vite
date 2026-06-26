@@ -4,6 +4,7 @@ import {
   ShareItem,
 } from '../../utils/normalizeModuleFederationOptions';
 import {
+  getConcreteSharedImportSource,
   getProjectResolvedImportPath,
   writeLoadShareModule,
   writePreBuildLibPath,
@@ -39,7 +40,7 @@ vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
-  getInstalledPackageEntry: vi.fn((pkg: string) => {
+  getInstalledPackageEntry: vi.fn((pkg: string, opts?: { cwd?: string }) => {
     if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
       return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
     }
@@ -97,6 +98,9 @@ vi.mock('../../utils/packageUtils', () => ({
     }
     if (pkg === 'workspace-dual-format') {
       return '/repo/packages/workspace-dual-format/dist/index.js';
+    }
+    if (pkg === 'workspace-parent-dual-format' && opts?.cwd === '/repo') {
+      return '/repo/packages/workspace-parent-dual-format/dist/index.js';
     }
   }),
   getInstalledPackageJson: vi.fn((pkg: string, opts?: { fromResolvedEntry?: string }) => {
@@ -559,6 +563,12 @@ vi.mock('module', async (importOriginal) => {
               throw new Error('MODULE_NOT_FOUND');
             }
             return '/repo/packages/pkg-b/dist/index.js';
+          }
+          if (pkg === 'workspace-parent-dual-format') {
+            if (!fromPath.includes('/repo/package.json')) {
+              throw new Error('MODULE_NOT_FOUND');
+            }
+            return '/repo/packages/workspace-parent-dual-format/dist/index.cjs';
           }
           if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
             return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
@@ -1133,6 +1143,12 @@ describe('writeLoadShareModule', () => {
   it('prefers browser conditional exports for project-resolved import paths', () => {
     expect(getProjectResolvedImportPath('mock-package-browser-conditional')).toBe(
       '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/browser.js'
+    );
+  });
+
+  it('uses parent-root cwd when resolving workspace ESM entries', () => {
+    expect(getConcreteSharedImportSource('workspace-parent-dual-format')).toBe(
+      '/repo/packages/workspace-parent-dual-format/dist/index.js'
     );
   });
 

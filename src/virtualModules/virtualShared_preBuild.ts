@@ -331,9 +331,14 @@ function isWorkspaceFilePath(resolved: string | undefined): resolved is string {
  * follows Node.js CJS conditions ["node", "require"], which matches exports["."].require.default
  * and returns the .cjs path for packages with dual ESM/CJS exports.
  */
-function resolveWorkspaceEsmEntry(pkg: string, resolved: string): string {
+function resolveWorkspaceEsmEntry(
+  pkg: string,
+  resolved: string,
+  cwd = getPackageDetectionCwd()
+): string {
   if (!isWorkspaceFilePath(resolved)) return resolved;
   const esmEntry = getInstalledPackageEntry(pkg, {
+    cwd,
     conditions: ['browser', 'import', 'module', 'default'],
     resolveSubpathWithRequire: false,
   });
@@ -411,7 +416,7 @@ function isWorkspaceSingletonConsumedByPeer(pkg: string) {
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
   try {
     const projectRequire = createRequire(pathToFileURL(path.join(root, 'package.json')));
-    return resolveWorkspaceEsmEntry(pkg, projectRequire.resolve(pkg));
+    return resolveWorkspaceEsmEntry(pkg, projectRequire.resolve(pkg), root);
   } catch {
     return undefined;
   }
