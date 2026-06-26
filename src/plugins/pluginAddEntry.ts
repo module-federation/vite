@@ -79,6 +79,15 @@ function stripQueryAndHash(file: string) {
   return file.split(/[?#]/)[0];
 }
 
+function resolveDevHashEntryFileName(fileName: string) {
+  if (!fileName.includes('[hash')) return fileName;
+
+  const normalized = fileName.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
+  const baseName = path.basename(normalized);
+
+  return path.extname(baseName) ? normalized : `${normalized}.js`;
+}
+
 function getBuildInput(config: any) {
   return config.build?.rollupOptions?.input ?? config.build?.rolldownOptions?.input;
 }
@@ -421,6 +430,13 @@ const addEntry = ({
           if (!fileName) {
             next();
             return;
+          }
+          const devFileName = resolveDevHashEntryFileName(fileName);
+          if (
+            devFileName !== fileName &&
+            req.url?.startsWith((viteConfig.base + devFileName).replace(/^\/?/, '/'))
+          ) {
+            req.url = req.url.replace(devFileName, fileName);
           }
           if (req.url && req.url.startsWith((viteConfig.base + fileName).replace(/^\/?/, '/'))) {
             req.url = devEntryPath;

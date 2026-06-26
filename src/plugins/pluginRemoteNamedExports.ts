@@ -24,7 +24,6 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
 
 const JS_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?|vue|svelte)(?:\?|$)/;
-const REGEX_FALLBACK_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?)(?:\?|$)/;
 
 // ── Normalized import descriptors ─────────────────────────────────
 
@@ -431,6 +430,7 @@ function collectFromRegex(
   isRemoteImport: (source: string) => boolean
 ): ImportInfo[] | undefined {
   const result: ImportInfo[] = [];
+  const codePositions = createCodePositionMap(code);
 
   const importAttributes = String.raw`(?:\s+(?:with|assert)\s+\{[^;]*\})?`;
   const staticRe = new RegExp(
@@ -439,6 +439,7 @@ function collectFromRegex(
   );
   for (const match of code.matchAll(staticRe)) {
     const [full, specifiersPartRaw, , source] = match;
+    if (!codePositions[match.index!]) continue;
     if (!isRemoteImport(source)) continue;
 
     const specifiersPart = specifiersPartRaw.trim();
@@ -481,6 +482,7 @@ function collectFromRegex(
   );
   for (const match of code.matchAll(reexportRe)) {
     const [full, specifiersRaw, , source] = match;
+    if (!codePositions[match.index!]) continue;
     if (!isRemoteImport(source)) continue;
 
     const specifiers = parseNamedSpecifiers(specifiersRaw, 'export');
@@ -501,6 +503,7 @@ function collectFromRegex(
   );
   for (const match of code.matchAll(exportAllRe)) {
     const [full, , source] = match;
+    if (!codePositions[match.index!]) continue;
     if (!isRemoteImport(source)) continue;
 
     result.push({
@@ -514,6 +517,7 @@ function collectFromRegex(
   const dynamicRe = /import\(\s*(?:\/\*[\s\S]*?\*\/\s*)?(['"])([^'"]+)\1\s*\)/g;
   for (const match of code.matchAll(dynamicRe)) {
     const [full, , source] = match;
+    if (!codePositions[match.index!]) continue;
     if (!isRemoteImport(source)) continue;
 
     result.push({
@@ -525,6 +529,58 @@ function collectFromRegex(
   }
 
   return result.length > 0 ? result : undefined;
+}
+
+function createCodePositionMap(code: string): boolean[] {
+  const positions = Array(code.length).fill(true);
+
+  function mask(start: number, end: number): void {
+    for (let i = start; i < end; i++) positions[i] = false;
+  }
+
+  for (let i = 0; i < code.length; ) {
+    const char = code[i];
+    const next = code[i + 1];
+
+    if (char === '/' && next === '/') {
+      const start = i;
+      i += 2;
+      while (i < code.length && code[i] !== '\n' && code[i] !== '\r') i++;
+      mask(start, i);
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      const start = i;
+      i += 2;
+      while (i < code.length && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i = Math.min(code.length, i + 2);
+      mask(start, i);
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char;
+      const start = i++;
+      while (i < code.length) {
+        if (code[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (code[i] === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      mask(start, i);
+      continue;
+    }
+
+    i++;
+  }
+
+  return positions;
 }
 
 // ── Plugin factory ────────────────────────────────────────────────
@@ -570,9 +626,6 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
         imports = collectFromRegex(code, matchesRemoteImport);
       }
 
-      if ((!imports || imports.length === 0) && REGEX_FALLBACK_EXTENSIONS_RE.test(id)) {
-        imports = collectFromRegex(code, matchesRemoteImport);
-      }
       if (!imports) return;
       return applyRewrites(code, imports, id);
     },

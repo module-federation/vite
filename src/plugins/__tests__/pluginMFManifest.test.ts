@@ -359,6 +359,54 @@ describe('pluginMFManifest', () => {
     expect(manifest.exposes[0].assets.js.sync).toEqual(['remoteEntry.js']);
   });
 
+  it('serves hash-pattern dev remoteEntry through stable filename without manifest', () => {
+    getNormalizeModuleFederationOptions.mockReturnValue({
+      name: 'basicRemote',
+      filename: 'remoteEntry-[hash]',
+      getPublicPath: undefined,
+      varFilename: undefined,
+      manifest: undefined,
+      exposes: { './exposed': { import: './src/exposed.js' } },
+      remotes: {},
+      shared: {},
+      publicPath: 'auto',
+      bundleAllCSS: false,
+      shareStrategy: 'version-first',
+      implementation: 'module-federation-runtime',
+      runtimePlugins: [],
+      virtualModuleDir: '__mf__virtual',
+      hostInitInjectLocation: 'html',
+      moduleParseTimeout: 10,
+      ignoreOrigin: false,
+    });
+
+    const [servePlugin, buildPlugin] = manifestPlugin();
+    const handlers: Function[] = [];
+
+    callHook(buildPlugin.config, {} as ConfigPluginContext, {}, { command: 'serve', mode: 'test' });
+    callHook(
+      servePlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        base: '/',
+      } as unknown as ResolvedConfig
+    );
+    callHook(
+      servePlugin.configureServer,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        middlewares: { use: (handler: Function) => handlers.push(handler) },
+      } as any
+    );
+
+    const remoteEntryReq = { url: '/remoteEntry.js?cache=1' };
+    const next = vi.fn();
+    handlers[0](remoteEntryReq, {}, next);
+
+    expect(remoteEntryReq.url).toBe('/remoteEntry-[hash]?cache=1');
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it('keeps build manifest remoteEntry resolved from emitted bundle', async () => {
     const bundle = makeBundle();
     const remoteEntry = bundle['remoteEntry.js'] as OutputChunk;
@@ -373,6 +421,31 @@ describe('pluginMFManifest', () => {
     expect(manifest.metaData.remoteEntry.name).toBe('remoteEntry-a1b2c3d4.js');
     expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry-a1b2c3d4.ssr.js');
   });
+
+  // An expose basenamed like the container gets the same chunk name; even emitted first,
+  // the manifest must point at the container, not the expose. Covers a camelCase
+  // `remoteEntry.js` and a kebab `remote-entry.js` filename.
+  it.each(['remote-entry', 'remoteEntry'])(
+    'resolves the build remoteEntry to the %s container, not a same-named expose',
+    async (base) => {
+      const filename = `${base}.js`;
+      const exposeFile = `assets/${base}-abc123.js`;
+      const container = {
+        ...(makeBundle()['remoteEntry.js'] as OutputChunk),
+        fileName: filename,
+        name: base,
+      };
+      const bundle: OutputBundle = {
+        [exposeFile]: { ...container, fileName: exposeFile, facadeModuleId: '/src/expose.js' },
+        [filename]: container,
+      };
+
+      const emitted = await runGenerateBundleWithManifest(true, { bundle, filename });
+      const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+      expect(manifest.metaData.remoteEntry.name).toBe(filename);
+    }
+  );
 
   it('emits companion stats file using manifest fileName suffix', async () => {
     const emitted = await runGenerateBundleWithManifest({
