@@ -241,6 +241,12 @@ const Manifest = (): Plugin[] => {
       async generateBundle(_options, bundle) {
         if (!mfManifestName) return;
 
+        // A multi-environment build runs generateBundle once per environment.
+        // The SSR manifest references chunks that externalize framework
+        // dependencies, so it must not overwrite the browser-safe manifest
+        // emitted by the client environment into the public output directory.
+        if (this.environment?.name === 'ssr') return;
+
         let filesMap: PreloadMap = {};
 
         const foundRemoteEntryFile = findRemoteEntryFile(mfOptions.filename, bundle);

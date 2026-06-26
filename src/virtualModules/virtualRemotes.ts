@@ -3,6 +3,7 @@ import {
   type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
 import type { RemoteConsumer } from '../utils/remoteConsumerTarget';
+import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
 import VirtualModule from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
@@ -55,7 +56,7 @@ export function getRemoteFromId(id: string, remotes: Record<string, RemoteObject
  * - `eager`: version-first — start `loadRemote` immediately, resolve via promise chain
  * - `loaded-first-ssr`: SSR/client split — real module (proxies are invalid on the server)
  * - `loaded-first-client`: browser split — defer until an export is read
- * - `loaded-first-unified`: single graph — `typeof window` picks SSR vs browser behavior
+ * - `loaded-first-unified`: single graph — a Node guard picks SSR vs browser behavior
  */
 export type RemoteInitMode =
   | 'eager'
@@ -313,7 +314,7 @@ export function generateRemotes(
       ? clientInit
       : consumer === 'server'
         ? serverInit
-        : `if (typeof window === "undefined") {
+        : `if (${SERVER_ENV_GUARD}) {
       ${serverInit}
     } else {
       ${clientInit}

@@ -1,5 +1,9 @@
 export type MfCommand = 'serve' | 'build';
 
+/** A browser-safe generated expression that is true only in Node.js. */
+export const SERVER_ENV_GUARD =
+  "typeof process !== 'undefined' && !!process.versions && !!process.versions.node";
+
 export interface SsrCapabilities {
   /** Emit server-side MF runtime bootstrap (ssrEntryLoader import) in dev remote wrappers. */
   enableSsrInitBootstrap: boolean;

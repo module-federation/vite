@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { Rollup, ResolvedConfig } from 'vite';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
@@ -86,6 +89,7 @@ describe('pluginSSRRemoteEntry', () => {
     // so the Vite dev server can respond to virtual SSR module requests.
     expect(plugins[0].apply).toBeUndefined();
     expect(plugins[1].name).toBe('mf:ssr-remote-entry');
+    expect(plugins[1].sharedDuringBuild).toBe(true);
     expect(plugins[1].apply).toBeUndefined();
   });
 
@@ -660,6 +664,90 @@ describe('pluginSSRRemoteEntry', () => {
       );
 
       expect(asset.source).toBe('const map = import("./_nuxt/virtualExposes-abc.js");');
+    });
+  });
+
+  describe('main plugin — writeBundle', () => {
+    it('publishes the SSR entry graph without exposing unrelated server files', () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-vite-'));
+      const ssrDir = path.join(root, 'dist', 'ssr');
+      const clientDir = path.join(root, 'dist', 'client');
+      fs.mkdirSync(path.join(ssrDir, 'mf-assets'), { recursive: true });
+      fs.mkdirSync(path.join(clientDir, 'mf-assets'), { recursive: true });
+      fs.writeFileSync(path.join(ssrDir, 'remoteEntry.ssr.js'), 'ssr entry');
+      fs.writeFileSync(path.join(ssrDir, 'mf-assets', 'exposes-map.js'), 'exposes map');
+      fs.writeFileSync(path.join(ssrDir, 'mf-assets', 'ssr-only.js'), 'ssr asset');
+      fs.writeFileSync(path.join(ssrDir, 'mf-assets', 'Widget.js'), 'exposed widget');
+      fs.writeFileSync(path.join(ssrDir, 'mf-assets', 'shared.js'), 'ssr shared');
+      fs.writeFileSync(path.join(ssrDir, 'server-only.js'), 'private server code');
+      fs.writeFileSync(path.join(clientDir, 'mf-assets', 'shared.js'), 'client shared');
+
+      try {
+        const plugins = pluginSSRRemoteEntry(makeOptions());
+        const mainPlugin = plugins[1];
+        const configResolved = mainPlugin.configResolved as (config: ResolvedConfig) => void;
+        configResolved?.({
+          root,
+          environments: { client: { build: { outDir: clientDir } } },
+        } as unknown as ResolvedConfig);
+        callHook(
+          mainPlugin.buildStart,
+          {
+            meta: makePluginMeta(false),
+            emitFile: makeEmitFile(),
+            environment: { name: 'ssr' },
+          } as unknown as Rollup.PluginContext,
+          {} as Rollup.NormalizedInputOptions
+        );
+
+        const outputBundle = {
+          'remoteEntry.ssr.js': {
+            type: 'chunk',
+            fileName: 'remoteEntry.ssr.js',
+            imports: ['mf-assets/exposes-map.js', 'mf-assets/ssr-only.js', 'mf-assets/shared.js'],
+            dynamicImports: [],
+            implicitlyLoadedBefore: [],
+            referencedFiles: [],
+          },
+          'mf-assets/exposes-map.js': {
+            type: 'asset',
+            fileName: 'mf-assets/exposes-map.js',
+            source: 'export default { Widget: () => import("./Widget.js") };',
+          },
+          'mf-assets/ssr-only.js': { type: 'chunk', fileName: 'mf-assets/ssr-only.js' },
+          'mf-assets/Widget.js': { type: 'chunk', fileName: 'mf-assets/Widget.js' },
+          'mf-assets/shared.js': { type: 'chunk', fileName: 'mf-assets/shared.js' },
+        } as unknown as Rollup.OutputBundle;
+        callHook(
+          mainPlugin.generateBundle,
+          { environment: { name: 'ssr' } } as unknown as Rollup.PluginContext,
+          {} as Rollup.NormalizedOutputOptions,
+          outputBundle,
+          true
+        );
+        callHook(
+          mainPlugin.writeBundle,
+          { environment: { name: 'ssr' } } as unknown as Rollup.PluginContext,
+          { dir: ssrDir } as Rollup.NormalizedOutputOptions,
+          outputBundle
+        );
+
+        expect(fs.readFileSync(path.join(clientDir, 'remoteEntry.ssr.js'), 'utf8')).toBe(
+          'ssr entry'
+        );
+        expect(fs.readFileSync(path.join(clientDir, 'mf-assets', 'ssr-only.js'), 'utf8')).toBe(
+          'ssr asset'
+        );
+        expect(fs.readFileSync(path.join(clientDir, 'mf-assets', 'Widget.js'), 'utf8')).toBe(
+          'exposed widget'
+        );
+        expect(fs.readFileSync(path.join(clientDir, 'mf-assets', 'shared.js'), 'utf8')).toBe(
+          'client shared'
+        );
+        expect(fs.existsSync(path.join(clientDir, 'server-only.js'))).toBe(false);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
     });
   });
 });
