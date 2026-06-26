@@ -95,6 +95,9 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'workspace-consumer') {
       return '/repo/packages/workspace-consumer/src/index.ts';
     }
+    if (pkg === 'workspace-dual-format') {
+      return '/repo/packages/workspace-dual-format/dist/index.js';
+    }
   }),
   getInstalledPackageJson: vi.fn((pkg: string, opts?: { fromResolvedEntry?: string }) => {
     if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-shared-lib/')) {
@@ -147,6 +150,21 @@ vi.mock('../../utils/packageUtils', () => ({
         packageJson: {
           name: 'workspace-consumer',
           dependencies: { 'workspace-producer': 'workspace:*' },
+        },
+      };
+    }
+    if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-dual-format/')) {
+      return {
+        path: '/repo/packages/workspace-dual-format/package.json',
+        dir: '/repo/packages/workspace-dual-format',
+        packageJson: {
+          name: 'workspace-dual-format',
+          exports: {
+            '.': {
+              import: { default: './dist/index.js' },
+              require: { default: './dist/index.cjs' },
+            },
+          },
         },
       };
     }
@@ -221,6 +239,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/workspace-cycle-b/package.json') ||
       filePath.endsWith('/repo/packages/workspace-producer/package.json') ||
       filePath.endsWith('/repo/packages/workspace-consumer/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-dual-format/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts')
   ),
   readFileSync: vi.fn((filePath: string) => {
@@ -397,6 +417,20 @@ export const [firstItem, ...restItems] = tuple;`;
         dependencies: { 'workspace-cycle-a': 'workspace:*' },
       });
     }
+    if (filePath.endsWith('/repo/packages/workspace-dual-format/package.json')) {
+      return JSON.stringify({
+        name: 'workspace-dual-format',
+        exports: {
+          '.': {
+            import: { default: './dist/index.js' },
+            require: { default: './dist/index.cjs' },
+          },
+        },
+      });
+    }
+    if (filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js')) {
+      return 'export const sharedValue = 42; export function increment() { return sharedValue + 1; }';
+    }
     if (filePath.endsWith('/repo/packages/custom-shared-source/index.ts')) {
       return `export const sharedValue = 'shared';
               export function useSharedFeature() {
@@ -566,6 +600,9 @@ vi.mock('module', async (importOriginal) => {
           }
           if (pkg === 'workspace-consumer') {
             return '/repo/packages/workspace-consumer/src/index.ts';
+          }
+          if (pkg === 'workspace-dual-format') {
+            return '/repo/packages/workspace-dual-format/dist/index.cjs';
           }
           if (
             pkg === 'mock-package-reexport-type' ||
@@ -1615,6 +1652,30 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('export * from');
     expect(generatedCode).not.toContain('module.exports = exportModule');
     expect(generatedCode).not.toContain('await ');
+  });
+
+  it('resolves workspace packages with dual ESM/CJS exports to the ESM entry instead of CJS', () => {
+    const pkg = 'workspace-dual-format';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // Should use ESM entry (.js), not CJS entry (.cjs)
+    expect(generatedCode).toContain('/dist/index.js');
+    expect(generatedCode).not.toContain('/dist/index.cjs');
+    expect(generatedCode).not.toContain('module.exports');
   });
 });
 
