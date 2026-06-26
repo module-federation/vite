@@ -612,9 +612,19 @@ function generateEagerWorkspaceSingletonExports(
   importSource: string,
   cacheKey: string
 ) {
+  const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+  const namedExportAssignments =
+    namedExports.length > 0
+      ? `\n    ${namedExports
+          .map(
+            (name, i) =>
+              `const ${namedExportVars[i]} = exportModule[${escapeGeneratedStringLiteral(name)}];`
+          )
+          .join('\n    ')}`
+      : '';
   const namedExportLine =
     namedExports.length > 0
-      ? `\n    export { ${namedExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+      ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
 
   return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
@@ -627,10 +637,9 @@ function generateEagerWorkspaceSingletonExports(
       });
       exportModule = __mfLocalShare;
     }
-    const __mf_default = exportModule.default ?? exportModule;
+    const __mf_default = exportModule.default ?? exportModule;${namedExportAssignments}
     export { __mf_default as default };${namedExportLine}`;
 }
-
 function generateLazyWorkspaceSingletonExports(
   namedExports: string[],
   importSource: string,
