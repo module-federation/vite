@@ -46,8 +46,12 @@ export function generateExposes(options: NormalizedModuleFederationOptions) {
           }
           injectedCssHrefs.add(href);
 
+          // Check for any existing stylesheet with the same href, not just
+          // MF-injected ones. This prevents duplicate <link> tags when Vite's
+          // own CSS module injection or MF runtime's createLink has already
+          // created a <link rel="stylesheet"> for the same URL.
           const existingLink = document.querySelector(
-            \`link[rel="stylesheet"][data-mf-href="\${href}"]\`
+            \`link[rel="stylesheet"][href="\${href}"]\`
           );
           if (existingLink) {
             return Promise.resolve();
@@ -57,7 +61,6 @@ export function generateExposes(options: NormalizedModuleFederationOptions) {
             const link = document.createElement("link");
             link.rel = "stylesheet";
             link.href = href;
-            link.setAttribute("data-mf-href", href);
             link.onload = () => resolve();
             link.onerror = () => reject(new Error(\`[Module Federation] Failed to load CSS asset: \${href}\`));
             document.head.appendChild(link);
