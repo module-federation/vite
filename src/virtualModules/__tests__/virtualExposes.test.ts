@@ -94,7 +94,7 @@ describe('virtualExposes', () => {
         }),
       },
       querySelector: vi.fn((selector: string) => {
-        const href = selector.match(/data-mf-href="([^"]+)"/)?.[1];
+        const href = selector.match(/href="([^"]+)"/)?.[1];
         return href ? (links.get(href) ?? null) : null;
       }),
       createElement: vi.fn(() => ({
