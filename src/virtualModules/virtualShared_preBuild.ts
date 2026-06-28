@@ -695,13 +695,13 @@ function generateLazyWorkspaceSingletonExports(
           : `if (import.meta.env.SSR) {
         ${applyLocalFallback}
       } else {
-        initPromise.then(() =>
+        (__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then(() =>
           import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
             exportModule = __mfNormalizeShareModule(mod);
             __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule);
             __mfApplyLazyShareExports(exportModule);
           })
-        );
+        ));
       }`
       }
     } else {
@@ -761,13 +761,13 @@ function generateDeferredHostProvidedExports(
     };
     let exportModule = __mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor});
     if (exportModule === undefined) {
-      initPromise.then(() => {
+      (__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then(() => {
         exportModule = __mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor});
         if (exportModule === undefined) {
           throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.");
         }
         __mfApplyHostProvidedExports(exportModule);
-      });
+      }));
     } else {
       __mfApplyHostProvidedExports(exportModule);
     }
