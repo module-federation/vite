@@ -269,6 +269,65 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
 
+  it('awaits pendingShareLoads after initHost before importing entry', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-pending-'));
+    const htmlFile = path.join(tempDir, 'index.html');
+    fs.writeFileSync(
+      htmlFile,
+      [
+        '<!doctype html>',
+        '<html>',
+        '  <body>',
+        '    <script type="module" src="/src/main.tsx"></script>',
+        '  </body>',
+        '</html>',
+      ].join('\n')
+    );
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      'export const browserEntry = true;',
+      '/src/main.tsx'
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('__mfModuleCache.pendingShareLoads');
+    expect(result?.code).toContain('await Promise.all(__mfModuleCache.pendingShareLoads)');
+
+    const bootstrap = result?.code ?? '';
+    expect(bootstrap.indexOf('await initHost();')).toBeLessThan(
+      bootstrap.indexOf('__mfModuleCache.pendingShareLoads')
+    );
+    expect(bootstrap.indexOf('__mfModuleCache.pendingShareLoads')).toBeLessThan(
+      bootstrap.indexOf('.then(() => import(')
+    );
+  });
+
   it('wraps hydration entry fallback behind host init during build', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-build-hydration-'));
     const plugins = addEntry({
