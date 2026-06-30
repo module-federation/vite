@@ -963,7 +963,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       load(id: string) {
         if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
           const virtualModule = VirtualModule.findById(id);
-          let code = virtualModule?.code ?? readFileSync(id, 'utf-8');
+          if (!virtualModule?.code) return null;
+          let code = virtualModule.code;
 
           const environmentName = (this as { environment?: { name?: string } }).environment?.name;
           // Vite 5-7 SSR builds do not expose `this.environment`, so fall back to root

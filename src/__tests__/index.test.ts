@@ -394,6 +394,17 @@ describe('module-federation-esm-shims', () => {
     );
   });
 
+  it('returns null when build load hook cannot resolve a virtual module', () => {
+    const plugin = getEsmShimsPlugin();
+    runConfig(plugin, {} as ConfigPluginContext, { build: {} }, { command: 'build', mode: 'test' });
+    const result = callHook(
+      plugin.load,
+      {} as any,
+      `/etc/passwd${LOAD_SHARE_TAG}fake${LOAD_SHARE_TAG}.js`
+    );
+    expect(result).toBeNull();
+  });
+
   it('filters federation control chunks from js dynamic modulepreload deps', () => {
     const plugin = getEsmShimsPlugin();
     const config: any = {
