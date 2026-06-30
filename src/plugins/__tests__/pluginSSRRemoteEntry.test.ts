@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Rollup, ResolvedConfig } from 'vite';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
@@ -475,6 +476,39 @@ describe('pluginSSRRemoteEntry', () => {
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
       expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('rejects filesystem escape module ids before calling Vite', async () => {
+      const outsideRoot = path.join(os.tmpdir(), `mf-runner-secret-${Date.now()}.txt`);
+      fs.writeFileSync(outsideRoot, 'secret');
+      const unsafeIds = [
+        `${pathToFileURL(outsideRoot).href}?raw`,
+        `/@fs/${outsideRoot}?raw`,
+        `${outsideRoot}?raw`,
+      ];
+
+      try {
+        for (const id of unsafeIds) {
+          const handleInvoke = vi.fn();
+          const res = await invokeRunnerMiddleware(
+            {
+              type: 'custom',
+              event: 'vite:invoke',
+              data: { id: 'send', name: 'fetchModule', data: [id] },
+            },
+            {
+              fetchModule: vi.fn(),
+              hot: { handleInvoke },
+            }
+          );
+
+          expect(handleInvoke).not.toHaveBeenCalled();
+          expect(res.statusCode).toBe(400);
+          expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+        }
+      } finally {
+        fs.rmSync(outsideRoot, { force: true });
+      }
     });
 
     it('rejects getBuiltins invokes without the Vite invoke envelope', async () => {
