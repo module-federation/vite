@@ -22,16 +22,32 @@ type RunnerInvokePayload = {
   data: { name: 'fetchModule' | 'getBuiltins'; data: unknown[] };
 };
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function isRunnerInvokePayload(payload: unknown): payload is RunnerInvokePayload {
   if (!payload || typeof payload !== 'object') return false;
+  if (
+    (payload as { type?: unknown }).type !== 'custom' ||
+    (payload as { event?: unknown }).event !== 'vite:invoke'
+  ) {
+    return false;
+  }
   const data = (payload as { data?: unknown }).data;
   if (!data || typeof data !== 'object') return false;
+  const name = (data as { name?: unknown }).name;
+  const args = (data as { data?: unknown }).data;
+  if (typeof name !== 'string' || !ALLOWED_RUNNER_INVOKE_NAMES.has(name) || !Array.isArray(args)) {
+    return false;
+  }
+  if (name === 'getBuiltins') return args.length === 0;
+  if (args.length < 1 || args.length > 3) return false;
+  const [id, importer, opts] = args;
   return (
-    (payload as { type?: unknown }).type === 'custom' &&
-    (payload as { event?: unknown }).event === 'vite:invoke' &&
-    typeof (data as { name?: unknown }).name === 'string' &&
-    ALLOWED_RUNNER_INVOKE_NAMES.has((data as { name: string }).name) &&
-    Array.isArray((data as { data?: unknown }).data)
+    typeof id === 'string' &&
+    (importer === undefined || importer === null || typeof importer === 'string') &&
+    (opts === undefined || isPlainObject(opts))
   );
 }
 
@@ -268,7 +284,14 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               const rawBody = await readBoundedRunnerBody(req, res);
               if (!rawBody) return;
 
-              const body = JSON.parse(rawBody.toString('utf8')) as unknown;
+              let body: unknown;
+              try {
+                body = JSON.parse(rawBody.toString('utf8')) as unknown;
+              } catch {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: { message: 'Invalid JSON' } }));
+                return;
+              }
               if (!isRunnerInvokePayload(body)) {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ error: { message: 'Invalid runner invoke' } }));

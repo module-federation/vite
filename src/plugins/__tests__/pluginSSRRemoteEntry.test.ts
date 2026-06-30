@@ -73,12 +73,13 @@ function makeEmitFile() {
   return vi.fn<Rollup.PluginContext['emitFile']>();
 }
 
-function createMockRequest(method: string, payload?: unknown) {
+function createMockRequest(method: string, payload?: unknown, rawPayload?: string) {
   const req = new EventEmitter() as EventEmitter & { method: string; url: string };
   req.method = method;
   req.url = '/__mf_runner__';
   queueMicrotask(() => {
-    if (payload !== undefined) req.emit('data', Buffer.from(JSON.stringify(payload)));
+    if (rawPayload !== undefined) req.emit('data', Buffer.from(rawPayload));
+    else if (payload !== undefined) req.emit('data', Buffer.from(JSON.stringify(payload)));
     req.emit('end');
   });
   return req;
@@ -102,7 +103,8 @@ function createMockResponse() {
 
 async function invokeRunnerMiddleware(
   payload: unknown,
-  env: { fetchModule?: unknown; hot?: { handleInvoke?: (payload: unknown) => Promise<unknown> } }
+  env: { fetchModule?: unknown; hot?: { handleInvoke?: (payload: unknown) => Promise<unknown> } },
+  rawPayload?: string
 ) {
   const plugins = pluginSSRRemoteEntry(makeOptions());
   const mainPlugin = plugins[1];
@@ -138,7 +140,7 @@ async function invokeRunnerMiddleware(
   const runner = handlers.find((entry) => entry.path === '/__mf_runner__')?.handler;
   expect(runner).toBeDefined();
 
-  const req = createMockRequest('POST', payload);
+  const req = createMockRequest('POST', payload, rawPayload);
   const res = createMockResponse();
   await runner!(req, res);
   return res;
@@ -453,6 +455,59 @@ describe('pluginSSRRemoteEntry', () => {
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
       expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('rejects invalid runner argument shapes before calling Vite', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: { id: 'send', name: 'fetchModule', data: [123] },
+        },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('rejects getBuiltins invokes without the Vite invoke envelope', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        { data: { id: 'send', name: 'getBuiltins', data: [] } },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('returns 400 for invalid JSON before calling Vite', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        undefined,
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        },
+        '{bad json'
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid JSON' } });
     });
 
     it('rejects oversized runner invoke bodies before calling Vite', async () => {
