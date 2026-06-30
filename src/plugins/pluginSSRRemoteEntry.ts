@@ -1,14 +1,10 @@
 import * as fs from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import * as path from 'node:path';
 import { Plugin, ResolvedConfig } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
 import { getBasePath, isNuxtClientBase } from '../utils/pathNormalization';
-import {
-  isAllowedRunnerInvokeName,
-  isSafeRunnerModuleId,
-  readBoundedRequestBody,
-} from '../utils/devRunnerEndpoint';
 import { decodeViteId } from '../utils/VirtualModule';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
 import {
@@ -16,6 +12,60 @@ import {
   getRemoteEntrySSRId,
   getSsrRemoteEntryFileName,
 } from '../virtualModules/virtualRemoteEntrySSR';
+
+const MAX_RUNNER_BODY_BYTES = 1024 * 1024;
+const ALLOWED_RUNNER_INVOKE_NAMES = new Set(['fetchModule', 'getBuiltins']);
+
+type RunnerInvokePayload = {
+  type: 'custom';
+  event: 'vite:invoke';
+  data: { name: 'fetchModule' | 'getBuiltins'; data: unknown[] };
+};
+
+function isRunnerInvokePayload(payload: unknown): payload is RunnerInvokePayload {
+  if (!payload || typeof payload !== 'object') return false;
+  const data = (payload as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') return false;
+  return (
+    (payload as { type?: unknown }).type === 'custom' &&
+    (payload as { event?: unknown }).event === 'vite:invoke' &&
+    typeof (data as { name?: unknown }).name === 'string' &&
+    ALLOWED_RUNNER_INVOKE_NAMES.has((data as { name: string }).name) &&
+    Array.isArray((data as { data?: unknown }).data)
+  );
+}
+
+function readBoundedRunnerBody(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<Buffer | undefined> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+
+    const fail = (statusCode: number, message: string) => {
+      if (done) return;
+      done = true;
+      res.statusCode = statusCode;
+      res.end(message);
+      resolve(undefined);
+    };
+
+    req.on('data', (chunk: Buffer) => {
+      if (done) return;
+      size += chunk.length;
+      if (size > MAX_RUNNER_BODY_BYTES) return fail(413, 'Payload too large');
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (done) return;
+      done = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', () => fail(400, 'Bad request'));
+  });
+}
 
 /**
  * Emits a Node-compatible SSR remote entry alongside the browser entry.
@@ -178,13 +228,27 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Vite versions fall back to the build-mode SSR entry path.
         // `fetchModule` lives on `DevEnvironment`, not on `ViteDevServer` directly.
         // Check via `environments.client` — present on Vite 8+.
+        type EnvWithRunnerInvoke = {
+          fetchModule?: unknown;
+          hot?: {
+            handleInvoke?: (
+              payload: unknown
+            ) => Promise<{ result: unknown } | { error: { message: string } }>;
+          };
+        };
         const ssrEnv = (
-          server.environments as Record<string, { fetchModule?: unknown } | undefined> | undefined
+          server.environments as Record<string, EnvWithRunnerInvoke | undefined> | undefined
         )?.ssr;
         const clientEnv = (
-          server.environments as Record<string, { fetchModule?: unknown } | undefined> | undefined
+          server.environments as Record<string, EnvWithRunnerInvoke | undefined> | undefined
         )?.client;
-        if (typeof (ssrEnv?.fetchModule ?? clientEnv?.fetchModule) === 'function') {
+        const runnerEnv =
+          typeof ssrEnv?.hot?.handleInvoke === 'function'
+            ? ssrEnv
+            : typeof clientEnv?.hot?.handleInvoke === 'function'
+              ? clientEnv
+              : undefined;
+        if (typeof (ssrEnv?.fetchModule ?? clientEnv?.fetchModule) === 'function' && runnerEnv) {
           const runnerBase = '/__mf_runner__';
           server.middlewares.use(runnerBase, async (req, res) => {
             res.setHeader('Access-Control-Allow-Origin', '*');
@@ -201,78 +265,48 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               return;
             }
             try {
-              const rawBody = await readBoundedRequestBody(req, res);
+              const rawBody = await readBoundedRunnerBody(req, res);
               if (!rawBody) return;
 
-              const body = JSON.parse(rawBody.toString('utf8')) as {
-                name: string;
-                data: [string, string?, { cached?: boolean; startOffset?: number }?];
-              };
-              if (!isAllowedRunnerInvokeName(body.name)) {
+              const body = JSON.parse(rawBody.toString('utf8')) as unknown;
+              if (!isRunnerInvokePayload(body)) {
                 res.statusCode = 400;
-                res.end(JSON.stringify({ error: { message: `Unsupported invoke: ${body.name}` } }));
+                res.end(JSON.stringify({ error: { message: 'Invalid runner invoke' } }));
                 return;
               }
-              // getBuiltins: return the resolved builtins list from Vite config.
-              if (body.name === 'getBuiltins') {
-                const env = (clientEnv ?? ssrEnv) as
-                  | { config?: { resolve?: { builtins?: unknown[] } } }
-                  | undefined;
-                const builtins = env?.config?.resolve?.builtins ?? [];
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ result: builtins }));
-                return;
-              }
-              const [id, importer, opts] = body.data;
-              const projectRoot = (server.config as { root: string }).root;
-              if (!isSafeRunnerModuleId(id, projectRoot)) {
-                res.statusCode = 400;
-                res.end(JSON.stringify({ error: { message: 'Invalid module id' } }));
-                return;
-              }
-              if (importer !== undefined && !isSafeRunnerModuleId(importer, projectRoot)) {
-                res.statusCode = 400;
-                res.end(JSON.stringify({ error: { message: 'Invalid importer' } }));
-                return;
-              }
-              // Use the SSR environment for transforms. When `fetchModule` fails
-              // (e.g. for bare Node.js package specifiers like @module-federation/runtime
-              // that the SSR env externalises via Node module resolution), fall through
-              // to a manual resolution using the remote project's require.
-              type EnvWithFetch = {
-                fetchModule: (
-                  id: string,
-                  importer?: string,
-                  opts?: Record<string, unknown>
-                ) => Promise<unknown>;
-              };
-              const fetchEnv = (ssrEnv as EnvWithFetch | undefined) ?? (clientEnv as EnvWithFetch);
-              const fetchFn = fetchEnv.fetchModule.bind(fetchEnv);
-              let result: unknown;
-              try {
-                result = await fetchFn(id, importer, opts);
-              } catch (fetchErr) {
-                // SSR env failed to resolve — try externalising via Node require from
-                // the remote project root. This handles bare package specifiers like
-                // @module-federation/runtime that need to run as Node externals.
-                const bareId = decodeViteId(id);
-                try {
-                  const { createRequire } = await import('module');
-                  const path = await import('path');
-                  const { pathToFileURL } = await import('url');
-                  const req = createRequire(
-                    pathToFileURL(
-                      path.join((server.config as { root: string }).root, 'package.json')
-                    )
-                  );
-                  const resolved = req.resolve(bareId.replace(/^\0/, ''));
-                  result = { externalize: pathToFileURL(resolved).href, type: 'module' };
-                } catch {
-                  throw fetchErr;
+
+              let result = await runnerEnv.hot!.handleInvoke!(body);
+              if ('error' in result && body.data.name === 'fetchModule') {
+                const id = body.data.data[0];
+                const bareId = typeof id === 'string' ? decodeViteId(id).replace(/^\0/, '') : '';
+                const isBarePackageSpecifier =
+                  bareId &&
+                  !bareId.startsWith('.') &&
+                  !bareId.startsWith('/') &&
+                  !bareId.startsWith('file:') &&
+                  !/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(bareId);
+
+                if (isBarePackageSpecifier) {
+                  try {
+                    const { createRequire } = await import('module');
+                    const path = await import('path');
+                    const { pathToFileURL } = await import('url');
+                    const req = createRequire(
+                      pathToFileURL(
+                        path.join((server.config as { root: string }).root, 'package.json')
+                      )
+                    );
+                    const resolved = req.resolve(bareId);
+                    result = {
+                      result: { externalize: pathToFileURL(resolved).href, type: 'module' },
+                    };
+                  } catch {
+                    // Keep Vite's original invoke error.
+                  }
                 }
               }
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ result }));
+              res.end(JSON.stringify(result));
             } catch (e) {
               res.setHeader('Content-Type', 'application/json');
               res.end(
