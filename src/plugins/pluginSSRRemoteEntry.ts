@@ -4,6 +4,11 @@ import { Plugin, ResolvedConfig } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
 import { getBasePath, isNuxtClientBase } from '../utils/pathNormalization';
+import {
+  isAllowedRunnerInvokeName,
+  isSafeRunnerModuleId,
+  readBoundedRequestBody,
+} from '../utils/devRunnerEndpoint';
 import { decodeViteId } from '../utils/VirtualModule';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
 import {
@@ -196,16 +201,18 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               return;
             }
             try {
-              const chunks: Buffer[] = [];
-              await new Promise<void>((resolve, reject) => {
-                req.on('data', (chunk: Buffer) => chunks.push(chunk));
-                req.on('end', resolve);
-                req.on('error', reject);
-              });
-              const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+              const rawBody = await readBoundedRequestBody(req, res);
+              if (!rawBody) return;
+
+              const body = JSON.parse(rawBody.toString('utf8')) as {
                 name: string;
                 data: [string, string?, { cached?: boolean; startOffset?: number }?];
               };
+              if (!isAllowedRunnerInvokeName(body.name)) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: { message: `Unsupported invoke: ${body.name}` } }));
+                return;
+              }
               // getBuiltins: return the resolved builtins list from Vite config.
               if (body.name === 'getBuiltins') {
                 const env = (clientEnv ?? ssrEnv) as
@@ -216,12 +223,18 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
                 res.end(JSON.stringify({ result: builtins }));
                 return;
               }
-              if (body.name !== 'fetchModule') {
+              const [id, importer, opts] = body.data;
+              const projectRoot = (server.config as { root: string }).root;
+              if (!isSafeRunnerModuleId(id, projectRoot)) {
                 res.statusCode = 400;
-                res.end(JSON.stringify({ error: { message: `Unsupported invoke: ${body.name}` } }));
+                res.end(JSON.stringify({ error: { message: 'Invalid module id' } }));
                 return;
               }
-              const [id, importer, opts] = body.data;
+              if (importer !== undefined && !isSafeRunnerModuleId(importer, projectRoot)) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: { message: 'Invalid importer' } }));
+                return;
+              }
               // Use the SSR environment for transforms. When `fetchModule` fails
               // (e.g. for bare Node.js package specifiers like @module-federation/runtime
               // that the SSR env externalises via Node module resolution), fall through
