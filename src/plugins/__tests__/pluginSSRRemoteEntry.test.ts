@@ -511,6 +511,50 @@ describe('pluginSSRRemoteEntry', () => {
       }
     });
 
+    it('rejects relative traversal module ids before calling Vite', async () => {
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'escaped' } });
+
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: { id: 'send', name: 'fetchModule', data: ['../../outside-root.txt'] },
+        },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      // `../` specifiers should be rejected by this endpoint instead of being
+      // forwarded to Vite, otherwise path traversal validation depends on Vite.
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('returns 400 for malformed encoded /@fs/ ids before calling Vite', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: { id: 'send', name: 'fetchModule', data: ['/@fs/%'] },
+        },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      // Malformed URI encoding should stay on the validation failure path.
+      // If decodeURIComponent throws into the outer catch, this becomes a 200.
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
     it('rejects getBuiltins invokes without the Vite invoke envelope', async () => {
       const handleInvoke = vi.fn();
 
