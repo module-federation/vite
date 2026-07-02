@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import * as path from 'node:path';
 import { Plugin, ResolvedConfig } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
@@ -11,6 +12,157 @@ import {
   getRemoteEntrySSRId,
   getSsrRemoteEntryFileName,
 } from '../virtualModules/virtualRemoteEntrySSR';
+
+const MAX_RUNNER_BODY_BYTES = 1024 * 1024;
+const ALLOWED_RUNNER_INVOKE_NAMES = new Set(['fetchModule', 'getBuiltins']);
+const VITE_FS_PREFIX = '/@fs/';
+
+type RunnerInvokePayload = {
+  type: 'custom';
+  event: 'vite:invoke';
+  data: { name: 'fetchModule' | 'getBuiltins'; data: unknown[] };
+};
+
+type RunnerValidationConfig = {
+  root: string;
+  server?: {
+    fs?: {
+      allow?: string[];
+    };
+  };
+};
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stripQueryAndHash(id: string): string {
+  const queryIndex = id.indexOf('?');
+  const hashIndex = id.indexOf('#');
+  const endIndex =
+    queryIndex === -1 ? hashIndex : hashIndex === -1 ? queryIndex : Math.min(queryIndex, hashIndex);
+  return endIndex === -1 ? id : id.slice(0, endIndex);
+}
+
+function decodeRunnerFilePath(filePath: string): string | undefined {
+  try {
+    return decodeURIComponent(filePath);
+  } catch {
+    return undefined;
+  }
+}
+
+function hasRelativeTraversal(id: string): boolean {
+  return id.split(/[\\/]+/).includes('..');
+}
+
+function getRealPathIfExists(filePath: string): string | undefined {
+  try {
+    return fs.realpathSync.native(filePath);
+  } catch {
+    return undefined;
+  }
+}
+
+function isPathWithinDirectory(filePath: string, directory: string): boolean {
+  const realFilePath = getRealPathIfExists(filePath) ?? path.resolve(filePath);
+  const realDirectory = getRealPathIfExists(directory) ?? path.resolve(directory);
+  const relative = path.relative(realDirectory, realFilePath);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function getRunnerAllowedDirectories(config: RunnerValidationConfig): string[] {
+  return [config.root, ...(config.server?.fs?.allow ?? [])].map((directory) =>
+    path.resolve(directory)
+  );
+}
+
+function isPathWithinAllowedDirectories(filePath: string, allowedDirectories: string[]): boolean {
+  return allowedDirectories.some((directory) => isPathWithinDirectory(filePath, directory));
+}
+
+function isSafeRunnerFetchModuleId(id: unknown, config: RunnerValidationConfig): boolean {
+  if (typeof id !== 'string' || !id || id.includes('\0')) return false;
+
+  const decoded = decodeViteId(id).replace(/^\0+/, '');
+  if (!decoded || decoded.startsWith('virtual:')) return !!decoded;
+  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(decoded) || decoded.startsWith('//')) return false;
+
+  const rawCleanId = stripQueryAndHash(decoded);
+  const cleanId = decodeRunnerFilePath(rawCleanId);
+  if (!cleanId || hasRelativeTraversal(cleanId)) return false;
+
+  const allowedDirectories = getRunnerAllowedDirectories(config);
+  if (cleanId.startsWith(VITE_FS_PREFIX)) {
+    const fsPath = cleanId.slice(VITE_FS_PREFIX.length);
+    return path.isAbsolute(fsPath) && isPathWithinAllowedDirectories(fsPath, allowedDirectories);
+  }
+  if (path.isAbsolute(cleanId)) {
+    if (isPathWithinAllowedDirectories(cleanId, allowedDirectories)) return true;
+    return !fs.existsSync(cleanId);
+  }
+  return true;
+}
+
+function isRunnerInvokePayload(
+  payload: unknown,
+  config: RunnerValidationConfig
+): payload is RunnerInvokePayload {
+  if (!payload || typeof payload !== 'object') return false;
+  if (
+    (payload as { type?: unknown }).type !== 'custom' ||
+    (payload as { event?: unknown }).event !== 'vite:invoke'
+  ) {
+    return false;
+  }
+  const data = (payload as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') return false;
+  const name = (data as { name?: unknown }).name;
+  const args = (data as { data?: unknown }).data;
+  if (typeof name !== 'string' || !ALLOWED_RUNNER_INVOKE_NAMES.has(name) || !Array.isArray(args)) {
+    return false;
+  }
+  if (name === 'getBuiltins') return args.length === 0;
+  if (args.length < 1 || args.length > 3) return false;
+  const [id, importer, opts] = args;
+  return (
+    isSafeRunnerFetchModuleId(id, config) &&
+    (importer === undefined || importer === null || isSafeRunnerFetchModuleId(importer, config)) &&
+    (opts === undefined || isPlainObject(opts))
+  );
+}
+
+function readBoundedRunnerBody(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<Buffer | undefined> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+
+    const fail = (statusCode: number, message: string) => {
+      if (done) return;
+      done = true;
+      res.statusCode = statusCode;
+      res.end(message);
+      resolve(undefined);
+    };
+
+    req.on('data', (chunk: Buffer) => {
+      if (done) return;
+      size += chunk.length;
+      if (size > MAX_RUNNER_BODY_BYTES) return fail(413, 'Payload too large');
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (done) return;
+      done = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', () => fail(400, 'Bad request'));
+  });
+}
 
 /**
  * Emits a Node-compatible SSR remote entry alongside the browser entry.
@@ -173,13 +325,27 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Vite versions fall back to the build-mode SSR entry path.
         // `fetchModule` lives on `DevEnvironment`, not on `ViteDevServer` directly.
         // Check via `environments.client` — present on Vite 8+.
+        type EnvWithRunnerInvoke = {
+          fetchModule?: unknown;
+          hot?: {
+            handleInvoke?: (
+              payload: unknown
+            ) => Promise<{ result: unknown } | { error: { message: string } }>;
+          };
+        };
         const ssrEnv = (
-          server.environments as Record<string, { fetchModule?: unknown } | undefined> | undefined
+          server.environments as Record<string, EnvWithRunnerInvoke | undefined> | undefined
         )?.ssr;
         const clientEnv = (
-          server.environments as Record<string, { fetchModule?: unknown } | undefined> | undefined
+          server.environments as Record<string, EnvWithRunnerInvoke | undefined> | undefined
         )?.client;
-        if (typeof (ssrEnv?.fetchModule ?? clientEnv?.fetchModule) === 'function') {
+        const runnerEnv =
+          typeof ssrEnv?.hot?.handleInvoke === 'function'
+            ? ssrEnv
+            : typeof clientEnv?.hot?.handleInvoke === 'function'
+              ? clientEnv
+              : undefined;
+        if (typeof (ssrEnv?.fetchModule ?? clientEnv?.fetchModule) === 'function' && runnerEnv) {
           const runnerBase = '/__mf_runner__';
           server.middlewares.use(runnerBase, async (req, res) => {
             res.setHeader('Access-Control-Allow-Origin', '*');
@@ -196,70 +362,55 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               return;
             }
             try {
-              const chunks: Buffer[] = [];
-              await new Promise<void>((resolve, reject) => {
-                req.on('data', (chunk: Buffer) => chunks.push(chunk));
-                req.on('end', resolve);
-                req.on('error', reject);
-              });
-              const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
-                name: string;
-                data: [string, string?, { cached?: boolean; startOffset?: number }?];
-              };
-              // getBuiltins: return the resolved builtins list from Vite config.
-              if (body.name === 'getBuiltins') {
-                const env = (clientEnv ?? ssrEnv) as
-                  | { config?: { resolve?: { builtins?: unknown[] } } }
-                  | undefined;
-                const builtins = env?.config?.resolve?.builtins ?? [];
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ result: builtins }));
-                return;
-              }
-              if (body.name !== 'fetchModule') {
-                res.statusCode = 400;
-                res.end(JSON.stringify({ error: { message: `Unsupported invoke: ${body.name}` } }));
-                return;
-              }
-              const [id, importer, opts] = body.data;
-              // Use the SSR environment for transforms. When `fetchModule` fails
-              // (e.g. for bare Node.js package specifiers like @module-federation/runtime
-              // that the SSR env externalises via Node module resolution), fall through
-              // to a manual resolution using the remote project's require.
-              type EnvWithFetch = {
-                fetchModule: (
-                  id: string,
-                  importer?: string,
-                  opts?: Record<string, unknown>
-                ) => Promise<unknown>;
-              };
-              const fetchEnv = (ssrEnv as EnvWithFetch | undefined) ?? (clientEnv as EnvWithFetch);
-              const fetchFn = fetchEnv.fetchModule.bind(fetchEnv);
-              let result: unknown;
+              const rawBody = await readBoundedRunnerBody(req, res);
+              if (!rawBody) return;
+
+              let body: unknown;
               try {
-                result = await fetchFn(id, importer, opts);
-              } catch (fetchErr) {
-                // SSR env failed to resolve — try externalising via Node require from
-                // the remote project root. This handles bare package specifiers like
-                // @module-federation/runtime that need to run as Node externals.
-                const bareId = decodeViteId(id);
-                try {
-                  const { createRequire } = await import('module');
-                  const path = await import('path');
-                  const { pathToFileURL } = await import('url');
-                  const req = createRequire(
-                    pathToFileURL(
-                      path.join((server.config as { root: string }).root, 'package.json')
-                    )
-                  );
-                  const resolved = req.resolve(bareId.replace(/^\0/, ''));
-                  result = { externalize: pathToFileURL(resolved).href, type: 'module' };
-                } catch {
-                  throw fetchErr;
+                body = JSON.parse(rawBody.toString('utf8')) as unknown;
+              } catch {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: { message: 'Invalid JSON' } }));
+                return;
+              }
+              if (!isRunnerInvokePayload(body, server.config as RunnerValidationConfig)) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: { message: 'Invalid runner invoke' } }));
+                return;
+              }
+
+              let result = await runnerEnv.hot!.handleInvoke!(body);
+              if ('error' in result && body.data.name === 'fetchModule') {
+                const id = body.data.data[0];
+                const bareId = typeof id === 'string' ? decodeViteId(id).replace(/^\0/, '') : '';
+                const isBarePackageSpecifier =
+                  bareId &&
+                  !bareId.startsWith('.') &&
+                  !bareId.startsWith('/') &&
+                  !bareId.startsWith('file:') &&
+                  !/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(bareId);
+
+                if (isBarePackageSpecifier) {
+                  try {
+                    const { createRequire } = await import('module');
+                    const path = await import('path');
+                    const { pathToFileURL } = await import('url');
+                    const req = createRequire(
+                      pathToFileURL(
+                        path.join((server.config as { root: string }).root, 'package.json')
+                      )
+                    );
+                    const resolved = req.resolve(bareId);
+                    result = {
+                      result: { externalize: pathToFileURL(resolved).href, type: 'module' },
+                    };
+                  } catch {
+                    // Keep Vite's original invoke error.
+                  }
                 }
               }
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ result }));
+              res.end(JSON.stringify(result));
             } catch (e) {
               res.setHeader('Content-Type', 'application/json');
               res.end(
