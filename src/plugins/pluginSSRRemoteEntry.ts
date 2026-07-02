@@ -35,6 +35,18 @@ function stripQueryAndHash(id: string): string {
   return endIndex === -1 ? id : id.slice(0, endIndex);
 }
 
+function decodeRunnerFilePath(filePath: string): string | undefined {
+  try {
+    return decodeURIComponent(filePath);
+  } catch {
+    return undefined;
+  }
+}
+
+function hasRelativeTraversal(id: string): boolean {
+  return id.split(/[\\/]+/).includes('..');
+}
+
 function getRealPathIfExists(filePath: string): string | undefined {
   try {
     return fs.realpathSync.native(filePath);
@@ -60,13 +72,15 @@ function isSafeRunnerFetchModuleId(id: unknown, projectRoot: string): boolean {
   const cleanId = stripQueryAndHash(decoded);
   const root = path.resolve(projectRoot);
   if (cleanId.startsWith(VITE_FS_PREFIX)) {
-    const fsPath = decodeURIComponent(cleanId.slice(VITE_FS_PREFIX.length));
+    const fsPath = decodeRunnerFilePath(cleanId.slice(VITE_FS_PREFIX.length));
+    if (!fsPath) return false;
     return path.isAbsolute(fsPath) && isPathWithinDirectory(fsPath, root);
   }
   if (path.isAbsolute(cleanId)) {
     if (isPathWithinDirectory(cleanId, root)) return true;
     return !fs.existsSync(cleanId);
   }
+  if (hasRelativeTraversal(cleanId)) return false;
   return true;
 }
 
