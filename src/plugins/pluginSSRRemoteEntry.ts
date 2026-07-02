@@ -23,6 +23,15 @@ type RunnerInvokePayload = {
   data: { name: 'fetchModule' | 'getBuiltins'; data: unknown[] };
 };
 
+type RunnerValidationConfig = {
+  root: string;
+  server?: {
+    fs?: {
+      allow?: string[];
+    };
+  };
+};
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -62,31 +71,42 @@ function isPathWithinDirectory(filePath: string, directory: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-function isSafeRunnerFetchModuleId(id: unknown, projectRoot: string): boolean {
+function getRunnerAllowedDirectories(config: RunnerValidationConfig): string[] {
+  return [config.root, ...(config.server?.fs?.allow ?? [])].map((directory) =>
+    path.resolve(directory)
+  );
+}
+
+function isPathWithinAllowedDirectories(filePath: string, allowedDirectories: string[]): boolean {
+  return allowedDirectories.some((directory) => isPathWithinDirectory(filePath, directory));
+}
+
+function isSafeRunnerFetchModuleId(id: unknown, config: RunnerValidationConfig): boolean {
   if (typeof id !== 'string' || !id || id.includes('\0')) return false;
 
   const decoded = decodeViteId(id).replace(/^\0+/, '');
   if (!decoded || decoded.startsWith('virtual:')) return !!decoded;
   if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(decoded) || decoded.startsWith('//')) return false;
 
-  const cleanId = stripQueryAndHash(decoded);
-  const root = path.resolve(projectRoot);
+  const rawCleanId = stripQueryAndHash(decoded);
+  const cleanId = decodeRunnerFilePath(rawCleanId);
+  if (!cleanId || hasRelativeTraversal(cleanId)) return false;
+
+  const allowedDirectories = getRunnerAllowedDirectories(config);
   if (cleanId.startsWith(VITE_FS_PREFIX)) {
-    const fsPath = decodeRunnerFilePath(cleanId.slice(VITE_FS_PREFIX.length));
-    if (!fsPath) return false;
-    return path.isAbsolute(fsPath) && isPathWithinDirectory(fsPath, root);
+    const fsPath = cleanId.slice(VITE_FS_PREFIX.length);
+    return path.isAbsolute(fsPath) && isPathWithinAllowedDirectories(fsPath, allowedDirectories);
   }
   if (path.isAbsolute(cleanId)) {
-    if (isPathWithinDirectory(cleanId, root)) return true;
+    if (isPathWithinAllowedDirectories(cleanId, allowedDirectories)) return true;
     return !fs.existsSync(cleanId);
   }
-  if (hasRelativeTraversal(cleanId)) return false;
   return true;
 }
 
 function isRunnerInvokePayload(
   payload: unknown,
-  projectRoot: string
+  config: RunnerValidationConfig
 ): payload is RunnerInvokePayload {
   if (!payload || typeof payload !== 'object') return false;
   if (
@@ -106,10 +126,8 @@ function isRunnerInvokePayload(
   if (args.length < 1 || args.length > 3) return false;
   const [id, importer, opts] = args;
   return (
-    isSafeRunnerFetchModuleId(id, projectRoot) &&
-    (importer === undefined ||
-      importer === null ||
-      isSafeRunnerFetchModuleId(importer, projectRoot)) &&
+    isSafeRunnerFetchModuleId(id, config) &&
+    (importer === undefined || importer === null || isSafeRunnerFetchModuleId(importer, config)) &&
     (opts === undefined || isPlainObject(opts))
   );
 }
@@ -355,7 +373,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
                 res.end(JSON.stringify({ error: { message: 'Invalid JSON' } }));
                 return;
               }
-              if (!isRunnerInvokePayload(body, (server.config as { root: string }).root)) {
+              if (!isRunnerInvokePayload(body, server.config as RunnerValidationConfig)) {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ error: { message: 'Invalid runner invoke' } }));
                 return;
