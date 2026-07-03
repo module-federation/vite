@@ -1,6 +1,8 @@
+import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Rollup, ResolvedConfig } from 'vite';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
@@ -70,6 +72,80 @@ function makePluginMeta(rolldown = false): Rollup.PluginContext['meta'] {
 
 function makeEmitFile() {
   return vi.fn<Rollup.PluginContext['emitFile']>();
+}
+
+function createMockRequest(method: string, payload?: unknown, rawPayload?: string) {
+  const req = new EventEmitter() as EventEmitter & { method: string; url: string };
+  req.method = method;
+  req.url = '/__mf_runner__';
+  queueMicrotask(() => {
+    if (rawPayload !== undefined) req.emit('data', Buffer.from(rawPayload));
+    else if (payload !== undefined) req.emit('data', Buffer.from(JSON.stringify(payload)));
+    req.emit('end');
+  });
+  return req;
+}
+
+function createMockResponse() {
+  return {
+    statusCode: 200,
+    headers: {} as Record<string, string>,
+    body: '',
+    writableEnded: false,
+    setHeader(name: string, value: string) {
+      this.headers[name] = value;
+    },
+    end(message = '') {
+      this.writableEnded = true;
+      this.body = message;
+    },
+  };
+}
+
+async function invokeRunnerMiddleware(
+  payload: unknown,
+  env: { fetchModule?: unknown; hot?: { handleInvoke?: (payload: unknown) => Promise<unknown> } },
+  rawPayload?: string,
+  serverConfig: Record<string, unknown> = { root: '/mock/cwd' }
+) {
+  const plugins = pluginSSRRemoteEntry(makeOptions());
+  const mainPlugin = plugins[1];
+  const handlers: { path: string; handler: (req: unknown, res: unknown) => unknown }[] = [];
+
+  callHook(
+    mainPlugin.configResolved,
+    {} as Rollup.PluginContext,
+    {
+      base: '/',
+      root: '/mock/cwd',
+    } as unknown as ResolvedConfig
+  );
+  callHook(
+    mainPlugin.configureServer,
+    {} as Rollup.PluginContext,
+    {
+      config: serverConfig,
+      environments: { ssr: env },
+      middlewares: {
+        use(pathOrHandler: string | ((req: unknown, res: unknown) => unknown), handler?: unknown) {
+          if (typeof pathOrHandler === 'string') {
+            handlers.push({
+              path: pathOrHandler,
+              handler: handler as (req: unknown, res: unknown) => unknown,
+            });
+          }
+        },
+      },
+    } as never
+  );
+
+  const runner = handlers.find((entry) => entry.path === '/__mf_runner__')?.handler;
+  expect(runner).toBeDefined();
+
+  const req = createMockRequest('POST', payload, rawPayload);
+  const res = createMockResponse();
+  await runner!(req, res);
+  return res;
 }
 
 describe('pluginSSRRemoteEntry', () => {
@@ -340,6 +416,239 @@ describe('pluginSSRRemoteEntry', () => {
       expect(
         callHook(mainPlugin.load, {} as Rollup.PluginContext, '/some/other/file.js')
       ).toBeUndefined();
+    });
+  });
+
+  describe('main plugin — configureServer runner endpoint', () => {
+    it('delegates supported Vite runner invokes to the environment hot channel', async () => {
+      const payload = {
+        type: 'custom',
+        event: 'vite:invoke',
+        data: {
+          id: 'send',
+          name: 'fetchModule',
+          data: ['virtual:some-plugin-module', null, { cached: false }],
+        },
+      };
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'export default 1' } });
+
+      const res = await invokeRunnerMiddleware(payload, {
+        fetchModule: vi.fn(),
+        hot: { handleInvoke },
+      });
+
+      expect(handleInvoke).toHaveBeenCalledWith(payload);
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['Content-Type']).toBe('application/json');
+      expect(JSON.parse(res.body)).toEqual({ result: { code: 'export default 1' } });
+    });
+
+    it('rejects malformed or unsupported runner invokes before calling Vite', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        { name: 'fetchModule', data: ['/src/App.tsx'] },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('rejects invalid runner argument shapes before calling Vite', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: { id: 'send', name: 'fetchModule', data: [123] },
+        },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('rejects filesystem escape module ids before calling Vite', async () => {
+      const outsideRoot = path.join(os.tmpdir(), `mf-runner-secret-${Date.now()}.txt`);
+      fs.writeFileSync(outsideRoot, 'secret');
+      const unsafeIds = [
+        `${pathToFileURL(outsideRoot).href}?raw`,
+        `/@fs/${outsideRoot}?raw`,
+        `${outsideRoot}?raw`,
+      ];
+
+      try {
+        for (const id of unsafeIds) {
+          const handleInvoke = vi.fn();
+          const res = await invokeRunnerMiddleware(
+            {
+              type: 'custom',
+              event: 'vite:invoke',
+              data: { id: 'send', name: 'fetchModule', data: [id] },
+            },
+            {
+              fetchModule: vi.fn(),
+              hot: { handleInvoke },
+            }
+          );
+
+          expect(handleInvoke).not.toHaveBeenCalled();
+          expect(res.statusCode).toBe(400);
+          expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+        }
+      } finally {
+        fs.rmSync(outsideRoot, { force: true });
+      }
+    });
+
+    it('allows filesystem ids inside Vite fs.allow before calling Vite', async () => {
+      const allowedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-runner-allowed-'));
+      const allowedFile = path.join(allowedDir, 'Widget.tsx');
+      fs.writeFileSync(allowedFile, 'export default function Widget() {}');
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'export default 1' } });
+
+      try {
+        const res = await invokeRunnerMiddleware(
+          {
+            type: 'custom',
+            event: 'vite:invoke',
+            data: { id: 'send', name: 'fetchModule', data: [`/@fs/${allowedFile}`] },
+          },
+          {
+            fetchModule: vi.fn(),
+            hot: { handleInvoke },
+          },
+          undefined,
+          { root: '/mock/cwd', server: { fs: { allow: [allowedDir] } } }
+        );
+
+        expect(handleInvoke).toHaveBeenCalled();
+        expect(res.statusCode).toBe(200);
+        expect(JSON.parse(res.body)).toEqual({ result: { code: 'export default 1' } });
+      } finally {
+        fs.rmSync(allowedDir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects percent-encoded relative traversal before calling Vite', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: { id: 'send', name: 'fetchModule', data: ['..%2F..%2Foutside-root.txt'] },
+        },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('rejects relative traversal module ids before calling Vite', async () => {
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'escaped' } });
+
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: { id: 'send', name: 'fetchModule', data: ['../../outside-root.txt'] },
+        },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      // `../` specifiers should be rejected by this endpoint instead of being
+      // forwarded to Vite, otherwise path traversal validation depends on Vite.
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('returns 400 for malformed encoded /@fs/ ids before calling Vite', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: { id: 'send', name: 'fetchModule', data: ['/@fs/%'] },
+        },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      // Malformed URI encoding should stay on the validation failure path.
+      // If decodeURIComponent throws into the outer catch, this becomes a 200.
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('rejects getBuiltins invokes without the Vite invoke envelope', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        { data: { id: 'send', name: 'getBuiltins', data: [] } },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('returns 400 for invalid JSON before calling Vite', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware(
+        undefined,
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        },
+        '{bad json'
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid JSON' } });
+    });
+
+    it('rejects oversized runner invoke bodies before calling Vite', async () => {
+      const handleInvoke = vi.fn();
+
+      const res = await invokeRunnerMiddleware('x'.repeat(1024 * 1024), {
+        fetchModule: vi.fn(),
+        hot: { handleInvoke },
+      });
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(413);
+      expect(res.body).toBe('Payload too large');
     });
   });
 

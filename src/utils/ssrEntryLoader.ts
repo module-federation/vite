@@ -109,7 +109,7 @@ async function getOrCreateRunner(remoteOrigin: string): Promise<unknown> {
               const res = await fetch(runnerEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: payload.data.name, data: payload.data.data }),
+                body: JSON.stringify(payload),
               });
               return (await res.json()) as { result: unknown } | { error: { message: string } };
             },

@@ -530,7 +530,7 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
     const __mfPrebuildExports = __mfPrebuildNamespace;
     ${declarations}
     ${namedExportLine}
-    export default __mfPrebuildExports;
+    export default __mfPrebuildNamespace.default ?? __mfPrebuildNamespace;
   `,
       true
     );

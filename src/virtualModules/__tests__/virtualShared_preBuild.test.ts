@@ -1848,6 +1848,22 @@ describe('writePreBuildLibPath', () => {
     );
   });
 
+  // Regression: the namedExports branch previously emitted
+  // `export default __mfPrebuildExports` (the namespace object) instead of
+  // unwrapping `.default`. That broke CJS-interop `import React from 'react'`
+  // consumers, whose real default lives at `namespace.default`.
+  // Fix: emit `namespace.default ?? namespace`, matching the fallback branch.
+  it('unwraps namespace.default in the named-exports branch for CJS-interop consumers', () => {
+    writePreBuildLibPath('mock-package-with-reserved');
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'export default __mfPrebuildNamespace.default ?? __mfPrebuildNamespace;'
+    );
+    expect(generatedCode).not.toMatch(/export default __mfPrebuildExports;\s*$/m);
+  });
+
   // ── pendingShareLoads: deferred export assignment ──────────────────────────
   //
   // Race condition: init() seeds __mfModuleCache.share with the loadShare
