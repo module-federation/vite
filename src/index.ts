@@ -1151,7 +1151,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             !pluginPath.startsWith('\0') &&
             !pluginPath.startsWith('virtual:')
           ) {
-            config.optimizeDeps!.include!.push(pluginPath);
+            let optimizeDep = pluginPath;
+            if (pluginPath === '@module-federation/dts-plugin/dynamic-remote-type-hints-plugin') {
+              try {
+                optimizeDep = normalizePathForImport(resolveImportPath(pluginPath));
+              } catch {
+                optimizeDep = pluginPath;
+              }
+            }
+            config.optimizeDeps!.include!.push(optimizeDep);
           }
         });
 

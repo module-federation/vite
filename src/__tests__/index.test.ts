@@ -1518,6 +1518,40 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.needsInterop).toBeUndefined();
   });
 
+  it('resolves only the dts hints runtime plugin for optimizeDeps', () => {
+    const dtsHintsPlugin = '@module-federation/dts-plugin/dynamic-remote-type-hints-plugin';
+    const userPlugin = '@module-federation/runtime-core';
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        runtimePlugins: [dtsHintsPlugin, userPlugin],
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'module-federation-vite');
+    if (!plugin) throw new Error('module-federation-vite plugin not found');
+
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: { include: [] },
+      resolve: { alias: [] },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.include).not.toContain(dtsHintsPlugin);
+    expect(config.optimizeDeps.include).toContain(userPlugin);
+    expect(
+      config.optimizeDeps.include.some(
+        (dep: string) =>
+          dep.includes('@module-federation/dts-plugin') &&
+          dep.includes('dynamic-remote-type-hints-plugin')
+      )
+    ).toBe(true);
+  });
+
   it('aliases runtime to the ESM entry for non-Rolldown optimizeDeps', () => {
     const plugin = getModuleFederationVitePlugin();
     const config: any = {
