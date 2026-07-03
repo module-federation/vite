@@ -492,6 +492,9 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('const mfName = "host"');
     expect(code).toContain('share.shareConfig?.import !== false');
     expect(code).toContain('const versions = shared?.[pkg]');
+    expect(code.indexOf('share.shareConfig?.import !== false')).toBeLessThan(
+      code.indexOf('initResolve(initRes)')
+    );
     expect(code).not.toContain('initRes.loadShare(pkg');
     expect(code).not.toContain('import exposesMap from');
     expect(code).not.toContain('import {usedShared, usedRemotes} from');
