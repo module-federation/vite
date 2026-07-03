@@ -34,7 +34,7 @@ function makeFetchMock(responses: Record<string, FetchEntry>) {
   });
 }
 
-async function freshLoader() {
+async function freshLoaderModule() {
   vi.resetModules();
   vi.mock('path', () => ({
     default: {
@@ -58,7 +58,11 @@ async function freshLoader() {
     default: { createRequire: vi.fn() },
     createRequire: vi.fn(),
   }));
-  const { default: factory } = await import('../ssrEntryLoader');
+  return await import('../ssrEntryLoader');
+}
+
+async function freshLoader() {
+  const { default: factory } = await freshLoaderModule();
   return factory;
 }
 
@@ -1118,6 +1122,157 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
       } else {
         process.env.NODE_ENV = previousNodeEnv;
       }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Revalidation — maxAgeMs and revalidate()
+// ---------------------------------------------------------------------------
+
+describe('ssrEntryLoaderPlugin — revalidation', () => {
+  const entryUrl = 'http://localhost:5001/remoteEntry.js';
+  const manifestUrl = 'http://localhost:5001/mf-manifest.json';
+  const ssrEntryUrl = 'http://localhost:5001/remoteEntry.ssr.js';
+
+  // The ModuleRunner describe above doUnmocks path/fs/module, which removes
+  // the vi.mock registrations for every later dynamic import — re-register
+  // with doMock per test here so the loader (and the fs assertions) see mocks.
+  async function freshMockedLoaderModule() {
+    vi.resetModules();
+    vi.doMock('path', () => ({
+      default: {
+        join: (...p: string[]) => p.join('/'),
+        dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+      },
+      join: (...p: string[]) => p.join('/'),
+      dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
+    }));
+    vi.doMock('fs', () => ({
+      default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(),
+      rmSync: vi.fn(),
+    }));
+    vi.doMock('module', () => ({
+      default: { createRequire: vi.fn() },
+      createRequire: vi.fn(),
+    }));
+    return await import('../ssrEntryLoader');
+  }
+
+  function makeManifest(buildVersion: string) {
+    return {
+      metaData: {
+        buildInfo: { buildVersion },
+        ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
+      },
+    };
+  }
+
+  function makeResponses(buildVersion: string, entryBody: string): Record<string, FetchEntry> {
+    return {
+      [manifestUrl]: { ok: true, json: makeManifest(buildVersion) },
+      [ssrEntryUrl]: {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: entryBody,
+      },
+    };
+  }
+
+  it('re-fetches the manifest when the cached resolution is older than maxAgeMs', async () => {
+    const responses = makeResponses('1.0.0', 'export async function init() {}');
+    const fetch = makeFetchMock(responses);
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const { default: factory } = await freshMockedLoaderModule();
+    const plugin = factory({ maxAgeMs: 0 });
+
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    const manifestFetches = fetch.mock.calls.filter(([url]) => url === manifestUrl);
+    expect(manifestFetches.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not re-fetch the SSR entry when the manifest version is unchanged', async () => {
+    const responses = makeResponses('1.0.0', 'export async function init() {}');
+    global.fetch = makeFetchMock(responses) as unknown as typeof globalThis.fetch;
+    const { default: factory } = await freshMockedLoaderModule();
+    const fsMock = await import('fs');
+    const plugin = factory({ maxAgeMs: 0 });
+
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+    const writesAfterFirst = (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls.length;
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    expect((fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+      writesAfterFirst
+    );
+  });
+
+  it('re-fetches the SSR entry when the manifest version changes', async () => {
+    const responses = makeResponses('1.0.0', 'export const marker = "v1";');
+    global.fetch = makeFetchMock(responses) as unknown as typeof globalThis.fetch;
+    const { default: factory } = await freshMockedLoaderModule();
+    const fsMock = await import('fs');
+    const plugin = factory({ maxAgeMs: 0 });
+
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    Object.assign(responses, makeResponses('2.0.0', 'export const marker = "v2";'));
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    const writes = (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls;
+    expect(writes.length).toBeGreaterThanOrEqual(2);
+    expect(String(writes[writes.length - 1][1])).toContain('v2');
+  });
+
+  it('revalidate() drops caches so the next load re-resolves', async () => {
+    const responses = makeResponses('1.0.0', 'export const marker = "v1";');
+    global.fetch = makeFetchMock(responses) as unknown as typeof globalThis.fetch;
+    const loader = await freshMockedLoaderModule();
+    const fsMock = await import('fs');
+    const plugin = loader.default();
+
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    Object.assign(responses, makeResponses('2.0.0', 'export const marker = "v2";'));
+    // Without revalidation the loader would reuse its cached resolution.
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+    const writesBefore = (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    loader.revalidate(entryUrl);
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    const writes = (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls;
+    expect(writes.length).toBeGreaterThan(writesBefore);
+    expect(String(writes[writes.length - 1][1])).toContain('v2');
+  });
+
+  it('revalidate() without arguments clears everything and resets runtime module caches', async () => {
+    const responses = makeResponses('1.0.0', 'export const marker = "v1";');
+    const fetch = makeFetchMock(responses);
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const loader = await freshMockedLoaderModule();
+    const plugin = loader.default();
+
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+    const manifestFetchesBefore = fetch.mock.calls.filter(([url]) => url === manifestUrl).length;
+
+    const moduleCache = new Map([['remote', {}]]);
+    (globalThis as Record<string, unknown>).__FEDERATION__ = {
+      __INSTANCES__: [{ moduleCache }],
+    };
+    try {
+      loader.revalidate();
+      expect(moduleCache.size).toBe(0);
+
+      await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+      const manifestFetchesAfter = fetch.mock.calls.filter(([url]) => url === manifestUrl).length;
+      expect(manifestFetchesAfter).toBeGreaterThan(manifestFetchesBefore);
+    } finally {
+      delete (globalThis as Record<string, unknown>).__FEDERATION__;
     }
   });
 });

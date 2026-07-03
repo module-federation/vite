@@ -143,6 +143,7 @@ interface RemoteInfo {
 interface ManifestMetaData {
   ssrRemoteEntry?: { name: string; path: string; type: string };
   remoteEntry?: { name: string; path: string; type: string };
+  buildInfo?: { buildVersion?: string };
   publicPath?: string;
   getPublicPath?: string;
 }
@@ -151,8 +152,40 @@ interface Manifest {
   metaData?: ManifestMetaData;
 }
 
-// Process-level cache: remote entry URL → resolved SSR entry
-const ssrEntryCache = new Map<string, Promise<{ url: string; type: string } | null>>();
+/**
+ * Version key for a resolved SSR entry. Derived from the remote's manifest
+ * content so a redeploy at the same URL produces a different key, which in
+ * turn produces different temp-file names — busting both our caches and
+ * Node's ESM module cache. Convention-resolved entries (no manifest) get a
+ * stable placeholder key and cannot be revalidated automatically.
+ */
+const UNVERSIONED = 'unversioned';
+
+// FNV-1a — cheap, dependency-free, stable across processes. Not cryptographic;
+// only used to key caches and temp file names.
+function hashString(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function computeManifestVersionKey(manifest: Manifest): string {
+  const buildVersion = manifest.metaData?.buildInfo?.buildVersion;
+  const contentHash = hashString(JSON.stringify(manifest));
+  return buildVersion ? `${buildVersion}-${contentHash}` : contentHash;
+}
+
+interface SsrEntryCacheRecord {
+  promise: Promise<SsrEntryCandidate | null>;
+  resolvedAt: number;
+}
+
+// Process-level cache: remote entry URL → resolved SSR entry (+ resolution time
+// so `maxAgeMs` can trigger revalidation against the remote's manifest).
+const ssrEntryCache = new Map<string, SsrEntryCacheRecord>();
 // Dedupe manifest fetches when multiple entry URLs resolve to the same manifest.
 const manifestFetchCache = new Map<string, Promise<Manifest | null>>();
 
@@ -168,9 +201,10 @@ interface EntryContext {
 interface SsrEntryCandidate {
   url: string;
   type: string;
+  versionKey: string;
 }
 
-class SsrEntryHttpError extends Error {
+export class SsrEntryHttpError extends Error {
   constructor(
     readonly url: string,
     readonly status: number,
@@ -251,7 +285,11 @@ function resolveSSREntryUrl(manifest: Manifest, manifestUrl: string): SsrEntryCa
   const base = manifestUrl.replace(/\/[^/]+$/, '/');
   const entryPath = (meta.ssrRemoteEntry.path || '') + meta.ssrRemoteEntry.name;
   const url = new URL(entryPath, base).href;
-  return { url, type: meta.ssrRemoteEntry.type || 'module' };
+  return {
+    url,
+    type: meta.ssrRemoteEntry.type || 'module',
+    versionKey: computeManifestVersionKey(manifest),
+  };
 }
 
 /**
@@ -260,10 +298,7 @@ function resolveSSREntryUrl(manifest: Manifest, manifestUrl: string): SsrEntryCa
  * remoteEntry.js → /__mf_ssr__/remoteEntry.ssr.js (dev middleware)
  * Returns the first URL that responds with a 200.
  */
-async function headCheckSsrEntry(candidate: {
-  url: string;
-  type: string;
-}): Promise<SsrEntryCandidate | null> {
+async function headCheckSsrEntry(candidate: SsrEntryCandidate): Promise<SsrEntryCandidate | null> {
   try {
     const res = await fetch(candidate.url, { method: 'HEAD' });
     const ct = res.headers.get('content-type') ?? '';
@@ -308,12 +343,17 @@ function buildSsrEntryCandidates(
     candidates.push({
       url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
       type: 'module',
+      versionKey: UNVERSIONED,
     });
   }
 
   candidates.push(
-    { url: `${base}.ssr.js`, type: 'module' },
-    { url: `${remoteOrigin}/__mf_ssr__/${filename}.ssr.js`, type: 'module' }
+    { url: `${base}.ssr.js`, type: 'module', versionKey: UNVERSIONED },
+    {
+      url: `${remoteOrigin}/__mf_ssr__/${filename}.ssr.js`,
+      type: 'module',
+      versionKey: UNVERSIONED,
+    }
   );
 
   return candidates;
@@ -331,7 +371,7 @@ async function resolveFirstReachableCandidate(
 
 async function resolveSSREntryImpl(remoteEntryUrl: string): Promise<SsrEntryCandidate | null> {
   if (isSsrEntry(remoteEntryUrl)) {
-    return { url: remoteEntryUrl, type: 'module' };
+    return { url: remoteEntryUrl, type: 'module', versionKey: UNVERSIONED };
   }
 
   // For JS entries, probe the dedicated server build before fetching the manifest.
@@ -341,6 +381,7 @@ async function resolveSSREntryImpl(remoteEntryUrl: string): Promise<SsrEntryCand
     const fromServerBuild = await headCheckSsrEntry({
       url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
       type: 'module',
+      versionKey: UNVERSIONED,
     });
     if (fromServerBuild) return fromServerBuild;
   }
@@ -355,11 +396,91 @@ async function resolveSSREntryImpl(remoteEntryUrl: string): Promise<SsrEntryCand
   );
 }
 
-async function getSSREntry(remoteEntryUrl: string): Promise<SsrEntryCandidate | null> {
-  if (!ssrEntryCache.has(remoteEntryUrl)) {
-    ssrEntryCache.set(remoteEntryUrl, resolveSSREntryImpl(remoteEntryUrl));
+function setSsrEntryCache(remoteEntryUrl: string): SsrEntryCacheRecord {
+  const record: SsrEntryCacheRecord = {
+    promise: resolveSSREntryImpl(remoteEntryUrl),
+    resolvedAt: Date.now(),
+  };
+  ssrEntryCache.set(remoteEntryUrl, record);
+  return record;
+}
+
+async function getSSREntry(
+  remoteEntryUrl: string,
+  maxAgeMs?: number
+): Promise<SsrEntryCandidate | null> {
+  const cached = ssrEntryCache.get(remoteEntryUrl);
+  if (!cached) return setSsrEntryCache(remoteEntryUrl).promise;
+
+  const isStale =
+    typeof maxAgeMs === 'number' && maxAgeMs >= 0 && Date.now() - cached.resolvedAt >= maxAgeMs;
+  if (!isStale) return cached.promise;
+
+  // Stale: re-fetch the manifest and re-resolve. If the version key changed
+  // (remote redeployed at the same URL), the new key flows into temp-file
+  // names, so the fresh entry is imported instead of Node's cached module.
+  const previous = await cached.promise.catch(() => null);
+  manifestFetchCache.delete(getManifestUrl(remoteEntryUrl));
+  const record = setSsrEntryCache(remoteEntryUrl);
+  const next = await record.promise.catch(() => null);
+
+  if (previous && next && previous.versionKey !== next.versionKey) {
+    dropRemoteCaches(remoteEntryUrl);
   }
-  return ssrEntryCache.get(remoteEntryUrl)!;
+  return record.promise;
+}
+
+/**
+ * Drop per-remote caches after a version change so old artifacts stop being
+ * reused. Temp-file cache keys hold SSR entry/chunk URLs (not the browser
+ * entry URL), so scope the invalidation by origin.
+ */
+function dropRemoteCaches(remoteEntryUrl: string): void {
+  let origin: string;
+  try {
+    origin = new URL(remoteEntryUrl).origin;
+  } catch {
+    return;
+  }
+  for (const key of tempFileCache.keys()) {
+    const url = key.slice(key.indexOf('::') + 2);
+    if (url.startsWith(origin)) tempFileCache.delete(key);
+  }
+}
+
+/**
+ * Drop the loader's caches so the next `loadEntry` re-resolves and re-fetches
+ * remote SSR entries. Pass a remote entry URL to scope the invalidation to one
+ * remote; call with no arguments to invalidate everything.
+ *
+ * Note: the MF runtime keeps its own container/module caches per federation
+ * instance. This function best-effort clears the module caches of all global
+ * federation instances so re-renders load fresh remote modules, but hosts that
+ * hold direct references to previously loaded modules keep those references.
+ */
+export function revalidate(remoteEntryUrl?: string): void {
+  if (remoteEntryUrl) {
+    ssrEntryCache.delete(remoteEntryUrl);
+    manifestFetchCache.delete(getManifestUrl(remoteEntryUrl));
+    dropRemoteCaches(remoteEntryUrl);
+  } else {
+    ssrEntryCache.clear();
+    manifestFetchCache.clear();
+    tempFileCache.clear();
+  }
+
+  const federation = (
+    globalThis as {
+      __FEDERATION__?: { __INSTANCES__?: Array<{ moduleCache?: Map<string, unknown> }> };
+    }
+  ).__FEDERATION__;
+  for (const instance of federation?.__INSTANCES__ ?? []) {
+    try {
+      instance?.moduleCache?.clear?.();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -395,33 +516,11 @@ async function getSSRCacheDir(): Promise<string> {
   return ssrCacheDirPromise;
 }
 
-function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string, string>): string {
-  // Rewrite relative specifiers to absolute HTTP URLs.
-  code = code.replace(
-    /((?:from|export\s*\*\s*from)\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`]/g,
-    (_m, prefix, _q, specifier) => `${prefix}"${new URL(specifier, base).href}"`
-  );
-  code = code.replace(
-    /(import\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`]/g,
-    (_m, prefix, _q, specifier) => `${prefix}"${new URL(specifier, base).href}"`
-  );
-  code = code.replace(
-    /(import\s*\(\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`](\s*\))/g,
-    (_m, prefix, _q, specifier, suffix) => `${prefix}"${new URL(specifier, base).href}"${suffix}`
-  );
-  // Rewrite bare shared package specifiers to absolute file:// paths so all
-  // temp-file modules use the same physical module instance as the host app.
-  // Without this, Node resolves bare "react" from the workspace root which
-  // may be a different version than the one bundled into the host's server.
-  if (sharedPkgMap && sharedPkgMap.size > 0) {
-    code = code.replace(
-      /(?:from|import\s*\()\s*(["'`])([^"'`./][^"'`]*)["'`]/g,
-      (m, _q, specifier) => {
-        const resolved = sharedPkgMap.get(specifier);
-        return resolved ? m.replace(specifier, `file://${resolved}`) : m;
-      }
-    );
-  }
+/**
+ * Neutralize browser-only preload machinery in Vite/Rolldown output so the
+ * code can evaluate in Node. Shared by the temp-file and vm strategies.
+ */
+export function neutralizeBrowserPreloadHelpers(code: string): string {
   // Replace Vite's preload-helper (uses document) with a server no-op,
   // preserving the local binding name so call-sites still work.
   code = code.replace(
@@ -449,6 +548,36 @@ function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string,
   return code;
 }
 
+function transformSsrCode(code: string, base: string, sharedPkgMap?: Map<string, string>): string {
+  // Rewrite relative specifiers to absolute HTTP URLs.
+  code = code.replace(
+    /((?:from|export\s*\*\s*from)\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`]/g,
+    (_m, prefix, _q, specifier) => `${prefix}"${new URL(specifier, base).href}"`
+  );
+  code = code.replace(
+    /(import\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`]/g,
+    (_m, prefix, _q, specifier) => `${prefix}"${new URL(specifier, base).href}"`
+  );
+  code = code.replace(
+    /(import\s*\(\s*)(["'`])(\.\.?\/[^"'`\s][^"'`]*)["'`](\s*\))/g,
+    (_m, prefix, _q, specifier, suffix) => `${prefix}"${new URL(specifier, base).href}"${suffix}`
+  );
+  // Rewrite bare shared package specifiers to absolute file:// paths so all
+  // temp-file modules use the same physical module instance as the host app.
+  // Without this, Node resolves bare "react" from the workspace root which
+  // may be a different version than the one bundled into the host's server.
+  if (sharedPkgMap && sharedPkgMap.size > 0) {
+    code = code.replace(
+      /(?:from|import\s*\()\s*(["'`])([^"'`./][^"'`]*)["'`]/g,
+      (m, _q, specifier) => {
+        const resolved = sharedPkgMap.get(specifier);
+        return resolved ? m.replace(specifier, `file://${resolved}`) : m;
+      }
+    );
+  }
+  return neutralizeBrowserPreloadHelpers(code);
+}
+
 function isVitePreloadHelperSpecifier(specifier: string): boolean {
   return specifier.includes('preload-helper');
 }
@@ -457,15 +586,21 @@ function isVitePreloadHelperSpecifier(specifier: string): boolean {
  * Fetch an HTTP ESM module, transform it, write it to a temp .js file and
  * return the file path. Recursively does the same for HTTP transitive imports
  * so that `import('file:///...temp.js')` can resolve them.
+ *
+ * `versionKey` participates in both the cache key and the temp file name, so
+ * a remote redeploy (new manifest → new key) produces new files and bypasses
+ * Node's ESM module cache instead of serving the stale build.
  */
 async function fetchEsmToTempFile(
   url: string,
   tmpDir: string,
   visited: Map<string, string>,
-  sharedPkgMap?: Map<string, string>
+  sharedPkgMap?: Map<string, string>,
+  versionKey: string = UNVERSIONED
 ): Promise<string> {
+  const cacheKey = `${versionKey}::${url}`;
   if (visited.has(url)) return visited.get(url)!;
-  if (tempFileCache.has(url)) return tempFileCache.get(url)!;
+  if (tempFileCache.has(cacheKey)) return tempFileCache.get(cacheKey)!;
 
   const promise = (async () => {
     const res = await fetch(url);
@@ -496,7 +631,7 @@ async function fetchEsmToTempFile(
       [...new Set(relImports)]
         .filter((u) => u.startsWith('http://') || u.startsWith('https://'))
         .map(async (u) => {
-          const tmpPath = await fetchEsmToTempFile(u, tmpDir, visited, sharedPkgMap);
+          const tmpPath = await fetchEsmToTempFile(u, tmpDir, visited, sharedPkgMap, versionKey);
           subMap.set(u, `file://${tmpPath}`);
         })
     );
@@ -511,26 +646,59 @@ async function fetchEsmToTempFile(
     const { createHash } = await _crypto();
     const { join } = await _path();
     const { writeFileSync } = await _fs();
-    const hash = createHash('sha1').update(url).digest('hex').slice(0, 12);
+    const hash = createHash('sha1').update(cacheKey).digest('hex').slice(0, 12);
     const tmpFile = join(tmpDir, `${hash}.js`);
     writeFileSync(tmpFile, code, 'utf8');
     visited.set(url, tmpFile);
     return tmpFile;
   })();
 
-  tempFileCache.set(url, promise);
+  tempFileCache.set(cacheKey, promise);
   return promise;
 }
 
-async function importTempModule(filePath: string): Promise<{ init: unknown; get: unknown }> {
-  return (await import(/* @vite-ignore */ filePath)) as { init: unknown; get: unknown };
+async function importTempModule(
+  filePath: string,
+  versionKey: string
+): Promise<{ init: unknown; get: unknown }> {
+  // The version query busts Node's ESM module cache (and any stale resolution
+  // state) when a remote redeploys: same temp path + new version → fresh module.
+  const specifier = `${filePath}?v=${encodeURIComponent(versionKey)}`;
+  return (await import(/* @vite-ignore */ specifier)) as { init: unknown; get: unknown };
+}
+
+let warnedVmUnavailable = false;
+
+async function tryVmStrategy(
+  ssrEntry: SsrEntryCandidate,
+  options: ResolvedLoaderOptions
+): Promise<{ init: unknown; get: unknown } | null> {
+  const { loadViaVmStrategy, isVmStrategyAvailable } = await import('./ssrVmStrategy');
+
+  if (!(await isVmStrategyAvailable())) {
+    if (!warnedVmUnavailable) {
+      warnedVmUnavailable = true;
+      console.warn(
+        '[mf-vite:ssr-entry-loader] strategy "vm" requires vm.SourceTextModule ' +
+          '(run Node with --experimental-vm-modules); falling back to the temp-file strategy.'
+      );
+    }
+    return null;
+  }
+
+  return (await loadViaVmStrategy(ssrEntry.url, {
+    resolvedShared: options.resolvedShared,
+    shareScopeName: options.shareScopeName,
+    versionKey: ssrEntry.versionKey,
+  })) as { init: unknown; get: unknown } | null;
 }
 
 async function loadSSRRemoteEntry(
-  ssrEntry: { url: string; type: string },
-  resolvedShared: Record<string, string> = {}
+  ssrEntry: SsrEntryCandidate,
+  options: ResolvedLoaderOptions
 ): Promise<{ init: unknown; get: unknown } | null> {
-  const { url, type } = ssrEntry;
+  const { url, type, versionKey } = ssrEntry;
+  const { resolvedShared } = options;
 
   if (type === 'commonjs-module' || type === 'commonjs') {
     // CJS: use createRequire so we get the same Node module-cache singleton
@@ -577,6 +745,21 @@ async function loadSSRRemoteEntry(
       }
     }
 
+    // Opt-in vm.SourceTextModule strategy: evaluates the remote's ESM graph in
+    // the current context and links bare shared imports through the host's
+    // federation share scope (true version negotiation) instead of rewriting
+    // them to file:// paths. Falls back to the temp-file strategy when the
+    // SourceTextModule API is unavailable or evaluation fails.
+    if (options.strategy === 'vm') {
+      try {
+        const fromVm = await tryVmStrategy(ssrEntry, options);
+        if (fromVm) return fromVm;
+      } catch (error) {
+        if (isSsrEntryHttpError(error)) throw error;
+        // fall through to the temp-file strategy
+      }
+    }
+
     // Production build HTTP entries: fetch source and write to temp file so
     // Node can import it via file:// URL (avoids --experimental-network-imports).
     // Production previews may also mount built SSR assets under /__mf_ssr__/
@@ -592,8 +775,8 @@ async function loadSSRRemoteEntry(
     const sharedPkgMap = new Map(Object.entries(resolvedShared));
 
     try {
-      const tmpFile = await fetchEsmToTempFile(url, cacheDir, new Map(), sharedPkgMap);
-      return await importTempModule(tmpFile);
+      const tmpFile = await fetchEsmToTempFile(url, cacheDir, new Map(), sharedPkgMap, versionKey);
+      return await importTempModule(tmpFile, versionKey);
     } catch (error) {
       if (isSsrEntryHttpError(error)) throw error;
       return null;
@@ -625,21 +808,60 @@ interface SsrEntryLoaderOptions {
    * in remote SSR entry temp files — no runtime createRequire walk-up needed.
    */
   resolvedShared?: Record<string, string>;
+  /**
+   * How to evaluate remote SSR entries on the server.
+   *
+   * - `'temp-file'` (default): fetch the ESM graph, rewrite specifiers, write
+   *   temp files and `import()` them. Works on stock Node; shared packages are
+   *   pinned to the host's copies via `resolvedShared` (no version negotiation).
+   * - `'vm'`: evaluate the graph with `vm.SourceTextModule` and link bare
+   *   shared imports through the host's federation share scope (`loadShare`),
+   *   restoring version negotiation. Requires `--experimental-vm-modules`;
+   *   falls back to `'temp-file'` when unavailable.
+   */
+  strategy?: 'temp-file' | 'vm';
+  /**
+   * Share scope consulted by the `'vm'` strategy when linking bare imports.
+   * Defaults to `'default'`.
+   */
+  shareScopeName?: string;
+  /**
+   * Re-check each remote's manifest when the cached SSR entry resolution is
+   * older than this many milliseconds. When the manifest's version changes
+   * (remote redeployed at the same URL), the loader drops its caches for that
+   * remote so subsequent loads use the new build. Omit to cache until process
+   * exit or an explicit `revalidate()` call. Only manifest-resolved entries
+   * can be revalidated this way — convention-resolved entries have no version
+   * source.
+   */
+  maxAgeMs?: number;
+}
+
+interface ResolvedLoaderOptions {
+  resolvedShared: Record<string, string>;
+  strategy: 'temp-file' | 'vm';
+  shareScopeName: string;
+  maxAgeMs?: number;
 }
 
 // Default export so the module can be referenced as a runtimePlugin path string.
 export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}) {
-  const resolvedShared = options.resolvedShared ?? {};
+  const resolved: ResolvedLoaderOptions = {
+    resolvedShared: options.resolvedShared ?? {},
+    strategy: options.strategy ?? 'temp-file',
+    shareScopeName: options.shareScopeName ?? 'default',
+    maxAgeMs: options.maxAgeMs,
+  };
   return {
     name: 'mf-vite:ssr-entry-loader',
     async loadEntry({ remoteInfo }: { remoteInfo: RemoteInfo }) {
       // Only intercept on the server — browser should use the normal path.
       if (!isNodeServer()) return;
 
-      const ssrEntry = await getSSREntry(remoteInfo.entry);
+      const ssrEntry = await getSSREntry(remoteInfo.entry, resolved.maxAgeMs);
       if (!ssrEntry) return;
 
-      const mod = await loadSSRRemoteEntry(ssrEntry, resolvedShared);
+      const mod = await loadSSRRemoteEntry(ssrEntry, resolved);
       if (!mod) return;
 
       return mod;
