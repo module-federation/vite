@@ -213,7 +213,7 @@ function applyRewrites(
           ms.overwrite(
             imp.start,
             imp.end,
-            `import { __moduleExports as ${imp.namespaceLocal}, __mf_remote_pending as ${pendingId} } from ${src};`
+            `import { __moduleExports as ${imp.namespaceLocal}, __mf_remote_pending as ${pendingId} } from ${src};\nawait ${pendingId};`
           );
         } else {
           const nsId = `__mf_ns_${counter++}`;
@@ -225,7 +225,7 @@ function applyRewrites(
           importParts.push(`__moduleExports as ${nsId}`);
           importParts.push(`__mf_remote_pending as ${pendingId}`);
 
-          let rewrite = `import { ${importParts.join(', ')} } from ${src};`;
+          let rewrite = `import { ${importParts.join(', ')} } from ${src};\nawait ${pendingId};`;
           if (imp.named.length > 0) {
             const isProxyId = `__mf_is_proxy_${counter++}`;
             const tempNames = imp.named.map((_s) => `__mf_named_${counter++}`);
@@ -270,7 +270,11 @@ function applyRewrites(
         const syncLine = `${pendingId}.then(() => {\n${assignLines}\n});`;
         const exportLine = `export { ${vars.map((v) => `${v.tmp} as ${v.exported}`).join(', ')} };`;
 
-        ms.overwrite(imp.start, imp.end, `${importLine}\n${varLines}\n${syncLine}\n${exportLine}`);
+        ms.overwrite(
+          imp.start,
+          imp.end,
+          `${importLine}\nawait ${pendingId};\n${varLines}\n${syncLine}\n${exportLine}`
+        );
         changed = true;
         break;
       }

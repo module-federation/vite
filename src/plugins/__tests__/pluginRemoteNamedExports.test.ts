@@ -102,7 +102,7 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain(
         'export const __mf_remote_dependency_pending = Promise.all([__mf_ns_0_pending]);'
       );
-      expect(result).not.toContain('await ');
+      expect(result).toContain('await __mf_ns_0_pending;');
       expect(result).toContain('__mfCreateNamedRemoteProxy');
       expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
       expect(result).not.toContain('import { foo }');
@@ -148,6 +148,17 @@ describe('pluginRemoteNamedExports', () => {
       const result = await transform('import { foo } from "remoteApp";');
       expect(result).toContain('__moduleExports');
       expect(result).toContain('__mfCreateNamedRemoteProxy(__mf_ns_0, "foo")');
+    });
+
+    it('awaits remote pending before evaluating named bindings', async () => {
+      const result = await transform(
+        ['import { View } from "remoteApp";', 'class Foo extends View {}'].join('\n')
+      );
+      expect(result).toContain('await __mf_ns_0_pending;');
+      expect(result!.indexOf('await __mf_ns_0_pending;')).toBeLessThan(
+        result!.indexOf('const __mf_is_proxy_1')
+      );
+      expect(result!.indexOf('const View =')).toBeLessThan(result!.indexOf('class Foo'));
     });
 
     it('skips bare remote-name rewrites inside node_modules files', async () => {
@@ -199,7 +210,7 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain(
         'export const __mf_remote_dependency_pending = Promise.all([utils__mf_pending]);'
       );
-      expect(result).not.toContain('await ');
+      expect(result).toContain('await utils__mf_pending;');
       expect(result).not.toContain('import *');
     });
   });
@@ -263,7 +274,7 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain(
         'export const __mf_remote_dependency_pending = Promise.all([__mf_ns_0_pending]);'
       );
-      expect(result).not.toContain('await ');
+      expect(result).toContain('await __mf_ns_0_pending;');
       expect(result).toContain('__mf_re_');
       expect(result).toContain('as foo');
     });
@@ -309,7 +320,7 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain(
         'export const __mf_remote_dependency_pending = Promise.all([utils__mf_pending]);'
       );
-      expect(result).not.toContain('await ');
+      expect(result).toContain('await utils__mf_pending;');
     });
 
     it('rewrites default + named import via fallback', async () => {
@@ -440,7 +451,7 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain(
         'export const __mf_remote_dependency_pending = Promise.all([routesRemote__mf_pending]);'
       );
-      expect(result).not.toContain('await ');
+      expect(result).toContain('await routesRemote__mf_pending;');
       expect(result).not.toContain('import * as routesRemote');
     });
 
