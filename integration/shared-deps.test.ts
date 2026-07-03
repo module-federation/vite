@@ -110,6 +110,7 @@ describe('shared dependencies', () => {
     expect(allCode).toContain('__mfWriteSharedCache(__mfModuleCache.share');
     expect(allCode).not.toContain('initRes.loadShare(pkg');
     expect(loadShare!.code).toContain('initPromise.then');
+    expect(loadShare!.code).toContain('pendingShareLoads');
     expect(loadShare!.code).toContain('default:mock-shared-dep');
     expect(loadShare!.code).toContain('mock-shared-dep');
     expect(loadShare!.code).toContain('init');
