@@ -560,7 +560,6 @@ export function generateRemoteEntry(
     if (initScope.indexOf(initToken) >= 0) return;
     initScope.push(initToken);
     initRes.initShareScopeMap('${options.shareScope}', shared);
-    initResolve(initRes)
     try {
       await retrySharedInit(async () => {
         await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
@@ -584,6 +583,7 @@ export function generateRemoteEntry(
       const resolved = await Promise.resolve(mod);
       __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, __mfNormalizeRuntimeShare(resolved));
     }
+    initResolve(initRes)
     return initRes
   }
 
