@@ -181,22 +181,55 @@ function applyRewrites(
   // Per-file counter — deterministic regardless of file processing order.
   let counter = 0;
   let namedProxyHelperDeclared = false;
+  let namespaceProxyHelperDeclared = false;
   const dependencyPendingIds: string[] = [];
   const namedProxyHelper = `function __mfCreateNamedRemoteProxy(ns, key) {
+  const readValue = () => {
+    try {
+      return ns[key];
+    } catch (error) {
+      if (error && typeof error.then === "function") return undefined;
+      throw error;
+    }
+  };
+  const syncPrototype = (value, target) => {
+    if (value && value.prototype && Object.getPrototypeOf(target.prototype) !== value.prototype) {
+      Object.setPrototypeOf(target.prototype, value.prototype);
+    }
+  };
   const target = function (...args) {
-    const value = ns[key];
+    const value = readValue();
+    syncPrototype(value, target);
     return typeof value === "function" ? value.apply(this, args) : value;
   };
   return new Proxy(target, {
     get(_target, prop) {
       if (prop === "then") return undefined;
-      const value = ns[key];
+      const value = readValue();
+      syncPrototype(value, target);
+      if (prop === "prototype" && (value == null || value.prototype == null)) return target.prototype;
       if (prop === Symbol.toPrimitive) return () => value;
       const item = value == null ? undefined : value[prop];
       return typeof item === "function" ? item.bind(value) : item;
     },
     apply(target, thisArg, args) {
       return target.apply(thisArg, args);
+    },
+    construct(target, args, newTarget) {
+      const value = readValue();
+      syncPrototype(value, target);
+      if (typeof value === "function") return Reflect.construct(value, args, newTarget);
+      return Reflect.construct(target, args, newTarget);
+    }
+  });
+}`;
+  const namespaceProxyHelper = `function __mfCreateNamespaceRemoteProxy(ns) {
+  if (!ns || !ns.__mf_is_remote_proxy) return ns;
+  return new Proxy(ns, {
+    get(target, prop) {
+      if (prop === "then") return undefined;
+      if (prop in target) return target[prop];
+      return __mfCreateNamedRemoteProxy(target, prop);
     }
   });
 }`;
@@ -207,14 +240,21 @@ function applyRewrites(
         const src = JSON.stringify(imp.source);
 
         if (imp.namespaceLocal && !imp.defaultLocal && imp.named.length === 0) {
+          const nsId = `__mf_ns_${counter++}`;
           const pendingId = `${imp.namespaceLocal}__mf_pending`;
           dependencyPendingIds.push(pendingId);
           // import * as ns from "remote/xxx"
-          ms.overwrite(
-            imp.start,
-            imp.end,
-            `import { __moduleExports as ${imp.namespaceLocal}, __mf_remote_pending as ${pendingId} } from ${src};\nawait ${pendingId};`
-          );
+          let rewrite = `import { __moduleExports as ${nsId}, __mf_remote_pending as ${pendingId} } from ${src};`;
+          if (!namedProxyHelperDeclared) {
+            rewrite += `\n${namedProxyHelper}`;
+            namedProxyHelperDeclared = true;
+          }
+          if (!namespaceProxyHelperDeclared) {
+            rewrite += `\n${namespaceProxyHelper}`;
+            namespaceProxyHelperDeclared = true;
+          }
+          rewrite += `\nconst ${imp.namespaceLocal} = __mfCreateNamespaceRemoteProxy(${nsId});`;
+          ms.overwrite(imp.start, imp.end, rewrite);
         } else {
           const nsId = `__mf_ns_${counter++}`;
           const pendingId = `${nsId}_pending`;
@@ -225,7 +265,7 @@ function applyRewrites(
           importParts.push(`__moduleExports as ${nsId}`);
           importParts.push(`__mf_remote_pending as ${pendingId}`);
 
-          let rewrite = `import { ${importParts.join(', ')} } from ${src};\nawait ${pendingId};`;
+          let rewrite = `import { ${importParts.join(', ')} } from ${src};`;
           if (imp.named.length > 0) {
             const isProxyId = `__mf_is_proxy_${counter++}`;
             const tempNames = imp.named.map((_s) => `__mf_named_${counter++}`);
@@ -261,8 +301,18 @@ function applyRewrites(
         });
 
         const importLine = `import { __moduleExports as ${nsId}, __mf_remote_pending as ${pendingId} } from ${src};`;
+        let rewrite = importLine;
+        if (!namedProxyHelperDeclared) {
+          rewrite += `\n${namedProxyHelper}`;
+          namedProxyHelperDeclared = true;
+        }
+        const isProxyId = `__mf_is_proxy_${counter++}`;
+        rewrite += `\nconst ${isProxyId} = ${nsId} && ${nsId}.__mf_is_remote_proxy;`;
         const varLines = vars
-          .map((v) => `let ${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];`)
+          .map(
+            (v) =>
+              `let ${v.tmp} = ${isProxyId} ? __mfCreateNamedRemoteProxy(${nsId}, ${JSON.stringify(v.local)}) : ${nsId}[${JSON.stringify(v.local)}];`
+          )
           .join('\n');
         const assignLines = vars
           .map((v) => `${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];`)
@@ -270,11 +320,7 @@ function applyRewrites(
         const syncLine = `${pendingId}.then(() => {\n${assignLines}\n});`;
         const exportLine = `export { ${vars.map((v) => `${v.tmp} as ${v.exported}`).join(', ')} };`;
 
-        ms.overwrite(
-          imp.start,
-          imp.end,
-          `${importLine}\nawait ${pendingId};\n${varLines}\n${syncLine}\n${exportLine}`
-        );
+        ms.overwrite(imp.start, imp.end, `${rewrite}\n${varLines}\n${syncLine}\n${exportLine}`);
         changed = true;
         break;
       }

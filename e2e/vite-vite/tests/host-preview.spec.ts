@@ -31,6 +31,11 @@ test.describe('vite-vite host preview', () => {
     await expect(heading).toBeVisible();
   });
 
+  test('renders class extending a named remote export', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('remote-named-view')).toHaveText('Host Remote View');
+  });
+
   test('renders shared-lib component on host', async ({ page }) => {
     await page.goto('/');
     const counter = page.getByTestId('shared-counter-[shared-lib] Host');

@@ -3,7 +3,7 @@ import { getCurrentRowChangedEventName } from "@vite-vite/shared-consumer";
 import R from "react";
 import RD from "react-dom/client";
 
-import App from "@namespace/viteViteRemote";
+import App, { View } from "@namespace/viteViteRemote";
 import AgGridDemo from "@namespace/viteViteRemote/AgGridDemo";
 import App1 from "@namespace/viteViteRemote/App1";
 import App2 from "@namespace/viteViteRemote/App2";
@@ -12,6 +12,14 @@ import MuiDemo from "@namespace/viteViteRemote/MuiDemo";
 import StyledDemo from "@namespace/viteViteRemote/StyledDemo";
 
 console.log("Share React", R, RD);
+
+class HostRemoteView extends View {
+  label() {
+    return "Host Remote View";
+  }
+}
+
+const hostRemoteView = new HostRemoteView();
 
 // Test deeply nested re-export: index.tsx -> helpers/ -> search/ -> filter.ts
 const fruits = [
@@ -34,6 +42,7 @@ export default function HostApp() {
       <h2>{capitalize("shared library")}</h2>
       <p data-testid="shared-consumer-event">{getCurrentRowChangedEventName()}</p>
       <SharedCounter label={formatLabel("Host")} />
+      <p data-testid="remote-named-view">{hostRemoteView.label()}</p>
       <p>
         <code>createFilter</code> result for "an":{" "}
         {JSON.stringify(filterByName("an"))}

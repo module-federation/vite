@@ -2,6 +2,12 @@ import './App.css';
 import reactLogo from './assets/react.svg';
 // import viteLogo from './assets/vite.svg';
 
+export class View {
+    label() {
+        return 'Remote View';
+    }
+}
+
 function App() {
     return (
         <div className="App">
