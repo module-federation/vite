@@ -26,6 +26,15 @@ interface ProxyRemoteEntryParams {
   virtualExposesId: string;
 }
 
+function resolveDevHashEntryFileName(fileName: string) {
+  if (!fileName.includes('[hash')) return fileName;
+
+  const normalized = fileName.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
+  const baseName = path.basename(normalized);
+
+  return path.extname(baseName) ? normalized : `${normalized}.js`;
+}
+
 export default function ({
   options,
   remoteEntryId,
@@ -115,7 +124,8 @@ export default function ({
                 : 'localhost';
             const resolvedPublicPath = resolvePublicPath(options, viteConfig.base);
             const publicPath = JSON.stringify(
-              (resolvedPublicPath === 'auto' ? '/' : resolvedPublicPath) + options.filename
+              (resolvedPublicPath === 'auto' ? '/' : resolvedPublicPath) +
+                resolveDevHashEntryFileName(options.filename)
             );
             const fallbackOrigin = `//${host}:${viteConfig.server?.port}`;
             const ssrRemoteEntry =

@@ -52,4 +52,41 @@ describe('pluginProxyRemoteEntry', () => {
       `const remoteEntryImport = typeof window !== 'undefined' ? origin + "/remoteEntry.js" : "data:text/javascript,export%20async%20function%20init()%7Breturn%20%7BloadRemote%3Aasync()%3D%3E(%7B%7D)%2CloadShare%3Aasync()%3D%3E(%7B%7D)%7D%7D"`
     );
   });
+
+  it('uses a dev-safe filename for hash-pattern host init remote entry imports', async () => {
+    normalizeModuleFederationOptions({ name: 'test' });
+    const plugin = pluginProxyRemoteEntry({
+      options: getDefaultMockOptions({ filename: 'remoteEntry-[hash]' }),
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+
+    callHook(
+      plugin.config,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    callHook(
+      plugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        root: '/repo',
+        base: '/',
+        server: { host: '0.0.0.0', port: 4173 },
+      } as unknown as ResolvedConfig
+    );
+
+    const result = (await callHook(
+      plugin.transform,
+      {} as Rollup.TransformPluginContext,
+      '',
+      getHostAutoInitPath()
+    )) as {
+      code: string;
+    };
+
+    expect(result.code).toContain('origin + "/remoteEntry.js"');
+    expect(result.code).not.toContain('remoteEntry-[hash]');
+  });
 });
