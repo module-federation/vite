@@ -1,4 +1,5 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { getRemoteVirtualModule } from './virtualRemotes';
 
 const EXPOSES_CSS_MAP_PLACEHOLDER = '__MF_EXPOSES_CSS_MAP__';
 
@@ -13,7 +14,11 @@ export function getVirtualExposesId(
   return `virtual:mf-exposes:${scopedKey}`;
 }
 
-export function generateExposes(options: NormalizedModuleFederationOptions) {
+export function generateExposes(
+  options: NormalizedModuleFederationOptions,
+  remoteDependencyMap: Record<string, string[]> = {},
+  command = 'build'
+) {
   return `
     const cssAssetMap = ${JSON.stringify(options.bundleAllCSS ? EXPOSES_CSS_MAP_PLACEHOLDER : {})};
     const injectedCssHrefs = new Set();
@@ -72,12 +77,24 @@ export function generateExposes(options: NormalizedModuleFederationOptions) {
     export default {
     ${Object.keys(options.exposes)
       .map((key) => {
+        const remoteDependencyPreloads = (remoteDependencyMap[key] ?? [])
+          .map((remoteId) => {
+            const virtualRemote = getRemoteVirtualModule(remoteId, command);
+            return `import(${JSON.stringify(virtualRemote.getImportId())})
+            .then((mod) => mod.__mf_remote_pending)`;
+          })
+          .join(',');
         return `
         ${JSON.stringify(key)}: async () => {
           await injectCssAssets(${JSON.stringify(key)})
+          await Promise.all([${remoteDependencyPreloads}])
           const importModule = await importExposedModule(
             () => import(${JSON.stringify(options.exposes[key].import)})
           )
+          const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;
+          if (dependencyPending && typeof dependencyPending.then === "function") {
+            await dependencyPending;
+          }
           const exportModule = {}
           Object.assign(exportModule, importModule)
           Object.defineProperty(exportModule, "__esModule", {
