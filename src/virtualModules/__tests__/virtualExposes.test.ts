@@ -124,6 +124,7 @@ describe('virtualExposes', () => {
     const firstLoad = exposes['./one']();
     const secondLoad = exposes['./two']();
     await flushMicrotasks();
+    await flushMicrotasks();
 
     expect(appendedHrefs).toEqual(['file:///repo/style.css']);
     expect(dynamicImportStarts).toHaveLength(1);
@@ -144,6 +145,74 @@ describe('virtualExposes', () => {
     expect(secondModule).toMatchObject({ default: './two.js' });
     expect(dynamicImport).toHaveBeenCalledTimes(2);
     expect(document.head.appendChild).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for remote dependency pending before resolving an exposed module', async () => {
+    const code = generateExposes(
+      getDefaultMockOptions({
+        exposes: {
+          './one': { import: './one.js' } as any,
+        },
+      })
+    );
+
+    let resolveDependency!: () => void;
+    const dependencyPending = new Promise<void>((resolve) => {
+      resolveDependency = resolve;
+    });
+    const dynamicImport = vi.fn(() =>
+      Promise.resolve({
+        default: './one.js',
+        __mf_remote_dependency_pending: dependencyPending,
+      })
+    );
+
+    const exposes = await toRunnableModule(code)(
+      undefined,
+      URL,
+      dynamicImport,
+      'file:///repo/remoteEntry.js'
+    );
+
+    let settled = false;
+    const load = exposes['./one']().then((mod) => {
+      settled = true;
+      return mod;
+    });
+    await flushMicrotasks();
+
+    expect(settled).toBe(false);
+
+    resolveDependency();
+    await expect(load).resolves.toMatchObject({ default: './one.js' });
+    expect(settled).toBe(true);
+  });
+
+  it('rejects expose loading when remote dependency pending rejects', async () => {
+    const code = generateExposes(
+      getDefaultMockOptions({
+        exposes: {
+          './one': { import: './one.js' } as any,
+        },
+      })
+    );
+
+    const dependencyError = new Error('remote dependency failed');
+    const dynamicImport = vi.fn(() =>
+      Promise.resolve({
+        default: './one.js',
+        __mf_remote_dependency_pending: Promise.reject(dependencyError),
+      })
+    );
+
+    const exposes = await toRunnableModule(code)(
+      undefined,
+      URL,
+      dynamicImport,
+      'file:///repo/remoteEntry.js'
+    );
+
+    await expect(exposes['./one']()).rejects.toBe(dependencyError);
   });
 
   it('rejects when a css asset fails to load before importing module', async () => {

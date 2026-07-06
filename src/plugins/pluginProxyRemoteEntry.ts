@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 import type { Plugin } from 'vite';
 import { normalizePathForImport } from '../utils/buildPaths';
@@ -41,6 +42,41 @@ export default function ({
   virtualExposesId,
 }: ProxyRemoteEntryParams): Plugin {
   let viteConfig: any, _command: string, root: string;
+  let exposeRemoteDependencies: Record<string, string[]> = {};
+
+  function isRemoteImport(source: string): boolean {
+    return Object.keys(options.remotes).some(
+      (name) => source === name || source.startsWith(name + '/')
+    );
+  }
+
+  function collectRemoteDependencies(code: string): string[] {
+    const dependencies = new Set<string>();
+    const importRe =
+      /(?:^|[;\n\r])\s*import\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
+
+    for (const match of code.matchAll(importRe)) {
+      const source = match[1] || match[2];
+      if (source && isRemoteImport(source)) dependencies.add(source);
+    }
+
+    return Array.from(dependencies).sort();
+  }
+
+  async function refreshExposeRemoteDependencies(ctx: { resolve: Plugin['resolveId'] }) {
+    const next: Record<string, string[]> = {};
+    for (const [exposeKey, expose] of Object.entries(options.exposes)) {
+      const resolved = await (ctx as any).resolve(expose.import);
+      if (!resolved?.id || resolved.id.includes('\0')) continue;
+      try {
+        next[exposeKey] = collectRemoteDependencies(readFileSync(resolved.id, 'utf8'));
+      } catch {
+        next[exposeKey] = [];
+      }
+    }
+    exposeRemoteDependencies = next;
+  }
+
   return {
     name: 'proxyRemoteEntry',
     enforce: 'post',
@@ -52,6 +88,7 @@ export default function ({
       _command = command;
     },
     async buildStart() {
+      await refreshExposeRemoteDependencies(this);
       // Emit each exposed module as a chunk entry so the bundler properly
       // code-splits shared dependencies away from the main entry's side effects.
       // Without this, the bundler may merge exposed modules into the main entry
@@ -101,7 +138,7 @@ export default function ({
         return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
       }
       if (id === virtualExposesId) {
-        return generateExposes(options);
+        return generateExposes(options, exposeRemoteDependencies, _command);
       }
       if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
         return id;
@@ -114,7 +151,7 @@ export default function ({
           return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
         }
         if (id === virtualExposesId) {
-          return generateExposes(options);
+          return generateExposes(options, exposeRemoteDependencies, _command);
         }
         if (id.includes(getHostAutoInitPath())) {
           if (_command === 'serve') {
