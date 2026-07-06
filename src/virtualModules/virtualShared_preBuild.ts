@@ -774,6 +774,44 @@ function generateDeferredHostProvidedExports(
     export { __mf_default as default };${namedExportLine}`;
 }
 
+function generateDeferredLocalSharedExports(
+  namedExports: string[],
+  importSource: string,
+  cacheDescriptor: string
+) {
+  const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+  const declarations = ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join(
+    '\n    '
+  );
+  const assignments = `({ ${namedExports.map((name, i) => `${name}: ${namedExportVars[i]}`).join(', ')} } = exportModule);
+      __mf_default = exportModule.default ?? exportModule;`;
+  const namedExportLine =
+    namedExports.length > 0
+      ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+      : '';
+
+  return `${declarations}
+    const __mfApplyLocalSharedExports = (exportModule) => {
+      ${assignments}
+    };
+    let exportModule = __mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor});
+    let __mf_remote_pending = Promise.resolve();
+    if (exportModule === undefined) {
+      const __mfLoadLocalShare = initPromise.then(() =>
+        import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
+          exportModule = __mfNormalizeShareModule(mod);
+          __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule);
+          __mfApplyLocalSharedExports(exportModule);
+        })
+      );
+      __mf_remote_pending = __mfLoadLocalShare;
+      (__mfModuleCache.pendingShareLoads ||= []).push(__mfLoadLocalShare);
+    } else {
+      __mfApplyLocalSharedExports(exportModule);
+    }
+    export { __mf_default as default, __mf_remote_pending };${namedExportLine}`;
+}
+
 function generateShareModuleUnwrapCode({
   source,
   preserveNamedExports,
@@ -863,6 +901,13 @@ export function writeLoadShareModule(
   const usesEagerWorkspaceFallback =
     isWorkspaceSingleton && isWorkspaceSingletonConsumedByPeer(pkg);
   const namedExports = getSharedNamedExports(pkg, shareItem);
+  const hasConfiguredRemotes =
+    Object.keys(getNormalizeModuleFederationOptions()?.remotes || {}).length > 0;
+  const usesDeferredLocalSharedExports =
+    command === 'build' &&
+    !hasConfiguredRemotes &&
+    !isWorkspaceSingleton &&
+    namedExports.length > 0;
   let exportLine: string;
   let initBlock = '';
   if (usesEagerWorkspaceFallback) {
@@ -880,9 +925,17 @@ export function writeLoadShareModule(
       command !== 'build'
     );
   } else if (namedExports.length > 0) {
-    const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
-    const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
-    exportLine = `const __mfDefaultExport = (() => {
+    if (usesDeferredLocalSharedExports) {
+      importLine = `${getRuntimeInitPromiseBootstrapCode()}\n    ${importLine}`;
+      exportLine = generateDeferredLocalSharedExports(
+        namedExports,
+        sharedImportSource,
+        cacheDescriptor
+      );
+    } else {
+      const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
+      const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
+      exportLine = `const __mfDefaultExport = (() => {
       ${generateShareModuleUnwrapCode({
         source: 'exportModule',
         preserveNamedExports: false,
@@ -892,8 +945,9 @@ export function writeLoadShareModule(
     export default __mfDefaultExport;
     ${destructure}
     ${namedExportLine}`;
-    initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
+      initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule);`;
+    }
   } else {
     exportLine = `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
@@ -902,7 +956,9 @@ export function writeLoadShareModule(
 
   const staticLocalShareSource = skipServePrebuildWarmup ? devImportSource : sharedImportSource;
   const prebuildImportLine =
-    isWorkspaceSingleton || (isWorkspacePackage && command !== 'build')
+    isWorkspaceSingleton ||
+    usesDeferredLocalSharedExports ||
+    (isWorkspacePackage && command !== 'build')
       ? ''
       : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
   const devDynamicImportLine = isWorkspacePackage
@@ -911,8 +967,9 @@ export function writeLoadShareModule(
       ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
       : '';
 
-  const moduleBody = isWorkspaceSingleton
-    ? `
+  const moduleBody =
+    isWorkspaceSingleton || usesDeferredLocalSharedExports
+      ? `
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
@@ -920,7 +977,7 @@ export function writeLoadShareModule(
     ${normalizeLocalShareModuleCode}
     ${exportLine}
   `
-    : `
+      : `
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}

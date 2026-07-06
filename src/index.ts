@@ -91,6 +91,12 @@ type CodeSplittingGroup = {
   priority?: number;
 };
 
+function isDeferredLocalLoadShareModule(id: string): boolean {
+  if (!id.includes(LOAD_SHARE_TAG)) return false;
+  const virtualModule = VirtualModule.findById(id);
+  return virtualModule?.code?.includes('__mfApplyLocalSharedExports') === true;
+}
+
 type ViteWatchOptions = NonNullable<NonNullable<UserConfig['server']>['watch']>;
 type ViteWatchConfig = ViteWatchOptions | boolean | null | undefined;
 
@@ -839,6 +845,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               return 'runtimeInit';
             }
             if (id.includes(LOAD_SHARE_TAG)) {
+              if (isDeferredLocalLoadShareModule(id)) {
+                return null;
+              }
               // Use the virtual module path as the chunk name
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';

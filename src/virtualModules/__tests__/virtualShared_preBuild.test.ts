@@ -723,10 +723,9 @@ describe('writeLoadShareModule', () => {
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls[0][0];
 
-    // Destructuring should alias the keys
-    // const { delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule;
+    // Destructuring should alias the keys while assigning exported live bindings.
     expect(generatedCode).toContain(
-      'const { delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule;'
+      '({ delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule);'
     );
 
     // Export uses aliased keys AS the original keys
@@ -926,8 +925,8 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const __mfDefaultExport = (() => {');
-    expect(generatedCode).toContain('export default __mfDefaultExport;');
+    expect(generatedCode).toContain('__mf_default = exportModule.default ?? exportModule;');
+    expect(generatedCode).toContain('export { __mf_default as default, __mf_remote_pending };');
   });
 
   it('uses shareConfig.import as the concrete import source when provided', () => {
@@ -973,17 +972,18 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
+    expect(generatedCode).not.toContain(
       'import * as __mfLocalShare from "/repo/packages/custom-shared-source";'
     );
+    expect(generatedCode).toContain('import("/repo/packages/custom-shared-source")');
     expect(generatedCode).toContain(
-      'const { sharedValue: __mf_0, useSharedFeature: __mf_1 } = exportModule;'
+      '({ sharedValue: __mf_0, useSharedFeature: __mf_1 } = exportModule);'
     );
     expect(generatedCode).toContain(
       'export { __mf_0 as sharedValue, __mf_1 as useSharedFeature };'
     );
     expect(generatedCode).not.toContain('export * from "/repo/packages/custom-shared-source"');
-    expect(generatedCode).not.toContain('mock-import-id');
+    expect(generatedCode).not.toContain('import("mock-import-id")');
   });
 
   it('falls back to package-based named export detection when shareConfig.import cannot be inspected', () => {
@@ -1005,11 +1005,12 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
+    expect(generatedCode).not.toContain(
       'import * as __mfLocalShare from "/missing/mock-package-with-reserved/index.js";'
     );
+    expect(generatedCode).toContain('import("/missing/mock-package-with-reserved/index.js")');
     expect(generatedCode).toContain(
-      'const { delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule;'
+      '({ delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule);'
     );
     expect(generatedCode).toContain(
       'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
@@ -1035,10 +1036,11 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
+    expect(generatedCode).not.toContain(
       'import * as __mfLocalShare from "mock-package-browser-conditional";'
     );
-    expect(generatedCode).toContain('const { clientOnly: __mf_0 } = exportModule;');
+    expect(generatedCode).toContain('import("mock-package-browser-conditional")');
+    expect(generatedCode).toContain('({ clientOnly: __mf_0 } = exportModule);');
     expect(generatedCode).toContain('export { __mf_0 as clientOnly };');
     expect(generatedCode).not.toContain('serverOnly');
   });
@@ -1113,9 +1115,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
-      'const { useCounter: __mf_0, useLogger: __mf_1 } = exportModule;'
-    );
+    expect(generatedCode).toContain('({ useCounter: __mf_0, useLogger: __mf_1 } = exportModule);');
     expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
     expect(generatedCode).not.toContain('export * from');
   });
@@ -1138,7 +1138,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const { ångstrom: __mf_0, café: __mf_1 } = exportModule;');
+    expect(generatedCode).toContain('({ ångstrom: __mf_0, café: __mf_1 } = exportModule);');
     expect(generatedCode).toContain('export { __mf_0 as ångstrom, __mf_1 as café };');
   });
 
