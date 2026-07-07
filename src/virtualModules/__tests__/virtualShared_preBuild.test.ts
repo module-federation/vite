@@ -233,6 +233,18 @@ vi.mock('../../utils/packageUtils', () => ({
         },
       };
     }
+    if (pkg === 'react-dom') {
+      return {
+        path: '/repo/apps/remote/node_modules/react-dom/package.json',
+        dir: '/repo/apps/remote/node_modules/react-dom',
+        packageJson: {
+          name: 'react-dom',
+          peerDependencies: {
+            react: '^19.0.0',
+          },
+        },
+      };
+    }
   }),
   getPackageName: (packageString: string) => {
     const match = packageString.match(/^(?:@[^/]+\/)?[^/]+/);
@@ -1837,6 +1849,85 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('import("lit").then((mod) => {');
     expect(generatedCode).toContain('export { __mf_default as default };');
     expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('await ');
+  });
+
+  it('uses eager fallback for entry-injected remote singleton deps consumed by peer singletons', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      hostInitInjectLocation: 'entry',
+      exposes: {
+        './App': './src/App.jsx',
+      },
+      shared: {
+        react: {
+          singleton: true,
+        },
+        'react-dom': {
+          singleton: true,
+        },
+      },
+    });
+    const pkg = 'react';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '19.2.4',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^19.2.4',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('import * as __mfLocalShare from "/resolved/react";');
+    expect(generatedCode).toContain('__mfWriteSharedCache');
+    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).not.toContain('import("react").then((mod) => {');
+    expect(generatedCode).not.toContain('initPromise.then');
+    expect(generatedCode).not.toContain('await ');
+  });
+
+  it('keeps peer-consumed remote singleton fallbacks lazy without entry injection', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: {
+        './App': './src/App.jsx',
+      },
+      shared: {
+        react: {
+          singleton: true,
+        },
+        'react-dom': {
+          singleton: true,
+        },
+      },
+    });
+    const pkg = 'react';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '19.2.4',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^19.2.4',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('import * as __mfLocalShare from "react";');
+    expect(generatedCode).toContain('import("/resolved/react").then((mod) => {');
+    expect(generatedCode).toContain('initPromise.then');
     expect(generatedCode).not.toContain('await ');
   });
 
