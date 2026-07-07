@@ -1804,7 +1804,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
-  it('keeps static bare package singleton fallbacks for remote-only dev containers without subpath sharing', () => {
+  it('defers bare package singleton fallbacks for remote-only dev containers without subpath sharing', () => {
     normalizeModuleFederationOptions({
       name: 'remote',
       exposes: {
@@ -1833,9 +1833,10 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('import * as __mfLocalShare from "lit";');
-    expect(generatedCode).toContain('export default __mfDefaultExport;');
-    expect(generatedCode).not.toContain('import("lit").then((mod) => {');
+    expect(generatedCode).not.toContain('import * as __mfLocalShare from "lit";');
+    expect(generatedCode).toContain('import("lit").then((mod) => {');
+    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('await ');
   });
 

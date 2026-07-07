@@ -442,22 +442,6 @@ function isRemoteOnlyContainer() {
   );
 }
 
-function hasConfiguredSharedPackageSubpath(pkg: string) {
-  const packageName = getPackageName(pkg);
-  const options = getNormalizeModuleFederationOptions();
-  return Object.keys(options.shared || {}).some((key) => {
-    const share = options.shared[key];
-    if (
-      (share?.shareConfig as any)?.__mfConfiguredPackageSubpath &&
-      getPackageName(key) === packageName
-    ) {
-      return true;
-    }
-    if (key === packageName || key === packageName + '/') return key !== packageName;
-    return getPackageName(key) === packageName && key !== packageName;
-  });
-}
-
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
   try {
     const projectRequire = createRequire(pathToFileURL(path.join(root, 'package.json')));
@@ -891,24 +875,18 @@ export function writeLoadShareModule(
       : concreteSharedImportSource || localProviderPath || sharedImportSource;
   const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
   const isWorkspaceSingleton = isWorkspacePackage && shareItem.shareConfig.singleton === true;
-  const hasPackageSubpathSharing = hasConfiguredSharedPackageSubpath(pkg);
   const isDefaultShareScope =
     shareItem.scope === undefined ||
     shareItem.scope === 'default' ||
     (Array.isArray(shareItem.scope) && shareItem.scope[0] === 'default');
   const usesDeferredSingletonFallback =
     isWorkspaceSingleton ||
-    (command !== 'build' &&
-      isRemoteOnlyContainer() &&
-      shareItem.shareConfig.singleton === true &&
-      hasPackageSubpathSharing) ||
+    (command !== 'build' && isRemoteOnlyContainer() && shareItem.shareConfig.singleton === true) ||
     (command === 'build' &&
       isRemoteOnlyContainer() &&
       shareItem.shareConfig.singleton === true &&
       !isDefaultShareScope);
-  const usesEagerWorkspaceFallback =
-    (isWorkspaceSingleton && isSharedSingletonConsumedByPeer(pkg)) ||
-    (command !== 'build' && usesDeferredSingletonFallback && isSharedSingletonConsumedByPeer(pkg));
+  const usesEagerWorkspaceFallback = isWorkspaceSingleton && isSharedSingletonConsumedByPeer(pkg);
   const namedExports = getSharedNamedExports(pkg, shareItem);
   let exportLine: string;
   let initBlock = '';

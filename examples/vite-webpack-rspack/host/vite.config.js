@@ -29,7 +29,11 @@ const mfConfig = {
       type: 'module',
     },
   },
-  shared: ['react', 'react-dom', 'lodash'],
+  shared: {
+    react: { singleton: true },
+    'react-dom': { singleton: true },
+    lodash: {},
+  },
   moduleParseTimeout: 2,
   dts: false,
 };
