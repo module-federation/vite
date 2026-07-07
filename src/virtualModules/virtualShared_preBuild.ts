@@ -886,11 +886,19 @@ export function writeLoadShareModule(
       isRemoteOnlyContainer() &&
       shareItem.shareConfig.singleton === true &&
       !isDefaultShareScope);
-  const usesEagerWorkspaceFallback = isWorkspaceSingleton && isSharedSingletonConsumedByPeer(pkg);
+  const isConsumedByPeerSingleton = isSharedSingletonConsumedByPeer(pkg);
+  const usesEntryInjectedRemoteFallback =
+    command !== 'build' &&
+    !isWorkspaceSingleton &&
+    isRemoteOnlyContainer() &&
+    shareItem.shareConfig.singleton === true &&
+    getNormalizeModuleFederationOptions().hostInitInjectLocation === 'entry' &&
+    isConsumedByPeerSingleton;
+  const usesEagerWorkspaceFallback = isWorkspaceSingleton && isConsumedByPeerSingleton;
   const namedExports = getSharedNamedExports(pkg, shareItem);
   let exportLine: string;
   let initBlock = '';
-  if (usesEagerWorkspaceFallback) {
+  if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
     exportLine = generateEagerWorkspaceSingletonExports(
       namedExports,
       lazyLocalFallbackSource,
