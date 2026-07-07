@@ -1768,6 +1768,116 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
+  it('defers bare package singleton fallbacks for remote-only containers in serve mode', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: {
+        './App': './src/App.jsx',
+      },
+      shared: {
+        'lit/': {
+          singleton: true,
+        },
+      },
+    });
+    const pkg = 'lit';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^3.3.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('import * as __mfLocalShare from "lit";');
+    expect(generatedCode).toContain('import("lit").then((mod) => {');
+    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('await ');
+  });
+
+  it('defers bare package singleton fallbacks for remote-only dev containers without subpath sharing', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: {
+        './App': './src/App.jsx',
+      },
+      shared: {
+        lit: {
+          singleton: true,
+        },
+      },
+    });
+    const pkg = 'lit';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^3.3.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain('import * as __mfLocalShare from "lit";');
+    expect(generatedCode).toContain('import("lit").then((mod) => {');
+    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('await ');
+  });
+
+  it('defers package subpath singleton fallbacks for remote-only containers in serve mode', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: {
+        './App': './src/App.jsx',
+      },
+      shared: {
+        'lit/': {
+          singleton: true,
+        },
+      },
+    });
+    const pkg = 'lit/directives/class-map.js';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^3.3.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).not.toContain(
+      'import * as __mfLocalShare from "lit/directives/class-map.js";'
+    );
+    expect(generatedCode).toContain('import("lit/directives/class-map.js").then((mod) => {');
+    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('await ');
+  });
+
   it('generates ESM loadShare wrappers for vue root share in serve mode', () => {
     const pkg = 'vue';
     const mockShareItem: ShareItem = {

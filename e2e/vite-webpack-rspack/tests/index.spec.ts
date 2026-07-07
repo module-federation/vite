@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test';
 
+function isDynamicRemoteSharedPayload(url: string) {
+  if (!url.startsWith('http://localhost:4002/')) return false;
+  if (url.includes('__loadShare__')) return false;
+  return (
+    url.includes('__prebuild__react') ||
+    url.includes('__prebuild__lodash') ||
+    /\/node_modules\/\.vite\/deps\/(?:react|react-dom|lodash)(?:[._-]|$)/.test(url)
+  );
+}
+
 test.describe('Vite Host Tests', () => {
   test.beforeEach(async ({ page, baseURL }) => {
     await page.goto(baseURL!);
@@ -206,6 +216,46 @@ test.describe('Dynamic remote', () => {
     await expect(lodashVersionDisplay).toBeVisible();
     const versionText2 = await lodashVersionDisplay.textContent();
     expect(versionText2).toMatch(/Shared lodash v\d+\.\d+\.\d+/);
+  });
+
+  test('does not download shared dependency payloads when dynamic remote hits cache', async ({
+    page,
+    baseURL,
+  }) => {
+    const dynamicRemoteSharedPayloads: string[] = [];
+    page.on('response', (response) => {
+      const url = response.url();
+      if (response.request().resourceType() === 'script' && isDynamicRemoteSharedPayload(url)) {
+        dynamicRemoteSharedPayloads.push(url);
+      }
+    });
+
+    await page.goto(baseURL!);
+    await expect(
+      page.getByRole('heading', {
+        level: 1,
+        name: 'Basic Tee',
+        exact: true,
+      })
+    ).toBeVisible();
+
+    dynamicRemoteSharedPayloads.length = 0;
+
+    const showAdToggle = page.getByRole('checkbox', {
+      name: 'Show Dynamic Ad',
+      exact: true,
+    });
+    await showAdToggle.check({ force: true });
+
+    await expect(
+      page.getByRole('heading', {
+        level: 2,
+        name: 'Up to 50% off!',
+        exact: true,
+      })
+    ).toBeVisible();
+
+    expect(dynamicRemoteSharedPayloads).toEqual([]);
   });
 });
 

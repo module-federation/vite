@@ -8,7 +8,6 @@ import { writeRuntimeInitStatus } from './virtualRuntimeInitStatus';
 export {
   addUsedShares,
   generateHostAutoInitCode,
-  generateDirectSharedCacheSeedCode,
   generateLocalSharedImportMap,
   generateRemoteEntry,
   getHostAutoInitImportId,
