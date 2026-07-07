@@ -305,7 +305,12 @@ function normalizeShared(
     shared.forEach((key) => {
       if (isModuleFederationRuntimePackage(key)) return;
       const normalizedKey = normalizeSharedKey(key);
+      const hadConfiguredPackageSubpath =
+        (result[normalizedKey]?.shareConfig as any)?.__mfConfiguredPackageSubpath === true;
       result[normalizedKey] = normalizeShareItem(normalizedKey, normalizedKey);
+      if (key.endsWith('/') || hadConfiguredPackageSubpath) {
+        (result[normalizedKey].shareConfig as any).__mfConfiguredPackageSubpath = true;
+      }
       explicitSharedKeys.add(normalizedKey);
       sourceEntries.push([normalizedKey, normalizedKey]);
     });
@@ -314,7 +319,12 @@ function normalizeShared(
       if (isModuleFederationRuntimePackage(key)) return;
       const normalizedKey = normalizeSharedKey(key);
       const value = shared[key] as any;
+      const hadConfiguredPackageSubpath =
+        (result[normalizedKey]?.shareConfig as any)?.__mfConfiguredPackageSubpath === true;
       result[normalizedKey] = normalizeShareItem(normalizedKey, value);
+      if (key.endsWith('/') || hadConfiguredPackageSubpath) {
+        (result[normalizedKey].shareConfig as any).__mfConfiguredPackageSubpath = true;
+      }
       explicitSharedKeys.add(normalizedKey);
       sourceEntries.push([normalizedKey, value]);
     });

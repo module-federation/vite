@@ -524,7 +524,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('"lit/decorators.js"');
   });
 
-  it('preloads root shared package dependencies before consumers and subpaths', async () => {
+  it('loads the finalized local shared map for host auto init preloads', async () => {
     normalizedSharedMock.mockReturnValue({
       '@repro/core': {
         name: '@repro/core',
@@ -569,60 +569,10 @@ describe('virtualRemoteEntry', () => {
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
-    expect(code.indexOf('"@repro/shared-lib"')).toBeLessThan(code.indexOf('"@repro/core"'));
-    expect(code.indexOf('"@repro/core"')).toBeLessThan(code.indexOf('"@repro/shared-lib/media"'));
-  });
-
-  it('does not seed a bare package for trailing slash shared packages', async () => {
-    normalizedSharedMock.mockReturnValue({
-      'wildcard-pkg/': {
-        name: 'wildcard-pkg/',
-        from: '',
-        version: '1.0.0',
-        scope: 'default',
-        shareConfig: {
-          singleton: true,
-          requiredVersion: '^1.0.0',
-          strictVersion: false,
-        },
-      },
-    });
-    const mod = await import('../virtualRemoteEntry');
-
-    mod.getUsedShares().clear();
-
-    const code = mod.generateDirectSharedCacheSeedCode('build');
-
-    expect(code).not.toContain('wildcard-pkg');
-    expect(code).not.toContain('index.js');
-  });
-
-  it('seeds the actual used subpath for trailing slash shared packages', async () => {
-    normalizedSharedMock.mockReturnValue({
-      'wildcard-pkg/': {
-        name: 'wildcard-pkg/',
-        from: '',
-        version: '1.0.0',
-        scope: 'default',
-        shareConfig: {
-          singleton: true,
-          requiredVersion: '^1.0.0',
-          strictVersion: false,
-        },
-      },
-    });
-    const mod = await import('../virtualRemoteEntry');
-
-    mod.getUsedShares().clear();
-    mod.addUsedShares('wildcard-pkg/button');
-
-    const code = mod.generateDirectSharedCacheSeedCode('build');
-
     expect(code).toContain(
-      '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:wildcard-pkg/button","aliases":["wildcard-pkg/button"]})'
+      'const {usedShared} = await import("virtual:mf-localSharedImportMap:__mfe_internal__host")'
     );
-    expect(code).toContain('await import("/repo/node_modules/wildcard-pkg/dist/button.js")');
-    expect(code).not.toContain('"canonical":"default:wildcard-pkg","aliases":["wildcard-pkg"]');
+    expect(code).toContain('for (const [pkg, share] of Object.entries(usedShared))');
   });
 
   it('does not seed import:false shared modules in hostAutoInit during build', async () => {
@@ -867,9 +817,48 @@ describe('virtualRemoteEntry', () => {
       '__mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, singletonModule);'
     );
     expect(code.indexOf('const singletonCacheDescriptor')).toBeLessThan(
-      code.indexOf(
-        'if (__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:react@18.3.1","aliases":["react@18.3.1"]}) === undefined)'
-      )
+      code.indexOf('const initRes = runtimeInit({')
+    );
+  });
+
+  it('does not directly seed import-enabled shared modules before runtime sharing', async () => {
+    normalizedSharedMock.mockReturnValue({
+      react: {
+        name: 'react',
+        from: '',
+        version: '19.2.4',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    expect(code).not.toContain('initRes.loadShare(pkg');
+    expect(code).not.toContain(
+      'const mod = await import("virtual:mf:remote__prebuild__react__prebuild__.js")'
     );
   });
 

@@ -176,33 +176,14 @@ export function generateLocalSharedImportMap() {
       `;
 }
 
-function generateUsedSharedPreloadConfig() {
-  return `{
-      ${getOrderedUsedShares()
-        .map((pkg) => {
-          const shareItem = getShareItemForPreload(pkg);
-          if (!shareItem) return null;
-          return `${JSON.stringify(pkg)}: {
-            version: ${JSON.stringify(shareItem.version)},
-            scope: ${JSON.stringify(shareItem.scope)},
-            shareConfig: {
-              singleton: ${shareItem.shareConfig.singleton},
-              requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
-              strictVersion: ${shareItem.shareConfig.strictVersion},
-              ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
-            }
-          }`;
-        })
-        .filter((item) => item !== null)
-        .join(',\n')}
-    }`;
-}
-
 function getOrderedUsedShares() {
   const shares = new Set(getUsedShares());
   try {
     Object.keys(getNormalizeModuleFederationOptions().shared).forEach((pkg) => {
-      if (!pkg.endsWith('/')) shares.add(pkg);
+      if (!pkg.endsWith('/')) {
+        shares.add(pkg);
+        return;
+      }
     });
   } catch {
     // Some isolated unit tests call generators before normalized options exist.
@@ -325,19 +306,31 @@ function hasImportFalseShared(options: NormalizedModuleFederationOptions): boole
   return Object.values(options.shared ?? {}).some((share) => share?.shareConfig?.import === false);
 }
 
-export function generateDirectSharedCacheSeedCode(command = 'build') {
-  return getOrderedUsedShares()
-    .map((pkg) => {
-      const shareItem = getShareItemForPreload(pkg);
-      if (!shareItem || shareItem.shareConfig.import === false) return null;
-      const importPath =
-        command === 'serve'
-          ? getLocalSharedPackagePath(pkg, shareItem)
-          : getDirectSharedCacheSeedImportPath(pkg, shareItem);
-      return generateSharedCacheSeedItem(pkg, shareItem, importPath);
-    })
-    .filter((item) => item !== null)
-    .join('\n');
+function generateRuntimeSharedCacheSeedCode() {
+  return `
+    for (const [pkg, share] of Object.entries(usedShared)) {
+      const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+      if (share.shareConfig?.import === false || __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) {
+        continue;
+      }
+      const singletonCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, true, share.version, share.scope);
+      const singletonModule = __mfReadSharedCache(__mfModuleCache.share, singletonCacheDescriptor);
+      if (singletonModule !== undefined) {
+        __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, singletonModule);
+        continue;
+      }
+      const factory = await share.get();
+      const mod = typeof factory === "function" ? factory() : factory;
+      const resolved = await Promise.resolve(mod);
+      ${normalizeRuntimeShareCode}
+      const normalizedModule = __mfNormalizeRuntimeShare(resolved);
+      const exportModule = normalizedModule === resolved ? {...resolved} : normalizedModule;
+      Object.defineProperty(exportModule, "__esModule", {
+        value: true,
+        enumerable: false
+      });
+      __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, exportModule);
+    }`;
 }
 
 function getBrowserImportPath(importPath: string) {
@@ -531,7 +524,7 @@ export function generateRemoteEntry(
         __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, singletonModule);
       }
     }
-    ${generateDirectSharedCacheSeedCode(command)}
+    ${generateRuntimeSharedCacheSeedCode()}
     const __browserPlugins = [${pluginImportNames
       .filter((item) => !isSsrOnlyPlugin(item[1]))
       .map((item) => `${item[0]}(${item[2]})`)
@@ -620,7 +613,7 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
           ${generateHostAutoInitSharedCacheSeedCode(_command)}
           const remoteEntry = await import(${remoteEntryImport});
           const runtime = await remoteEntry.init();
-          const usedShared = ${generateUsedSharedPreloadConfig()};
+          const {usedShared} = await import("${getLocalSharedImportMapPath()}");
           ${normalizeRuntimeShareCode}
           ${
             shouldPreloadShares
