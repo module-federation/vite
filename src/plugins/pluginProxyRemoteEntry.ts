@@ -50,14 +50,52 @@ export default function ({
     );
   }
 
-  function collectRemoteDependencies(code: string): string[] {
-    const dependencies = new Set<string>();
+  function collectImportSources(code: string): string[] {
+    const sources = new Set<string>();
     const importRe =
       /(?:^|[;\n\r])\s*import\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
 
     for (const match of code.matchAll(importRe)) {
       const source = match[1] || match[2];
-      if (source && isRemoteImport(source)) dependencies.add(source);
+      if (source) sources.add(source);
+    }
+
+    return Array.from(sources).sort();
+  }
+
+  function shouldScanResolvedImport(id: string): boolean {
+    if (!id || id.includes('\0')) return false;
+    if (id.includes('/node_modules/') || id.includes('\\node_modules\\')) return false;
+    return /\.(?:[cm]?[jt]sx?|vue|svelte)(?:\?|$)/.test(id);
+  }
+
+  async function collectRemoteDependencies(
+    ctx: { resolve: Plugin['resolveId'] },
+    id: string,
+    seen = new Set<string>()
+  ): Promise<string[]> {
+    if (seen.has(id) || !shouldScanResolvedImport(id)) return [];
+    seen.add(id);
+
+    let code: string;
+    try {
+      code = readFileSync(id, 'utf8');
+    } catch {
+      return [];
+    }
+
+    const dependencies = new Set<string>();
+    for (const source of collectImportSources(code)) {
+      if (isRemoteImport(source)) {
+        dependencies.add(source);
+        continue;
+      }
+
+      const resolved = await (ctx as any).resolve(source, id);
+      if (!resolved?.id || !shouldScanResolvedImport(resolved.id)) continue;
+      for (const dependency of await collectRemoteDependencies(ctx, resolved.id, seen)) {
+        dependencies.add(dependency);
+      }
     }
 
     return Array.from(dependencies).sort();
@@ -67,12 +105,7 @@ export default function ({
     const next: Record<string, string[]> = {};
     for (const [exposeKey, expose] of Object.entries(options.exposes)) {
       const resolved = await (ctx as any).resolve(expose.import);
-      if (!resolved?.id || resolved.id.includes('\0')) continue;
-      try {
-        next[exposeKey] = collectRemoteDependencies(readFileSync(resolved.id, 'utf8'));
-      } catch {
-        next[exposeKey] = [];
-      }
+      next[exposeKey] = resolved?.id ? await collectRemoteDependencies(ctx, resolved.id) : [];
     }
     exposeRemoteDependencies = next;
   }
