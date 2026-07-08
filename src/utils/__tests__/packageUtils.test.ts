@@ -87,6 +87,118 @@ describe('getInstalledPackageJson', () => {
 
     expect(entry).toBe(path.join(packageDir, 'dist/browser.js'));
   });
+
+  it('resolves wildcard subpath exports (e.g. "./components/*")', () => {
+    const packageName = 'mf-test-wildcard-ui';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-wildcard-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(path.join(packageDir, 'components'), { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: { './components/*': './components/*.tsx' },
+      })
+    );
+    writeFileSync(
+      path.join(packageDir, 'components/button.tsx'),
+      'export const Button = () => null;'
+    );
+
+    const entry = getInstalledPackageEntry(`${packageName}/components/button`, {
+      cwd: hostDir,
+      resolveSubpathWithRequire: false,
+    });
+
+    expect(entry).toContain('/components/button.tsx');
+  });
+
+  it('substitutes the wildcard into conditional exports targets', () => {
+    const packageName = 'mf-test-wildcard-conditions';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-wildcard-cond-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(path.join(packageDir, 'esm'), { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: {
+          './features/*': { import: './esm/*.js', require: './cjs/*.cjs' },
+        },
+      })
+    );
+    writeFileSync(path.join(packageDir, 'esm/button.js'), 'export const Button = () => null;');
+
+    const entry = getInstalledPackageEntry(`${packageName}/features/button`, {
+      cwd: hostDir,
+      resolveSubpathWithRequire: false,
+    });
+
+    expect(entry).toContain('/esm/button.js');
+  });
+
+  it('substitutes the wildcard into fallback-array exports targets', () => {
+    const packageName = 'mf-test-wildcard-array';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-wildcard-arr-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(path.join(packageDir, 'esm'), { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: { './features/*': ['./esm/*.js', './fallback/*.js'] },
+      })
+    );
+    writeFileSync(path.join(packageDir, 'esm/button.js'), 'export const Button = () => null;');
+
+    const entry = getInstalledPackageEntry(`${packageName}/features/button`, {
+      cwd: hostDir,
+      resolveSubpathWithRequire: false,
+    });
+
+    expect(entry).toContain('/esm/button.js');
+  });
+
+  it('prefers the most specific (longest-prefix) wildcard pattern', () => {
+    const packageName = 'mf-test-wildcard-specificity';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-wildcard-spec-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(path.join(packageDir, 'components'), { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: {
+          './*': './src/*.js',
+          './components/*': './components/*.tsx',
+        },
+      })
+    );
+    writeFileSync(path.join(packageDir, 'components/card.tsx'), 'export const Card = () => null;');
+
+    const entry = getInstalledPackageEntry(`${packageName}/components/card`, {
+      cwd: hostDir,
+      resolveSubpathWithRequire: false,
+    });
+
+    expect(entry).toContain('/components/card.tsx');
+  });
 });
 
 describe('resolveImportPath', () => {
