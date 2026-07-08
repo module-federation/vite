@@ -20,6 +20,22 @@ const REMOTE_DEPENDENCY_MF_OPTIONS = {
   dts: false,
 } satisfies Partial<ModuleFederationOptions>;
 
+const TRANSITIVE_REMOTE_DEPENDENCY_MF_OPTIONS = {
+  name: 'transitiveRemote',
+  filename: 'remoteEntry.js',
+  exposes: {
+    './widget': resolve(FIXTURES, 'nested-remote-transitive', 'exposed-widget.js'),
+  },
+  remotes: {
+    remoteA: {
+      name: 'remoteA',
+      entry: 'http://localhost:3001/remoteEntry.js',
+      type: 'module',
+    },
+  },
+  dts: false,
+} satisfies Partial<ModuleFederationOptions>;
+
 describe('remote dependency pending', () => {
   it('waits at expose loading for nested remote named imports without TLA', async () => {
     const output = await buildFixture({
@@ -40,5 +56,22 @@ describe('remote dependency pending', () => {
     expect(allCode).not.toMatch(
       /\b(?:const|var)\s+__mf_remote_dependency_pending\s*=\s*await\b/
     );
+  });
+
+  it('preloads nested remotes discovered through local transitive imports', async () => {
+    const output = await buildFixture({
+      fixture: 'nested-remote-transitive',
+      mfOptions: TRANSITIVE_REMOTE_DEPENDENCY_MF_OPTIONS,
+    });
+
+    const allCode = getAllChunkCode(output);
+
+    expect(allCode).toContain('__loadRemote__remoteA_mf_1_shared_mf_1_helpers__loadRemote__');
+    expect(allCode).toContain('loadRemote("remoteA/shared/helpers")');
+    expect(allCode).toMatch(
+      /await Promise\.all\(\[.*remoteA_mf_1_shared_mf_1_helpers__loadRemote__.*__mf_remote_pending/
+    );
+    expect(allCode).toContain('var { helper } = exportModule;');
+    expect(allCode).toContain('Promise.all([__mf_remote_pending]);');
   });
 });
