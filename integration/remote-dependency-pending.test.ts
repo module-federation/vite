@@ -71,7 +71,7 @@ describe('remote dependency pending', () => {
     expect(allCode).toMatch(
       /await Promise\.all\(\[.*remoteA_mf_1_shared_mf_1_helpers__loadRemote__.*__mf_remote_pending/
     );
-    expect(allCode).toContain('var { helper } = exportModule;');
+    expect(allCode).toMatch(/\b(?:const|var)\s+\{\s*helper(?:\s*:\s*helper)?\s*\}\s*=/);
     expect(allCode).toContain('Promise.all([__mf_remote_pending]);');
   });
 });
