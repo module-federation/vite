@@ -79,13 +79,58 @@ function resolveExportsEntry(
   return undefined;
 }
 
+function substituteExportsWildcard(target: unknown, patternMatch: string): unknown {
+  if (typeof target === 'string') return target.split('*').join(patternMatch);
+  if (Array.isArray(target)) {
+    return target.map((entry) => substituteExportsWildcard(entry, patternMatch));
+  }
+  if (target && typeof target === 'object') {
+    const source = target as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(source))
+      out[key] = substituteExportsWildcard(source[key], patternMatch);
+    return out;
+  }
+  return target;
+}
+
+function matchExportsSubpath(record: Record<string, unknown>, subpath: string): unknown {
+  if (subpath in record) return record[subpath];
+
+  let bestKey: string | undefined;
+  let bestBaseLength = -1;
+  let bestKeyLength = -1;
+  for (const key of Object.keys(record)) {
+    const wildcardIndex = key.indexOf('*');
+    if (wildcardIndex === -1) continue;
+    const patternBase = key.slice(0, wildcardIndex);
+    const patternTrailer = key.slice(wildcardIndex + 1);
+    if (patternTrailer.includes('*')) continue;
+    if (!subpath.startsWith(patternBase) || !subpath.endsWith(patternTrailer)) continue;
+    if (subpath.length <= patternBase.length + patternTrailer.length) continue;
+    if (
+      patternBase.length > bestBaseLength ||
+      (patternBase.length === bestBaseLength && key.length > bestKeyLength)
+    ) {
+      bestKey = key;
+      bestBaseLength = patternBase.length;
+      bestKeyLength = key.length;
+    }
+  }
+  if (bestKey === undefined) return undefined;
+
+  const patternTrailer = bestKey.slice(bestKey.indexOf('*') + 1);
+  const patternMatch = subpath.slice(bestBaseLength, subpath.length - patternTrailer.length);
+  return substituteExportsWildcard(record[bestKey], patternMatch);
+}
+
 function getPackageExportsTarget(pkg: string, packageName: string, exportsField: unknown): unknown {
   if (typeof exportsField === 'string') return pkg === packageName ? exportsField : undefined;
   if (!exportsField || typeof exportsField !== 'object') return undefined;
 
   const record = exportsField as Record<string, unknown>;
   const subpath = pkg === packageName ? '.' : `.${pkg.slice(packageName.length)}`;
-  if (subpath !== '.') return record[subpath];
+  if (subpath !== '.') return matchExportsSubpath(record, subpath);
 
   return (
     record['.'] ?? (!Object.keys(record).some((key) => key.startsWith('.')) ? record : undefined)
