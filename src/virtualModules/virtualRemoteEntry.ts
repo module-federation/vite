@@ -198,11 +198,17 @@ function getOrderedUsedShares() {
 
 function orderSharedDependenciesFirst(sharedPackages: string[]) {
   const sharedKeyByPackageName = new Map<string, string>();
+  const subpathKeysByPackageName = new Map<string, string[]>();
   sharedPackages.forEach((pkg) => {
     const packageName = getPackageName(pkg);
     const existing = sharedKeyByPackageName.get(packageName);
     if (!existing || pkg === packageName) {
       sharedKeyByPackageName.set(packageName, pkg);
+    }
+    if (pkg !== packageName) {
+      const subpaths = subpathKeysByPackageName.get(packageName);
+      if (subpaths) subpaths.push(pkg);
+      else subpathKeysByPackageName.set(packageName, [pkg]);
     }
   });
   const visiting = new Set<string>();
@@ -212,7 +218,10 @@ function orderSharedDependenciesFirst(sharedPackages: string[]) {
     if (visited.has(pkg)) return;
     if (visiting.has(pkg)) return;
     visiting.add(pkg);
-    const packageJson = getInstalledPackageJson(pkg)?.packageJson;
+    const packageName = getPackageName(pkg);
+    const packageJson =
+      getInstalledPackageJson(pkg)?.packageJson ??
+      (pkg !== packageName ? getInstalledPackageJson(packageName)?.packageJson : undefined);
     const dependencies = {
       ...((packageJson?.dependencies as Record<string, string> | undefined) || {}),
       ...((packageJson?.peerDependencies as Record<string, string> | undefined) || {}),
@@ -222,6 +231,12 @@ function orderSharedDependenciesFirst(sharedPackages: string[]) {
       const sharedDependency = sharedKeyByPackageName.get(dependency);
       if (sharedDependency) visit(sharedDependency);
     });
+    // A package's modules can consume its own shared subpath exports through
+    // self-referencing bare specifiers at module-evaluation time, so subpath
+    // share keys must come before their package root (see #767, #805).
+    if (pkg === packageName) {
+      (subpathKeysByPackageName.get(packageName) || []).forEach(visit);
+    }
     visiting.delete(pkg);
     visited.add(pkg);
     ordered.push(pkg);
@@ -307,8 +322,20 @@ function hasImportFalseShared(options: NormalizedModuleFederationOptions): boole
 }
 
 function generateRuntimeSharedCacheSeedCode() {
+  // Seeding a share evaluates its module graph, and every share proxy hit
+  // during that evaluation must already be cached — the proxies defer their
+  // local fallback until after init, so an unseeded proxy leaves its named
+  // exports undefined at module-evaluation time. Seed dependencies and a
+  // package's own subpath shares before the package itself.
+  const seedOrder = getOrderedUsedShares();
   return `
-    for (const [pkg, share] of Object.entries(usedShared)) {
+    const __mfSeedOrder = ${JSON.stringify(seedOrder)};
+    const __mfSeedKeys = __mfSeedOrder.filter((pkg) => usedShared[pkg] !== undefined);
+    for (const pkg of Object.keys(usedShared)) {
+      if (!__mfSeedKeys.includes(pkg)) __mfSeedKeys.push(pkg);
+    }
+    for (const pkg of __mfSeedKeys) {
+      const share = usedShared[pkg];
       const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
       if (share.shareConfig?.import === false || __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) {
         continue;

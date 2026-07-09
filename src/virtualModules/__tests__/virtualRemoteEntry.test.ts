@@ -575,6 +575,63 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('for (const [pkg, share] of Object.entries(usedShared))');
   });
 
+  it('seeds package subpath shares and shared dependencies before their consumers', async () => {
+    const shareItem = (name: string) => ({
+      name,
+      from: '',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: '^1.0.0',
+        strictVersion: false,
+      },
+    });
+    normalizedSharedMock.mockReturnValue({
+      '@repro/core': shareItem('@repro/core'),
+      '@repro/shared-lib': shareItem('@repro/shared-lib'),
+      '@repro/shared-lib/media': shareItem('@repro/shared-lib/media'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('@repro/core');
+    mod.addUsedShares('@repro/shared-lib');
+    mod.addUsedShares('@repro/shared-lib/media');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    const seedOrderMatch = code.match(/const __mfSeedOrder = (\[[^\]]*\]);/);
+    expect(seedOrderMatch).not.toBeNull();
+    const seedOrder = JSON.parse(seedOrderMatch![1]) as string[];
+
+    // A package's modules can consume its own shared subpath exports through
+    // self-referencing bare specifiers at module-evaluation time, so the
+    // subpath must be cached before the package root is evaluated.
+    expect(seedOrder.indexOf('@repro/shared-lib/media')).toBeLessThan(
+      seedOrder.indexOf('@repro/shared-lib')
+    );
+    // Shared dependencies seed before their consumers (@repro/core depends
+    // on @repro/shared-lib).
+    expect(seedOrder.indexOf('@repro/shared-lib')).toBeLessThan(seedOrder.indexOf('@repro/core'));
+    // Share keys discovered after codegen still get seeded, after the ordered ones.
+    expect(code).toContain('for (const pkg of Object.keys(usedShared))');
+  });
+
   it('does not seed import:false shared modules in hostAutoInit during build', async () => {
     normalizedSharedMock.mockReturnValue({
       vue: {
