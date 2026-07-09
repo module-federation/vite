@@ -199,6 +199,35 @@ describe('getInstalledPackageJson', () => {
 
     expect(entry).toContain('/components/card.tsx');
   });
+
+  it('breaks ties between equal-length wildcard bases by longest key', () => {
+    const packageName = 'mf-test-wildcard-tiebreak';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-wildcard-tie-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(path.join(packageDir, 'min'), { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: {
+          './*': './src/*.js',
+          './*.js': './min/*.js',
+        },
+      })
+    );
+    writeFileSync(path.join(packageDir, 'min/button.js'), 'export const Button = () => null;');
+
+    const entry = getInstalledPackageEntry(`${packageName}/button.js`, {
+      cwd: hostDir,
+      resolveSubpathWithRequire: false,
+    });
+
+    expect(entry).toContain('/min/button.js');
+  });
 });
 
 describe('resolveImportPath', () => {

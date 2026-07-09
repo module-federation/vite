@@ -99,6 +99,7 @@ function matchExportsSubpath(record: Record<string, unknown>, subpath: string): 
 
   let bestKey: string | undefined;
   let bestBaseLength = -1;
+  let bestKeyLength = -1;
   for (const key of Object.keys(record)) {
     const wildcardIndex = key.indexOf('*');
     if (wildcardIndex === -1) continue;
@@ -107,9 +108,13 @@ function matchExportsSubpath(record: Record<string, unknown>, subpath: string): 
     if (patternTrailer.includes('*')) continue;
     if (!subpath.startsWith(patternBase) || !subpath.endsWith(patternTrailer)) continue;
     if (subpath.length <= patternBase.length + patternTrailer.length) continue;
-    if (patternBase.length > bestBaseLength) {
+    if (
+      patternBase.length > bestBaseLength ||
+      (patternBase.length === bestBaseLength && key.length > bestKeyLength)
+    ) {
       bestKey = key;
       bestBaseLength = patternBase.length;
+      bestKeyLength = key.length;
     }
   }
   if (bestKey === undefined) return undefined;
