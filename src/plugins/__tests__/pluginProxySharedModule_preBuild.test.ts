@@ -523,6 +523,112 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(preBuildShareItemMap.has('vue/dist/vue.esm-bundler.js')).toBe(false);
   });
 
+  it.each([
+    { source: '@ui-lib/assets/icon.svg' },
+    { source: '@ui-lib/assets/logo.png' },
+    { source: '@ui-lib/assets/photo.jpg' },
+    { source: '@ui-lib/assets/spinner.gif' },
+    { source: '@ui-lib/assets/bg.webp' },
+    { source: '@ui-lib/assets/image.avif' },
+    { source: '@ui-lib/assets/favicon.ico' },
+    { source: '@ui-lib/assets/font.woff2' },
+    { source: '@ui-lib/assets/font.ttf' },
+    { source: '@ui-lib/assets/video.mp4' },
+    { source: '@ui-lib/assets/video.webm' },
+    { source: '@ui-lib/assets/styles.scss' },
+    { source: '@ui-lib/assets/styles.less' },
+  ])('does not proxy asset imports ($source)', async ({ source }) => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      ...makeShared(),
+      '@ui-lib/': {
+        name: '@ui-lib/',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: false,
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      source,
+      '/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+  });
+
+  it('still proxies non-asset imports matched by the same wildcard shared key', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      ...makeShared(),
+      '@ui-lib/': {
+        name: '@ui-lib/',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: false,
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      '@ui-lib/button',
+      '/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect((resolution as { id: string }).id).toBeDefined();
+  });
+
   it('keeps proxying shared imports from other loadShare wrappers', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
