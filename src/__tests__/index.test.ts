@@ -928,10 +928,22 @@ describe('vite:module-federation-early-init', () => {
       resolver.resolveId('@ui-lib/assets/style.css', '/repo/node_modules/.vite/deps/pkg.js')
     ).toBeUndefined();
     expect(
+      resolver.resolveId('@ui-lib/assets/sound.mp3', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId(
+        '@ui-lib/assets/manifest.webmanifest',
+        '/repo/node_modules/.vite/deps/pkg.js'
+      )
+    ).toBeUndefined();
+    expect(
       resolver.resolveId('@ui-lib/assets/icon.svg?url', '/repo/node_modules/.vite/deps/pkg.js')
     ).toBeUndefined();
     expect(
       resolver.resolveId('@ui-lib/assets/style.css?v=11111', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId('@ui-lib/assets/document.pdf?url', '/repo/node_modules/.vite/deps/pkg.js')
     ).toBeUndefined();
     expect(resolver.resolveId('@ui-lib/button', '/repo/node_modules/.vite/deps/pkg.js')).toEqual({
       id: expect.stringContaining(LOAD_SHARE_TAG),
@@ -1106,6 +1118,20 @@ describe('vite:module-federation-early-init', () => {
     ).toBeUndefined();
     expect(
       onResolveHandlers[1]({
+        path: '@ui-lib/assets/sound.mp3',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/manifest.webmanifest',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
         path: '@ui-lib/assets/icon.svg?url',
         importer: '/repo/node_modules/.vite/deps/pkg.js',
         kind: 'import-statement',
@@ -1114,6 +1140,13 @@ describe('vite:module-federation-early-init', () => {
     expect(
       onResolveHandlers[1]({
         path: '@ui-lib/assets/style.css?inline',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/document.pdf?url',
         importer: '/repo/node_modules/.vite/deps/pkg.js',
         kind: 'import-statement',
       })

@@ -44,7 +44,7 @@ import {
   setPackageDetectionCwd,
 } from './utils/packageUtils';
 import { getSsrCapabilities } from './utils/ssrCapabilities';
-import { getCommonSharedSubpaths } from './utils/pathNormalization';
+import { getCommonSharedSubpaths, isAssetLikeImport } from './utils/pathNormalization';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -349,12 +349,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 if (isSharedResolverInternalImporter(importer)) return;
                 const key = findSharedKey(source, shared);
                 if (!key) return;
-                if (
-                  /\.(?:css|scss|sass|less|styl|stylus|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm)(?:[?#].*)?$/i.test(
-                    source
-                  )
-                )
-                  return;
+                if (isAssetLikeImport(source)) return;
                 const shareItem = shared[key];
                 const isReactSingleton =
                   source === 'react' &&
@@ -398,13 +393,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (!args.importer || args.namespace === 'mf-shared') return;
                   if (isSharedResolverInternalImporter(args.importer)) return;
                   const key = findSharedKey(args.path, shared);
-                  if (
-                    !key ||
-                    /\.(?:css|scss|sass|less|styl|stylus|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm)(?:[?#].*)?$/i.test(
-                      args.path
-                    )
-                  )
-                    return;
+                  if (!key || isAssetLikeImport(args.path)) return;
                   return { path: args.path, namespace: 'mf-shared' };
                 });
                 build.onLoad({ filter: /.*/, namespace: 'mf-shared' }, (args: any) => {

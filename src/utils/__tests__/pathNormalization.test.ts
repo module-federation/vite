@@ -4,6 +4,7 @@ import {
   getBasePath,
   getCommonSharedSubpathFromNodeModulePath,
   getMatchingNodeModuleSubpath,
+  isAssetLikeImport,
   isNuxtClientBase,
   isNodeModulePath,
   normalizeNodeModulePath,
@@ -62,6 +63,24 @@ describe('pathNormalization', () => {
         'react'
       )
     ).toBe('react/jsx-runtime');
+  });
+
+  it.each([
+    'styles.css',
+    'styles.scss?inline',
+    'icon.svg#sprite',
+    'sound.mp3',
+    'manifest.webmanifest?url',
+    'document.pdf?raw',
+    'image.jxl',
+    'movie.mov',
+  ])('detects asset-like imports (%s)', (source) => {
+    expect(isAssetLikeImport(source)).toBe(true);
+  });
+
+  it('does not treat JavaScript module imports as asset-like', () => {
+    expect(isAssetLikeImport('@ui-lib/button')).toBe(false);
+    expect(isAssetLikeImport('react/jsx-runtime')).toBe(false);
   });
 });
 

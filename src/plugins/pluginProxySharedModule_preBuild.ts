@@ -9,6 +9,7 @@ import {
   getCommonSharedSubpaths,
   getMatchingNodeModuleSubpath,
   isNodeModulePath,
+  isAssetLikeImport,
   normalizeNodeModulePath,
 } from '../utils/pathNormalization';
 import {
@@ -337,12 +338,7 @@ export function proxySharedModule(options: {
         const key = findSharedKeyForSource(source, shared);
         if (!key) return;
         if (useDirectReactImport && key === 'react') return;
-        if (
-          /\.(?:css|scss|sass|less|styl|stylus|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm)(?:[?#].*)?$/i.test(
-            source
-          )
-        )
-          return;
+        if (isAssetLikeImport(source)) return;
         if (isBuildConfigImporter(importer)) return;
         // Hard-stop proxying bare React in dev. Vite's RSC pipeline expects
         // the native server React entry.
