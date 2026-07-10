@@ -165,6 +165,27 @@ function resolveRelativeModule(filePath: string, specifier: string): string | un
   return undefined;
 }
 
+function resolveReExportModule(filePath: string, specifier: string): string | undefined {
+  if (specifier.startsWith('.')) return resolveRelativeModule(filePath, specifier);
+
+  // Package entry files commonly re-export their public API from another
+  // package (for example, Vue re-exports from @vue/runtime-dom). Resolve the
+  // re-export with ESM-oriented conditions so we inspect the same file that
+  // Vite will load, rather than a CommonJS fallback selected by require.
+  const esmEntry = getInstalledPackageEntry(specifier, {
+    cwd: path.dirname(filePath),
+    conditions: ['browser', 'import', 'module', 'default'],
+    resolveSubpathWithRequire: false,
+  });
+  if (esmEntry) return esmEntry;
+
+  try {
+    return resolveFileLikeModule(createRequire(pathToFileURL(filePath)).resolve(specifier));
+  } catch {
+    return undefined;
+  }
+}
+
 function getNamedExportsViaRegex(
   source: string,
   filePath?: string,
@@ -241,9 +262,7 @@ function getNamedExportsViaRegex(
     const starExportRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
     while ((match = starExportRegex.exec(source)) !== null) {
       const specifier = match[1];
-      // Only resolve relative imports (starting with . or ..)
-      if (!specifier.startsWith('.')) continue;
-      const resolvedPath = resolveRelativeModule(filePath, specifier);
+      const resolvedPath = resolveReExportModule(filePath, specifier);
       if (!resolvedPath || visited.has(resolvedPath)) continue;
       try {
         const reExportSource = readFileSync(resolvedPath, 'utf-8');
