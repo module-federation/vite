@@ -176,7 +176,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       shareConfig: {
         import: pkg === 'custom-import' ? '/abs/custom-import.js' : undefined,
         singleton: true,
-        requiredVersion: '^19.2.4',
+        requiredVersion: pkg === 'unconstrained' ? false : '^19.2.4',
         strictVersion: false,
       },
     }),
@@ -327,6 +327,17 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('from: "host"');
     expect(code).not.toContain('from: "__mfe_internal__host"');
+  });
+
+  it('emits requiredVersion: false in generated shared records', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('unconstrained');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('requiredVersion: false');
   });
 
   it('writes host auto init before init', async () => {
