@@ -8,8 +8,10 @@
  * @returns {string} The resulting JavaScript source code string.
  */
 export function serializeRuntimeOptions(options: Record<string, unknown>): string {
-  // Use a WeakSet to track objects already encountered, which helps in detecting circular references.
-  const seenObjects = new WeakSet<any>();
+  // Track only the active recursion path. Reusing the same object in separate
+  // branches is valid and should serialize its value again rather than being
+  // mistaken for a circular reference.
+  const ancestors = new WeakSet<object>();
 
   /**
    * Recursive inner function to serialize any value into a source code string.
@@ -39,51 +41,43 @@ export function serializeRuntimeOptions(options: Record<string, unknown>): strin
       return `new RegExp(${JSON.stringify(val.source)}, ${JSON.stringify(val.flags)})`;
     }
 
-    // 3. Check for circular references and mark object as seen
-    // This applies to objects, arrays, maps, and sets.
+    // 3. Handle objects while detecting cycles in the active recursion path.
     if (type === 'object') {
-      if (seenObjects.has(val)) {
-        // This object has been seen previously in the recursion path
+      if (ancestors.has(val)) {
         return `"__circular__"`;
       }
-      seenObjects.add(val);
-    }
+      ancestors.add(val);
 
-    // 4. Handle Array, Map, Set
-    if (Array.isArray(val)) {
-      // Recursively serialize each element
-      return `[${val.map(valueToCode).join(', ')}]`;
-    }
-
-    if (val instanceof Map) {
-      // Serialize Map entries into an array of [key, value] pairs
-      const entries = Array.from(val.entries()).map(
-        ([k, v]) => `[${valueToCode(k)}, ${valueToCode(v)}]`
-      );
-      return `new Map([${entries.join(', ')}])`;
-    }
-
-    if (val instanceof Set) {
-      // Serialize Set values into an array
-      const items = Array.from(val.values()).map(valueToCode);
-      return `new Set([${items.join(', ')}])`;
-    }
-
-    // 5. Handle plain objects (the default object type)
-    if (type === 'object') {
-      const properties: string[] = [];
-
-      // Iterate over the object's own enumerable properties
-      for (const key in val) {
-        if (Object.prototype.hasOwnProperty.call(val, key)) {
-          // Wrap the key in JSON.stringify to handle non-identifier keys
-          properties.push(`${JSON.stringify(key)}: ${valueToCode(val[key])}`);
+      try {
+        if (Array.isArray(val)) {
+          return `[${val.map(valueToCode).join(', ')}]`;
         }
+
+        if (val instanceof Map) {
+          const entries = Array.from(val.entries()).map(
+            ([k, v]) => `[${valueToCode(k)}, ${valueToCode(v)}]`
+          );
+          return `new Map([${entries.join(', ')}])`;
+        }
+
+        if (val instanceof Set) {
+          const items = Array.from(val.values()).map(valueToCode);
+          return `new Set([${items.join(', ')}])`;
+        }
+
+        const properties: string[] = [];
+        for (const key in val) {
+          if (Object.prototype.hasOwnProperty.call(val, key)) {
+            properties.push(`${JSON.stringify(key)}: ${valueToCode(val[key])}`);
+          }
+        }
+        return `{${properties.join(', ')}}`;
+      } finally {
+        ancestors.delete(val);
       }
-      return `{${properties.join(', ')}}`;
     }
 
-    // 6. Fallback case (e.g., BigInt, other object types)
+    // 4. Fallback case (e.g., BigInt)
     // Coerce to string and then JSON.stringify that string for safety
     return JSON.stringify(String(val));
   }

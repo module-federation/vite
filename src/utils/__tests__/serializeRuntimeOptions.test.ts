@@ -47,4 +47,19 @@ describe('generateRuntimePluginOption - safe JS literal', () => {
       }, "dateVal": new Date("2023-10-10T10:00:00.000Z"), "regexVal": new RegExp("prod-test", "gi"), "arrayVal": [1, "a", true, [2, 3, [4, 5]]], "nestedObj": {"level1": {"level2": {"value": "deep"}}}, "mapVal": new Map([["key1", 100]]), "setVal": new Set([1, "x", new Date("2020-01-01T00:00:00.000Z")]), "emptyArray": [], "emptyObject": {}, "megaObject": {"arrInsideObj": [{"x": 10}, new Set(["s1", "s2"])], "mapInsideObj": new Map([["mapKey", new Set([12321])], ["mapSet", new Set([1, 2, 3])]]), "objInsideSet": new Set([{"a": 1}, new Map([["mk", {"nested": "value"}]])])}}`)
     );
   });
+
+  it('serializes repeated references without treating them as circular', () => {
+    const shared = { nested: { value: 1 } };
+
+    expect(serializeRuntimeOptions({ first: shared, second: shared })).toBe(
+      '{"first": {"nested": {"value": 1}}, "second": {"nested": {"value": 1}}}'
+    );
+  });
+
+  it('still marks references that are circular in the active path', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    expect(serializeRuntimeOptions({ circular })).toBe('{"circular": {"self": "__circular__"}}');
+  });
 });
