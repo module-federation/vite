@@ -2128,6 +2128,9 @@ describe('writePreBuildLibPath', () => {
     // instead of a bare initPromise.then()
     expect(generatedCode).toContain('pendingShareLoads');
     expect(generatedCode).toContain('initPromise.then');
+    expect(generatedCode).toContain('__mfReadSharedCache(__mfModuleCache.share');
+    expect(generatedCode).toContain('if (exportModule !== undefined)');
+    expect(generatedCode).toContain('return import(');
 
     // Must use the ||= pattern for lazy initialization
     expect(generatedCode).toContain('||= []');
