@@ -8,7 +8,12 @@ import {
   isNodeModulePath,
   normalizeNodeModulePath,
   removeTrailingSlash,
+  resolvePublicPath,
 } from '../pathNormalization';
+import type { NormalizedModuleFederationOptions } from '../normalizeModuleFederationOptions';
+
+const mfPublicPathOption = (publicPath?: string) =>
+  ({ publicPath }) as unknown as NormalizedModuleFederationOptions;
 
 describe('pathNormalization', () => {
   it('removes one trailing slash', () => {
@@ -57,5 +62,26 @@ describe('pathNormalization', () => {
         'react'
       )
     ).toBe('react/jsx-runtime');
+  });
+});
+
+describe('resolvePublicPath', () => {
+  it('returns an explicitly configured publicPath verbatim', () => {
+    expect(
+      resolvePublicPath(mfPublicPathOption('https://cdn.example.com/'), '/anything/', '/anything/')
+    ).toBe('https://cdn.example.com/');
+  });
+
+  it('treats an explicit "auto" publicPath as unset and derives from base', () => {
+    expect(resolvePublicPath(mfPublicPathOption('auto'), '/base/', '/base/')).toBe('/base/');
+  });
+
+  it('uses an absolute base as the publicPath, normalized with a trailing slash', () => {
+    expect(resolvePublicPath(mfPublicPathOption(), '/base/', '/base/')).toBe('/base/');
+    expect(resolvePublicPath(mfPublicPathOption(), '/base', '/base')).toBe('/base/');
+  });
+
+  it('infers publicPath at runtime to be "auto" for a relative base "./"', () => {
+    expect(resolvePublicPath(mfPublicPathOption(), './', './')).toBe('auto');
   });
 });
