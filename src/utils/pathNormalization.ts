@@ -86,6 +86,11 @@ export function resolvePublicPath(
 
   // Use viteBase if available, ensuring it ends with a slash
   if (viteBase) {
+    // Embedded deployment using a relative base "./" should resolve to an
+    // "auto" publicPath.
+    if (viteBase === './') {
+      return 'auto';
+    }
     return ensureTrailingSlash(viteBase);
   }
 
