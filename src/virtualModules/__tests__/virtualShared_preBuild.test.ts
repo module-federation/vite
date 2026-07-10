@@ -82,6 +82,9 @@ vi.mock('../../utils/packageUtils', () => ({
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
   getInstalledPackageEntry: vi.fn((pkg: string, opts?: { cwd?: string }) => {
+    if (pkg === 'mock-package-star-dependency') {
+      return '/repo/apps/remote/node_modules/mock-package-star-dependency/index.js';
+    }
     if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
       return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
     }
@@ -299,9 +302,16 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/workspace-consumer/package.json') ||
       filePath.endsWith('/repo/packages/workspace-dual-format/package.json') ||
       filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js') ||
+      filePath.endsWith('/repo/packages/mock-package-star-entry.js') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts')
   ),
   readFileSync: vi.fn((filePath: string) => {
+    if (filePath.endsWith('/repo/packages/mock-package-star-entry.js')) {
+      return "export * from 'mock-package-star-dependency'; export const directExport = 1;";
+    }
+    if (filePath.endsWith('node_modules/mock-package-star-dependency/index.js')) {
+      return 'export const fromStar = 1; export function anotherFromStar() {}';
+    }
     if (
       filePath.endsWith('node_modules/lit/package.json') ||
       filePath.endsWith('/lit/package.json')
@@ -996,6 +1006,33 @@ describe('writeLoadShareModule', () => {
     );
     expect(generatedCode).not.toContain('export * from "/repo/packages/custom-shared-source"');
     expect(generatedCode).not.toContain('mock-import-id');
+  });
+
+  it('detects named exports from package star re-exports in shareConfig.import', () => {
+    const pkg = 'mock-package-star-entry';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/mock-package-star-entry.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'const { directExport: __mf_0, fromStar: __mf_1, anotherFromStar: __mf_2 } = exportModule;'
+    );
+    expect(generatedCode).toContain(
+      'export { __mf_0 as directExport, __mf_1 as fromStar, __mf_2 as anotherFromStar };'
+    );
   });
 
   it('falls back to package-based named export detection when shareConfig.import cannot be inspected', () => {
