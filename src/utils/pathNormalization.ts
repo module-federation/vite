@@ -7,6 +7,52 @@ export const COMMON_SHARED_SUBPATHS: Record<string, string[]> = {
   zustand: ['zustand/vanilla', 'zustand/react'],
 };
 
+const VITE_DEFAULT_ASSET_TYPES = [
+  'apng',
+  'bmp',
+  'png',
+  'jpe?g',
+  'jfif',
+  'pjpeg',
+  'pjp',
+  'gif',
+  'svg',
+  'ico',
+  'webp',
+  'avif',
+  'cur',
+  'jxl',
+  'mp4',
+  'webm',
+  'ogg',
+  'mp3',
+  'wav',
+  'flac',
+  'aac',
+  'opus',
+  'mov',
+  'm4a',
+  'vtt',
+  'woff2?',
+  'eot',
+  'ttf',
+  'otf',
+  'webmanifest',
+  'pdf',
+  'txt',
+];
+
+const CSS_ASSET_TYPES = ['css', 'scss', 'sass', 'less', 'styl', 'stylus'];
+
+const ASSET_LIKE_IMPORT_RE = new RegExp(
+  `\\.(${[...CSS_ASSET_TYPES, ...VITE_DEFAULT_ASSET_TYPES].join('|')})(?:[?#].*)?$`,
+  'i'
+);
+
+export function isAssetLikeImport(source: string): boolean {
+  return ASSET_LIKE_IMPORT_RE.test(source);
+}
+
 export function removeTrailingSlash(value: string): string {
   return value.endsWith('/') ? value.slice(0, -1) : value;
 }

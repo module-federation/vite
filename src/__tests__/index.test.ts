@@ -9,14 +9,14 @@ import type {
   ViteBuilder,
 } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parsePromise } from '../plugins/pluginModuleParseEnd';
+import { callHook } from '../utils/__tests__/viteHookHelpers';
+import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
 import {
   getLoadShareImportId,
   getLoadShareModulePath,
   toViteOptimizedDepVirtualId,
 } from '../virtualModules/virtualShared_preBuild';
-import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
-import { callHook } from '../utils/__tests__/viteHookHelpers';
-import { parsePromise } from '../plugins/pluginModuleParseEnd';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>((_dependency: string) => false),
@@ -890,6 +890,67 @@ describe('vite:module-federation-early-init', () => {
     );
   });
 
+  it('excludes asset imports from Rolldown optimizeDeps shared proxy', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          '@ui-lib/': {
+            singleton: true,
+          },
+        },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: { include: [] },
+    };
+
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-resolver'
+    );
+
+    expect(
+      resolver.resolveId('@ui-lib/assets/icon.svg', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId('@ui-lib/assets/logo.png', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId('@ui-lib/assets/style.css', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId('@ui-lib/assets/sound.mp3', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId(
+        '@ui-lib/assets/manifest.webmanifest',
+        '/repo/node_modules/.vite/deps/pkg.js'
+      )
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId('@ui-lib/assets/icon.svg?url', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId('@ui-lib/assets/style.css?v=11111', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId('@ui-lib/assets/document.pdf?url', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(resolver.resolveId('@ui-lib/button', '/repo/node_modules/.vite/deps/pkg.js')).toEqual({
+      id: expect.stringContaining(LOAD_SHARE_TAG),
+      external: true,
+    });
+  });
+
   it('skips pure virtual optimizeDeps includes in non-Rolldown serve', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {
@@ -999,6 +1060,104 @@ describe('vite:module-federation-early-init', () => {
         kind: 'entry-point',
       })
     ).toBeUndefined();
+  });
+
+  it('excludes asset imports from esbuild optimizeDeps shared proxy', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          '@ui-lib/': {
+            singleton: true,
+          },
+        },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: { include: [] },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const optimizeSharedProxy = config.optimizeDeps.esbuildOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-proxy'
+    );
+    const onResolveHandlers: any[] = [];
+    optimizeSharedProxy.setup({
+      onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
+      onLoad: () => undefined,
+    });
+
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/icon.svg',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/logo.png',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/style.css',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/sound.mp3',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/manifest.webmanifest',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/icon.svg?url',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/style.css?inline',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/document.pdf?url',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/button',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toEqual({ path: '@ui-lib/button', namespace: 'mf-shared' });
   });
 
   it('redirects System.register commonjs-proxy consumers to loadShare chunks', () => {
