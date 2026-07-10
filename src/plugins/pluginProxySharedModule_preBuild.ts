@@ -338,7 +338,7 @@ export function proxySharedModule(options: {
         if (!key) return;
         if (useDirectReactImport && key === 'react') return;
         if (
-          /\.(?:css|scss|sass|less|styl|stylus|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm)$/i.test(
+          /\.(?:css|scss|sass|less|styl|stylus|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm)(?:[?#].*)?$/i.test(
             source
           )
         )

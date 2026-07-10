@@ -350,7 +350,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 const key = findSharedKey(source, shared);
                 if (!key) return;
                 if (
-                  /\.(?:css|scss|sass|less|styl|stylus|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm)$/i.test(
+                  /\.(?:css|scss|sass|less|styl|stylus|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm)(?:[?#].*)?$/i.test(
                     source
                   )
                 )
@@ -400,7 +400,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   const key = findSharedKey(args.path, shared);
                   if (
                     !key ||
-                    /\.(?:css|scss|sass|less|styl|stylus|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm)$/i.test(
+                    /\.(?:css|scss|sass|less|styl|stylus|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm)(?:[?#].*)?$/i.test(
                       args.path
                     )
                   )

@@ -537,6 +537,11 @@ describe('pluginProxySharedModule_preBuild', () => {
     { source: '@ui-lib/assets/video.webm' },
     { source: '@ui-lib/assets/styles.scss' },
     { source: '@ui-lib/assets/styles.less' },
+    { source: '@ui-lib/assets/icon.svg?url' },
+    { source: '@ui-lib/assets/logo.png?raw' },
+    { source: '@ui-lib/assets/style.css?inline' },
+    { source: '@ui-lib/assets/font.woff2?v=2' },
+    { source: '@ui-lib/assets/icon.svg#fragment' },
   ])('does not proxy asset imports ($source)', async ({ source }) => {
     hasPackageDependencyMock.mockReturnValue(false);
 

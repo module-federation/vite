@@ -9,14 +9,14 @@ import type {
   ViteBuilder,
 } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parsePromise } from '../plugins/pluginModuleParseEnd';
+import { callHook } from '../utils/__tests__/viteHookHelpers';
+import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
 import {
   getLoadShareImportId,
   getLoadShareModulePath,
   toViteOptimizedDepVirtualId,
 } from '../virtualModules/virtualShared_preBuild';
-import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
-import { callHook } from '../utils/__tests__/viteHookHelpers';
-import { parsePromise } from '../plugins/pluginModuleParseEnd';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>((_dependency: string) => false),
@@ -927,6 +927,12 @@ describe('vite:module-federation-early-init', () => {
     expect(
       resolver.resolveId('@ui-lib/assets/style.css', '/repo/node_modules/.vite/deps/pkg.js')
     ).toBeUndefined();
+    expect(
+      resolver.resolveId('@ui-lib/assets/icon.svg?url', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
+    expect(
+      resolver.resolveId('@ui-lib/assets/style.css?v=11111', '/repo/node_modules/.vite/deps/pkg.js')
+    ).toBeUndefined();
     expect(resolver.resolveId('@ui-lib/button', '/repo/node_modules/.vite/deps/pkg.js')).toEqual({
       id: expect.stringContaining(LOAD_SHARE_TAG),
       external: true,
@@ -1094,6 +1100,20 @@ describe('vite:module-federation-early-init', () => {
     expect(
       onResolveHandlers[1]({
         path: '@ui-lib/assets/style.css',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/icon.svg?url',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/assets/style.css?inline',
         importer: '/repo/node_modules/.vite/deps/pkg.js',
         kind: 'import-statement',
       })
