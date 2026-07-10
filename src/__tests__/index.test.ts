@@ -927,9 +927,7 @@ describe('vite:module-federation-early-init', () => {
     expect(
       resolver.resolveId('@ui-lib/assets/style.css', '/repo/node_modules/.vite/deps/pkg.js')
     ).toBeUndefined();
-    expect(
-      resolver.resolveId('@ui-lib/button', '/repo/node_modules/.vite/deps/pkg.js')
-    ).toEqual({
+    expect(resolver.resolveId('@ui-lib/button', '/repo/node_modules/.vite/deps/pkg.js')).toEqual({
       id: expect.stringContaining(LOAD_SHARE_TAG),
       external: true,
     });
@@ -1100,11 +1098,13 @@ describe('vite:module-federation-early-init', () => {
         kind: 'import-statement',
       })
     ).toBeUndefined();
-    expect(onResolveHandlers[1]({
-      path: '@ui-lib/button',
-      importer: '/repo/node_modules/.vite/deps/pkg.js',
-      kind: 'import-statement',
-    })).toEqual({ path: '@ui-lib/button', namespace: 'mf-shared' });
+    expect(
+      onResolveHandlers[1]({
+        path: '@ui-lib/button',
+        importer: '/repo/node_modules/.vite/deps/pkg.js',
+        kind: 'import-statement',
+      })
+    ).toEqual({ path: '@ui-lib/button', namespace: 'mf-shared' });
   });
 
   it('redirects System.register commonjs-proxy consumers to loadShare chunks', () => {
