@@ -610,6 +610,9 @@ export function generateRemoteEntry(
   async function getExposes(moduleName) {
     const exposesMap = await getExposesMap()
     if (!(moduleName in exposesMap)) throw new Error(\`[Module Federation] Module \${moduleName} does not exist in container.\`)
+    if (__mfModuleCache.pendingShareLoads) {
+      await Promise.all(__mfModuleCache.pendingShareLoads)
+    }
     return (exposesMap[moduleName])().then(res => () => res)
   }
   export {

@@ -165,8 +165,10 @@ function searchPackageVersion(sharedName: string): string | undefined {
   return typeof version === 'string' ? version : undefined;
 }
 
-function inferVersionFromRequiredVersion(requiredVersion?: string): string | undefined {
-  if (!requiredVersion) return undefined;
+function inferVersionFromRequiredVersion(
+  requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion']
+): string | undefined {
+  if (typeof requiredVersion !== 'string') return undefined;
   const match = requiredVersion.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/);
   return match?.[0];
 }
@@ -195,7 +197,7 @@ function normalizeShareItem(
         version?: string;
         shareScope?: string;
         singleton?: boolean;
-        requiredVersion?: string;
+        requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
         strictVersion?: boolean;
       }
 ): ShareItem {
@@ -241,8 +243,13 @@ function normalizeShareItem(
       import: shareItem.import,
       singleton: shareItem.singleton || false,
       requiredVersion:
-        shareItem.requiredVersion ||
-        (isImportFalse || shareItem.version ? '*' : version ? `^${version}` : '*'),
+        shareItem.requiredVersion !== undefined
+          ? shareItem.requiredVersion
+          : isImportFalse || shareItem.version
+            ? '*'
+            : version
+              ? `^${version}`
+              : '*',
       strictVersion: !!shareItem.strictVersion,
     },
   };
@@ -266,7 +273,7 @@ function normalizeShared(
             version?: string;
             shareScope?: string;
             singleton?: boolean;
-            requiredVersion?: string;
+            requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
           }
       >
@@ -438,7 +445,7 @@ export type ModuleFederationOptions = {
             version?: string;
             shareScope?: string;
             singleton?: boolean;
-            requiredVersion?: string;
+            requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
             import?: moduleFederationPlugin.SharedConfig['import'];
           }
