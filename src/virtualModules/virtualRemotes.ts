@@ -43,11 +43,17 @@ export function getUsedRemotesMap() {
 }
 
 export function getRemoteFromId(id: string, remotes: Record<string, RemoteObjectConfig>) {
-  const remoteName = Object.keys(remotes)
+  const remoteAlias = Object.keys(remotes)
     .filter((name) => id === name || id.startsWith(name + '/'))
     .sort((a, b) => b.length - a.length)[0];
 
-  return remoteName ? remotes[remoteName] : undefined;
+  return remoteAlias ? remotes[remoteAlias] : undefined;
+}
+
+function getRemoteAliasFromId(id: string, remotes: Record<string, RemoteObjectConfig>) {
+  return Object.keys(remotes)
+    .filter((name) => id === name || id.startsWith(name + '/'))
+    .sort((a, b) => b.length - a.length)[0];
 }
 
 /**
@@ -247,11 +253,13 @@ export function generateRemotes(
   const initMode = resolveRemoteInitMode(options.shareStrategy, consumer);
   const deferRemoteLoad = shouldDeferRemoteLoad(initMode);
   const remote = getRemoteFromId(id, options.remotes);
+  const remoteAlias = getRemoteAliasFromId(id, options.remotes);
   const registerRemoteCode =
     isLoadedFirst && remote
       ? `runtime.registerRemotes([${JSON.stringify({
           entryGlobalName: remote.entryGlobalName,
           name: remote.name,
+          alias: remoteAlias,
           type: remote.type,
           entry: remote.entry,
           shareScope: remote.shareScope ?? 'default',

@@ -46,6 +46,13 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
         entry: 'http://localhost:4175/remoteEntry.js',
         shareScope: 'default',
       },
+      alias: {
+        entryGlobalName: 'remote_alias',
+        name: 'remote-container',
+        type: 'module',
+        entry: 'http://localhost:4177/remoteEntry.js',
+        shareScope: 'default',
+      },
     },
     shareStrategy: mockOptions.shareStrategy,
     virtualModuleDir: '__mf__virtual',
@@ -305,6 +312,14 @@ describe('generateRemotes', () => {
     expect(code).toContain('"name":"@scope/remote"');
     expect(code).toContain('"entryGlobalName":"scope_remote"');
     expect(code).toContain('"entry":"http://localhost:4175/remoteEntry.js"');
+  });
+
+  it('registers the consumer alias separately from the remote container name', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const code = generateRemotes('alias/Button', 'serve');
+
+    expect(code).toContain('"name":"remote-container"');
+    expect(code).toContain('"alias":"alias"');
   });
 
   it('skips remote registration when a scoped id matches no configured remote', () => {
