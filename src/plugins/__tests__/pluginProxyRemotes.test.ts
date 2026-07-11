@@ -131,6 +131,49 @@ describe('pluginProxyRemotes', () => {
     expect(alias.find.test('scheduler/SchedulePanel')).toBe(true);
   });
 
+  it('matches and records the consumer alias when it differs from the container name', () => {
+    const plugin = pluginProxyRemotes(
+      normalizeModuleFederationOptions({
+        name: 'host',
+        remotes: {
+          catalog: {
+            type: 'module',
+            name: 'catalogContainer',
+            entry: 'http://example.com/remoteEntry.js',
+          },
+        },
+      })
+    );
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    runConfig(plugin, config);
+
+    expect(config.resolve.alias[0].find.test('catalog/Product')).toBe(true);
+    expect(config.resolve.alias[0].find.test('catalogContainer/Product')).toBe(false);
+
+    const result = runResolveId(plugin, 'catalog/Product', '/repo/src/App.tsx');
+
+    expect(result).toBe(remoteModuleId);
+    expect(addUsedRemoteMock).toHaveBeenCalledWith('catalog', 'catalog/Product');
+  });
+
+  it('escapes remote aliases when constructing Vite aliases', () => {
+    const plugin = pluginProxyRemotes(
+      normalizeModuleFederationOptions({
+        name: 'host',
+        remotes: {
+          'catalog.v2': 'catalog@http://example.com/remoteEntry.js',
+        },
+      })
+    );
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    runConfig(plugin, config);
+
+    expect(config.resolve.alias[0].find.test('catalog.v2/Product')).toBe(true);
+    expect(config.resolve.alias[0].find.test('catalogXv2/Product')).toBe(false);
+  });
+
   it('runs before Vite package exports resolution', () => {
     const { plugin } = getSchedulerPluginAndConfig();
 
