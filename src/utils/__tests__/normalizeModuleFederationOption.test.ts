@@ -288,6 +288,23 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
+    it('preserves requiredVersion: false to disable version constraints', () => {
+      const shared = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          dep1: {
+            requiredVersion: false,
+            strictVersion: true,
+          },
+        },
+      }).shared;
+
+      expect(shared.dep1.shareConfig).toMatchObject({
+        requiredVersion: false,
+        strictVersion: true,
+      });
+    });
+
     it('normalizes docs-style trailing slash keys for common subpath shares', () => {
       const shared = normalizeModuleFederationOptions({
         ...minimalOptions,
