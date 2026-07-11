@@ -365,7 +365,7 @@ const Manifest = (): Plugin[] => {
       ? {
           name: varFilename,
           path: '',
-          type: 'module',
+          type: 'var',
         }
       : undefined;
 
