@@ -128,6 +128,7 @@ async function runGenerateBundleWithManifest(
     >;
     dts?: unknown;
     filename?: string;
+    varFilename?: string;
     bundle?: OutputBundle;
     environmentName?: string;
   } = {},
@@ -138,7 +139,7 @@ async function runGenerateBundleWithManifest(
     name: 'basicRemote',
     filename: runtime.filename || 'remoteEntry.js',
     getPublicPath: undefined,
-    varFilename: undefined,
+    varFilename: runtime.varFilename,
     dts: runtime.dts,
     manifest: manifestOptions,
     exposes: runtime.exposePaths || {},
@@ -253,6 +254,20 @@ describe('pluginMFManifest', () => {
     expect(manifest.metaData.ssrRemoteEntry).toMatchObject({
       name: 'remoteEntry.ssr.js',
       type: 'module',
+    });
+  });
+
+  it('identifies the production var remote entry as a var container', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      varFilename: 'remoteEntry.var.js',
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.metaData.varRemoteEntry).toEqual({
+      name: 'remoteEntry.var.js',
+      path: '',
+      type: 'var',
     });
   });
 
