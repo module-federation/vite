@@ -373,7 +373,7 @@ const Manifest = (): Plugin[] => {
     const remotes = Array.from(Object.entries(getUsedRemotesMap())).flatMap(
       ([remoteKey, modules]) =>
         Array.from(modules).map((moduleKey) => ({
-          federationContainerName: options.remotes[remoteKey].entry,
+          federationContainerName: options.remotes[remoteKey].name,
           moduleName: moduleKey.replace(remoteKey, '').replace('/', ''),
           alias: remoteKey,
           entry: '*',
