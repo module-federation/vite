@@ -4,11 +4,17 @@ import {
   ShareItem,
 } from '../../utils/normalizeModuleFederationOptions';
 import {
+  addTreeShakingGraphQuery,
   getConcreteSharedImportSource,
   getProjectResolvedImportPath,
+  getTreeShakingGraphToken,
+  getTreeShakingSharedProviderImportId,
+  hasTreeShakingSharedProvider,
   writeLoadShareModule,
   writePreBuildLibPath,
+  stripTreeShakingGraphQuery,
 } from '../virtualShared_preBuild';
+import { setTreeShakingBuildMode } from '../../utils/treeShaking';
 
 const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
@@ -22,6 +28,19 @@ const { hasPackageDependencyMock } = vi.hoisted(() => ({
 type MockRequire = NodeJS.Require & {
   resolve: NodeJS.RequireResolve;
 };
+
+describe('tree-shaking graph ids', () => {
+  it('adds, reads, replaces, and strips the graph token without losing other query data', () => {
+    const tagged = addTreeShakingGraphQuery('/pkg/index.js?raw=true#fragment', '@scope/pkg');
+
+    expect(tagged).toBe('/pkg/index.js?raw=true&__mf_tree_shaking_graph__=%40scope%2Fpkg#fragment');
+    expect(getTreeShakingGraphToken(tagged)).toBe('@scope/pkg');
+    expect(stripTreeShakingGraphQuery(tagged)).toBe('/pkg/index.js?raw=true#fragment');
+    expect(addTreeShakingGraphQuery(tagged, 'replacement')).toBe(
+      '/pkg/index.js?raw=true&__mf_tree_shaking_graph__=replacement#fragment'
+    );
+  });
+});
 
 vi.mock('../../utils/logger', () => ({
   mfWarn: mfWarnSpy,
@@ -78,6 +97,7 @@ vi.mock('../../utils/packageUtils', () => ({
             }
             return value;
           };`,
+  packageNameEncode: (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, '_'),
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
@@ -719,6 +739,7 @@ vi.mock('module', async (importOriginal) => {
 
 describe('writeLoadShareModule', () => {
   beforeEach(() => {
+    setTreeShakingBuildMode(false);
     writeSyncSpy.mockClear();
     mfWarnSpy.mockClear();
     hasPackageDependencyMock.mockReset();
@@ -2058,7 +2079,84 @@ describe('writeLoadShareModule', () => {
 
 describe('writePreBuildLibPath', () => {
   beforeEach(() => {
+    setTreeShakingBuildMode(false);
     writeSyncSpy.mockClear();
+  });
+
+  it('keeps the prebuild fallback full and materializes a distinct optimized container', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: false,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+        treeShaking: { mode: 'runtime-infer', usedExports: ['get'] },
+      },
+      scope: 'default',
+    };
+
+    setTreeShakingBuildMode(true);
+    try {
+      writePreBuildLibPath(pkg, mockShareItem);
+
+      const generated = writeSyncSpy.mock.calls.map((call) => call[0] as string);
+      const optimizedContainer = generated.find((code) => code.includes('__mfTreeShakenModule'));
+      const fullFallback = generated.find((code) =>
+        code.includes('import * as __mfPrebuildNamespace')
+      );
+
+      expect(optimizedContainer).toContain('import { get as __mfTreeShaken_0 }');
+      expect(optimizedContainer).toContain('__mf_tree_shaking_graph__=mock-package-with-reserved');
+      expect(optimizedContainer).not.toContain('__prebuild__');
+      expect(optimizedContainer).toContain('function get()');
+      expect(optimizedContainer).toContain('async function init() {}');
+      expect(optimizedContainer).toContain('const usedExports = ["get"]');
+      expect(fullFallback).toContain('const __mf_0 = __mfPrebuildExports["delete"]');
+      expect(fullFallback).toContain('const __mf_2 = __mfPrebuildExports["request"]');
+      expect(hasTreeShakingSharedProvider(pkg, mockShareItem)).toBe(true);
+      expect(getTreeShakingSharedProviderImportId(pkg)).toBe('mock-import-id');
+
+      writeSyncSpy.mockClear();
+      writeLoadShareModule(pkg, mockShareItem, 'build', false);
+      const loadShareCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      expect(loadShareCode).toContain('__mfReadTreeShakingSharedSelection');
+      expect(loadShareCode).toContain('"test"');
+      expect(loadShareCode).toContain('pendingShareLoads');
+      expect(loadShareCode).not.toContain('import * as __mfLocalShare');
+    } finally {
+      setTreeShakingBuildMode(false);
+    }
+  });
+
+  it('defines __proto__ as an own export property in optimized containers', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: false,
+        requiredVersion: '^1.0.0',
+        treeShaking: { mode: 'runtime-infer', usedExports: ['__proto__'] },
+      },
+      scope: 'default',
+    };
+
+    setTreeShakingBuildMode(true);
+    try {
+      writePreBuildLibPath(pkg, mockShareItem);
+      const optimizedContainer = writeSyncSpy.mock.calls
+        .map((call) => call[0] as string)
+        .find((code) => code.includes('__mfTreeShakenModule'));
+
+      expect(optimizedContainer).toContain('["__proto__"]: __mfTreeShaken_0');
+      expect(optimizedContainer).not.toContain('"__proto__": __mfTreeShaken_0');
+    } finally {
+      setTreeShakingBuildMode(false);
+    }
   });
 
   it('writes a real package re-export so Vite optimizeDeps does not prebundle an empty module', () => {

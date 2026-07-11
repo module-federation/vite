@@ -27,7 +27,10 @@ import {
   getLocalProviderImportPath,
   getProjectResolvedImportPath,
   getSharedImportSource,
+  getTreeShakingSharedProviderImportId,
+  hasTreeShakingSharedProvider,
 } from './virtualShared_preBuild';
+import { getTreeShakingExportUsage } from '../utils/treeShaking';
 
 let usedShares: Set<string> = new Set();
 export function getUsedShares() {
@@ -112,6 +115,32 @@ export function generateLocalSharedImportMap() {
         .map((key) => {
           const shareItem = getNormalizeShareItem(key);
           if (!shareItem) return null;
+          const treeShakingUsage = getTreeShakingExportUsage(key, shareItem, shareItem.name);
+          const treeShakingProviderExports =
+            treeShakingUsage?.kind === 'exports' ? treeShakingUsage.usedExports : [];
+          const treeShakingUsedExports =
+            options.injectTreeShakingUsedExports === false
+              ? shareItem.shareConfig.treeShaking?.usedExports || []
+              : treeShakingProviderExports;
+          // Runtime inference is only sound when the consumer publishes the
+          // exports discovered by this build. If injection is disabled, keep
+          // the complete provider as the safe fallback instead of advertising
+          // a partial provider with incomplete coverage metadata.
+          const disableRuntimeInference =
+            shareItem.shareConfig.treeShaking?.mode === 'runtime-infer' &&
+            options.injectTreeShakingUsedExports === false;
+          const treeShakingProviderImportId =
+            !disableRuntimeInference && hasTreeShakingSharedProvider(key, shareItem)
+              ? getTreeShakingSharedProviderImportId(key)
+              : undefined;
+          const treeShakingStatus =
+            treeShakingUsage?.kind === 'full' ||
+            disableRuntimeInference ||
+            (shareItem.shareConfig.treeShaking?.mode === 'runtime-infer' &&
+              !treeShakingProviderImportId &&
+              shareItem.shareConfig.import !== false)
+              ? 0
+              : 1;
           return `
           ${JSON.stringify(key)}: {
             name: ${JSON.stringify(key)},
@@ -143,6 +172,26 @@ export function generateLocalSharedImportMap() {
               requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
               strictVersion: ${shareItem.shareConfig.strictVersion},
               ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
+            },
+            ${
+              shareItem.shareConfig.treeShaking
+                ? `treeShaking: {
+              mode: ${JSON.stringify(shareItem.shareConfig.treeShaking.mode)},
+              usedExports: ${JSON.stringify(treeShakingUsedExports)},
+              providedExports: ${JSON.stringify(treeShakingProviderExports)},
+              ${shareItem.shareConfig.treeShaking.filename ? `filename: ${JSON.stringify(shareItem.shareConfig.treeShaking.filename)},` : ''}
+              status: ${treeShakingStatus},
+              ${
+                treeShakingProviderImportId
+                  ? `async get() {
+                const container = await import(${JSON.stringify(treeShakingProviderImportId)});
+                if (typeof container.init === "function") await container.init();
+                return container.get();
+              },`
+                  : ''
+              }
+            }`
+                : ''
             }
           }
         `;
@@ -353,7 +402,11 @@ function generateRuntimeSharedCacheSeedCode() {
     for (const pkg of __mfSeedKeys) {
       const share = usedShared[pkg];
       const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
-      if (share.shareConfig?.import === false || __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) {
+      if (
+        share.shareConfig?.import === false ||
+        Boolean(share.treeShaking) ||
+        __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined
+      ) {
         continue;
       }
       const singletonCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, true, share.version, share.scope);
@@ -433,12 +486,186 @@ const isSsrOnlyPlugin = (importStatement: string) =>
 const getSsrOnlyPluginSpecifier = (importStatement: string): string | undefined =>
   [...SSR_ONLY_PLUGIN_SPECIFIERS].find((s) => importStatement.includes(s));
 
+function generateTreeShakingSharedResolutionCode(enabled: boolean): string {
+  if (!enabled) return '';
+  return `
+    // Resolve tree-enabled shares through the Runtime after all providers have
+    // registered. Partial providers are stored with their export coverage and
+    // never occupy generic/legacy cache keys, which are reserved for complete
+    // modules only.
+    for (const [pkg, share] of Object.entries(usedShared)) {
+      const treeShaking = share.treeShaking;
+      if (!Array.isArray(treeShaking?.providedExports) || treeShaking.providedExports.length === 0) continue;
+      try {
+        const factory = await initRes.loadShare(pkg, {
+          customShareInfo: {
+            shareConfig: share.shareConfig,
+            treeShaking: {
+              mode: treeShaking.mode,
+              status: treeShaking.status,
+              usedExports: treeShaking.usedExports,
+            },
+          },
+        });
+        if (factory === false) continue;
+        const mod = typeof factory === "function" ? factory() : factory;
+        const resolved = await Promise.resolve(mod);
+        ${normalizeRuntimeShareCode}
+        const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+        const normalizedShared = __mfNormalizeRuntimeShare(resolved);
+        if (
+          (treeShaking.mode === "runtime-infer" && treeShaking.status !== 0) ||
+          treeShaking.status === 2
+        ) {
+          __mfWriteTreeShakingSharedCache(
+            __mfModuleCache.share,
+            cacheDescriptor,
+            treeShaking.providedExports,
+            normalizedShared
+          );
+          __mfWriteTreeShakingSharedSelection(
+            __mfModuleCache.share,
+            cacheDescriptor,
+            mfName,
+            normalizedShared
+          );
+        } else {
+          __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, normalizedShared);
+        }
+      } catch (e) {
+        console.warn('[Module Federation] Failed to load tree-shaken shared module', pkg, e);
+      }
+    }`;
+}
+
+export const treeShakingResolveShareBodyCode = `const originalResolver = args.resolver;
+      args.resolver = () => {
+        const resolved = originalResolver();
+        if (!resolved?.useTreesShaking) return resolved;
+
+        const consumerTreeShaking = args.shareInfo?.treeShaking;
+        if (consumerTreeShaking?.mode !== "runtime-infer") return resolved;
+        const requiredExports = consumerTreeShaking.usedExports;
+        if (!Array.isArray(requiredExports)) return resolved;
+
+        const selectedExports = resolved.shared?.treeShaking?.usedExports;
+        const selectedMatches = Array.isArray(selectedExports) &&
+          requiredExports.every((name) => selectedExports.includes(name));
+        if (selectedMatches) return resolved;
+
+        // Runtime 2.7 prefers a tree provider by version before checking export
+        // coverage. Prefer this consumer's own compatible provider when one is
+        // available; otherwise retain the selected version but use its complete
+        // top-level getter.
+        const localExports = consumerTreeShaking.providedExports;
+        const localMatches = typeof consumerTreeShaking.get === "function" &&
+          Array.isArray(localExports) &&
+          requiredExports.every((name) => localExports.includes(name));
+        if (localMatches) {
+          return { shared: args.shareInfo, useTreesShaking: true };
+        }
+        return { shared: resolved.shared, useTreesShaking: false };
+      };
+      return args;`;
+
+function generateTreeShakingSnapshotPluginCode(enabled: boolean): string {
+  if (!enabled) return '';
+  return `
+  const __mfTreeShakingSnapshotPlugin = () => ({
+    name: "vite-tree-shaking-snapshot-plugin",
+    resolveShare(args) {
+      ${treeShakingResolveShareBodyCode}
+    },
+    beforeInit(args) {
+      const { userOptions, origin, options: registeredOptions } = args;
+      const version = userOptions.version || registeredOptions.version;
+      const hostSnapshot = runtimeGlobal.getGlobalSnapshotInfoByModuleInfo({
+        name: origin.name,
+        version,
+      });
+      if (!hostSnapshot || !("shared" in hostSnapshot)) return args;
+
+      const candidates = [];
+      const appendShared = (records) => {
+        for (const [pkgName, value] of Object.entries(records || {})) {
+          const values = Array.isArray(value) ? value : [value];
+          for (const shared of values) candidates.push([pkgName, shared]);
+        }
+      };
+      appendShared(userOptions.shared);
+      appendShared(registeredOptions.shared);
+
+      for (const [pkgName, shared] of candidates) {
+        const treeShaking = shared?.treeShaking;
+        if (!treeShaking || treeShaking.mode !== "server-calc") continue;
+        const shareSnapshot = hostSnapshot.shared.find((item) => item.sharedName === pkgName);
+        if (!shareSnapshot || typeof shareSnapshot.treeShakingStatus !== "number") continue;
+        const {
+          secondarySharedTreeShakingEntry: entry,
+          secondarySharedTreeShakingName: name,
+          treeShakingStatus: status,
+          usedExports,
+          fallbackType,
+        } = shareSnapshot;
+
+        // A CALCULATED snapshot without a loadable secondary entry is not safe:
+        // retain UNKNOWN so the Runtime chooses the complete top-level getter.
+        if (status === 2 && (!entry || !name)) continue;
+        if (Array.isArray(usedExports)) {
+          treeShaking.usedExports = usedExports;
+          treeShaking.providedExports = usedExports;
+        }
+        if (entry && name) {
+          const fullFallbackGet = shared.get;
+          treeShaking.get = async () => {
+            try {
+              const shareEntry = await getRemoteEntry({
+                origin,
+                remoteInfo: {
+                  name,
+                  entry,
+                  type: fallbackType || "global",
+                  entryGlobalName: name,
+                  shareScope: "default",
+                },
+              });
+              if (!shareEntry) throw new Error("Tree-shaken shared entry did not load");
+              if (typeof shareEntry.init === "function") {
+                const { bundlerRuntime } = await import("@module-federation/webpack-bundler-runtime");
+                await shareEntry.init(origin, bundlerRuntime);
+              }
+              return shareEntry.get();
+            } catch (error) {
+              if (typeof fullFallbackGet === "function") return fullFallbackGet();
+              throw error;
+            }
+          };
+        }
+        treeShaking.status = status;
+      }
+      return args;
+    },
+  });`;
+}
+
 export function generateRemoteEntry(
   options: NormalizedModuleFederationOptions,
   virtualExposesId = getVirtualExposesId(options),
   command = 'build'
 ): string {
   const needsSharedProviderSelectionHelper = hasImportFalseShared(options);
+  const hasTreeShakingShared = Object.values(options.shared ?? {}).some(
+    (share) => !!share?.shareConfig.treeShaking
+  );
+  const runtimeImports = [
+    'init as runtimeInit',
+    'loadRemote',
+    ...(hasTreeShakingShared ? ['getRemoteEntry'] : []),
+  ].join(', ');
+  const runtimeHelperImports = [
+    ...(hasTreeShakingShared ? ['global as runtimeGlobal'] : []),
+    ...(needsSharedProviderSelectionHelper ? ['share as runtimeShare'] : []),
+  ];
   const pluginImportNames = options.runtimePlugins.map((p, i) => {
     if (typeof p === 'string') {
       return [`$runtimePlugin_${i}`, `import $runtimePlugin_${i} from "${p}";`, `undefined`];
@@ -460,10 +687,10 @@ export function generateRemoteEntry(
   if (typeof __VUE_HMR_RUNTIME__ === 'undefined') {
     globalThis.__VUE_HMR_RUNTIME__ = { createRecord() {}, rerender() {}, reload() {} };
   }
-  import {init as runtimeInit, loadRemote} from "@module-federation/runtime";
+  import {${runtimeImports}} from "@module-federation/runtime";
   ${
-    needsSharedProviderSelectionHelper
-      ? 'import {share as runtimeShare} from "@module-federation/runtime/helpers";'
+    runtimeHelperImports.length
+      ? `import {${runtimeHelperImports.join(', ')}} from "@module-federation/runtime/helpers";`
       : ''
   }
   ${pluginImportNames
@@ -500,6 +727,7 @@ export function generateRemoteEntry(
       }
     }
   }
+  ${generateTreeShakingSnapshotPluginCode(hasTreeShakingShared)}
   ${needsSharedProviderSelectionHelper ? sharedProviderSelectionHelperCode : ''}
 
   async function getLocalSharedImportMap() {
@@ -586,7 +814,7 @@ export function generateRemoteEntry(
       name: mfName,
       remotes: ${options.shareStrategy === 'loaded-first' ? '[]' : 'usedRemotes'},
       shared: usedShared,
-      plugins: [...__browserPlugins, ...__ssrPlugins],
+      plugins: [${hasTreeShakingShared ? '__mfTreeShakingSnapshotPlugin(),' : ''} ...__browserPlugins, ...__ssrPlugins],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
     // handling circular init calls
@@ -607,9 +835,13 @@ export function generateRemoteEntry(
     } catch (e) {
       console.error('[Module Federation]', e)
     }
+    ${generateTreeShakingSharedResolutionCode(hasTreeShakingShared)}
     for (const [pkg, share] of Object.entries(usedShared)) {
       const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
-      if (share.shareConfig?.import !== false || __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) continue;
+      const cachedShare = share.treeShaking
+        ? __mfReadTreeShakingSharedSelection(__mfModuleCache.share, cacheDescriptor, mfName)
+        : __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
+      if (share.shareConfig?.import !== false || cachedShare !== undefined) continue;
       ${normalizeRuntimeShareCode}
       const versions = shared?.[pkg];
       const provider = __mfSelectSharedProvider(versions, pkg, share, '${options.shareStrategy}');
@@ -670,6 +902,10 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
           for (const pkg of __mfHostInitShareOrder) {
             const share = usedShared[pkg];
             if (!share) continue;
+            // remoteEntry.init resolves tree-enabled shares into the
+            // coverage-aware cache. Never republish that selected partial under
+            // a generic full-module key here.
+            if (share.treeShaking) continue;
             const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
             if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) {
               continue;

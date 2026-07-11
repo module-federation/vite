@@ -1,5 +1,6 @@
 import './App.css';
 import reactLogo from './assets/react.svg';
+import { Input } from 'antd';
 // import viteLogo from './assets/vite.svg';
 
 function App() {
@@ -15,6 +16,8 @@ function App() {
                 <p>
                     Edit <code>src/App.jsx</code> and save to test HMR
                 </p>
+                <p>The remote statically imports only the Ant Design Input component.</p>
+                <Input placeholder="Remote Input" />
             </div>
         </div>
     );

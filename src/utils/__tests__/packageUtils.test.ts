@@ -365,4 +365,121 @@ describe('getSharedCacheKey', () => {
     expect(cache['default:react']).toBe(react);
     expect(cache.react).toBe(react);
   });
+
+  it('keeps partial modules coverage-aware without poisoning the full-module cache', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return {
+        readFull: __mfReadSharedCache,
+        writeFull: __mfWriteSharedCache,
+        readPartial: __mfReadTreeShakingSharedCache,
+        writePartial: __mfWriteTreeShakingSharedCache
+      };`
+    )() as {
+      readFull: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] }
+      ) => unknown;
+      writeFull: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown
+      ) => unknown;
+      readPartial: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        requiredExports?: string[]
+      ) => unknown;
+      writePartial: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        providedExports: string[],
+        value: unknown
+      ) => unknown;
+    };
+    const descriptor = {
+      canonical: 'default:antd',
+      aliases: ['antd'],
+    };
+    const cache: Record<PropertyKey, unknown> = {};
+    const buttonModule = { Button: 'host-button' };
+
+    runtime.writePartial(cache, descriptor, ['Button'], buttonModule);
+
+    expect(runtime.readPartial(cache, descriptor, ['Button'])).toBe(buttonModule);
+    expect(runtime.readPartial(cache, descriptor, ['Input'])).toBeUndefined();
+    expect(runtime.readPartial(cache, descriptor, ['Button', 'Input'])).toBeUndefined();
+    expect(runtime.readPartial(cache, descriptor)).toBeUndefined();
+    expect(runtime.readFull(cache, descriptor)).toBeUndefined();
+    expect(cache[descriptor.canonical]).toBeUndefined();
+    expect(cache.antd).toBeUndefined();
+
+    const inputModule = { Input: 'remote-input' };
+    runtime.writePartial(cache, descriptor, ['Input'], inputModule);
+
+    expect(runtime.readPartial(cache, descriptor, ['Button'])).toBe(buttonModule);
+    expect(runtime.readPartial(cache, descriptor, ['Input'])).toBe(inputModule);
+    expect(runtime.readPartial(cache, descriptor, ['Button', 'Input'])).toBeUndefined();
+    expect(runtime.readFull(cache, descriptor)).toBeUndefined();
+
+    const metadataSymbol = Object.getOwnPropertySymbols(cache).find(
+      (symbol) => Symbol.keyFor(symbol) === 'module-federation.tree-shaking-shared-cache'
+    );
+    expect(metadataSymbol).toBeDefined();
+    expect(Object.getOwnPropertyDescriptor(cache, metadataSymbol!)?.enumerable).toBe(false);
+
+    const fullModule = { Button: 'full-button', Input: 'full-input' };
+    runtime.writeFull(cache, descriptor, fullModule);
+
+    expect(runtime.readFull(cache, descriptor)).toBe(fullModule);
+    expect(runtime.readPartial(cache, descriptor, ['Button'])).toBe(fullModule);
+    expect(runtime.readPartial(cache, descriptor, ['Input'])).toBe(fullModule);
+    expect(runtime.readPartial(cache, descriptor, ['Button', 'Input'])).toBe(fullModule);
+    expect(runtime.readPartial(cache, descriptor)).toBe(fullModule);
+    expect(cache.antd).toBe(fullModule);
+  });
+
+  it('isolates the selected partial module per consuming container', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return {
+        read: __mfReadTreeShakingSharedSelection,
+        write: __mfWriteTreeShakingSharedSelection,
+        writeFull: __mfWriteSharedCache
+      };`
+    )() as {
+      read: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        consumer: string
+      ) => unknown;
+      write: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        consumer: string,
+        value: unknown
+      ) => unknown;
+      writeFull: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown
+      ) => unknown;
+    };
+    const cache: Record<PropertyKey, unknown> = {};
+    const descriptor = { canonical: 'default:antd', aliases: ['antd'] };
+    const hostSelection = { Button: 'host-button' };
+    const remoteSelection = { Input: 'remote-input' };
+
+    runtime.write(cache, descriptor, 'host', hostSelection);
+    runtime.write(cache, descriptor, 'remote', remoteSelection);
+
+    expect(runtime.read(cache, descriptor, 'host')).toBe(hostSelection);
+    expect(runtime.read(cache, descriptor, 'remote')).toBe(remoteSelection);
+    expect(runtime.read(cache, descriptor, 'other')).toBeUndefined();
+
+    const full = { Button: 'full-button', Input: 'full-input' };
+    runtime.writeFull(cache, descriptor, full);
+    expect(runtime.read(cache, descriptor, 'host')).toBe(full);
+    expect(runtime.read(cache, descriptor, 'remote')).toBe(full);
+  });
 });

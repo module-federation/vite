@@ -7,13 +7,14 @@ import { mfWarn } from '../utils/logger';
 
 let _resolve: ((value: any) => void) | null = null;
 let _parseTimeout: ReturnType<typeof setTimeout> | null = null;
+let _settleTimeout: ReturnType<typeof setTimeout> | null = null;
 
 let parsePromise = Promise.resolve(1);
-let exposesParseEnd = false;
-let expectsExposesParseEnd = false;
 
 let parseStartSet = new Set<string>();
 let parseEndSet = new Set<string>();
+let lastLoadedModule = '';
+let lastParsedModule = '';
 
 function clearParseTimeout() {
   if (_parseTimeout) {
@@ -22,15 +23,24 @@ function clearParseTimeout() {
   }
 }
 
+function clearSettleTimeout() {
+  if (_settleTimeout) {
+    clearTimeout(_settleTimeout);
+    _settleTimeout = null;
+  }
+}
+
 function resetParseState() {
   clearParseTimeout();
-  exposesParseEnd = false;
-  expectsExposesParseEnd = false;
+  clearSettleTimeout();
   parseStartSet = new Set();
   parseEndSet = new Set();
+  lastLoadedModule = '';
+  lastParsedModule = '';
   parsePromise = new Promise((resolve) => {
     _resolve = (v: any) => {
       clearParseTimeout();
+      clearSettleTimeout();
       resolve(v);
     };
   });
@@ -48,18 +58,40 @@ function setParseTimeout(timeout: number) {
 function resetIdleTimeout(timeout: number) {
   clearParseTimeout();
   _parseTimeout = setTimeout(() => {
+    const pendingModules = Array.from(parseStartSet).filter(
+      (moduleId) => !parseEndSet.has(moduleId)
+    );
     mfWarn(
       `moduleParseIdleTimeout: no module activity for ${timeout}s, forcing resolve. ` +
-        'Some shared/remote dependencies may be missing. Consider increasing moduleParseIdleTimeout.'
+        'Some shared/remote dependencies may be missing. Consider increasing moduleParseIdleTimeout.' +
+        ` Tracked modules: ${parseEndSet.size}/${parseStartSet.size}.` +
+        (lastLoadedModule ? ` Last loaded: ${lastLoadedModule}.` : '') +
+        (lastParsedModule ? ` Last parsed: ${lastParsedModule}.` : '') +
+        (pendingModules.length ? ` Pending modules: ${pendingModules.slice(0, 10).join(', ')}` : '')
     );
     _resolve?.(1);
   }, timeout * 1000);
 }
 
+function scheduleParseCompletionCheck() {
+  clearSettleTimeout();
+  _settleTimeout = setTimeout(() => {
+    _settleTimeout = null;
+    // Vite/Rolldown can report moduleParsed for cached or internally loaded
+    // modules that did not pass through this plugin's load hook. Completion is
+    // therefore a subset check: every tracked load must have parsed; additional
+    // parsed modules do not keep the barrier open.
+    const parseCompleted =
+      parseStartSet.size > 0 &&
+      Array.from(parseStartSet).every((moduleId) => parseEndSet.has(moduleId));
+    if (parseCompleted) _resolve?.(1);
+  }, 0);
+}
+
 interface ModuleParseOptions {
   moduleParseTimeout: number;
   moduleParseIdleTimeout?: number;
-  virtualExposesId: string;
+  exposedModuleImports?: string[];
 }
 
 export default function (excludeFn: Function, options: ModuleParseOptions): Plugin[] {
@@ -79,21 +111,31 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       enforce: 'pre',
       name: 'parseStart',
       apply: 'build',
-      buildStart() {
+      async buildStart() {
         resetParseState();
         if (idleTimeout) {
           resetIdleTimeout(idleTimeout);
-        } else {
+        } else if (options.moduleParseTimeout) {
           setParseTimeout(options.moduleParseTimeout);
+        }
+        // Exposed modules are emitted as independent entry chunks rather than
+        // children of the application's entry graph. Seed them up front so an
+        // otherwise-complete entry cannot finalize shared export usage before
+        // Rollup starts loading those expose entries.
+        for (const importSource of options.exposedModuleImports || []) {
+          const resolved = await this.resolve(importSource);
+          if (resolved && !resolved.external && !excludeFn(resolved.id)) {
+            parseStartSet.add(resolved.id);
+          }
         }
       },
       load(id) {
+        lastLoadedModule = id;
         if (excludeFn(id)) {
           return;
         }
-        if (id === options.virtualExposesId) {
-          expectsExposesParseEnd = true;
-        }
+        clearSettleTimeout();
+        if (idleTimeout) resetIdleTimeout(idleTimeout);
         parseStartSet.add(id);
       },
     },
@@ -102,24 +144,40 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       name: 'parseEnd',
       apply: 'build',
       moduleParsed(module) {
+        clearSettleTimeout();
         const id = module.id;
-        if (id === options.virtualExposesId) {
-          // When the entry JS file is empty and only contains exposes export code, it’s necessary to wait for the exposes modules to be resolved in order to collect the dependencies being used.
-          exposesParseEnd = true;
-        }
+        lastParsedModule = id;
         if (idleTimeout) {
           // Reset idle timer on every module — any activity means the build is still progressing.
           resetIdleTimeout(idleTimeout);
         }
-        if (excludeFn(id)) {
-          return;
+        // Rollup reports moduleParsed for an importer before it necessarily
+        // loads/parses that importer's dependencies. Seed the pending set from
+        // the resolved graph now; otherwise an entry can make start/end sizes
+        // equal and resolve parsePromise before child modules contribute shared
+        // export usage.
+        const parsedModule = module as typeof module & {
+          importedIdResolutions?: Array<{ id: string; external?: boolean | 'absolute' }>;
+          dynamicallyImportedIdResolutions?: Array<{
+            id: string;
+            external?: boolean | 'absolute';
+          }>;
+        };
+        const addPendingResolutions = (
+          resolutions: Array<{ id: string; external?: boolean | 'absolute' }> | undefined
+        ) => {
+          for (const resolution of resolutions || []) {
+            if (!resolution.external && !excludeFn(resolution.id)) {
+              parseStartSet.add(resolution.id);
+            }
+          }
+        };
+        addPendingResolutions(parsedModule.importedIdResolutions);
+        addPendingResolutions(parsedModule.dynamicallyImportedIdResolutions);
+        if (!excludeFn(id)) {
+          parseEndSet.add(id);
         }
-        parseEndSet.add(id);
-        const parseCompleted = parseStartSet.size === parseEndSet.size;
-        const exposesCompleted = !expectsExposesParseEnd || exposesParseEnd;
-        if (parseCompleted && exposesCompleted) {
-          _resolve?.(1);
-        }
+        scheduleParseCompletionCheck();
       },
       buildEnd() {
         _resolve?.(1);

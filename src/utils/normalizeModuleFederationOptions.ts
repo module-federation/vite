@@ -143,7 +143,16 @@ export interface ShareItem {
   version: string | undefined;
   scope: string;
   from: string;
-  shareConfig: SharedConfig & moduleFederationPlugin.SharedConfig;
+  shareConfig: SharedConfig &
+    moduleFederationPlugin.SharedConfig & {
+      treeShaking?: TreeShakingConfig;
+    };
+}
+
+export interface TreeShakingConfig {
+  mode: 'server-calc' | 'runtime-infer';
+  usedExports?: string[];
+  filename?: string;
 }
 
 /**
@@ -199,6 +208,7 @@ function normalizeShareItem(
         singleton?: boolean;
         requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
         strictVersion?: boolean;
+        treeShaking?: TreeShakingConfig;
       }
 ): ShareItem {
   const isImportFalse = typeof shareItem === 'object' && shareItem.import === false;
@@ -207,6 +217,17 @@ function normalizeShareItem(
     typeof shareItem === 'object'
       ? inferVersionFromRequiredVersion(shareItem.requiredVersion)
       : undefined;
+  const treeShaking = typeof shareItem === 'object' ? shareItem.treeShaking : undefined;
+  if (
+    treeShaking?.mode === 'runtime-infer' &&
+    typeof shareItem === 'object' &&
+    shareItem.singleton
+  ) {
+    mfWarn(
+      `Shared singleton "${key}" uses runtime-infer tree shaking, which may load both a tree-shaken bundle and a full bundle when consumers require different exports. ` +
+        'Prefer server-calc for singleton dependencies. If runtime-infer is required, expand usedExports to reduce this risk.'
+    );
+  }
 
   // Version resolution is required even when import: false.
   //
@@ -251,6 +272,9 @@ function normalizeShareItem(
               ? `^${version}`
               : '*',
       strictVersion: !!shareItem.strictVersion,
+      ...(treeShaking
+        ? { treeShaking: { ...treeShaking, mode: treeShaking.mode ?? 'server-calc' } }
+        : {}),
     },
   };
 }
@@ -275,6 +299,7 @@ function normalizeShared(
             singleton?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
+            treeShaking?: TreeShakingConfig;
           }
       >
     | undefined
@@ -435,6 +460,12 @@ export type ModuleFederationOptions = {
    * When true, all CSS assets are bundled into every exposed module.
    */
   bundleAllCSS?: boolean;
+  /** Directory reserved for deploy-service generated secondary shared artifacts. */
+  treeShakingDir?: string;
+  /** Whether inferred usedExports metadata is injected into generated runtime records. */
+  injectTreeShakingUsedExports?: boolean;
+  treeShakingSharedPlugins?: string[];
+  treeShakingSharedExcludePlugins?: string[];
   shared?:
     | string[]
     | Record<
@@ -447,6 +478,7 @@ export type ModuleFederationOptions = {
             singleton?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
+            treeShaking?: TreeShakingConfig;
             import?: moduleFederationPlugin.SharedConfig['import'];
           }
       >
@@ -685,6 +717,10 @@ export function normalizeModuleFederationOptions(
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
     bundleAllCSS: options.bundleAllCSS || false,
+    treeShakingDir: options.treeShakingDir,
+    injectTreeShakingUsedExports: options.injectTreeShakingUsedExports,
+    treeShakingSharedPlugins: options.treeShakingSharedPlugins,
+    treeShakingSharedExcludePlugins: options.treeShakingSharedExcludePlugins,
     moduleParseTimeout: options.moduleParseTimeout || 10,
     moduleParseIdleTimeout: options.moduleParseIdleTimeout,
     varFilename: options.varFilename,

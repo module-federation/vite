@@ -67,6 +67,10 @@ export default defineConfig({
           requiredVersion: '^19.2.4',
         },
         '@vite-vite/shared-lib': { singleton: true },
+        antd: {
+          singleton: true,
+          treeShaking: { mode: 'server-calc', usedExports: ['Button', 'Input'] },
+        },
       },
     }),
   ].filter(Boolean),

@@ -239,6 +239,11 @@ test.describe('Dynamic remote', () => {
       })
     ).toBeVisible();
 
+    // The dynamic import is started on initial render, even though the ad is
+    // hidden. Wait for that work to settle before taking the baseline; without
+    // this, a late shared-dependency response can be attributed to the toggle.
+    await page.waitForLoadState('networkidle');
+
     dynamicRemoteSharedPayloads.length = 0;
 
     const showAdToggle = page.getByRole('checkbox', {

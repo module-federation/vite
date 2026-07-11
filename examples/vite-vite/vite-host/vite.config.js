@@ -44,6 +44,10 @@ export default defineConfig({
         '@vite-vite/shared-consumer': { singleton: true },
         '@vite-vite/shared-lib': { singleton: true },
         '@vite-vite/shared-lib/helpers': { singleton: true },
+        antd: {
+          singleton: true,
+          treeShaking: { mode: 'server-calc', usedExports: ['Button', 'Input'] },
+        },
       },
       runtimePlugins: ['./src/mfPlugins'],
     }),

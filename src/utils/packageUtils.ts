@@ -267,6 +267,73 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
               if (cache[alias] === undefined) cache[alias] = value;
             }
             return value;
+          };
+          const __mfTreeShakingSharedCacheKey = Symbol.for("module-federation.tree-shaking-shared-cache");
+          const __mfGetTreeShakingSharedCache = (cache) => {
+            let metadata = cache[__mfTreeShakingSharedCacheKey];
+            if (metadata === undefined) {
+              metadata = Object.create(null);
+              Object.defineProperty(cache, __mfTreeShakingSharedCacheKey, {
+                value: metadata,
+                enumerable: false,
+                configurable: false,
+                writable: false
+              });
+            }
+            return metadata;
+          };
+          const __mfReadTreeShakingSharedCache = (cache, descriptor, requiredExports) => {
+            const fullModule = __mfReadSharedCache(cache, descriptor);
+            if (fullModule !== undefined) return fullModule;
+            if (!Array.isArray(requiredExports)) return undefined;
+            const metadata = cache[__mfTreeShakingSharedCacheKey];
+            const entries = metadata?.[descriptor.canonical] || [];
+            let compatibleEntry;
+            for (const entry of entries) {
+              if (!requiredExports.every((name) => entry.providedExports.includes(name))) continue;
+              if (!compatibleEntry || entry.providedExports.length < compatibleEntry.providedExports.length) {
+                compatibleEntry = entry;
+              }
+            }
+            return compatibleEntry?.value;
+          };
+          const __mfWriteTreeShakingSharedCache = (cache, descriptor, providedExports, value) => {
+            if (!Array.isArray(providedExports)) return value;
+            const normalizedExports = [...new Set(providedExports)].sort();
+            const metadata = __mfGetTreeShakingSharedCache(cache);
+            const entries = (metadata[descriptor.canonical] ||= []);
+            const existing = entries.find((entry) =>
+              entry.providedExports.length === normalizedExports.length &&
+              entry.providedExports.every((name, index) => name === normalizedExports[index])
+            );
+            if (existing) existing.value = value;
+            else entries.push({ providedExports: normalizedExports, value });
+            return value;
+          };
+          const __mfTreeShakingSelectionCacheKey = Symbol.for("module-federation.tree-shaking-shared-selection-cache");
+          const __mfGetTreeShakingSelectionCache = (cache) => {
+            let selections = cache[__mfTreeShakingSelectionCacheKey];
+            if (selections === undefined) {
+              selections = Object.create(null);
+              Object.defineProperty(cache, __mfTreeShakingSelectionCacheKey, {
+                value: selections,
+                enumerable: false,
+                configurable: false,
+                writable: false
+              });
+            }
+            return selections;
+          };
+          const __mfReadTreeShakingSharedSelection = (cache, descriptor, consumer) => {
+            const fullModule = __mfReadSharedCache(cache, descriptor);
+            if (fullModule !== undefined) return fullModule;
+            return cache[__mfTreeShakingSelectionCacheKey]?.[descriptor.canonical]?.[consumer];
+          };
+          const __mfWriteTreeShakingSharedSelection = (cache, descriptor, consumer, value) => {
+            const selections = __mfGetTreeShakingSelectionCache(cache);
+            const byConsumer = (selections[descriptor.canonical] ||= Object.create(null));
+            byConsumer[consumer] = value;
+            return value;
           };`;
 
 export function getInstalledPackageJson(

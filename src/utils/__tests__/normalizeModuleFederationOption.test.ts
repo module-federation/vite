@@ -46,6 +46,10 @@ describe('normalizeModuleFederationOption', () => {
       virtualModuleDir: '__mf__virtual',
       hostInitInjectLocation: 'html',
       bundleAllCSS: false,
+      treeShakingDir: undefined,
+      injectTreeShakingUsedExports: undefined,
+      treeShakingSharedPlugins: undefined,
+      treeShakingSharedExcludePlugins: undefined,
       getPublicPath: undefined,
       publicPath: undefined,
       moduleParseTimeout: 10,
@@ -285,6 +289,75 @@ describe('normalizeModuleFederationOption', () => {
             strictVersion: true,
           },
         },
+      });
+    });
+
+    it('preserves tree-shaking configuration on shared items', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: {
+            antd: {
+              singleton: true,
+              treeShaking: {
+                mode: 'server-calc',
+                usedExports: ['Button'],
+                filename: 'antd-secondary.js',
+              },
+            },
+          },
+        }).shared.antd.shareConfig.treeShaking
+      ).toEqual({
+        mode: 'server-calc',
+        usedExports: ['Button'],
+        filename: 'antd-secondary.js',
+      });
+    });
+
+    it('warns but allows singleton runtime inference', () => {
+      mfWarnSpy.mockClear();
+
+      const normalized = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          antd: { singleton: true, treeShaking: { mode: 'runtime-infer' } },
+        },
+      });
+
+      expect(normalized.shared.antd.shareConfig.treeShaking).toEqual({
+        mode: 'runtime-infer',
+      });
+      expect(mfWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Prefer server-calc'));
+    });
+
+    it('normalizes an omitted tree-shaking mode to server-calc', () => {
+      const normalized = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          antd: { treeShaking: { usedExports: ['Button'] } as any },
+        },
+      });
+
+      expect(normalized.shared.antd.shareConfig.treeShaking).toEqual({
+        mode: 'server-calc',
+        usedExports: ['Button'],
+      });
+    });
+
+    it('preserves top-level tree-shaking options', () => {
+      const normalized = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        treeShakingDir: 'independent-packages',
+        injectTreeShakingUsedExports: false,
+        treeShakingSharedPlugins: ['shared-build-plugin'],
+        treeShakingSharedExcludePlugins: ['excluded-build-plugin'],
+      });
+
+      expect(normalized).toMatchObject({
+        treeShakingDir: 'independent-packages',
+        injectTreeShakingUsedExports: false,
+        treeShakingSharedPlugins: ['shared-build-plugin'],
+        treeShakingSharedExcludePlugins: ['excluded-build-plugin'],
       });
     });
 

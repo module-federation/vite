@@ -34,6 +34,7 @@ import type {
   NormalizedModuleFederationOptions,
   PluginManifestOptions,
   ShareItem,
+  TreeShakingConfig,
 } from './utils/normalizeModuleFederationOptions';
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
@@ -55,6 +56,8 @@ import {
   LOAD_REMOTE_TAG,
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
+  TREE_SHAKING_GRAPH_QUERY,
+  TREE_SHAKING_PROVIDER_TAG,
   setSsrRemotes,
   writeLocalSharedImportMap,
 } from './virtualModules';
@@ -700,13 +703,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           id.includes(virtualExposesId) ||
           id.includes(getLocalSharedImportMapPath()) ||
           id.includes(LOAD_SHARE_TAG) ||
-          id.includes(PREBUILD_TAG)
+          id.includes(PREBUILD_TAG) ||
+          id.includes(TREE_SHAKING_PROVIDER_TAG) ||
+          id.includes(TREE_SHAKING_GRAPH_QUERY)
         );
       },
       {
         moduleParseTimeout: options.moduleParseTimeout,
         moduleParseIdleTimeout: options.moduleParseIdleTimeout,
-        virtualExposesId,
+        exposedModuleImports: Object.values(options.exposes).map((expose) => expose.import),
       }
     ),
     ...proxySharedModule({
@@ -1116,8 +1121,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         const isRolldown = getIsRolldown(this);
         isSsrBuild = _command === 'build' && config.build?.ssr === true;
         const needsSharedProviderSelectionHelper = hasImportFalseShared(options);
+        const needsRuntimeHelpers =
+          needsSharedProviderSelectionHelper ||
+          Object.values(options.shared ?? {}).some((share) => !!share?.shareConfig.treeShaking);
 
-        if (needsSharedProviderSelectionHelper) {
+        if (needsRuntimeHelpers) {
           appendResolveAlias(config, {
             find: /^@module-federation\/runtime\/helpers$/,
             replacement: getRuntimeHelpersImplementation(options.implementation),
@@ -1134,7 +1142,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
-        if (needsSharedProviderSelectionHelper) {
+        if (needsRuntimeHelpers) {
           config.optimizeDeps.include.push('@module-federation/runtime/helpers');
         }
 
@@ -1371,4 +1379,5 @@ export {
   federation,
   type ModuleFederationOptions,
   type PluginManifestOptions,
+  type TreeShakingConfig,
 };
