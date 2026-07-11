@@ -156,6 +156,7 @@ export function generateLocalSharedImportMap() {
           if (!remote) return null;
           return `
                 {
+                  alias: ${JSON.stringify(key)},
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
                   name: ${JSON.stringify(remote.name)},
                   type: ${JSON.stringify(remote.type)},

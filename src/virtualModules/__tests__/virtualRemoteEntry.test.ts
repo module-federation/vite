@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   hasPackageDependencyMock,
   normalizedSharedMock,
+  normalizedRemotesMock,
   usedRemotesMapMock,
   writeSyncSpy,
   optionsMock,
 } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
   normalizedSharedMock: vi.fn(() => ({})),
+  normalizedRemotesMock: vi.fn(() => ({})),
   usedRemotesMapMock: vi.fn(() => ({})),
   writeSyncSpy: vi.fn(),
   optionsMock: {
@@ -173,7 +175,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       internalName: '__mfe_internal__host',
       name: 'host',
       filename: 'remoteEntry.js',
-      remotes: {},
+      remotes: normalizedRemotesMock(),
       shared: normalizedSharedMock(),
       shareScope: 'default',
       runtimePlugins: [],
@@ -234,6 +236,8 @@ describe('virtualRemoteEntry', () => {
     hasPackageDependencyMock.mockReset();
     normalizedSharedMock.mockReset();
     normalizedSharedMock.mockReturnValue({});
+    normalizedRemotesMock.mockReset();
+    normalizedRemotesMock.mockReturnValue({});
     usedRemotesMapMock.mockReset();
     usedRemotesMapMock.mockReturnValue({});
     writeSyncSpy.mockClear();
@@ -546,6 +550,24 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('initRes.loadShare(pkg');
     expect(code).not.toContain('import exposesMap from');
     expect(code).not.toContain('import {usedShared, usedRemotes} from');
+  });
+
+  it('includes remote aliases in version-first remoteEntry initialization', async () => {
+    normalizedRemotesMock.mockReturnValue({
+      catalog: {
+        entryGlobalName: 'catalog',
+        name: 'catalogContainer',
+        type: 'module',
+        entry: 'http://localhost:4174/remoteEntry.js',
+      },
+    });
+    usedRemotesMapMock.mockReturnValue({ catalog: new Set(['catalog/Button']) });
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('alias: "catalog"');
+    expect(code).toContain('name: "catalogContainer"');
   });
 
   it('does not eagerly preload remotes during host auto init', async () => {
