@@ -91,8 +91,7 @@ export function generateLocalSharedImportMap() {
   return `
     import {loadShare} from "@module-federation/runtime";
     const importMap = {
-      ${Array.from(getUsedShares())
-        .sort()
+      ${getOrderedUsedShares()
         .map((pkg) => {
           const shareItem = getNormalizeShareItem(pkg);
           return `
@@ -109,8 +108,7 @@ export function generateLocalSharedImportMap() {
         .join(',')}
     }
       const usedShared = {
-      ${Array.from(getUsedShares())
-        .sort()
+      ${getOrderedUsedShares()
         .map((key) => {
           const shareItem = getNormalizeShareItem(key);
           if (!shareItem) return null;
@@ -388,7 +386,7 @@ function getBrowserImportPath(importPath: string) {
 function getHostAutoInitSharedSeedItems() {
   return getOrderedUsedShares()
     .map((pkg) => ({ pkg, shareItem: getShareItemForPreload(pkg) }))
-    .filter(({ shareItem }) => shareItem?.shareConfig.import === false)
+    .filter(({ shareItem }) => shareItem?.shareConfig?.import === false)
     .sort((a, b) => {
       const priority = (pkg: string) => (pkg === 'vue' ? 0 : pkg === 'pinia' ? 1 : 2);
       const aIsLocal = !!getLocalProviderImportPath(a.pkg);
@@ -651,6 +649,7 @@ let currentHostAutoInitCommand = 'build';
 export function generateHostAutoInitCode(remoteEntryImport: string, _command = 'build') {
   const shouldPreloadShares =
     getNormalizeModuleFederationOptions().shareStrategy !== 'loaded-first';
+  const hostInitShareOrder = JSON.stringify(getOrderedUsedShares());
   return `
     ${getRuntimeModuleCacheBootstrapCode()}
     let hostInitPromise;
@@ -666,7 +665,11 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
           ${
             shouldPreloadShares
               ? `
-          for (const [pkg, share] of Object.entries(usedShared)) {
+          const __mfHostInitShareOrder = ${hostInitShareOrder}
+            .concat(Object.keys(usedShared).filter((pkg) => !${hostInitShareOrder}.includes(pkg)));
+          for (const pkg of __mfHostInitShareOrder) {
+            const share = usedShared[pkg];
+            if (!share) continue;
             const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
             if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) {
               continue;

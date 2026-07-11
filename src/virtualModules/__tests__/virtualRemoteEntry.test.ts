@@ -130,6 +130,18 @@ vi.mock('../../utils/packageUtils', () => {
       return match ? match[0] : packageString;
     },
     getInstalledPackageJson: (pkg: string) => {
+      if (pkg === '@repro/react-consumer') {
+        return {
+          path: '/repo/packages/react-consumer/package.json',
+          dir: '/repo/packages/react-consumer',
+          packageJson: {
+            name: '@repro/react-consumer',
+            dependencies: {
+              react: '^19.0.0',
+            },
+          },
+        };
+      }
       if (pkg === '@repro/core') {
         return {
           path: '/repo/packages/core/package.json',
@@ -299,6 +311,30 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('let pkg = await import("/abs/custom-import.js");');
     expect(code).not.toContain('virtual:prebuild:custom-import');
+  });
+
+  it('orders React before shared packages that evaluate React APIs', async () => {
+    const share = (name: string) => ({
+      name,
+      version: '19.2.4',
+      scope: 'default',
+      shareConfig: { singleton: true, strictVersion: false },
+    });
+    normalizedSharedMock.mockReturnValue({
+      '@repro/react-consumer': share('@repro/react-consumer'),
+      react: share('react'),
+    });
+
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('@repro/react-consumer');
+    mod.addUsedShares('react');
+
+    const localMap = mod.generateLocalSharedImportMap();
+    const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+
+    expect(localMap.indexOf('"react":')).toBeLessThan(localMap.indexOf('"@repro/react-consumer":'));
+    expect(hostInit).toContain('const __mfHostInitShareOrder = ["react","@repro/react-consumer"]');
   });
 
   it('uses auto-detected workspace import path in localSharedImportMap', async () => {
@@ -532,8 +568,8 @@ describe('virtualRemoteEntry', () => {
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
-    expect(code).toContain('Object.entries(usedShared)');
-    expect(code).not.toContain('"lit/decorators.js"');
+    expect(code).toContain('const __mfHostInitShareOrder');
+    expect(code).toContain('"lit/decorators.js"');
   });
 
   it('loads the finalized local shared map for host auto init preloads', async () => {
@@ -584,7 +620,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain(
       'const {usedShared} = await import("virtual:mf-localSharedImportMap:__mfe_internal__host")'
     );
-    expect(code).toContain('for (const [pkg, share] of Object.entries(usedShared))');
+    expect(code).toContain('for (const pkg of __mfHostInitShareOrder)');
   });
 
   it('seeds package subpath shares and shared dependencies before their consumers', async () => {
