@@ -8,6 +8,7 @@ export default defineConfig({
     react(),
     federation({
       name: "dynamicRemote",
+      hostInitInjectLocation: "entry",
       filename: "remoteEntry.js",
       // Modules to expose
       exposes: {
@@ -17,7 +18,7 @@ export default defineConfig({
       shared: {
         react: { singleton: true },
         "react-dom": { singleton: true },
-        lodash: { singleton: true, import: false },
+        lodash: { singleton: true },
       },
       dts: false,
     }),
