@@ -331,8 +331,26 @@ function generateRuntimeSharedCacheSeedCode() {
   return `
     const __mfSeedOrder = ${JSON.stringify(seedOrder)};
     const __mfSeedKeys = __mfSeedOrder.filter((pkg) => usedShared[pkg] !== undefined);
+    const __mfSeedPackageName = (pkg) => pkg.startsWith('@')
+      ? pkg.split('/').slice(0, 2).join('/')
+      : pkg.split('/')[0];
     for (const pkg of Object.keys(usedShared)) {
-      if (!__mfSeedKeys.includes(pkg)) __mfSeedKeys.push(pkg);
+      if (__mfSeedKeys.includes(pkg)) continue;
+      const packageName = __mfSeedPackageName(pkg);
+      const rootIndex = __mfSeedKeys.indexOf(packageName);
+      if (rootIndex === -1) {
+        __mfSeedKeys.push(pkg);
+        continue;
+      }
+      let insertIndex = rootIndex;
+      while (
+        insertIndex > 0 &&
+        __mfSeedPackageName(__mfSeedKeys[insertIndex - 1]) === packageName &&
+        __mfSeedKeys[insertIndex - 1] !== packageName
+      ) {
+        insertIndex--;
+      }
+      __mfSeedKeys.splice(insertIndex, 0, pkg);
     }
     for (const pkg of __mfSeedKeys) {
       const share = usedShared[pkg];
