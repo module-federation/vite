@@ -3,6 +3,7 @@ import { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
 import { getUsedRemotesMap, getUsedShares } from '../virtualModules';
 
@@ -78,6 +79,16 @@ function createRemoteEntryAssetMap(fileName: string) {
     js: { async: [], sync: [fileName] },
     css: { async: [], sync: [] },
   };
+}
+
+function getRemoteContainerName(remoteKey: string, remote: RemoteObjectConfig) {
+  // Object-form remotes default entryGlobalName to the alias during
+  // normalization, while string-form remotes use it for `Name@entry`.
+  const entryGlobalName = remote.entryGlobalName;
+  if (entryGlobalName && entryGlobalName !== remoteKey && entryGlobalName !== remote.entry) {
+    return entryGlobalName;
+  }
+  return remote.name;
 }
 
 const Manifest = (): Plugin[] => {
@@ -371,13 +382,15 @@ const Manifest = (): Plugin[] => {
 
     // Process remotes
     const remotes = Array.from(Object.entries(getUsedRemotesMap())).flatMap(
-      ([remoteKey, modules]) =>
-        Array.from(modules).map((moduleKey) => ({
-          federationContainerName: options.remotes[remoteKey].name,
+      ([remoteKey, modules]) => {
+        const remote = options.remotes[remoteKey];
+        return Array.from(modules).map((moduleKey) => ({
+          federationContainerName: getRemoteContainerName(remoteKey, remote),
           moduleName: moduleKey.replace(remoteKey, '').replace('/', ''),
           alias: remoteKey,
           entry: '*',
-        }))
+        }));
+      }
     );
 
     // Process shared dependencies

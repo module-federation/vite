@@ -129,7 +129,10 @@ async function runGenerateBundleWithManifest(
     dts?: unknown;
     filename?: string;
     varFilename?: string;
-    remotes?: Record<string, { name: string; entry: string; type?: string }>;
+    remotes?: Record<
+      string,
+      { name: string; entry: string; entryGlobalName?: string; type?: string }
+    >;
     bundle?: OutputBundle;
     environmentName?: string;
   } = {},
@@ -290,6 +293,29 @@ describe('pluginMFManifest', () => {
       federationContainerName: 'catalogContainer',
       moduleName: 'Product',
       alias: 'catalog',
+      entry: '*',
+    });
+  });
+
+  it('reports entryGlobalName for string-form remotes', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      remotes: {
+        remote1: {
+          name: 'remote1',
+          entryGlobalName: 'Button',
+          entry: 'https://cdn.example.com/remoteEntry.js',
+          type: 'var',
+        },
+      },
+      usedRemotes: { remote1: new Set(['remote1/Button']) },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.remotes).toContainEqual({
+      federationContainerName: 'Button',
+      moduleName: 'Button',
+      alias: 'remote1',
       entry: '*',
     });
   });
