@@ -1190,6 +1190,8 @@ describe('pluginAddEntry', () => {
   });
 
   it('does not replace exposed modules that are also rollup inputs', async () => {
+    const testRoot = path.resolve(path.sep, 'repo', 'remote-app');
+    const exposePath = path.join(testRoot, 'src', 'expose.ts');
     const plugins = addEntry({
       entryName: 'hostInit',
       entryPath: '/virtual/hostInit.js',
@@ -1198,17 +1200,13 @@ describe('pluginAddEntry', () => {
     const buildPlugin = plugins[1];
 
     runConfigResolved(buildPlugin, {
-      root: '/repo/remote-app',
+      root: testRoot,
       base: '/',
       command: 'build',
-      build: { rollupOptions: { input: '/repo/remote-app/src/expose.ts' } },
+      build: { rollupOptions: { input: exposePath } },
     } as unknown as ResolvedConfig);
 
-    const result = await runTransform(
-      buildPlugin,
-      'export function render() {}',
-      '/repo/remote-app/src/expose.ts'
-    );
+    const result = await runTransform(buildPlugin, 'export function render() {}', exposePath);
 
     expect(result).toBeUndefined();
   });

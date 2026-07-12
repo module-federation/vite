@@ -75,6 +75,9 @@ function resetIdleTimeout(timeout: number) {
 
 function scheduleParseCompletionCheck() {
   clearSettleTimeout();
+  // Give Rollup/Vite a short scheduling window to load child modules after
+  // parsing an importer. Some environments report moduleParsed before the
+  // child load, without exposing resolution metadata on the module object.
   _settleTimeout = setTimeout(() => {
     _settleTimeout = null;
     // Vite/Rolldown can report moduleParsed for cached or internally loaded
@@ -85,7 +88,7 @@ function scheduleParseCompletionCheck() {
       parseStartSet.size > 0 &&
       Array.from(parseStartSet).every((moduleId) => parseEndSet.has(moduleId));
     if (parseCompleted) _resolve?.(1);
-  }, 0);
+  }, 10);
 }
 
 interface ModuleParseOptions {

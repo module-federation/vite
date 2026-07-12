@@ -131,9 +131,11 @@ const Manifest = (): Plugin[] => {
     manifestOptions === true
       ? 'mf-manifest.json'
       : typeof manifestOptions === 'object'
-        ? path.join(
-            manifestOptions?.filePath || '',
-            manifestOptions?.fileName || 'mf-manifest.json'
+        ? normalizePathForImport(
+            path.join(
+              manifestOptions?.filePath || '',
+              manifestOptions?.fileName || 'mf-manifest.json'
+            )
           )
         : undefined;
 
