@@ -148,7 +148,7 @@ async function runGenerateBundleWithManifest(
   manifestOptions: unknown,
   runtime: {
     usedShares?: Set<string>;
-    usedRemotes?: Map<string, Set<string>>;
+    usedRemotes?: Map<string, Set<string>> | Record<string, Set<string>>;
     exposePaths?: Record<string, { import: string }>;
     shareItems?: Record<
       string,
@@ -163,7 +163,6 @@ async function runGenerateBundleWithManifest(
             treeShaking?: {
               mode?: 'server-calc' | 'runtime-infer';
               usedExports?: string[];
-              filename?: string;
             };
           };
         }
@@ -172,6 +171,10 @@ async function runGenerateBundleWithManifest(
     dts?: unknown;
     filename?: string;
     varFilename?: string;
+    remotes?: Record<
+      string,
+      { name: string; entry: string; entryGlobalName?: string; type?: string }
+    >;
     bundle?: OutputBundle;
     environmentName?: string;
     treeShakingSharedPlugins?: string[];
@@ -188,7 +191,7 @@ async function runGenerateBundleWithManifest(
     dts: runtime.dts,
     manifest: manifestOptions,
     exposes: runtime.exposePaths || {},
-    remotes: {},
+    remotes: runtime.remotes || {},
     shared: Object.fromEntries(
       Object.entries(runtime.shareItems || {}).filter((entry) => entry[1] !== undefined)
     ),
@@ -318,6 +321,51 @@ describe('pluginMFManifest', () => {
       name: 'remoteEntry.var.js',
       path: '',
       type: 'var',
+    });
+  });
+
+  it('reports the remote container name separately from its entry URL', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      remotes: {
+        catalog: {
+          name: 'catalogContainer',
+          entry: 'https://cdn.example.com/remoteEntry.js',
+          type: 'module',
+        },
+      },
+      usedRemotes: { catalog: new Set(['catalog/Product']) },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.remotes).toContainEqual({
+      federationContainerName: 'catalogContainer',
+      moduleName: 'Product',
+      alias: 'catalog',
+      entry: '*',
+    });
+  });
+
+  it('reports entryGlobalName for string-form remotes', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      remotes: {
+        remote1: {
+          name: 'remote1',
+          entryGlobalName: 'Button',
+          entry: 'https://cdn.example.com/remoteEntry.js',
+          type: 'var',
+        },
+      },
+      usedRemotes: { remote1: new Set(['remote1/Button']) },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.remotes).toContainEqual({
+      federationContainerName: 'Button',
+      moduleName: 'Button',
+      alias: 'remote1',
+      entry: '*',
     });
   });
 
@@ -673,7 +721,6 @@ describe('pluginMFManifest', () => {
             requiredVersion: '^6.4.3',
             treeShaking: {
               mode: 'server-calc',
-              filename: 'antd-secondary.js',
             },
           },
         },
@@ -695,7 +742,6 @@ describe('pluginMFManifest', () => {
       treeShaking: {
         mode: 'server-calc',
         usedExports: ['Button', 'Input'],
-        filename: 'antd-secondary.js',
         status: 1,
       },
     });

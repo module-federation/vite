@@ -152,7 +152,6 @@ export interface ShareItem {
 export interface TreeShakingConfig {
   mode: 'server-calc' | 'runtime-infer';
   usedExports?: string[];
-  filename?: string;
 }
 
 /**
@@ -206,6 +205,7 @@ function normalizeShareItem(
         version?: string;
         shareScope?: string;
         singleton?: boolean;
+        eager?: boolean;
         requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
         strictVersion?: boolean;
         treeShaking?: TreeShakingConfig;
@@ -218,6 +218,16 @@ function normalizeShareItem(
       ? inferVersionFromRequiredVersion(shareItem.requiredVersion)
       : undefined;
   const treeShaking = typeof shareItem === 'object' ? shareItem.treeShaking : undefined;
+  if (treeShaking && treeShaking.mode !== 'server-calc' && treeShaking.mode !== 'runtime-infer') {
+    throw createModuleFederationError(
+      `Invalid shared config for "${key}": treeShaking.mode must be either "server-calc" or "runtime-infer".`
+    );
+  }
+  if (treeShaking && typeof shareItem === 'object' && shareItem.eager) {
+    throw createModuleFederationError(
+      `Invalid shared config for "${key}": cannot use both "eager: true" and "treeShaking.mode" simultaneously. Choose one strategy.`
+    );
+  }
   if (
     treeShaking?.mode === 'runtime-infer' &&
     typeof shareItem === 'object' &&
@@ -251,6 +261,7 @@ function normalizeShareItem(
       shareConfig: {
         import: undefined,
         singleton: false,
+        eager: false,
         requiredVersion: version ? `^${version}` : '*',
       },
     };
@@ -263,6 +274,7 @@ function normalizeShareItem(
     shareConfig: {
       import: shareItem.import,
       singleton: shareItem.singleton || false,
+      eager: shareItem.eager || false,
       requiredVersion:
         shareItem.requiredVersion !== undefined
           ? shareItem.requiredVersion
@@ -272,9 +284,7 @@ function normalizeShareItem(
               ? `^${version}`
               : '*',
       strictVersion: !!shareItem.strictVersion,
-      ...(treeShaking
-        ? { treeShaking: { ...treeShaking, mode: treeShaking.mode ?? 'server-calc' } }
-        : {}),
+      ...(treeShaking ? { treeShaking: { ...treeShaking } } : {}),
     },
   };
 }
@@ -297,6 +307,7 @@ function normalizeShared(
             version?: string;
             shareScope?: string;
             singleton?: boolean;
+            eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
             treeShaking?: TreeShakingConfig;
@@ -476,6 +487,7 @@ export type ModuleFederationOptions = {
             version?: string;
             shareScope?: string;
             singleton?: boolean;
+            eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
             treeShaking?: TreeShakingConfig;

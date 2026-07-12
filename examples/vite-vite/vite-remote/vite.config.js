@@ -4,6 +4,17 @@ import { defineConfig } from 'vite';
 
 // https://vitejs.dev/config/
 const isMixed2 = process.env.MIXED_VV === '2';
+const treeShakingMode = ['server-calc', 'runtime-infer'].includes(process.env.TREE_SHAKING_MODE)
+  ? process.env.TREE_SHAKING_MODE
+  : undefined;
+const eagerShared = process.env.EAGER_SHARED === 'true';
+const antdShared = {
+  singleton: true,
+  ...(eagerShared && !treeShakingMode ? { eager: true } : {}),
+  ...(treeShakingMode
+    ? { treeShaking: { mode: treeShakingMode, usedExports: ['Button', 'Input'] } }
+    : {}),
+};
 
 export default defineConfig({
   server: {
@@ -68,8 +79,7 @@ export default defineConfig({
         },
         '@vite-vite/shared-lib': { singleton: true },
         antd: {
-          singleton: true,
-          treeShaking: { mode: 'server-calc', usedExports: ['Button', 'Input'] },
+          ...antdShared,
         },
       },
     }),

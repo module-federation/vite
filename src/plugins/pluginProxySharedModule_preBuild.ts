@@ -268,9 +268,8 @@ export function proxySharedModule(options: {
   // sources have been materialized so the heavy writes happen at most once each.
   const materializedLoadShareSources = new Set<string>();
   const emittedTreeShakingProviders = new Set<string>();
-  const outputFilenameOwners = new Map<string, { pkg: string; configuredShareName: string }>();
 
-  const normalizeTreeShakingOutputPath = (value: string, optionName: string) => {
+  const normalizeTreeShakingOutputPath = (value: string) => {
     const normalized = value.replace(/\\/g, '/');
     if (
       path.posix.isAbsolute(normalized) ||
@@ -278,10 +277,14 @@ export function proxySharedModule(options: {
       normalized.split('/').includes('..')
     ) {
       throw new Error(
-        `Invalid ${optionName} "${value}": absolute paths and parent segments are not allowed.`
+        `Invalid treeShakingDir "${value}": absolute paths and parent segments are not allowed.`
       );
     }
-    return normalized.replace(/^\.\//, '').replace(/^\/+|\/+$/g, '');
+    let start = normalized.startsWith('./') ? 2 : 0;
+    let end = normalized.length;
+    while (start < end && normalized.charCodeAt(start) === 47) start++;
+    while (end > start && normalized.charCodeAt(end - 1) === 47) end--;
+    return normalized.slice(start, end);
   };
 
   const getTreeShakingProviderFileName = (pkg: string, shareItem: ShareItem) => {
@@ -290,39 +293,14 @@ export function proxySharedModule(options: {
 
     const normalizedOptions = getNormalizeModuleFederationOptions();
     const outputDir = normalizedOptions.treeShakingDir
-      ? normalizeTreeShakingOutputPath(normalizedOptions.treeShakingDir, 'treeShakingDir')
-      : undefined;
-    const configuredFilename = treeShaking.filename
-      ? normalizeTreeShakingOutputPath(treeShaking.filename, 'treeShaking.filename')
+      ? normalizeTreeShakingOutputPath(normalizedOptions.treeShakingDir)
       : undefined;
 
-    let fileName = configuredFilename
-      ? outputDir
-        ? path.posix.join(outputDir, configuredFilename)
-        : configuredFilename
-      : outputDir
-        ? path.posix.join(outputDir, `${getTreeShakingSharedProviderName(pkg)}.js`)
-        : undefined;
+    const fileName = outputDir
+      ? path.posix.join(outputDir, `${getTreeShakingSharedProviderName(pkg)}.js`)
+      : undefined;
 
     if (!fileName) return undefined;
-    const owner = outputFilenameOwners.get(fileName);
-    if (owner && owner.pkg !== pkg) {
-      if (owner.configuredShareName !== shareItem.name) {
-        throw new Error(
-          `Tree-shaking output filename "${fileName}" is configured for both "${owner.pkg}" and "${pkg}". ` +
-            'Use a unique treeShaking.filename for each shared module.'
-        );
-      }
-      const parsed = path.posix.parse(fileName);
-      fileName = path.posix.join(
-        parsed.dir,
-        `${parsed.name}-${getTreeShakingSharedProviderName(pkg)}${parsed.ext}`
-      );
-    }
-    outputFilenameOwners.set(fileName, {
-      pkg,
-      configuredShareName: shareItem.name,
-    });
     return fileName;
   };
 
@@ -394,7 +372,6 @@ export function proxySharedModule(options: {
         setTreeShakingBuildMode(command === 'build');
         resetTreeShakingExports();
         emittedTreeShakingProviders.clear();
-        outputFilenameOwners.clear();
         const isVinext = hasPackageDependency('vinext');
         const isAstro = hasPackageDependency('astro');
         const isRolldown = getIsRolldown(this);
@@ -437,7 +414,6 @@ export function proxySharedModule(options: {
         if (_command !== 'build') return;
         resetTreeShakingExports();
         emittedTreeShakingProviders.clear();
-        outputFilenameOwners.clear();
         refreshTreeShakingModules();
       },
       shouldTransformCachedModule() {

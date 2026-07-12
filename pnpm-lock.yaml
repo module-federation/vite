@@ -17,9 +17,6 @@ importers:
       '@module-federation/sdk':
         specifier: 2.7.0
         version: 2.7.0
-      '@module-federation/webpack-bundler-runtime':
-        specifier: 2.7.0
-        version: 2.7.0
     devDependencies:
       '@playwright/test':
         specifier: 1.58.2
@@ -2364,9 +2361,6 @@ packages:
 
   '@module-federation/webpack-bundler-runtime@2.5.0':
     resolution: {integrity: sha512-UxVad+tNZYkBnZzqJQsZa0pB5gO5cJoCjMumOo3bhzXBJVqHsFupfeHa8Nk7WrRVbJE6zRT9ZHK0s0NDWBMyJw==}
-
-  '@module-federation/webpack-bundler-runtime@2.7.0':
-    resolution: {integrity: sha512-3qLRIqcZVBNgJrZpiEzcTP8a6+mCdUV1QGk/XljawsQHyNieMVdLQtdLvkoF5Z5kRXNMovq+wv3vchKOMWyA8w==}
 
   '@mui/core-downloads-tracker@7.3.9':
     resolution: {integrity: sha512-MOkOCTfbMJwLshlBCKJ59V2F/uaLYfmKnN76kksj6jlGUVdI25A9Hzs08m+zjBRdLv+sK7Rqdsefe8X7h/6PCw==}
@@ -9420,12 +9414,6 @@ snapshots:
       '@module-federation/sdk': 2.5.0
     transitivePeerDependencies:
       - node-fetch
-
-  '@module-federation/webpack-bundler-runtime@2.7.0':
-    dependencies:
-      '@module-federation/error-codes': 2.7.0
-      '@module-federation/runtime': 2.7.0
-      '@module-federation/sdk': 2.7.0
 
   '@mui/core-downloads-tracker@7.3.9': {}
 

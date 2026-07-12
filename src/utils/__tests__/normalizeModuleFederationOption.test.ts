@@ -234,6 +234,8 @@ describe('normalizeModuleFederationOption', () => {
           scope: 'default',
           version: undefined,
           shareConfig: {
+            import: undefined,
+            eager: false,
             requiredVersion: '*',
             singleton: false,
           },
@@ -244,6 +246,8 @@ describe('normalizeModuleFederationOption', () => {
           scope: 'default',
           version: undefined,
           shareConfig: {
+            import: undefined,
+            eager: false,
             requiredVersion: '*',
             singleton: false,
           },
@@ -275,6 +279,7 @@ describe('normalizeModuleFederationOption', () => {
           shareConfig: {
             requiredVersion: '*',
             singleton: false,
+            eager: false,
             strictVersion: false,
           },
         },
@@ -286,10 +291,33 @@ describe('normalizeModuleFederationOption', () => {
           shareConfig: {
             requiredVersion: '^2.0.0',
             singleton: true,
+            eager: false,
             strictVersion: true,
           },
         },
       });
+    });
+
+    it('preserves eager shared configuration', () => {
+      const normalized = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          react: { singleton: true, eager: true },
+        },
+      });
+
+      expect(normalized.shared.react.shareConfig.eager).toBe(true);
+    });
+
+    it('rejects eager shared configuration combined with tree shaking', () => {
+      expect(() =>
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: {
+            antd: { eager: true, treeShaking: { mode: 'runtime-infer' } },
+          },
+        })
+      ).toThrow(/cannot use both "eager: true" and "treeShaking\.mode" simultaneously/);
     });
 
     it('preserves tree-shaking configuration on shared items', () => {
@@ -302,7 +330,6 @@ describe('normalizeModuleFederationOption', () => {
               treeShaking: {
                 mode: 'server-calc',
                 usedExports: ['Button'],
-                filename: 'antd-secondary.js',
               },
             },
           },
@@ -310,7 +337,6 @@ describe('normalizeModuleFederationOption', () => {
       ).toEqual({
         mode: 'server-calc',
         usedExports: ['Button'],
-        filename: 'antd-secondary.js',
       });
     });
 
@@ -330,18 +356,26 @@ describe('normalizeModuleFederationOption', () => {
       expect(mfWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Prefer server-calc'));
     });
 
-    it('normalizes an omitted tree-shaking mode to server-calc', () => {
-      const normalized = normalizeModuleFederationOptions({
-        ...minimalOptions,
-        shared: {
-          antd: { treeShaking: { usedExports: ['Button'] } as any },
-        },
-      });
+    it('rejects an omitted tree-shaking mode', () => {
+      expect(() =>
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: {
+            antd: { treeShaking: { usedExports: ['Button'] } as any },
+          },
+        })
+      ).toThrow(/treeShaking\.mode must be either/);
+    });
 
-      expect(normalized.shared.antd.shareConfig.treeShaking).toEqual({
-        mode: 'server-calc',
-        usedExports: ['Button'],
-      });
+    it('rejects an invalid tree-shaking mode', () => {
+      expect(() =>
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: {
+            antd: { treeShaking: { mode: 'invalid' } as any },
+          },
+        })
+      ).toThrow(/treeShaking\.mode must be either/);
     });
 
     it('preserves top-level tree-shaking options', () => {
@@ -530,6 +564,7 @@ describe('normalizeModuleFederationOption', () => {
         version: undefined,
         shareConfig: {
           import: false,
+          eager: false,
           requiredVersion: '*',
           singleton: true,
           strictVersion: false,

@@ -90,19 +90,34 @@ function getDirectSharedCacheSeedImportPath(pkg: string, shareItem: ShareItem) {
 export function generateLocalSharedImportMap() {
   const useDirectReactImport = shouldUseDirectReactImport();
   const options = getNormalizeModuleFederationOptions();
+  const orderedShares = getOrderedUsedShares();
+  const eagerImports = orderedShares
+    .map((pkg, index) => {
+      const shareItem = getNormalizeShareItem(pkg);
+      if (!shareItem?.shareConfig.eager || shareItem.shareConfig.import === false) return '';
+      return `import * as __mfEagerShare_${index} from ${JSON.stringify(
+        getLocalSharedPackagePath(pkg, shareItem)
+      )};`;
+    })
+    .filter(Boolean)
+    .join('\n');
 
   return `
     import {loadShare} from "@module-federation/runtime";
+    ${eagerImports}
     const importMap = {
-      ${getOrderedUsedShares()
-        .map((pkg) => {
+      ${orderedShares
+        .map((pkg, index) => {
           const shareItem = getNormalizeShareItem(pkg);
           return `
         ${JSON.stringify(pkg)}: async () => {
           ${
             shareItem?.shareConfig.import === false
               ? `throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
-              : `let pkg = await import(${JSON.stringify(getLocalSharedPackagePath(pkg, shareItem))});
+              : shareItem?.shareConfig.eager
+                ? `let pkg = __mfEagerShare_${index};
+            return pkg;`
+                : `let pkg = await import(${JSON.stringify(getLocalSharedPackagePath(pkg, shareItem))});
             return pkg;`
           }
         }
@@ -147,6 +162,7 @@ export function generateLocalSharedImportMap() {
             version: ${JSON.stringify(shareItem.version)},
             scope: [${JSON.stringify(shareItem.scope)}],
             loaded: false,
+            eager: ${Boolean(shareItem.shareConfig.eager)},
             from: ${JSON.stringify(options.name)},
             async get () {
               if (${shareItem.shareConfig.import === false}) {
@@ -171,6 +187,7 @@ export function generateLocalSharedImportMap() {
               singleton: ${shareItem.shareConfig.singleton},
               requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
               strictVersion: ${shareItem.shareConfig.strictVersion},
+              eager: ${Boolean(shareItem.shareConfig.eager)},
               ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
             },
             ${
@@ -179,7 +196,6 @@ export function generateLocalSharedImportMap() {
               mode: ${JSON.stringify(shareItem.shareConfig.treeShaking.mode)},
               usedExports: ${JSON.stringify(treeShakingUsedExports)},
               providedExports: ${JSON.stringify(treeShakingProviderExports)},
-              ${shareItem.shareConfig.treeShaking.filename ? `filename: ${JSON.stringify(shareItem.shareConfig.treeShaking.filename)},` : ''}
               status: ${treeShakingStatus},
               ${
                 treeShakingProviderImportId
@@ -205,6 +221,7 @@ export function generateLocalSharedImportMap() {
           if (!remote) return null;
           return `
                 {
+                  alias: ${JSON.stringify(key)},
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
                   name: ${JSON.stringify(remote.name)},
                   type: ${JSON.stringify(remote.type)},
@@ -495,7 +512,7 @@ function generateTreeShakingSharedResolutionCode(enabled: boolean): string {
     // modules only.
     for (const [pkg, share] of Object.entries(usedShared)) {
       const treeShaking = share.treeShaking;
-      if (!Array.isArray(treeShaking?.providedExports) || treeShaking.providedExports.length === 0) continue;
+      if (!treeShaking) continue;
       try {
         const factory = await initRes.loadShare(pkg, {
           customShareInfo: {
@@ -513,10 +530,12 @@ function generateTreeShakingSharedResolutionCode(enabled: boolean): string {
         ${normalizeRuntimeShareCode}
         const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
         const normalizedShared = __mfNormalizeRuntimeShare(resolved);
-        if (
-          (treeShaking.mode === "runtime-infer" && treeShaking.status !== 0) ||
-          treeShaking.status === 2
-        ) {
+        const hasPartialProvider =
+          Array.isArray(treeShaking.providedExports) &&
+          treeShaking.providedExports.length > 0 &&
+          ((treeShaking.mode === "runtime-infer" && treeShaking.status !== 0) ||
+            treeShaking.status === 2);
+        if (hasPartialProvider) {
           __mfWriteTreeShakingSharedCache(
             __mfModuleCache.share,
             cacheDescriptor,
@@ -631,8 +650,7 @@ function generateTreeShakingSnapshotPluginCode(enabled: boolean): string {
               });
               if (!shareEntry) throw new Error("Tree-shaken shared entry did not load");
               if (typeof shareEntry.init === "function") {
-                const { bundlerRuntime } = await import("@module-federation/webpack-bundler-runtime");
-                await shareEntry.init(origin, bundlerRuntime);
+                await shareEntry.init(origin);
               }
               return shareEntry.get();
             } catch (error) {
@@ -656,6 +674,9 @@ export function generateRemoteEntry(
   const needsSharedProviderSelectionHelper = hasImportFalseShared(options);
   const hasTreeShakingShared = Object.values(options.shared ?? {}).some(
     (share) => !!share?.shareConfig.treeShaking
+  );
+  const hasEagerShared = Object.values(options.shared ?? {}).some(
+    (share) => share?.shareConfig.eager === true && share.shareConfig.import !== false
   );
   const runtimeImports = [
     'init as runtimeInit',
@@ -688,6 +709,11 @@ export function generateRemoteEntry(
     globalThis.__VUE_HMR_RUNTIME__ = { createRecord() {}, rerender() {}, reload() {} };
   }
   import {${runtimeImports}} from "@module-federation/runtime";
+  ${
+    hasEagerShared
+      ? `import * as __mfLocalSharedImportMap from "${getLocalSharedImportMapPath()}";`
+      : ''
+  }
   ${
     runtimeHelperImports.length
       ? `import {${runtimeHelperImports.join(', ')}} from "@module-federation/runtime/helpers";`
@@ -731,11 +757,16 @@ export function generateRemoteEntry(
   ${needsSharedProviderSelectionHelper ? sharedProviderSelectionHelperCode : ''}
 
   async function getLocalSharedImportMap() {
-    if (!localSharedImportMapPromise) {
+    ${hasEagerShared ? 'return __mfLocalSharedImportMap;' : ''}
+    ${
+      hasEagerShared
+        ? ''
+        : `if (!localSharedImportMapPromise) {
       localSharedImportMapPromise = retrySharedInit(() => import("${getLocalSharedImportMapPath()}"))
         .catch((e) => { localSharedImportMapPromise = undefined; throw e; });
     }
-    return localSharedImportMapPromise
+    return localSharedImportMapPromise`
+    }
   }
 
   async function getExposesMap() {

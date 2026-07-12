@@ -11,6 +11,10 @@ function isNodeModulesImporter(importer?: string) {
   return importer?.includes('/node_modules/') || importer?.includes('\\node_modules\\');
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function appendAlias(config: Record<string, any>, alias: { find: RegExp; replacement: string }) {
   config.resolve ??= {};
   const existingAlias = config.resolve.alias;
@@ -63,10 +67,9 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     config(config, { command: _command }) {
       command = _command;
       root = config.root || process.cwd();
-      Object.keys(remotes).forEach((key) => {
-        const remote = remotes[key];
+      Object.keys(remotes).forEach((remoteAlias) => {
         appendAlias(config as Record<string, any>, {
-          find: new RegExp(`^(${remote.name}(\/.*|$))`),
+          find: new RegExp(`^(${escapeRegExp(remoteAlias)}(\/.*|$))`),
           replacement: '$1',
         });
       });
@@ -83,9 +86,9 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     },
     resolveId(source, importer) {
       if (!filterId(source)) return;
-      for (const remote of Object.values(remotes)) {
-        if (source !== remote.name && !source.startsWith(`${remote.name}/`)) continue;
-        return resolveRemoteId(this, source, importer, remote.name);
+      for (const remoteAlias of Object.keys(remotes)) {
+        if (source !== remoteAlias && !source.startsWith(`${remoteAlias}/`)) continue;
+        return resolveRemoteId(this, source, importer, remoteAlias);
       }
     },
   };

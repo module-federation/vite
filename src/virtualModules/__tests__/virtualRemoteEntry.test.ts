@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   hasPackageDependencyMock,
   normalizedSharedMock,
+  normalizedRemotesMock,
   usedRemotesMapMock,
   writeSyncSpy,
   optionsMock,
 } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
   normalizedSharedMock: vi.fn(() => ({})),
+  normalizedRemotesMock: vi.fn(() => ({})),
   usedRemotesMapMock: vi.fn(() => ({})),
   writeSyncSpy: vi.fn(),
   optionsMock: {
@@ -176,7 +178,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       internalName: '__mfe_internal__host',
       name: 'host',
       filename: 'remoteEntry.js',
-      remotes: {},
+      remotes: normalizedRemotesMock(),
       shared: normalizedSharedMock(),
       shareScope: 'default',
       runtimePlugins: [],
@@ -199,6 +201,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
         singleton: true,
         requiredVersion: pkg === 'unconstrained' ? false : '^19.2.4',
         strictVersion: false,
+        eager: pkg === 'eager-shared',
         ...(pkg === 'tree-shared'
           ? { treeShaking: { mode: 'runtime-infer', usedExports: ['Button'] } }
           : {}),
@@ -249,6 +252,8 @@ describe('virtualRemoteEntry', () => {
     hasPackageDependencyMock.mockReset();
     normalizedSharedMock.mockReset();
     normalizedSharedMock.mockReturnValue({});
+    normalizedRemotesMock.mockReset();
+    normalizedRemotesMock.mockReturnValue({});
     usedRemotesMapMock.mockReset();
     usedRemotesMapMock.mockReturnValue({});
     writeSyncSpy.mockClear();
@@ -329,6 +334,22 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('let pkg = await import("/abs/custom-import.js");');
     expect(code).not.toContain('virtual:prebuild:custom-import');
+  });
+
+  it('statically imports eager shared providers and emits eager runtime metadata', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('eager-shared');
+    mod.addUsedShares('vue');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('import * as __mfEagerShare_0 from "virtual:prebuild:eager-shared";');
+    expect(code).toContain('let pkg = __mfEagerShare_0;');
+    expect(code).toContain('let pkg = await import("virtual:prebuild:vue");');
+    expect(code).toContain('eager: true');
+    expect(code).toMatch(/loaded: false,\s+eager: true,\s+from: "host"/);
   });
 
   it('keeps the full getter and emits a separate runtime-infer provider getter', async () => {
@@ -678,6 +699,38 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('import {usedShared, usedRemotes} from');
   });
 
+  it('statically includes the local shared map when a local eager share is configured', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const eagerShare = {
+      name: 'eager-shared',
+      version: '1.0.0',
+      scope: 'default',
+      from: '',
+      shareConfig: { eager: true, import: undefined },
+    };
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        shared: { 'eager-shared': eagerShare },
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    expect(code).toContain(
+      'import * as __mfLocalSharedImportMap from "virtual:mf-localSharedImportMap:__mfe_internal__host";'
+    );
+    expect(code).toContain('return __mfLocalSharedImportMap;');
+    expect(code).not.toContain('retrySharedInit(() => import("virtual:mf-localSharedImportMap');
+  });
+
   it('patches server-calc providers from Snapshot and coverage-caches runtime selections', async () => {
     const treeShare = {
       name: 'tree-shared',
@@ -717,15 +770,33 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('treeShaking.mode !== "server-calc"');
     expect(code).toContain('if (status === 2 && (!entry || !name)) continue;');
     expect(code).toContain('type: fallbackType || "global"');
-    expect(code).toContain(
-      'const { bundlerRuntime } = await import("@module-federation/webpack-bundler-runtime");'
-    );
-    expect(code).toContain('await shareEntry.init(origin, bundlerRuntime);');
+    expect(code).toContain('await shareEntry.init(origin);');
     expect(code).toContain('if (typeof fullFallbackGet === "function") return fullFallbackGet();');
     expect(code).toContain('__mfWriteTreeShakingSharedCache(');
     expect(code).toContain('treeShaking.providedExports');
+    expect(code).toContain('if (!treeShaking) continue;');
+    expect(code).not.toContain('treeShaking.providedExports.length === 0) continue;');
+    expect(code).toContain('const hasPartialProvider =');
     expect(code).toContain('Boolean(share.treeShaking)');
     expect(code).toContain('plugins: [__mfTreeShakingSnapshotPlugin(),');
+  });
+
+  it('includes remote aliases in version-first remoteEntry initialization', async () => {
+    normalizedRemotesMock.mockReturnValue({
+      catalog: {
+        entryGlobalName: 'catalog',
+        name: 'catalogContainer',
+        type: 'module',
+        entry: 'http://localhost:4174/remoteEntry.js',
+      },
+    });
+    usedRemotesMapMock.mockReturnValue({ catalog: new Set(['catalog/Button']) });
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('alias: "catalog"');
+    expect(code).toContain('name: "catalogContainer"');
   });
 
   it('does not eagerly preload remotes during host auto init', async () => {

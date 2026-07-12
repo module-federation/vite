@@ -72,8 +72,7 @@
   "dependencies": {
     "@module-federation/dts-plugin": "2.7.0",
     "@module-federation/runtime": "2.7.0",
-    "@module-federation/sdk": "2.7.0",
-    "@module-federation/webpack-bundler-runtime": "2.7.0"
+    "@module-federation/sdk": "2.7.0"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",

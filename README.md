@@ -238,6 +238,35 @@ const RemoteMFE = defineAsyncComponent( 👈
 </template>
 ```
 
+## Shared Tree Shaking
+
+Shared Tree Shaking reduces shared dependency bundles to the exports used by the application.
+
+```ts
+federation({
+  shared: {
+    antd: {
+      singleton: true,
+      treeShaking: {
+        mode: "runtime-infer", // or "server-calc"
+        usedExports: ["Button", "Input"],
+      },
+    },
+  },
+  treeShakingDir: "independent-packages",
+});
+```
+
+`runtime-infer` is useful for local development and falls back to the full dependency when the required exports are not available. `server-calc` is recommended for deployments because it can use aggregated export metadata from all consumers.
+
+Do not combine `eager: true` with `treeShaking`; eager shared dependencies are bundled into the initial entry and cannot use the on-demand tree-shaking path. Choose eager loading for small dependencies, or tree shaking for larger dependencies such as component libraries.
+
+With `server-calc`, the Vite build records the exports used by each application in its generated Module Federation metadata. A deployment service must then collect that metadata for all applications that share the same dependency and version, merge their `usedExports` lists, and use the resulting union to create one optimized secondary shared artifact. For example, if one application uses `Button` and another uses `Input`, the secondary artifact must contain both exports.
+
+After creating the secondary artifact, the deployment service must publish it to a location accessible by consumers, such as a CDN, and update the remote Snapshot with the artifact's URL, unique name, and available tree-shaking status. Consumers use those Snapshot fields to decide whether the optimized artifact can satisfy their required exports and version.
+
+This deployment step is separate from the local Vite build; the plugin only emits the metadata and runtime support needed by the service. If the Snapshot is not updated, the artifact cannot be fetched, the versions do not match, or the artifact does not provide all required exports, the runtime ignores the optimized artifact and safely loads the complete shared dependency instead.
+
 ## ⚠️ `codeSplitting` settings are controlled by the plugin
 
 Do not set either `build.rollupOptions.output.codeSplitting` or

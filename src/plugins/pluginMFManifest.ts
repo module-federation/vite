@@ -3,6 +3,7 @@ import { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
 import {
@@ -109,6 +110,16 @@ function getTreeShakingBuildInfo(options: ReturnType<typeof getNormalizeModuleFe
       ? { excludePlugins: [...options.treeShakingSharedExcludePlugins] }
       : {}),
   };
+}
+
+function getRemoteContainerName(remoteKey: string, remote: RemoteObjectConfig) {
+  // Object-form remotes default entryGlobalName to the alias during
+  // normalization, while string-form remotes use it for `Name@entry`.
+  const entryGlobalName = remote.entryGlobalName;
+  if (entryGlobalName && entryGlobalName !== remoteKey && entryGlobalName !== remote.entry) {
+    return entryGlobalName;
+  }
+  return remote.name;
 }
 
 const Manifest = (): Plugin[] => {
@@ -427,13 +438,15 @@ const Manifest = (): Plugin[] => {
 
     // Process remotes
     const remotes = Array.from(Object.entries(getUsedRemotesMap())).flatMap(
-      ([remoteKey, modules]) =>
-        Array.from(modules).map((moduleKey) => ({
-          federationContainerName: options.remotes[remoteKey].entry,
+      ([remoteKey, modules]) => {
+        const remote = options.remotes[remoteKey];
+        return Array.from(modules).map((moduleKey) => ({
+          federationContainerName: getRemoteContainerName(remoteKey, remote),
           moduleName: moduleKey.replace(remoteKey, '').replace('/', ''),
           alias: remoteKey,
           entry: '*',
-        }))
+        }));
+      }
     );
 
     // Process shared dependencies
@@ -471,9 +484,6 @@ const Manifest = (): Plugin[] => {
                   mode: shareItem.shareConfig.treeShaking.mode,
                   ...(treeShakingUsage?.kind === 'exports'
                     ? { usedExports: treeShakingUsedExports }
-                    : {}),
-                  ...(shareItem.shareConfig.treeShaking.filename
-                    ? { filename: shareItem.shareConfig.treeShaking.filename }
                     : {}),
                   status: treeShakingStatus,
                 },
