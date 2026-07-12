@@ -193,16 +193,18 @@ function hasImportFalseShared(options: NormalizedModuleFederationOptions): boole
 function getRuntimeHelpersImplementation(runtimeImplementation: string): string {
   const indexEntryMatch = runtimeImplementation.match(/^(.*[\\/])index(\.[cm]?js)$/);
   if (indexEntryMatch) {
-    return `${indexEntryMatch[1]}helpers${indexEntryMatch[2]}`;
+    return normalizePathForImport(`${indexEntryMatch[1]}helpers${indexEntryMatch[2]}`);
   }
 
   const extension = path.extname(runtimeImplementation);
   if (extension) {
-    return path.join(path.dirname(runtimeImplementation), `helpers${extension}`);
+    return normalizePathForImport(
+      path.join(path.dirname(runtimeImplementation), `helpers${extension}`)
+    );
   }
 
   if (path.isAbsolute(runtimeImplementation) || runtimeImplementation.startsWith('.')) {
-    return path.join(runtimeImplementation, 'helpers');
+    return normalizePathForImport(path.join(runtimeImplementation, 'helpers'));
   }
 
   return `${runtimeImplementation.replace(/\/$/, '')}/helpers`;

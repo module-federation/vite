@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { normalizePathForImport } from '../../utils/buildPaths';
 import {
   normalizeModuleFederationOptions,
   ShareItem,
@@ -168,6 +169,12 @@ vi.mock('../../utils/packageUtils', () => ({
     }
   }),
   getInstalledPackageJson: vi.fn((pkg: string, opts?: { fromResolvedEntry?: string }) => {
+    if (opts?.fromResolvedEntry) {
+      opts = {
+        ...opts,
+        fromResolvedEntry: normalizePathForImport(opts.fromResolvedEntry),
+      };
+    }
     if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-shared-lib/')) {
       return {
         path: '/repo/packages/workspace-shared-lib/package.json',
@@ -287,8 +294,9 @@ vi.mock('../../utils/VirtualModule', () => {
 });
 
 vi.mock('fs', () => ({
-  existsSync: vi.fn(
-    (filePath: string) =>
+  existsSync: vi.fn((filePath: string) => {
+    filePath = normalizePathForImport(filePath);
+    return (
       filePath.endsWith('node_modules/lit/package.json') ||
       filePath.endsWith('/lit/package.json') ||
       filePath.endsWith('node_modules/lit/index.js') ||
@@ -324,8 +332,10 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js') ||
       filePath.endsWith('/repo/packages/mock-package-star-entry.js') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts')
-  ),
+    );
+  }),
   readFileSync: vi.fn((filePath: string) => {
+    filePath = normalizePathForImport(filePath);
     if (filePath.endsWith('/repo/packages/mock-package-star-entry.js')) {
       return "export * from 'mock-package-star-dependency'; export const directExport = 1;";
     }

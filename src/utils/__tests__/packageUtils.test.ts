@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { pathToFileURL } from 'url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { normalizePathForImport } from '../buildPaths';
 import {
   getInstalledPackageEntry,
   getInstalledPackageJson,
@@ -49,7 +50,7 @@ describe('getInstalledPackageJson', () => {
     const installed = getInstalledPackageJson(packageName, { cwd: path.join(root, 'apps/host') });
 
     expect(installed?.packageJson.name).toBe(packageName);
-    expect(installed?.path).toContain(
+    expect(normalizePathForImport(installed?.path || '')).toContain(
       `/node_modules/.pnpm/${packageName}@0.27.0/node_modules/${packageName}/package.json`
     );
   });
@@ -114,7 +115,7 @@ describe('getInstalledPackageJson', () => {
       resolveSubpathWithRequire: false,
     });
 
-    expect(entry).toContain('/components/button.tsx');
+    expect(normalizePathForImport(entry || '')).toContain('/components/button.tsx');
   });
 
   it('substitutes the wildcard into conditional exports targets', () => {
@@ -142,7 +143,7 @@ describe('getInstalledPackageJson', () => {
       resolveSubpathWithRequire: false,
     });
 
-    expect(entry).toContain('/esm/button.js');
+    expect(normalizePathForImport(entry || '')).toContain('/esm/button.js');
   });
 
   it('substitutes the wildcard into fallback-array exports targets', () => {
@@ -168,7 +169,7 @@ describe('getInstalledPackageJson', () => {
       resolveSubpathWithRequire: false,
     });
 
-    expect(entry).toContain('/esm/button.js');
+    expect(normalizePathForImport(entry || '')).toContain('/esm/button.js');
   });
 
   it('prefers the most specific (longest-prefix) wildcard pattern', () => {
@@ -197,7 +198,7 @@ describe('getInstalledPackageJson', () => {
       resolveSubpathWithRequire: false,
     });
 
-    expect(entry).toContain('/components/card.tsx');
+    expect(normalizePathForImport(entry || '')).toContain('/components/card.tsx');
   });
 
   it('breaks ties between equal-length wildcard bases by longest key', () => {
@@ -226,7 +227,7 @@ describe('getInstalledPackageJson', () => {
       resolveSubpathWithRequire: false,
     });
 
-    expect(entry).toContain('/min/button.js');
+    expect(normalizePathForImport(entry || '')).toContain('/min/button.js');
   });
 });
 

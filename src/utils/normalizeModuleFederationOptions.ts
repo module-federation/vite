@@ -32,6 +32,7 @@ import {
   resolveImportPath,
 } from './packageUtils';
 import { getCommonSharedSubpaths } from './pathNormalization';
+import { normalizePathForImport } from './buildPaths';
 
 interface ExposesItem {
   import: string;
@@ -718,7 +719,9 @@ export function normalizeModuleFederationOptions(
     shareScope: options.shareScope || 'default',
     shared: normalizeShared(options.shared),
     runtimePlugins: options.runtimePlugins || [],
-    implementation: options.implementation || resolveRuntimeImplementation(),
+    implementation: normalizePathForImport(
+      options.implementation || resolveRuntimeImplementation()
+    ),
     manifest: normalizeManifest(options.manifest),
     dev: options.dev,
     dts: options.dts,

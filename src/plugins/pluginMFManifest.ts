@@ -24,6 +24,7 @@ import {
   processModuleAssets,
 } from '../utils/cssModuleHelpers';
 import { resolvePublicPath } from '../utils/pathNormalization';
+import { normalizePathForImport } from '../utils/buildPaths';
 import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
 import { DEFAULT_PUBLIC_TYPES_FOLDER } from './pluginDts';
 
@@ -609,7 +610,7 @@ function getStatsFileName(manifestFileName: string) {
   const baseWithoutManifestSuffix = baseName === 'mf-manifest' ? 'mf' : baseName;
   const fileName = `${baseWithoutManifestSuffix}-stats${fileExt}`;
 
-  return parsed.dir ? path.join(parsed.dir, fileName) : fileName;
+  return parsed.dir ? normalizePathForImport(path.join(parsed.dir, fileName)) : fileName;
 }
 
 export default Manifest;
