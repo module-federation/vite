@@ -2180,7 +2180,7 @@ describe('writePreBuildLibPath', () => {
     expect(generatedCode).toContain('import * as __mfPrebuildExports from "ag-grid-react";');
     expect(generatedCode).toContain('export * from "ag-grid-react";');
     expect(generatedCode).toContain(
-      'export default __mfPrebuildExports.default ?? __mfPrebuildExports;'
+      'export default Reflect.get(__mfPrebuildExports, "default") ?? __mfPrebuildExports;'
     );
   });
 
@@ -2195,7 +2195,7 @@ describe('writePreBuildLibPath', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).toContain(
-      'export default __mfPrebuildNamespace.default ?? __mfPrebuildNamespace;'
+      'export default Reflect.get(__mfPrebuildNamespace, "default") ?? __mfPrebuildNamespace;'
     );
     expect(generatedCode).not.toMatch(/export default __mfPrebuildExports;\s*$/m);
   });

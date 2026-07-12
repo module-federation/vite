@@ -111,6 +111,16 @@ describe('collectTreeShakingImports', () => {
     expect(unsafe).toEqual(Array.from({ length: 7 }, () => ({ key: 'antd', request: 'antd' })));
   });
 
+  it('recognizes generated Windows modules after path normalization', () => {
+    const { recorded, unsafe } = analyze(
+      `import { Button } from 'antd';`,
+      'C:\\repo\\node_modules\\__mf__virtual\\antd__prebuild__.js'
+    );
+
+    expect(recorded).toEqual([]);
+    expect(unsafe).toEqual([]);
+  });
+
   it('does not interpret import-looking text in comments, strings, templates, or regexes', () => {
     const { recorded, unsafe } = analyze(`
       // import { MissingFromComment } from 'antd';

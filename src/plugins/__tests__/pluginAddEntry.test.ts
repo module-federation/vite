@@ -1551,6 +1551,11 @@ describe('pluginAddEntry', () => {
         name: '_virtual_mf-localSharedImportMap___app',
         fileName: 'assets/chunk-_virtual_mf-localSharedImportMap___app.Bl.js',
       },
+      'assets/chunk-_virtual_mf___app__prebuild__antd__prebuild__.js': {
+        type: 'chunk',
+        name: '_virtual_mf___app__prebuild__antd__prebuild__',
+        fileName: 'assets/chunk-_virtual_mf___app__prebuild__antd__prebuild__.js',
+      },
       'assets/chunk-index.B_.js': {
         type: 'chunk',
         name: 'index',
@@ -1603,6 +1608,7 @@ describe('pluginAddEntry', () => {
     expect(html).toContain(
       '<link rel="modulepreload" crossorigin href="/app/assets/chunk-_virtual_mf-localSharedImportMap___app.Bl.js">'
     );
+    expect(html).not.toContain('chunk-_virtual_mf___app__prebuild__antd__prebuild__.js');
     expect(html.match(/chunk-index\.B_\.js/g)?.length).toBe(1);
     expect(html).not.toContain('index.AA.css');
   });

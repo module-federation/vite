@@ -558,6 +558,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
   const isVinext = hasPackageDependency('vinext');
   const { name, shared, filename, hostInitInjectLocation } = options;
+  const hasTreeShakingShared = Object.values(shared).some(
+    (share) => !!share.shareConfig.treeShaking
+  );
   if (!name) throw createModuleFederationError('name is required');
 
   const remoteEntryId = getRemoteEntryId(options);
@@ -769,9 +772,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                 context.hostType === 'js' &&
                 resolvedDeps.some((dep) => isFederationHtmlPreloadDependency(dep));
 
+              const treeShakingFallbackDeps = hasTreeShakingShared
+                ? (dep: string) => dep.includes('__prebuild__')
+                : () => false;
+
               return hasFederationHtmlDeps || hasFederationJsDeps
-                ? resolvedDeps.filter((dep) => !isFederationHtmlPreloadDependency(dep, true))
-                : resolvedDeps;
+                ? resolvedDeps.filter(
+                    (dep) =>
+                      !isFederationHtmlPreloadDependency(dep, true) && !treeShakingFallbackDeps(dep)
+                  )
+                : resolvedDeps.filter((dep) => !treeShakingFallbackDeps(dep));
             },
           };
         }

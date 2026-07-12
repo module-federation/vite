@@ -30,6 +30,7 @@ import {
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import VirtualModule, { normalizeVirtualModuleId, toViteEncodedId } from '../utils/VirtualModule';
+import { normalizeNodeModulePath } from '../utils/pathNormalization';
 import {
   getRuntimeInitPromiseBootstrapCode,
   getRuntimeModuleCacheBootstrapCode,
@@ -345,7 +346,7 @@ function isWorkspaceFilePath(resolved: string | undefined): resolved is string {
   try {
     realResolved = realpathSync.native(resolved);
   } catch {}
-  return !realResolved.includes('/node_modules/') && !realResolved.includes('\\node_modules\\');
+  return !normalizeNodeModulePath(realResolved).includes('/node_modules/');
 }
 
 /**
@@ -731,7 +732,7 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
     const __mfPrebuildExports = __mfPrebuildNamespace;
     ${declarations}
     ${namedExportLine}
-    export default __mfPrebuildNamespace.default ?? __mfPrebuildNamespace;
+    export default Reflect.get(__mfPrebuildNamespace, "default") ?? __mfPrebuildNamespace;
   `,
       true
     );
@@ -741,7 +742,10 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
     `
     import * as __mfPrebuildExports from ${escapeGeneratedStringLiteral(importSource)};
     export * from ${escapeGeneratedStringLiteral(importSource)};
-    export default __mfPrebuildExports.default ?? __mfPrebuildExports;
+    // Reflect access avoids bundler warnings for ESM packages without a
+    // default export (for example antd/es/index.js), while preserving the
+    // namespace fallback for packages that do provide one.
+    export default Reflect.get(__mfPrebuildExports, "default") ?? __mfPrebuildExports;
   `,
     true
   );

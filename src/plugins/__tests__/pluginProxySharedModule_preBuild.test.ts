@@ -7,6 +7,7 @@ import type {
 } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
+import { normalizePathForImport } from '../../utils/buildPaths';
 
 const {
   hasPackageDependencyMock,
@@ -128,7 +129,7 @@ vi.mock('../../utils/packageUtils', () => ({
     return match ? match[0] : pkg;
   },
   getPackageNameFromNodeModulePath: (filePath: string) => {
-    const normalized = filePath.replace(/\\/g, '/');
+    const normalized = normalizePathForImport(filePath);
     const marker = '/node_modules/';
     const index = normalized.lastIndexOf(marker);
     if (index < 0) return undefined;
@@ -410,26 +411,26 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
     const graphPlugin = getTreeShakingGraphPlugin(proxySharedModule({ shared }));
-    const resolve = vi.fn(async () => ({ id: '/repo/node_modules/pkg/subpath.js' }));
+    const resolve = vi.fn(async () => ({ id: 'C:\\repo\\node_modules\\pkg\\subpath.js' }));
 
     const result = await callHook(
       graphPlugin.resolveId,
       { resolve } as any,
       'pkg/subpath',
-      '/repo/node_modules/pkg/index.js?__mf_tree_shaking_graph__=pkg',
+      'C:\\repo\\node_modules\\pkg\\index.js?__mf_tree_shaking_graph__=pkg',
       {} as any
     );
 
     expect(resolve).toHaveBeenCalledWith(
       'pkg/subpath',
-      '/repo/node_modules/pkg/index.js',
+      'C:/repo/node_modules/pkg/index.js',
       expect.objectContaining({
         custom: expect.objectContaining({ __mfTreeShakingGraph: true }),
         skipSelf: true,
       })
     );
     expect(result).toEqual({
-      id: '/repo/node_modules/pkg/subpath.js?__mf_tree_shaking_graph__=pkg',
+      id: 'C:/repo/node_modules/pkg/subpath.js?__mf_tree_shaking_graph__=pkg',
     });
 
     resolve.mockResolvedValueOnce({ id: '\0vite/preload-helper.js' });
@@ -437,7 +438,7 @@ describe('pluginProxySharedModule_preBuild', () => {
       graphPlugin.resolveId,
       { resolve } as any,
       '\0vite/preload-helper.js',
-      '/repo/node_modules/pkg/index.js?__mf_tree_shaking_graph__=pkg',
+      'C:\\repo\\node_modules\\pkg\\index.js?__mf_tree_shaking_graph__=pkg',
       {} as any
     );
     expect(virtualResult).toEqual({ id: '\0vite/preload-helper.js' });

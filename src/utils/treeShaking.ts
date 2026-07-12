@@ -1,5 +1,6 @@
 import { parseAst } from 'vite';
 import type { NormalizedShared, ShareItem } from './normalizeModuleFederationOptions';
+import { normalizePathForImport } from './buildPaths';
 
 type SharedSourceMatcher = (source: string, shared: NormalizedShared) => string | undefined;
 
@@ -302,10 +303,11 @@ export function collectTreeShakingImports(
   record: RecordTreeShakingExports,
   markUnsafe: MarkTreeShakingPackageUnsafe
 ) {
+  const normalizedId = normalizePathForImport(id);
   if (
-    id.includes('__prebuild__') ||
-    id.includes('__loadShare__') ||
-    id.includes('__mf_tree_shaking_graph__')
+    normalizedId.includes('__prebuild__') ||
+    normalizedId.includes('__loadShare__') ||
+    normalizedId.includes('__mf_tree_shaking_graph__')
   ) {
     return;
   }

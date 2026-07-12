@@ -31,7 +31,11 @@ interface AddEntryOptions {
 const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
   (name) => name === 'hostInit',
   (name) => name === 'remoteEntry',
-  (name) => name.startsWith('_virtual_mf'),
+  // Tree-shaken shares deliberately keep their complete provider as a lazy
+  // fallback. Preloading every virtual MF chunk would fetch that fallback
+  // before runtime provider selection has a chance to choose the optimized
+  // provider.
+  (name) => name.startsWith('_virtual_mf') && !name.includes('__prebuild__'),
   (name) => name === 'index',
 ];
 

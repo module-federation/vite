@@ -2,6 +2,7 @@ import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
+import { normalizePathForImport } from '../utils/buildPaths';
 import { mfWarn } from '../utils/logger';
 import {
   getNormalizeModuleFederationOptions,
@@ -270,7 +271,7 @@ export function proxySharedModule(options: {
   const emittedTreeShakingProviders = new Set<string>();
 
   const normalizeTreeShakingOutputPath = (value: string) => {
-    const normalized = value.replace(/\\/g, '/');
+    const normalized = normalizePathForImport(value);
     if (
       path.posix.isAbsolute(normalized) ||
       /^[A-Za-z]:\//.test(normalized) ||
@@ -452,8 +453,10 @@ export function proxySharedModule(options: {
         const token = sourceToken || importerToken;
         if (!token) return;
 
-        const cleanSource = stripTreeShakingGraphQuery(source);
-        const cleanImporter = importer ? stripTreeShakingGraphQuery(importer) : undefined;
+        const cleanSource = normalizePathForImport(stripTreeShakingGraphQuery(source));
+        const cleanImporter = importer
+          ? normalizePathForImport(stripTreeShakingGraphQuery(importer))
+          : undefined;
 
         // Dependencies that are independently configured as shared keep using
         // their ordinary federation wrapper. Everything else inherits the
@@ -492,7 +495,7 @@ export function proxySharedModule(options: {
 
         return {
           ...resolved,
-          id: addTreeShakingGraphQuery(resolved.id, token),
+          id: addTreeShakingGraphQuery(normalizePathForImport(resolved.id), token),
         };
       },
     },
