@@ -1431,7 +1431,7 @@ describe('vite:module-federation-early-init', () => {
     expect(optimizeDeps).toContain('zustand/react');
   });
 
-  it('excludes shared react from dev optimizeDeps when react-redux is installed', () => {
+  it('includes shared react in dev optimizeDeps when react-redux is installed', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'react-redux'
     );
@@ -1449,11 +1449,11 @@ describe('vite:module-federation-early-init', () => {
       mode: 'test',
     });
 
-    expect(config.optimizeDeps.exclude).toContain('react');
-    expect(config.optimizeDeps.include).not.toContain('react');
+    expect(config.optimizeDeps.include).toContain('react');
+    expect(config.optimizeDeps.exclude).not.toContain('react');
   });
 
-  it('excludes shared singleton react from dev optimizeDeps without react-redux', () => {
+  it('includes shared singleton react in dev optimizeDeps without react-redux', () => {
     hasPackageDependencyMock.mockReturnValue(false);
     const plugin = getEarlyInitPluginWithReactShared();
     const config: any = {
@@ -1469,8 +1469,8 @@ describe('vite:module-federation-early-init', () => {
       mode: 'test',
     });
 
-    expect(config.optimizeDeps.exclude).toContain('react');
-    expect(config.optimizeDeps.include).not.toContain('react');
+    expect(config.optimizeDeps.include).toContain('react');
+    expect(config.optimizeDeps.exclude).not.toContain('react');
   });
 
   it('keeps included shared react out of dev optimizeDeps exclude when react-redux is installed', () => {
@@ -1493,6 +1493,35 @@ describe('vite:module-federation-early-init', () => {
 
     expect(config.optimizeDeps.include).toContain('react');
     expect(config.optimizeDeps.exclude).not.toContain('react');
+  });
+
+  it('keeps Lit outside dev dependency optimization', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          lit: { singleton: true },
+        },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.exclude).toContain('lit');
+    expect(config.optimizeDeps.include).not.toContain('lit');
   });
 
   it('removes deps from optimizeDeps exclude when another plugin includes them later', () => {

@@ -458,12 +458,13 @@ export default __mfShared.default ?? __mfShared;`,
             const optimizeDeps = (config.optimizeDeps ??= {});
             optimizeDeps.include ??= [];
             optimizeDeps.exclude ??= [];
-            // Some packages must stay outside dependency optimization because
-            // their submodules rely on parent initialization order. Other
-            // shared deps should remain optimizable so Vite can apply CJS
-            // interop for transitive dependencies used by prebuild fallbacks.
-            const shouldBypassOptimizeDep =
-              isLitShare(key) || (key === 'react' && shareItem.shareConfig?.singleton === true);
+            // Lit must stay outside dependency optimization because its
+            // submodules rely on parent initialization order. Other shared
+            // deps, including singleton React, must remain optimizable so
+            // local prebuild fallbacks receive Vite's CJS-to-ESM interop.
+            // Singleton identity is enforced by the federation share cache
+            // and loadShare proxy, independently from dependency optimization.
+            const shouldBypassOptimizeDep = isLitShare(key);
             if (optimizeDeps.include.includes(key)) {
               optimizeDeps.exclude = optimizeDeps.exclude.filter((dep) => dep !== key);
             } else if (shouldBypassOptimizeDep) {
