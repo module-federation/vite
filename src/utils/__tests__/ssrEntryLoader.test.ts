@@ -21,7 +21,7 @@ type FetchEntry = {
 };
 
 function makeFetchMock(responses: Record<string, FetchEntry>) {
-  return vi.fn(async (url: string, _options?: { method?: string }) => {
+  return vi.fn(async (url: string, _options?: { method?: string; signal?: AbortSignal }) => {
     const entry = responses[url] ?? { ok: false };
     return {
       ok: entry.ok,
@@ -32,6 +32,14 @@ function makeFetchMock(responses: Record<string, FetchEntry>) {
       headers: { get: (h: string) => entry.headers?.[h] ?? null },
     };
   });
+}
+
+function expectFetchCalled(fetch: ReturnType<typeof vi.fn>, url: string): void {
+  expect(fetch.mock.calls.some(([requestUrl]) => requestUrl === url)).toBe(true);
+}
+
+function expectFetchNotCalled(fetch: ReturnType<typeof vi.fn>, url: string): void {
+  expect(fetch.mock.calls.some(([requestUrl]) => requestUrl === url)).toBe(false);
 }
 
 async function freshLoaderModule() {
@@ -104,7 +112,7 @@ describe('ssrEntryLoaderPlugin — browser guard', () => {
     await factory().loadEntry!({
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
     });
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/mf-manifest.json');
+    expectFetchCalled(fetch, 'http://localhost:5001/mf-manifest.json');
     delete (globalThis as Record<string, unknown>).window;
   });
 });
@@ -124,7 +132,7 @@ describe('ssrEntryLoaderPlugin — manifest URL derivation', () => {
     await factory().loadEntry!({
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
     });
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/mf-manifest.json');
+    expectFetchCalled(fetch, 'http://localhost:5001/mf-manifest.json');
   });
 });
 
@@ -266,8 +274,8 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     await factory().loadEntry!({
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.ssr.js' },
     });
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/remoteEntry.ssr.js');
-    expect(fetch).not.toHaveBeenCalledWith('http://localhost:5001/mf-manifest.json');
+    expectFetchCalled(fetch, 'http://localhost:5001/remoteEntry.ssr.js');
+    expectFetchNotCalled(fetch, 'http://localhost:5001/mf-manifest.json');
   });
 
   it('fetches the manifest URL directly when entry is mf-manifest.json', async () => {
@@ -289,7 +297,7 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     await factory().loadEntry!({
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/mf-manifest.json' },
     });
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/mf-manifest.json');
+    expectFetchCalled(fetch, 'http://localhost:5001/mf-manifest.json');
     const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
     expect(heads.map((c) => c[0])).not.toContain(
       'http://localhost:5001/__mf_server__/mf-manifest.ssr.js'
@@ -388,7 +396,7 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     });
     const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
     expect(heads.map((c) => c[0])).toEqual([]);
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/remoteEntry.ssr.js');
+    expectFetchCalled(fetch, 'http://localhost:5001/remoteEntry.ssr.js');
   });
 
   it('falls back to convention using remoteEntry.name when __mf_server__ is absent', async () => {
@@ -483,6 +491,61 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     expect(manifestGets).toHaveLength(1);
   });
 
+  it('aborts stalled requests and retries them instead of caching the timeout', async () => {
+    const manifestUrl = 'http://localhost:5001/mf-manifest.json';
+    let manifestAttempts = 0;
+    const fetch = vi.fn(
+      async (url: string, options?: { method?: string; signal?: AbortSignal }) => {
+        if (url === manifestUrl) {
+          manifestAttempts++;
+          if (manifestAttempts === 1) {
+            return new Promise<never>((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+                once: true,
+              });
+            });
+          }
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => ({
+              metaData: {
+                ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
+              },
+            }),
+            text: async () => '',
+            headers: { get: (_header: string): string | null => 'application/json' },
+          };
+        }
+
+        const isEntry = url === 'http://localhost:5001/remoteEntry.ssr.js' && !options?.method;
+        return {
+          ok: isEntry,
+          status: isEntry ? 200 : 404,
+          statusText: isEntry ? 'OK' : 'Not Found',
+          json: async () => ({}),
+          text: async () =>
+            isEntry ? 'export async function init() {} export async function get() {}' : '',
+          headers: {
+            get: (_header: string): string | null => (isEntry ? 'application/javascript' : null),
+          },
+        };
+      }
+    );
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    const plugin = factory({ fetchTimeoutMs: 5 });
+    const remoteInfo = { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' };
+
+    await plugin.loadEntry!({ remoteInfo });
+    await plugin.loadEntry!({ remoteInfo });
+
+    expect(manifestAttempts).toBe(2);
+    const firstManifestRequest = fetch.mock.calls.find(([url]) => url === manifestUrl);
+    expect(firstManifestRequest?.[1]?.signal?.aborted).toBe(true);
+  });
+
   it('dedupes manifest fetches across js and manifest entry URLs', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
@@ -541,8 +604,8 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     await factory().loadEntry!({
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/dist/custom-manifest.json' },
     });
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/dist/custom-manifest.json');
-    expect(fetch).not.toHaveBeenCalledWith('http://localhost:5001/dist/mf-manifest.json');
+    expectFetchCalled(fetch, 'http://localhost:5001/dist/custom-manifest.json');
+    expectFetchNotCalled(fetch, 'http://localhost:5001/dist/mf-manifest.json');
     const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
     expect(heads.map((c) => c[0])).not.toContain(
       'http://localhost:5001/dist/__mf_server__/custom-manifest.ssr.js'
@@ -560,8 +623,8 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     await factory().loadEntry!({
       remoteInfo: { name: 'r', entry: 'http://localhost:5001/dist/remoteEntry.js' },
     });
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/dist/mf-manifest.json');
-    expect(fetch).not.toHaveBeenCalledWith('http://localhost:5001/dist/custom-manifest.json');
+    expectFetchCalled(fetch, 'http://localhost:5001/dist/mf-manifest.json');
+    expectFetchNotCalled(fetch, 'http://localhost:5001/dist/custom-manifest.json');
   });
 });
 
@@ -597,7 +660,7 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
     expect(heads.map((c) => c[0])).toEqual([
       'http://localhost:5001/__mf_server__/remoteEntry.ssr.js',
     ]);
-    expect(fetch).toHaveBeenCalledWith('http://localhost:5001/remoteEntry.ssr.js');
+    expectFetchCalled(fetch, 'http://localhost:5001/remoteEntry.ssr.js');
   });
 
   it('resolves SSR entry URL with path prefix from manifest', async () => {
@@ -667,6 +730,42 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
 // ---------------------------------------------------------------------------
 
 describe('ssrEntryLoaderPlugin — code transformation', () => {
+  it('evicts a timed-out module fetch so the next load can retry it', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const entryUrl = 'http://localhost:5001/remoteEntry.ssr.js';
+    let attempts = 0;
+    const fetch = vi.fn(async (_url: string, options?: { signal?: AbortSignal }) => {
+      attempts++;
+      if (attempts === 1) {
+        return new Promise<never>((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+            once: true,
+          });
+        });
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({}),
+        text: async () => 'export async function init() {} export async function get() {}',
+        headers: { get: () => 'application/javascript' },
+      };
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    const plugin = factory({ fetchTimeoutMs: 5 });
+    const remoteInfo = { name: 'r', entry: entryUrl };
+
+    await plugin.loadEntry!({ remoteInfo });
+    await plugin.loadEntry!({ remoteInfo });
+
+    expect(attempts).toBe(2);
+    expect(fsMock.writeFileSync).toHaveBeenCalled();
+  });
+
   it('throws HTTP status details instead of importing a non-ok SSR entry response', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
@@ -1010,7 +1109,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
       });
 
       expect(result).toBeUndefined();
-      expect(fetch).not.toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
+      expectFetchNotCalled(fetch, 'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
     } finally {
       if (previousNodeEnv === undefined) {
         delete process.env.NODE_ENV;
@@ -1068,7 +1167,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
       });
 
       expect(result).toBeUndefined();
-      expect(fetch).not.toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
+      expectFetchNotCalled(fetch, 'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
     } finally {
       if (previousNodeEnv === undefined) {
         delete process.env.NODE_ENV;
@@ -1115,7 +1214,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
 
       expect(typeof result?.init).toBe('function');
       expect(typeof result?.get).toBe('function');
-      expect(fetch).toHaveBeenCalledWith('http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
+      expectFetchCalled(fetch, 'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js');
     } finally {
       if (previousNodeEnv === undefined) {
         delete process.env.NODE_ENV;
