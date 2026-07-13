@@ -43,6 +43,9 @@ export default function ({
 }: ProxyRemoteEntryParams): Plugin {
   let viteConfig: any, _command: string, root: string;
   let exposeRemoteDependencies: Record<string, string[]> = {};
+  let exposeRemoteDependenciesDirty = true;
+  let refreshPromise: Promise<void> | undefined;
+  let dependencyInvalidationVersion = 0;
 
   function isRemoteImport(source: string): boolean {
     return Object.keys(options.remotes).some(
@@ -102,12 +105,29 @@ export default function ({
   }
 
   async function refreshExposeRemoteDependencies(ctx: { resolve: Plugin['resolveId'] }) {
-    const next: Record<string, string[]> = {};
-    for (const [exposeKey, expose] of Object.entries(options.exposes)) {
-      const resolved = await (ctx as any).resolve(expose.import);
-      next[exposeKey] = resolved?.id ? await collectRemoteDependencies(ctx, resolved.id) : [];
+    if (!exposeRemoteDependenciesDirty) return;
+    if (!refreshPromise) {
+      const refreshVersion = dependencyInvalidationVersion;
+      refreshPromise = (async () => {
+        const next: Record<string, string[]> = {};
+        for (const [exposeKey, expose] of Object.entries(options.exposes)) {
+          const resolved = await (ctx as any).resolve(expose.import);
+          next[exposeKey] = resolved?.id ? await collectRemoteDependencies(ctx, resolved.id) : [];
+        }
+        exposeRemoteDependencies = next;
+        if (refreshVersion === dependencyInvalidationVersion) {
+          exposeRemoteDependenciesDirty = false;
+        }
+      })().finally(() => {
+        refreshPromise = undefined;
+      });
     }
-    exposeRemoteDependencies = next;
+    await refreshPromise;
+  }
+
+  function invalidateExposeRemoteDependencies() {
+    exposeRemoteDependenciesDirty = true;
+    dependencyInvalidationVersion += 1;
   }
 
   return {
@@ -138,6 +158,12 @@ export default function ({
         }
       }
     },
+    watchChange() {
+      invalidateExposeRemoteDependencies();
+    },
+    handleHotUpdate() {
+      invalidateExposeRemoteDependencies();
+    },
     async resolveId(id: string, importer?: string) {
       if (id === remoteEntryId) {
         return remoteEntryId;
@@ -166,24 +192,26 @@ export default function ({
         if (resolved) return resolved;
       }
     },
-    load(id: string) {
+    async load(id: string) {
       if (id === remoteEntryId) {
         return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
       }
       if (id === virtualExposesId) {
+        await refreshExposeRemoteDependencies(this);
         return generateExposes(options, exposeRemoteDependencies, _command);
       }
       if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
         return id;
       }
     },
-    transform(code: string, id: string) {
-      const transformedCode = (() => {
+    async transform(code: string, id: string) {
+      const transformedCode = await (async () => {
         if (!filterId(id)) return;
         if (id.includes(remoteEntryId)) {
           return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
         }
         if (id === virtualExposesId) {
+          await refreshExposeRemoteDependencies(this);
           return generateExposes(options, exposeRemoteDependencies, _command);
         }
         if (id.includes(getHostAutoInitPath())) {
