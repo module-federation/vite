@@ -2,8 +2,13 @@ import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
+import { normalizePathForImport } from '../utils/buildPaths';
 import { mfWarn } from '../utils/logger';
-import type { NormalizedShared, ShareItem } from '../utils/normalizeModuleFederationOptions';
+import {
+  getNormalizeModuleFederationOptions,
+  type NormalizedShared,
+  type ShareItem,
+} from '../utils/normalizeModuleFederationOptions';
 import {
   getCommonSharedSubpathFromNodeModulePath,
   getCommonSharedSubpaths,
@@ -25,7 +30,15 @@ import {
 import { PromiseStore } from '../utils/PromiseStore';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
+  collectTreeShakingImports,
+  markTreeShakingPackageUnsafe,
+  recordTreeShakingExports,
+  resetTreeShakingExports,
+  setTreeShakingBuildMode,
+} from '../utils/treeShaking';
+import {
   addUsedShares,
+  addTreeShakingGraphQuery,
   getConcreteSharedImportSource,
   generateLocalSharedImportMap,
   getPreBuildShareItem,
@@ -35,10 +48,17 @@ import {
   PREBUILD_TAG,
   refreshHostAutoInit,
   getResolvedLocalSharedImportMapId,
+  getTreeShakingSharedProviderImportId,
+  getTreeShakingSharedProviderName,
+  getTreeShakingGraphToken,
+  hasTreeShakingSharedProvider,
+  getUsedShares,
   setLocalSharedImportMapInvalidator,
   writeLoadShareModule,
   writeLocalSharedImportMap,
   writePreBuildLibPath,
+  refreshTreeShakingModules,
+  stripTreeShakingGraphQuery,
 } from '../virtualModules';
 import { parsePromise } from './pluginModuleParseEnd';
 
@@ -248,6 +268,60 @@ export function proxySharedModule(options: {
   // singleton imported by N modules would rewrite all of it N times. Track which
   // sources have been materialized so the heavy writes happen at most once each.
   const materializedLoadShareSources = new Set<string>();
+  const emittedTreeShakingProviders = new Set<string>();
+
+  const normalizeTreeShakingOutputPath = (value: string) => {
+    const normalized = normalizePathForImport(value);
+    if (
+      path.posix.isAbsolute(normalized) ||
+      /^[A-Za-z]:\//.test(normalized) ||
+      normalized.split('/').includes('..')
+    ) {
+      throw new Error(
+        `Invalid treeShakingDir "${value}": absolute paths and parent segments are not allowed.`
+      );
+    }
+    let start = normalized.startsWith('./') ? 2 : 0;
+    let end = normalized.length;
+    while (start < end && normalized.charCodeAt(start) === 47) start++;
+    while (end > start && normalized.charCodeAt(end - 1) === 47) end--;
+    return normalized.slice(start, end);
+  };
+
+  const getTreeShakingProviderFileName = (pkg: string, shareItem: ShareItem) => {
+    const treeShaking = shareItem.shareConfig.treeShaking;
+    if (!treeShaking) return undefined;
+
+    const normalizedOptions = getNormalizeModuleFederationOptions();
+    const outputDir = normalizedOptions.treeShakingDir
+      ? normalizeTreeShakingOutputPath(normalizedOptions.treeShakingDir)
+      : undefined;
+
+    const fileName = outputDir
+      ? path.posix.join(outputDir, `${getTreeShakingSharedProviderName(pkg)}.js`)
+      : undefined;
+
+    if (!fileName) return undefined;
+    return fileName;
+  };
+
+  const emitTreeShakingProvider = (
+    context: { emitFile: (file: any) => string },
+    pkg: string,
+    shareItem: ShareItem
+  ) => {
+    if (_command !== 'build' || emittedTreeShakingProviders.has(pkg)) return;
+    if (!hasTreeShakingSharedProvider(pkg, shareItem)) return;
+
+    const fileName = getTreeShakingProviderFileName(pkg, shareItem);
+    context.emitFile({
+      type: 'chunk',
+      id: getTreeShakingSharedProviderImportId(pkg),
+      name: getTreeShakingSharedProviderName(pkg),
+      ...(fileName ? { fileName } : {}),
+    });
+    emittedTreeShakingProviders.add(pkg);
+  };
 
   return [
     {
@@ -267,7 +341,22 @@ export function proxySharedModule(options: {
       },
       load(id) {
         if (id === getResolvedLocalSharedImportMapId()) {
-          return parsePromise.then((_) => generateLocalSharedImportMap());
+          return parsePromise.then((_) => {
+            // Export analysis is additive across the module graph. Materialize
+            // and emit optimized providers only when the shared map itself is
+            // finalized, immediately before Rollup discovers their imports.
+            refreshTreeShakingModules();
+            const providerPackages = new Set([
+              ...Object.keys(shared).filter((pkg) => !pkg.endsWith('/')),
+              ...getUsedShares(),
+            ]);
+            for (const pkg of providerPackages) {
+              const sharedKey = findSharedKeyForSource(pkg, shared);
+              const shareItem = shared[pkg] || (sharedKey ? shared[sharedKey] : undefined);
+              if (shareItem) emitTreeShakingProvider(this, pkg, shareItem);
+            }
+            return generateLocalSharedImportMap();
+          });
         }
       },
       closeBundle() {
@@ -281,6 +370,9 @@ export function proxySharedModule(options: {
       config(config: UserConfig, { command }) {
         const root = config.root || process.cwd();
         setPackageDetectionCwd(root);
+        setTreeShakingBuildMode(command === 'build');
+        resetTreeShakingExports();
+        emittedTreeShakingProviders.clear();
         const isVinext = hasPackageDependency('vinext');
         const isAstro = hasPackageDependency('astro');
         const isRolldown = getIsRolldown(this);
@@ -319,11 +411,101 @@ export function proxySharedModule(options: {
         writeLocalSharedImportMap();
         refreshHostAutoInit();
       },
+      buildStart() {
+        if (_command !== 'build') return;
+        resetTreeShakingExports();
+        emittedTreeShakingProviders.clear();
+        refreshTreeShakingModules();
+      },
+      shouldTransformCachedModule() {
+        // Watch builds must revisit cached importers after the per-build usage
+        // map is reset, otherwise only changed files contribute usedExports.
+        return (
+          _command === 'build' &&
+          Object.values(shared).some((share) => !!share.shareConfig.treeShaking)
+        );
+      },
+      transform(code, id) {
+        if (
+          _command !== 'build' ||
+          !Object.keys(shared).some((key) => shared[key].shareConfig.treeShaking)
+        ) {
+          return;
+        }
+        collectTreeShakingImports(
+          code,
+          id,
+          shared,
+          findSharedKeyForSource,
+          recordTreeShakingExports,
+          markTreeShakingPackageUnsafe
+        );
+        refreshTreeShakingModules();
+      },
+    },
+    {
+      name: 'proxyPreBuildShared:tree-shaking-graph',
+      enforce: 'pre',
+      apply: 'build',
+      async resolveId(source, importer, resolveOptions) {
+        const sourceToken = getTreeShakingGraphToken(source);
+        const importerToken = getTreeShakingGraphToken(importer);
+        const token = sourceToken || importerToken;
+        if (!token) return;
+
+        const cleanSource = normalizePathForImport(stripTreeShakingGraphQuery(source));
+        const cleanImporter = importer
+          ? normalizePathForImport(stripTreeShakingGraphQuery(importer))
+          : undefined;
+
+        // Dependencies that are independently configured as shared keep using
+        // their ordinary federation wrapper. Everything else inherits the
+        // graph token so the optimized provider cannot be merged with the full
+        // fallback's dependency graph.
+        if (!sourceToken && importerToken) {
+          const nestedSharedKey = findSharedKeyForSource(cleanSource, shared);
+          if (
+            nestedSharedKey &&
+            getPackageName(nestedSharedKey) !== getPackageName(importerToken)
+          ) {
+            return this.resolve(cleanSource, cleanImporter, {
+              ...resolveOptions,
+              skipSelf: true,
+            });
+          }
+        }
+
+        const projectResolvedSource = sourceToken
+          ? tryResolveFromProjectRoot(cleanSource) || cleanSource
+          : cleanSource;
+        const resolved = await this.resolve(projectResolvedSource, cleanImporter, {
+          ...resolveOptions,
+          custom: {
+            ...resolveOptions.custom,
+            __mfTreeShakingGraph: true,
+          },
+          skipSelf: true,
+        });
+        if (!resolved || resolved.external) return resolved;
+        // Bundler/plugin virtual modules generally require an exact id in their
+        // load hook (for example Vite's preload helper). Appending an unknown
+        // query would make them unloadable; their own implementation is build
+        // infrastructure rather than part of the shared package graph.
+        if (resolved.id.startsWith('\0')) return resolved;
+
+        return {
+          ...resolved,
+          id: addTreeShakingGraphQuery(normalizePathForImport(resolved.id), token),
+        };
+      },
     },
     {
       name: 'proxyPreBuildShared:resolve-shared-loadShare',
       enforce: 'pre',
-      async resolveId(source, importer) {
+      async resolveId(source, importer, resolveOptions) {
+        if ((resolveOptions.custom as Record<string, unknown> | undefined)?.__mfTreeShakingGraph) {
+          return;
+        }
         function shouldSkipTaggedImporterProxy(sharedKey: string, tag: string): boolean {
           if (!importer?.includes(tag)) return false;
 

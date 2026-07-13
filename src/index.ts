@@ -34,6 +34,7 @@ import type {
   NormalizedModuleFederationOptions,
   PluginManifestOptions,
   ShareItem,
+  TreeShakingConfig,
 } from './utils/normalizeModuleFederationOptions';
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
@@ -55,6 +56,8 @@ import {
   LOAD_REMOTE_TAG,
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
+  TREE_SHAKING_GRAPH_QUERY,
+  TREE_SHAKING_PROVIDER_TAG,
   setSsrRemotes,
   writeLocalSharedImportMap,
 } from './virtualModules';
@@ -190,16 +193,18 @@ function hasImportFalseShared(options: NormalizedModuleFederationOptions): boole
 function getRuntimeHelpersImplementation(runtimeImplementation: string): string {
   const indexEntryMatch = runtimeImplementation.match(/^(.*[\\/])index(\.[cm]?js)$/);
   if (indexEntryMatch) {
-    return `${indexEntryMatch[1]}helpers${indexEntryMatch[2]}`;
+    return normalizePathForImport(`${indexEntryMatch[1]}helpers${indexEntryMatch[2]}`);
   }
 
   const extension = path.extname(runtimeImplementation);
   if (extension) {
-    return path.join(path.dirname(runtimeImplementation), `helpers${extension}`);
+    return normalizePathForImport(
+      path.join(path.dirname(runtimeImplementation), `helpers${extension}`)
+    );
   }
 
   if (path.isAbsolute(runtimeImplementation) || runtimeImplementation.startsWith('.')) {
-    return path.join(runtimeImplementation, 'helpers');
+    return normalizePathForImport(path.join(runtimeImplementation, 'helpers'));
   }
 
   return `${runtimeImplementation.replace(/\/$/, '')}/helpers`;
@@ -555,6 +560,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
   const isVinext = hasPackageDependency('vinext');
   const { name, shared, filename, hostInitInjectLocation } = options;
+  const hasTreeShakingShared = Object.values(shared).some(
+    (share) => !!share.shareConfig.treeShaking
+  );
   if (!name) throw createModuleFederationError('name is required');
 
   const remoteEntryId = getRemoteEntryId(options);
@@ -700,13 +708,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           id.includes(virtualExposesId) ||
           id.includes(getLocalSharedImportMapPath()) ||
           id.includes(LOAD_SHARE_TAG) ||
-          id.includes(PREBUILD_TAG)
+          id.includes(PREBUILD_TAG) ||
+          id.includes(TREE_SHAKING_PROVIDER_TAG) ||
+          id.includes(TREE_SHAKING_GRAPH_QUERY)
         );
       },
       {
         moduleParseTimeout: options.moduleParseTimeout,
         moduleParseIdleTimeout: options.moduleParseIdleTimeout,
-        virtualExposesId,
+        exposedModuleImports: Object.values(options.exposes).map((expose) => expose.import),
       }
     ),
     ...proxySharedModule({
@@ -764,9 +774,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                 context.hostType === 'js' &&
                 resolvedDeps.some((dep) => isFederationHtmlPreloadDependency(dep));
 
+              const treeShakingFallbackDeps = hasTreeShakingShared
+                ? (dep: string) => dep.includes('__prebuild__')
+                : () => false;
+
               return hasFederationHtmlDeps || hasFederationJsDeps
-                ? resolvedDeps.filter((dep) => !isFederationHtmlPreloadDependency(dep, true))
-                : resolvedDeps;
+                ? resolvedDeps.filter(
+                    (dep) =>
+                      !isFederationHtmlPreloadDependency(dep, true) && !treeShakingFallbackDeps(dep)
+                  )
+                : resolvedDeps.filter((dep) => !treeShakingFallbackDeps(dep));
             },
           };
         }
@@ -1116,8 +1133,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         const isRolldown = getIsRolldown(this);
         isSsrBuild = _command === 'build' && config.build?.ssr === true;
         const needsSharedProviderSelectionHelper = hasImportFalseShared(options);
+        const needsRuntimeHelpers =
+          needsSharedProviderSelectionHelper ||
+          Object.values(options.shared ?? {}).some((share) => !!share?.shareConfig.treeShaking);
 
-        if (needsSharedProviderSelectionHelper) {
+        if (needsRuntimeHelpers) {
           appendResolveAlias(config, {
             find: /^@module-federation\/runtime\/helpers$/,
             replacement: getRuntimeHelpersImplementation(options.implementation),
@@ -1134,7 +1154,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.optimizeDeps ||= {};
         config.optimizeDeps.include ||= [];
         config.optimizeDeps.include.push('@module-federation/runtime');
-        if (needsSharedProviderSelectionHelper) {
+        if (needsRuntimeHelpers) {
           config.optimizeDeps.include.push('@module-federation/runtime/helpers');
         }
 
@@ -1371,4 +1391,5 @@ export {
   federation,
   type ModuleFederationOptions,
   type PluginManifestOptions,
+  type TreeShakingConfig,
 };

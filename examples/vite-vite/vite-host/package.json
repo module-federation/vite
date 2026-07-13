@@ -12,6 +12,7 @@
   "dependencies": {
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
+    "antd": "6.4.3",
     "@module-federation/vite": "workspace:*",
     "@mui/material": "7.3.2",
     "@vite-vite/shared-consumer": "workspace:*",

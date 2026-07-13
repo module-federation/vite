@@ -15,6 +15,9 @@ const {
   writeSyncSpy: vi.fn(),
   optionsMock: {
     shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
+    injectTreeShakingUsedExports: undefined as boolean | undefined,
+    treeSharedImportFalse: false,
+    treeSharedProvider: true,
   },
 }));
 
@@ -180,6 +183,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       shareScope: 'default',
       runtimePlugins: [],
       shareStrategy: optionsMock.shareStrategy,
+      injectTreeShakingUsedExports: optionsMock.injectTreeShakingUsedExports,
     }),
     isExplicitSharedKey: (key: string) => key in normalizedSharedMock(),
     getNormalizeShareItem: (pkg: string) => ({
@@ -188,10 +192,19 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       version: '19.2.4',
       scope: 'default',
       shareConfig: {
-        import: pkg === 'custom-import' ? '/abs/custom-import.js' : undefined,
+        import:
+          pkg === 'custom-import'
+            ? '/abs/custom-import.js'
+            : pkg === 'tree-shared' && optionsMock.treeSharedImportFalse
+              ? false
+              : undefined,
         singleton: true,
         requiredVersion: pkg === 'unconstrained' ? false : '^19.2.4',
         strictVersion: false,
+        eager: pkg === 'eager-shared',
+        ...(pkg === 'tree-shared'
+          ? { treeShaking: { mode: 'runtime-infer', usedExports: ['Button'] } }
+          : {}),
       },
     }),
   };
@@ -206,6 +219,9 @@ vi.mock('../virtualRemotes', () => {
 vi.mock('../virtualShared_preBuild', () => {
   return {
     getPreBuildLibImportId: (pkg: string) => `virtual:prebuild:${pkg}`,
+    getTreeShakingSharedProviderImportId: (pkg: string) => `virtual:tree-provider:${pkg}`,
+    hasTreeShakingSharedProvider: (pkg: string) =>
+      pkg === 'tree-shared' && optionsMock.treeSharedProvider,
     getConcreteSharedImportSource: (
       _pkg: string,
       shareItem?: { shareConfig?: { import?: string | false } }
@@ -242,6 +258,9 @@ describe('virtualRemoteEntry', () => {
     usedRemotesMapMock.mockReturnValue({});
     writeSyncSpy.mockClear();
     optionsMock.shareStrategy = 'version-first';
+    optionsMock.injectTreeShakingUsedExports = undefined;
+    optionsMock.treeSharedImportFalse = false;
+    optionsMock.treeSharedProvider = true;
     vi.resetModules();
   });
 
@@ -315,6 +334,134 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('let pkg = await import("/abs/custom-import.js");');
     expect(code).not.toContain('virtual:prebuild:custom-import');
+  });
+
+  it('statically imports eager shared providers and emits eager runtime metadata', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('eager-shared');
+    mod.addUsedShares('vue');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('import * as __mfEagerShare_0 from "virtual:prebuild:eager-shared";');
+    expect(code).toContain('let pkg = __mfEagerShare_0;');
+    expect(code).toContain('let pkg = await import("virtual:prebuild:vue");');
+    expect(code).toContain('eager: true');
+    expect(code).toMatch(/loaded: false,\s+eager: true,\s+from: "host"/);
+  });
+
+  it('keeps the full getter and emits a separate runtime-infer provider getter', async () => {
+    const { setTreeShakingBuildMode } = await import('../../utils/treeShaking');
+    setTreeShakingBuildMode(true);
+    try {
+      const mod = await import('../virtualRemoteEntry');
+      mod.getUsedShares().clear();
+      mod.addUsedShares('tree-shared');
+
+      const code = mod.generateLocalSharedImportMap();
+
+      expect(code).toContain('let pkg = await import("virtual:prebuild:tree-shared");');
+      expect(code).toContain('usedExports: ["Button"]');
+      expect(code).toContain(
+        'const container = await import("virtual:tree-provider:tree-shared");'
+      );
+      expect(code).toContain('return container.get();');
+      expect(code).not.toContain('cacheKey:');
+    } finally {
+      setTreeShakingBuildMode(false);
+    }
+  });
+
+  it('falls back to the complete provider when runtime export injection is disabled', async () => {
+    const { setTreeShakingBuildMode } = await import('../../utils/treeShaking');
+    setTreeShakingBuildMode(true);
+    optionsMock.injectTreeShakingUsedExports = false;
+    try {
+      const mod = await import('../virtualRemoteEntry');
+      mod.getUsedShares().clear();
+      mod.addUsedShares('tree-shared');
+
+      const code = mod.generateLocalSharedImportMap();
+
+      expect(code).toContain('status: 0');
+      expect(code).not.toContain('virtual:tree-provider:tree-shared');
+      expect(code).toContain('let pkg = await import("virtual:prebuild:tree-shared");');
+    } finally {
+      setTreeShakingBuildMode(false);
+    }
+  });
+
+  it('lets import:false runtime-infer consumers select a compatible host provider', async () => {
+    const { setTreeShakingBuildMode } = await import('../../utils/treeShaking');
+    setTreeShakingBuildMode(true);
+    optionsMock.treeSharedImportFalse = true;
+    optionsMock.treeSharedProvider = false;
+    try {
+      const mod = await import('../virtualRemoteEntry');
+      mod.getUsedShares().clear();
+      mod.addUsedShares('tree-shared');
+
+      const code = mod.generateLocalSharedImportMap();
+
+      expect(code).toContain('import: false');
+      expect(code).toContain('status: 1');
+      expect(code).not.toContain('virtual:tree-provider:tree-shared');
+    } finally {
+      setTreeShakingBuildMode(false);
+    }
+  });
+
+  it('rejects runtime-infer providers whose export coverage is incomplete', async () => {
+    const { treeShakingResolveShareBodyCode } = await import('../virtualRemoteEntry');
+    const applyResolveShare = new Function('args', treeShakingResolveShareBodyCode) as (
+      args: any
+    ) => any;
+    const selected = {
+      get: vi.fn(),
+      treeShaking: { usedExports: ['Button'], get: vi.fn() },
+    };
+    const local: any = {
+      get: vi.fn(),
+      treeShaking: {
+        mode: 'runtime-infer',
+        usedExports: ['Button', 'Input'],
+        providedExports: ['Button', 'Input'],
+        get: vi.fn(),
+      },
+    };
+    const args = applyResolveShare({
+      shareInfo: local,
+      resolver: () => ({ shared: selected, useTreesShaking: true }),
+    });
+
+    expect(args.resolver()).toEqual({ shared: local, useTreesShaking: true });
+
+    delete local.treeShaking.get;
+    expect(args.resolver()).toEqual({ shared: selected, useTreesShaking: false });
+  });
+
+  it('keeps a runtime-infer provider whose export coverage satisfies the consumer', async () => {
+    const { treeShakingResolveShareBodyCode } = await import('../virtualRemoteEntry');
+    const applyResolveShare = new Function('args', treeShakingResolveShareBodyCode) as (
+      args: any
+    ) => any;
+    const selected = {
+      treeShaking: { usedExports: ['Button', 'Input', 'Select'], get: vi.fn() },
+    };
+    const originalResult = { shared: selected, useTreesShaking: true };
+    const args = applyResolveShare({
+      shareInfo: {
+        treeShaking: {
+          mode: 'runtime-infer',
+          usedExports: ['Button', 'Input'],
+        },
+      },
+      resolver: () => originalResult,
+    });
+
+    expect(args.resolver()).toBe(originalResult);
   });
 
   it('orders React before shared packages that evaluate React APIs', async () => {
@@ -550,6 +697,88 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('initRes.loadShare(pkg');
     expect(code).not.toContain('import exposesMap from');
     expect(code).not.toContain('import {usedShared, usedRemotes} from');
+  });
+
+  it('statically includes the local shared map when a local eager share is configured', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const eagerShare = {
+      name: 'eager-shared',
+      version: '1.0.0',
+      scope: 'default',
+      from: '',
+      shareConfig: { eager: true, import: undefined },
+    };
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        shared: { 'eager-shared': eagerShare },
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    expect(code).toContain(
+      'import * as __mfLocalSharedImportMap from "virtual:mf-localSharedImportMap:__mfe_internal__host";'
+    );
+    expect(code).toContain('return __mfLocalSharedImportMap;');
+    expect(code).not.toContain('retrySharedInit(() => import("virtual:mf-localSharedImportMap');
+  });
+
+  it('patches server-calc providers from Snapshot and coverage-caches runtime selections', async () => {
+    const treeShare = {
+      name: 'tree-shared',
+      from: '',
+      version: '19.2.4',
+      scope: 'default',
+      shareConfig: {
+        singleton: false,
+        requiredVersion: '^19.2.4',
+        strictVersion: false,
+        treeShaking: { mode: 'server-calc', usedExports: ['Button'] },
+      },
+    };
+    normalizedSharedMock.mockReturnValue({ 'tree-shared': treeShare });
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    expect(code).toContain('getRemoteEntry');
+    expect(code).toContain('global as runtimeGlobal');
+    expect(code).toContain('name: "vite-tree-shaking-snapshot-plugin"');
+    expect(code).toContain('secondarySharedTreeShakingEntry: entry');
+    expect(code).toContain('treeShaking.mode !== "server-calc"');
+    expect(code).toContain('if (status === 2 && (!entry || !name)) continue;');
+    expect(code).toContain('type: fallbackType || "global"');
+    expect(code).toContain('await shareEntry.init(origin);');
+    expect(code).toContain('if (typeof fullFallbackGet === "function") return fullFallbackGet();');
+    expect(code).toContain('__mfWriteTreeShakingSharedCache(');
+    expect(code).toContain('treeShaking.providedExports');
+    expect(code).toContain('if (!treeShaking) continue;');
+    expect(code).not.toContain('treeShaking.providedExports.length === 0) continue;');
+    expect(code).toContain('const hasPartialProvider =');
+    expect(code).toContain('Boolean(share.treeShaking)');
+    expect(code).toContain('plugins: [__mfTreeShakingSnapshotPlugin(),');
   });
 
   it('includes remote aliases in version-first remoteEntry initialization', async () => {

@@ -24,15 +24,18 @@ import {
   getInstalledPackageJson,
   getPackageDetectionCwd,
   getPackageName,
+  packageNameEncode,
   packageNameDecode,
   getSharedCacheDescriptor,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import VirtualModule, { normalizeVirtualModuleId, toViteEncodedId } from '../utils/VirtualModule';
+import { normalizeNodeModulePath } from '../utils/pathNormalization';
 import {
   getRuntimeInitPromiseBootstrapCode,
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
+import { getTreeShakingExportUsage } from '../utils/treeShaking';
 
 const JS_IDENTIFIER_REGEX = new RegExp(
   '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
@@ -343,7 +346,7 @@ function isWorkspaceFilePath(resolved: string | undefined): resolved is string {
   try {
     realResolved = realpathSync.native(resolved);
   } catch {}
-  return !realResolved.includes('/node_modules/') && !realResolved.includes('\\node_modules\\');
+  return !normalizeNodeModulePath(realResolved).includes('/node_modules/');
 }
 
 /**
@@ -496,10 +499,166 @@ export function getConcreteSharedImportSource(
 const preBuildCacheMap: Record<string, VirtualModule> = {};
 const preBuildShareItemMap: Record<string, ShareItem | undefined> = {};
 export const PREBUILD_TAG = '__prebuild__';
+
+const treeShakingProviderCacheMap: Record<string, VirtualModule> = {};
+const materializedTreeShakingProviders = new Set<string>();
+export const TREE_SHAKING_PROVIDER_TAG = '__treeShakingProvider__';
+export const TREE_SHAKING_GRAPH_QUERY = '__mf_tree_shaking_graph__';
+
+export function getTreeShakingGraphToken(id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  const queryStart = id.indexOf('?');
+  if (queryStart === -1) return undefined;
+  const hashStart = id.indexOf('#', queryStart);
+  const query = id.slice(queryStart + 1, hashStart === -1 ? undefined : hashStart);
+  const entry = query.split('&').find((part) => part.split('=', 1)[0] === TREE_SHAKING_GRAPH_QUERY);
+  if (!entry) return undefined;
+  const value = entry.slice(TREE_SHAKING_GRAPH_QUERY.length + 1);
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function stripTreeShakingGraphQuery(id: string): string {
+  const queryStart = id.indexOf('?');
+  if (queryStart === -1) return id;
+  const hashStart = id.indexOf('#', queryStart);
+  const pathname = id.slice(0, queryStart);
+  const hash = hashStart === -1 ? '' : id.slice(hashStart);
+  const query = id.slice(queryStart + 1, hashStart === -1 ? undefined : hashStart);
+  const remaining = query
+    .split('&')
+    .filter(Boolean)
+    .filter((part) => part.split('=', 1)[0] !== TREE_SHAKING_GRAPH_QUERY);
+  return `${pathname}${remaining.length ? `?${remaining.join('&')}` : ''}${hash}`;
+}
+
+export function addTreeShakingGraphQuery(id: string, token: string): string {
+  const cleanId = stripTreeShakingGraphQuery(id);
+  const hashStart = cleanId.indexOf('#');
+  const base = hashStart === -1 ? cleanId : cleanId.slice(0, hashStart);
+  const hash = hashStart === -1 ? '' : cleanId.slice(hashStart);
+  const separator = base.includes('?') ? '&' : '?';
+  return `${base}${separator}${TREE_SHAKING_GRAPH_QUERY}=${encodeURIComponent(token)}${hash}`;
+}
+
+function getConcreteTreeShakingExportUsage(pkg: string, shareItem?: ShareItem) {
+  return getTreeShakingExportUsage(pkg, shareItem, shareItem?.name);
+}
+
+export function getTreeShakingSharedProviderName(pkg: string): string {
+  const { internalName, name } = getNormalizeModuleFederationOptions();
+  return `${internalName || name}__tree_shaking__${packageNameEncode(pkg)}`;
+}
+
+export function getTreeShakingSharedProviderImportId(pkg: string): string {
+  if (!treeShakingProviderCacheMap[pkg]) {
+    treeShakingProviderCacheMap[pkg] = new VirtualModule(pkg, TREE_SHAKING_PROVIDER_TAG, '.js');
+  }
+  return treeShakingProviderCacheMap[pkg].getImportId();
+}
+
+export function hasTreeShakingSharedProvider(pkg: string, shareItem?: ShareItem): boolean {
+  const usage = getConcreteTreeShakingExportUsage(pkg, shareItem);
+  return materializedTreeShakingProviders.has(pkg) && usage?.kind === 'exports';
+}
+
+/**
+ * Materialize the locally optimized provider as a small ESM container.
+ *
+ * The normal prebuild module remains the complete fallback. This container only
+ * retains the selected exports and is installed as `treeShaking.get` by the
+ * generated runtime record. Keeping the two getters distinct lets the Runtime
+ * perform its normal usedExports compatibility check and safely choose the full
+ * provider when the optimized one is insufficient.
+ */
+export function writeTreeShakingSharedProvider(pkg: string, shareItem?: ShareItem): void {
+  const usage = getConcreteTreeShakingExportUsage(pkg, shareItem);
+  if (
+    usage?.kind !== 'exports' ||
+    !usage.usedExports.length ||
+    shareItem?.shareConfig.import === false
+  ) {
+    materializedTreeShakingProviders.delete(pkg);
+    return;
+  }
+  const usedExports = usage.usedExports;
+
+  const unsupportedExport = usedExports.find(
+    (name) => name !== 'default' && !isValidEsmExportName(name)
+  );
+  if (unsupportedExport) {
+    materializedTreeShakingProviders.delete(pkg);
+    mfWarn(
+      `Tree-shaking shared dependency "${pkg}" was disabled because export ` +
+        `"${unsupportedExport}" cannot be represented by the generated ESM provider.`
+    );
+    return;
+  }
+
+  const provider =
+    treeShakingProviderCacheMap[pkg] ||
+    (treeShakingProviderCacheMap[pkg] = new VirtualModule(pkg, TREE_SHAKING_PROVIDER_TAG, '.js'));
+  // Give the optimized provider a distinct module-graph namespace. Otherwise
+  // Rollup sees the same package modules in both the complete fallback and the
+  // optimized entry, hoists them into one shared chunk, and the "optimized"
+  // entry downloads the complete dependency graph.
+  const optimizedImportSource = addTreeShakingGraphQuery(
+    getConcreteSharedImportSource(pkg, shareItem) || pkg,
+    pkg
+  );
+  const namedExports = usedExports.filter((name) => name !== 'default');
+  const namedImports = namedExports
+    .map((name, index) => `${name} as __mfTreeShaken_${index}`)
+    .join(', ');
+  const importLines = [
+    namedImports
+      ? `import { ${namedImports} } from ${escapeGeneratedStringLiteral(optimizedImportSource)};`
+      : '',
+    usedExports.includes('default')
+      ? `import __mfTreeShakenDefault from ${escapeGeneratedStringLiteral(optimizedImportSource)};`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const namespaceEntries = [
+    ...namedExports.map((name, index) => `[${JSON.stringify(name)}]: __mfTreeShaken_${index}`),
+    ...(usedExports.includes('default')
+      ? ['default: __mfTreeShakenDefault']
+      : [
+          `default: { ${namedExports
+            .map((name, index) => `[${JSON.stringify(name)}]: __mfTreeShaken_${index}`)
+            .join(', ')} }`,
+        ]),
+  ];
+
+  provider.writeSync(
+    `${importLines}
+const __mfTreeShakenModule = { ${namespaceEntries.join(', ')} };
+Object.defineProperty(__mfTreeShakenModule, "__esModule", {
+  value: true,
+  enumerable: false,
+});
+async function init() {}
+function get() {
+  return () => __mfTreeShakenModule;
+}
+const usedExports = ${JSON.stringify([...usedExports].sort())};
+export { get, init, usedExports };
+export default { get, init };
+`,
+    true
+  );
+  materializedTreeShakingProviders.add(pkg);
+}
+
 export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
   preBuildShareItemMap[pkg] = shareItem;
   const importSource = getConcreteSharedImportSource(pkg, shareItem) || pkg;
+  writeTreeShakingSharedProvider(pkg, shareItem);
   if (pkg === 'react/compiler-runtime') {
     const reactShareItem =
       shareItem ??
@@ -573,7 +732,7 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
     const __mfPrebuildExports = __mfPrebuildNamespace;
     ${declarations}
     ${namedExportLine}
-    export default __mfPrebuildNamespace.default ?? __mfPrebuildNamespace;
+    export default Reflect.get(__mfPrebuildNamespace, "default") ?? __mfPrebuildNamespace;
   `,
       true
     );
@@ -583,10 +742,22 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
     `
     import * as __mfPrebuildExports from ${escapeGeneratedStringLiteral(importSource)};
     export * from ${escapeGeneratedStringLiteral(importSource)};
-    export default __mfPrebuildExports.default ?? __mfPrebuildExports;
+    // Reflect access avoids bundler warnings for ESM packages without a
+    // default export (for example antd/es/index.js), while preserving the
+    // namespace fallback for packages that do provide one.
+    export default Reflect.get(__mfPrebuildExports, "default") ?? __mfPrebuildExports;
   `,
     true
   );
+}
+
+/** Re-render already materialized wrappers after import analysis discovers exports. */
+export function refreshTreeShakingModules() {
+  for (const [pkg, shareItem] of Object.entries(preBuildShareItemMap)) {
+    if (!shareItem?.shareConfig.treeShaking) continue;
+    writePreBuildLibPath(pkg, shareItem);
+    writeLoadShareModule(pkg, shareItem, 'build', false);
+  }
 }
 export function getPreBuildLibImportId(pkg: string): string {
   if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
@@ -665,10 +836,17 @@ export function materializeCachedLoadShareModule(options: {
   options.writeLocalSharedImportMap();
 }
 
+function getSharedCacheReadExpression(cacheDescriptor: string, treeShakingConsumer?: string) {
+  return treeShakingConsumer
+    ? `__mfReadTreeShakingSharedSelection(__mfModuleCache.share, ${cacheDescriptor}, ${JSON.stringify(treeShakingConsumer)})`
+    : `__mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor})`;
+}
+
 function generateEagerWorkspaceSingletonExports(
   namedExports: string[],
   importSource: string,
-  cacheDescriptor: string
+  cacheDescriptor: string,
+  treeShakingConsumer?: string
 ) {
   const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
   const namedExportAssignments =
@@ -686,7 +864,7 @@ function generateEagerWorkspaceSingletonExports(
       : '';
 
   return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
-    let exportModule = __mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor});
+    let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
       Promise.resolve().then(() => {
         if (__mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor}) === undefined) {
@@ -701,7 +879,8 @@ function generateEagerWorkspaceSingletonExports(
 function generateLazyWorkspaceSingletonExports(
   namedExports: string[],
   importSource: string,
-  cacheDescriptor: string
+  cacheDescriptor: string,
+  treeShakingConsumer?: string
 ) {
   const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
   const declarations =
@@ -729,13 +908,13 @@ function generateLazyWorkspaceSingletonExports(
     const __mfApplyLazyShareExports = (mod) => {
       ${assignments}
     };
-    let exportModule = __mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor});
+    let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
       if (import.meta.env.SSR) {
         ${applyLocalFallback}
       } else {
         (__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then(() => {
-          exportModule = __mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor});
+          exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
           if (exportModule !== undefined) {
             __mfApplyLazyShareExports(exportModule);
             return;
@@ -779,7 +958,8 @@ export function prependWorkspaceSingletonSsrImport(code: string): string {
 function generateDeferredHostProvidedExports(
   namedExports: string[],
   pkg: string,
-  cacheDescriptor: string
+  cacheDescriptor: string,
+  treeShakingConsumer?: string
 ) {
   const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
   const declarations = ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join(
@@ -800,10 +980,10 @@ function generateDeferredHostProvidedExports(
     const __mfApplyHostProvidedExports = (exportModule) => {
       ${assignments}
     };
-    let exportModule = __mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor});
+    let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
       (__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then(() => {
-        exportModule = __mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor});
+        exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
         if (exportModule === undefined) {
           throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.");
         }
@@ -857,6 +1037,10 @@ export function writeLoadShareModule(
   }
   let importLine = getRuntimeModuleCacheBootstrapCode();
   const cacheDescriptor = getSharedCacheDescriptorLiteral(pkg, shareItem);
+  const treeShakingConsumer =
+    command === 'build' && shareItem.shareConfig.treeShaking
+      ? getNormalizeModuleFederationOptions().name
+      : undefined;
 
   // import: false means the host must provide this module — the remote has no local copy.
   // Generate a minimal loadShare module that just delegates to the runtime.
@@ -868,14 +1052,24 @@ export function writeLoadShareModule(
     const namedExports = getPackageNamedExports(pkg);
     let exportLine: string;
     if (namedExports.length > 0) {
-      exportLine = generateDeferredHostProvidedExports(namedExports, pkg, cacheDescriptor);
+      exportLine = generateDeferredHostProvidedExports(
+        namedExports,
+        pkg,
+        cacheDescriptor,
+        treeShakingConsumer
+      );
     } else {
       mfWarn(
         `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
           `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +
           `  Install it as a devDependency to enable named export detection.`
       );
-      exportLine = generateDeferredHostProvidedExports([], pkg, cacheDescriptor);
+      exportLine = generateDeferredHostProvidedExports(
+        [],
+        pkg,
+        cacheDescriptor,
+        treeShakingConsumer
+      );
     }
     loadShareCacheMap[pkg].writeSync(
       `
@@ -923,21 +1117,32 @@ export function writeLoadShareModule(
     getNormalizeModuleFederationOptions().hostInitInjectLocation === 'entry' &&
     isConsumedByPeerSingleton;
   const usesEagerWorkspaceFallback = isWorkspaceSingleton && isConsumedByPeerSingleton;
+  const usesDeferredTreeShakingFallback = Boolean(treeShakingConsumer);
   const namedExports = getSharedNamedExports(pkg, shareItem);
   let exportLine: string;
   let initBlock = '';
-  if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
+  if (usesDeferredTreeShakingFallback) {
+    importLine = `${getRuntimeInitPromiseBootstrapCode()}\n    ${importLine}`;
+    exportLine = generateLazyWorkspaceSingletonExports(
+      namedExports,
+      lazyLocalFallbackSource,
+      cacheDescriptor,
+      treeShakingConsumer
+    );
+  } else if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
     exportLine = generateEagerWorkspaceSingletonExports(
       namedExports,
       lazyLocalFallbackSource,
-      cacheDescriptor
+      cacheDescriptor,
+      treeShakingConsumer
     );
   } else if (usesDeferredSingletonFallback) {
     importLine = `${getRuntimeInitPromiseBootstrapCode()}\n    ${importLine}`;
     exportLine = generateLazyWorkspaceSingletonExports(
       namedExports,
       lazyLocalFallbackSource,
-      cacheDescriptor
+      cacheDescriptor,
+      treeShakingConsumer
     );
   } else if (namedExports.length > 0) {
     const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
@@ -962,19 +1167,22 @@ export function writeLoadShareModule(
 
   const staticLocalShareSource = skipServePrebuildWarmup ? devImportSource : sharedImportSource;
   const prebuildImportLine =
-    usesDeferredSingletonFallback || (isWorkspacePackage && command !== 'build')
+    usesDeferredSingletonFallback ||
+    usesDeferredTreeShakingFallback ||
+    (isWorkspacePackage && command !== 'build')
       ? ''
       : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
   const devDynamicImportLine = isWorkspacePackage
     ? ''
-    : usesDeferredSingletonFallback
+    : usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
       ? ''
       : command !== 'build' && !skipServePrebuildWarmup
         ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
         : '';
 
-  const moduleBody = usesDeferredSingletonFallback
-    ? `
+  const moduleBody =
+    usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
+      ? `
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
@@ -982,13 +1190,13 @@ export function writeLoadShareModule(
     ${normalizeLocalShareModuleCode}
     ${exportLine}
   `
-    : `
+      : `
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
     ${sharedCacheHelperCode}
     ${normalizeLocalShareModuleCode}
-    let exportModule = __mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor})
+    let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)}
     if (exportModule === undefined) {
       ${initBlock}
     }

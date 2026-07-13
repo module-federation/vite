@@ -7,6 +7,7 @@ import type {
 } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
+import { normalizePathForImport } from '../../utils/buildPaths';
 
 const {
   hasPackageDependencyMock,
@@ -18,6 +19,9 @@ const {
   writeLocalSharedImportMapMock,
   writePreBuildLibPathMock,
   getInstalledPackageEntryMock,
+  hasTreeShakingSharedProviderMock,
+  getTreeShakingSharedProviderImportIdMock,
+  getTreeShakingSharedProviderNameMock,
 } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(),
   existsSyncMock: vi.fn<(path: string) => boolean>(() => false),
@@ -28,6 +32,15 @@ const {
   writeLocalSharedImportMapMock: vi.fn<() => void>(),
   writePreBuildLibPathMock: vi.fn(),
   getInstalledPackageEntryMock: vi.fn<(pkg: string) => string | undefined>(() => undefined),
+  hasTreeShakingSharedProviderMock: vi.fn<(pkg: string, shareItem?: unknown) => boolean>(
+    () => false
+  ),
+  getTreeShakingSharedProviderImportIdMock: vi.fn(
+    (pkg: string) => `virtual:tree-shaking-provider:${pkg}`
+  ),
+  getTreeShakingSharedProviderNameMock: vi.fn(
+    (pkg: string) => `tree-shaking-provider-${pkg.replace(/\//g, '_')}`
+  ),
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -116,7 +129,7 @@ vi.mock('../../utils/packageUtils', () => ({
     return match ? match[0] : pkg;
   },
   getPackageNameFromNodeModulePath: (filePath: string) => {
-    const normalized = filePath.replace(/\\/g, '/');
+    const normalized = normalizePathForImport(filePath);
     const marker = '/node_modules/';
     const index = normalized.lastIndexOf(marker);
     if (index < 0) return undefined;
@@ -148,6 +161,7 @@ vi.mock('../../utils/VirtualModule', () => ({
 }));
 
 import { findSharedKey, proxySharedModule } from '../pluginProxySharedModule_preBuild';
+import { getUsedShares } from '../../virtualModules';
 import {
   NormalizedShared,
   normalizeModuleFederationOptions,
@@ -172,11 +186,15 @@ function getProxyPlugin(plugins: ReturnType<typeof proxySharedModule>) {
 }
 
 function getSharedResolvePlugin(plugins: ReturnType<typeof proxySharedModule>) {
-  return plugins[2];
+  return plugins[3];
 }
 
 function getPrebuildResolvePlugin(plugins: ReturnType<typeof proxySharedModule>) {
-  return plugins[3];
+  return plugins[4];
+}
+
+function getTreeShakingGraphPlugin(plugins: ReturnType<typeof proxySharedModule>) {
+  return plugins[2];
 }
 
 function getLocalSharedImportMapPlugin(plugins: ReturnType<typeof proxySharedModule>) {
@@ -227,6 +245,9 @@ vi.mock('../../virtualModules', async (importOriginal) => {
     },
     writeLocalSharedImportMap: writeLocalSharedImportMapMock,
     getPreBuildShareItem: (pkg: string) => preBuildShareItemMap.get(pkg),
+    hasTreeShakingSharedProvider: hasTreeShakingSharedProviderMock,
+    getTreeShakingSharedProviderImportId: getTreeShakingSharedProviderImportIdMock,
+    getTreeShakingSharedProviderName: getTreeShakingSharedProviderNameMock,
     getConcreteSharedImportSource: (pkg: string, shareItem?: NormalizedShared[string]) =>
       typeof shareItem?.shareConfig.import === 'string'
         ? shareItem.shareConfig.import
@@ -337,6 +358,11 @@ describe('pluginProxySharedModule_preBuild', () => {
     writePreBuildLibPathMock.mockReset();
     getInstalledPackageEntryMock.mockReset();
     getInstalledPackageEntryMock.mockReturnValue(undefined);
+    hasTreeShakingSharedProviderMock.mockReset();
+    hasTreeShakingSharedProviderMock.mockReturnValue(false);
+    getTreeShakingSharedProviderImportIdMock.mockClear();
+    getTreeShakingSharedProviderNameMock.mockClear();
+    getUsedShares().clear();
     preBuildShareItemMap.clear();
     consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -368,6 +394,54 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(code).toContain('export {');
     expect(code).toContain('usedShared');
     expect(code).toContain('@module-federation/runtime');
+  });
+
+  it('keeps same-package subpaths inside the independent tree-shaking graph', async () => {
+    const shared: NormalizedShared = {
+      'pkg/': {
+        name: 'pkg',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: false,
+          requiredVersion: '^1.0.0',
+          treeShaking: { mode: 'runtime-infer', usedExports: ['feature'] },
+        },
+      },
+    };
+    const graphPlugin = getTreeShakingGraphPlugin(proxySharedModule({ shared }));
+    const resolve = vi.fn(async () => ({ id: 'C:\\repo\\node_modules\\pkg\\subpath.js' }));
+
+    const result = await callHook(
+      graphPlugin.resolveId,
+      { resolve } as any,
+      'pkg/subpath',
+      'C:\\repo\\node_modules\\pkg\\index.js?__mf_tree_shaking_graph__=pkg',
+      {} as any
+    );
+
+    expect(resolve).toHaveBeenCalledWith(
+      'pkg/subpath',
+      'C:/repo/node_modules/pkg/index.js',
+      expect.objectContaining({
+        custom: expect.objectContaining({ __mfTreeShakingGraph: true }),
+        skipSelf: true,
+      })
+    );
+    expect(result).toEqual({
+      id: 'C:/repo/node_modules/pkg/subpath.js?__mf_tree_shaking_graph__=pkg',
+    });
+
+    resolve.mockResolvedValueOnce({ id: '\0vite/preload-helper.js' });
+    const virtualResult = await callHook(
+      graphPlugin.resolveId,
+      { resolve } as any,
+      '\0vite/preload-helper.js',
+      'C:\\repo\\node_modules\\pkg\\index.js?__mf_tree_shaking_graph__=pkg',
+      {} as any
+    );
+    expect(virtualResult).toEqual({ id: '\0vite/preload-helper.js' });
   });
 
   for (const testCase of [

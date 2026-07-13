@@ -22,12 +22,14 @@ const {
   getUsedRemotesMap,
   getUsedShares,
   getNormalizeShareItem,
+  getTreeShakingExportUsage,
   getPreBuildLibImportId,
 } = vi.hoisted(() => ({
   getNormalizeModuleFederationOptions: vi.fn(),
   getUsedRemotesMap: vi.fn(),
   getUsedShares: vi.fn(),
   getNormalizeShareItem: vi.fn(),
+  getTreeShakingExportUsage: vi.fn((): any => undefined),
   getPreBuildLibImportId: vi.fn((shareKey: string) => shareKey),
 }));
 
@@ -36,10 +38,16 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
   getNormalizeShareItem,
 }));
 
+vi.mock('../../utils/treeShaking', () => ({
+  getTreeShakingExportUsage,
+}));
+
 vi.mock('../../virtualModules', () => ({
   getUsedRemotesMap,
   getUsedShares,
   getPreBuildLibImportId,
+  TREE_SHAKING_GRAPH_QUERY: '__mf_tree_shaking_graph__',
+  TREE_SHAKING_PROVIDER_TAG: '__treeShakingProvider__',
 }));
 
 type RenderedModule = NonNullable<OutputChunk['modules']>[string];
@@ -52,6 +60,30 @@ function createRenderedModule(): RenderedModule {
     renderedExports: [],
     renderedLength: 0,
   };
+}
+
+function createChunk(fileName: string, moduleIds: string[], facadeModuleId: string | null = null) {
+  return {
+    type: 'chunk',
+    fileName,
+    name: fileName.replace(/\.js$/, ''),
+    facadeModuleId,
+    code: '',
+    dynamicImports: [],
+    implicitlyLoadedBefore: [],
+    importedBindings: {},
+    imports: [],
+    isDynamicEntry: false,
+    isEntry: false,
+    isImplicitEntry: false,
+    moduleIds,
+    modules: Object.fromEntries(moduleIds.map((id) => [id, createRenderedModule()])),
+    referencedFiles: [],
+    exports: [],
+    map: null,
+    preliminaryFileName: fileName,
+    sourcemapFileName: null,
+  } satisfies OutputChunk;
 }
 
 const makeBundle = (): OutputBundle => ({
@@ -121,8 +153,18 @@ async function runGenerateBundleWithManifest(
     shareItems?: Record<
       string,
       | {
+          name?: string;
+          from?: string;
+          scope?: string;
           version: string;
-          shareConfig: { requiredVersion: string; singleton?: boolean };
+          shareConfig: {
+            requiredVersion: string;
+            singleton?: boolean;
+            treeShaking?: {
+              mode?: 'server-calc' | 'runtime-infer';
+              usedExports?: string[];
+            };
+          };
         }
       | undefined
     >;
@@ -135,6 +177,8 @@ async function runGenerateBundleWithManifest(
     >;
     bundle?: OutputBundle;
     environmentName?: string;
+    treeShakingSharedPlugins?: string[];
+    treeShakingSharedExcludePlugins?: string[];
   } = {},
   command: 'serve' | 'build' = 'build',
   base = '/'
@@ -148,8 +192,12 @@ async function runGenerateBundleWithManifest(
     manifest: manifestOptions,
     exposes: runtime.exposePaths || {},
     remotes: runtime.remotes || {},
-    shared: {},
+    shared: Object.fromEntries(
+      Object.entries(runtime.shareItems || {}).filter((entry) => entry[1] !== undefined)
+    ),
     bundleAllCSS: false,
+    treeShakingSharedPlugins: runtime.treeShakingSharedPlugins,
+    treeShakingSharedExcludePlugins: runtime.treeShakingSharedExcludePlugins,
     shareStrategy: 'version-first',
     implementation: 'module-federation-runtime',
     runtimePlugins: [],
@@ -218,6 +266,7 @@ async function runGenerateBundleWithManifest(
 describe('pluginMFManifest', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getTreeShakingExportUsage.mockReturnValue(undefined);
   });
 
   it('does not emit the browser manifest in the ssr environment', async () => {
@@ -652,6 +701,113 @@ describe('pluginMFManifest', () => {
       singleton: true,
       requiredVersion: '^18.0.0',
     });
+  });
+
+  it('emits actual tree-shaking usage for deploy metadata', async () => {
+    getTreeShakingExportUsage.mockReturnValue({
+      kind: 'exports',
+      usedExports: ['Button', 'Input'],
+    });
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      usedShares: new Set(['antd']),
+      shareItems: {
+        antd: {
+          name: 'antd',
+          from: '',
+          scope: 'default',
+          version: '6.4.3',
+          shareConfig: {
+            requiredVersion: '^6.4.3',
+            treeShaking: {
+              mode: 'server-calc',
+            },
+          },
+        },
+      },
+      treeShakingSharedPlugins: ['shared-build-plugin'],
+      treeShakingSharedExcludePlugins: ['excluded-build-plugin'],
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.metaData.buildInfo).toMatchObject({
+      target: ['web'],
+      plugins: ['shared-build-plugin'],
+      excludePlugins: ['excluded-build-plugin'],
+    });
+    expect(manifest.shared[0]).toMatchObject({
+      name: 'antd',
+      usedExports: ['Button', 'Input'],
+      referenceExports: ['Button', 'Input'],
+      treeShaking: {
+        mode: 'server-calc',
+        usedExports: ['Button', 'Input'],
+        status: 1,
+      },
+    });
+  });
+
+  it('does not advertise independent provider chunks as eager shared assets', async () => {
+    getTreeShakingExportUsage.mockReturnValue({
+      kind: 'exports',
+      usedExports: ['Button'],
+    });
+    const bundle = makeBundle();
+    bundle['antd-full.js'] = createChunk('antd-full.js', ['/node_modules/antd/index.js']);
+    bundle['antd-tree.js'] = createChunk(
+      'antd-tree.js',
+      ['/node_modules/antd/index.js?__mf_tree_shaking_graph__=antd'],
+      '\0virtual:mf:host__treeShakingProvider__antd__treeShakingProvider__.js'
+    );
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      bundle,
+      usedShares: new Set(['antd']),
+      shareItems: {
+        antd: {
+          name: 'antd',
+          from: '',
+          scope: 'default',
+          version: '6.4.3',
+          shareConfig: {
+            requiredVersion: '^6.4.3',
+            treeShaking: { mode: 'runtime-infer' },
+          },
+        },
+      },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    const sharedAssets = manifest.shared[0].assets.js;
+    expect([...sharedAssets.sync, ...sharedAssets.async]).toContain('antd-full.js');
+    expect([...sharedAssets.sync, ...sharedAssets.async]).not.toContain('antd-tree.js');
+  });
+
+  it('marks unsafe tree-shaking usage as full-bundle-only', async () => {
+    getTreeShakingExportUsage.mockReturnValue({ kind: 'full' });
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      usedShares: new Set(['antd']),
+      shareItems: {
+        antd: {
+          name: 'antd',
+          from: '',
+          scope: 'default',
+          version: '6.4.3',
+          shareConfig: {
+            requiredVersion: '^6.4.3',
+            treeShaking: { mode: 'runtime-infer' },
+          },
+        },
+      },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.shared[0].treeShaking).toEqual({
+      mode: 'runtime-infer',
+      status: 0,
+    });
+    expect(manifest.shared[0].usedExports).toEqual([]);
   });
 
   it('uses auto publicPath when Vite base was not explicitly configured', async () => {

@@ -1190,6 +1190,8 @@ describe('pluginAddEntry', () => {
   });
 
   it('does not replace exposed modules that are also rollup inputs', async () => {
+    const testRoot = path.resolve(path.sep, 'repo', 'remote-app');
+    const exposePath = path.join(testRoot, 'src', 'expose.ts');
     const plugins = addEntry({
       entryName: 'hostInit',
       entryPath: '/virtual/hostInit.js',
@@ -1198,17 +1200,13 @@ describe('pluginAddEntry', () => {
     const buildPlugin = plugins[1];
 
     runConfigResolved(buildPlugin, {
-      root: '/repo/remote-app',
+      root: testRoot,
       base: '/',
       command: 'build',
-      build: { rollupOptions: { input: '/repo/remote-app/src/expose.ts' } },
+      build: { rollupOptions: { input: exposePath } },
     } as unknown as ResolvedConfig);
 
-    const result = await runTransform(
-      buildPlugin,
-      'export function render() {}',
-      '/repo/remote-app/src/expose.ts'
-    );
+    const result = await runTransform(buildPlugin, 'export function render() {}', exposePath);
 
     expect(result).toBeUndefined();
   });
@@ -1551,6 +1549,11 @@ describe('pluginAddEntry', () => {
         name: '_virtual_mf-localSharedImportMap___app',
         fileName: 'assets/chunk-_virtual_mf-localSharedImportMap___app.Bl.js',
       },
+      'assets/chunk-_virtual_mf___app__prebuild__antd__prebuild__.js': {
+        type: 'chunk',
+        name: '_virtual_mf___app__prebuild__antd__prebuild__',
+        fileName: 'assets/chunk-_virtual_mf___app__prebuild__antd__prebuild__.js',
+      },
       'assets/chunk-index.B_.js': {
         type: 'chunk',
         name: 'index',
@@ -1603,6 +1606,7 @@ describe('pluginAddEntry', () => {
     expect(html).toContain(
       '<link rel="modulepreload" crossorigin href="/app/assets/chunk-_virtual_mf-localSharedImportMap___app.Bl.js">'
     );
+    expect(html).not.toContain('chunk-_virtual_mf___app__prebuild__antd__prebuild__.js');
     expect(html.match(/chunk-index\.B_\.js/g)?.length).toBe(1);
     expect(html).not.toContain('index.AA.css');
   });

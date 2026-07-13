@@ -5,7 +5,13 @@ import {
   getNormalizeShareItem,
   type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
-import { getUsedRemotesMap, getUsedShares } from '../virtualModules';
+import { getTreeShakingExportUsage } from '../utils/treeShaking';
+import {
+  getUsedRemotesMap,
+  getUsedShares,
+  TREE_SHAKING_GRAPH_QUERY,
+  TREE_SHAKING_PROVIDER_TAG,
+} from '../virtualModules';
 
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import {
@@ -18,6 +24,7 @@ import {
   processModuleAssets,
 } from '../utils/cssModuleHelpers';
 import { resolvePublicPath } from '../utils/pathNormalization';
+import { normalizePathForImport } from '../utils/buildPaths';
 import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
 import { DEFAULT_PUBLIC_TYPES_FOLDER } from './pluginDts';
 
@@ -81,6 +88,31 @@ function createRemoteEntryAssetMap(fileName: string) {
   };
 }
 
+function isTreeShakingProviderChunk(file: Record<string, any>) {
+  if (file.type !== 'chunk') return false;
+  if (file.facadeModuleId?.includes(TREE_SHAKING_PROVIDER_TAG)) return true;
+  return Object.keys(file.modules || {}).some(
+    (id) => id.includes(TREE_SHAKING_PROVIDER_TAG) || id.includes(TREE_SHAKING_GRAPH_QUERY)
+  );
+}
+
+function getTreeShakingBuildInfo(options: ReturnType<typeof getNormalizeModuleFederationOptions>) {
+  const enabled =
+    Object.values(options.shared || {}).some((share) => !!share.shareConfig.treeShaking) ||
+    !!options.treeShakingSharedPlugins?.length ||
+    !!options.treeShakingSharedExcludePlugins?.length;
+  if (!enabled) return {};
+  return {
+    target: [options.target || 'web'],
+    ...(options.treeShakingSharedPlugins?.length
+      ? { plugins: [...options.treeShakingSharedPlugins] }
+      : {}),
+    ...(options.treeShakingSharedExcludePlugins?.length
+      ? { excludePlugins: [...options.treeShakingSharedExcludePlugins] }
+      : {}),
+  };
+}
+
 function getRemoteContainerName(remoteKey: string, remote: RemoteObjectConfig) {
   // Object-form remotes default entryGlobalName to the alias during
   // normalization, while string-form remotes use it for `Name@entry`.
@@ -99,9 +131,11 @@ const Manifest = (): Plugin[] => {
     manifestOptions === true
       ? 'mf-manifest.json'
       : typeof manifestOptions === 'object'
-        ? path.join(
-            manifestOptions?.filePath || '',
-            manifestOptions?.fileName || 'mf-manifest.json'
+        ? normalizePathForImport(
+            path.join(
+              manifestOptions?.filePath || '',
+              manifestOptions?.fileName || 'mf-manifest.json'
+            )
           )
         : undefined;
 
@@ -179,7 +213,11 @@ const Manifest = (): Plugin[] => {
                 metaData: {
                   name: name,
                   type: 'app',
-                  buildInfo: { buildVersion: getBuildVersion(), buildName: name },
+                  buildInfo: {
+                    buildVersion: getBuildVersion(),
+                    buildName: name,
+                    ...getTreeShakingBuildInfo(mfOptions),
+                  },
                   remoteEntry: {
                     name: devRemoteEntryFile,
                     path: '',
@@ -283,6 +321,18 @@ const Manifest = (): Plugin[] => {
           mfOptions.bundleAllCSS && !disableAssetsAnalyze
             ? collectCssAssets(bundle)
             : new Set<string>();
+        if (allCssAssets.size > 0) {
+          const secondaryCss = new Set<string>();
+          const primaryCss = new Set<string>();
+          for (const file of Object.values(bundle) as Array<Record<string, any>>) {
+            if (file.type !== 'chunk') continue;
+            const target = isTreeShakingProviderChunk(file) ? secondaryCss : primaryCss;
+            for (const css of file.viteMetadata?.importedCss || []) target.add(css);
+          }
+          for (const css of secondaryCss) {
+            if (!primaryCss.has(css)) allCssAssets.delete(css);
+          }
+        }
 
         if (!disableAssetsAnalyze) {
           const exposesModules = Object.keys(mfOptions.exposes).map(
@@ -307,7 +357,16 @@ const Manifest = (): Plugin[] => {
             getUsedShares(),
             this.resolve.bind(this)
           );
-          processModuleAssets(bundle, filesMap, (modulePath) => fileToShareKey.get(modulePath));
+          // Secondary tree-shaken providers are loaded only after runtime
+          // compatibility selection. Advertising them as normal shared assets
+          // would make preloaders download both the optimized provider and its
+          // complete fallback.
+          const fullSharedBundle = Object.fromEntries(
+            Object.entries(bundle).filter(([, file]) => !isTreeShakingProviderChunk(file))
+          );
+          processModuleAssets(fullSharedBundle, filesMap, (modulePath) =>
+            fileToShareKey.get(modulePath)
+          );
 
           // Add all CSS assets to every export if bundleAllCSS is enabled
           if (mfOptions.bundleAllCSS) {
@@ -405,6 +464,10 @@ const Manifest = (): Plugin[] => {
           ? createRemoteEntryAssetMap(resolvedRemoteEntryFile)
           : createEmptyAssetMap());
 
+      const treeShakingUsage = getTreeShakingExportUsage(shareKey, shareItem, shareItem.name);
+      const treeShakingUsedExports =
+        treeShakingUsage?.kind === 'exports' ? treeShakingUsage.usedExports : [];
+      const treeShakingStatus = treeShakingUsage?.kind === 'full' ? 0 : 1;
       return [
         {
           id: `${name}:${shareKey}`,
@@ -412,6 +475,23 @@ const Manifest = (): Plugin[] => {
           version: shareItem.version,
           singleton: shareItem.shareConfig.singleton,
           requiredVersion: shareItem.shareConfig.requiredVersion,
+          ...(shareItem.shareConfig.treeShaking
+            ? {
+                // `usedExports` is build/deploy metadata and must remain complete
+                // even when runtime injection is disabled for server-calc.
+                usedExports: treeShakingUsedExports,
+                // Runtime 2.7's manifest-to-Snapshot adapter currently reads
+                // `referenceExports`; keep both fields until that schema converges.
+                referenceExports: treeShakingUsedExports,
+                treeShaking: {
+                  mode: shareItem.shareConfig.treeShaking.mode,
+                  ...(treeShakingUsage?.kind === 'exports'
+                    ? { usedExports: treeShakingUsedExports }
+                    : {}),
+                  status: treeShakingStatus,
+                },
+              }
+            : {}),
           assets: {
             js: {
               async: assets.js.async,
@@ -462,6 +542,7 @@ const Manifest = (): Plugin[] => {
         buildInfo: {
           buildVersion: getBuildVersion(),
           buildName: name,
+          ...getTreeShakingBuildInfo(options),
         },
         remoteEntry,
         ssrRemoteEntry,
@@ -531,7 +612,7 @@ function getStatsFileName(manifestFileName: string) {
   const baseWithoutManifestSuffix = baseName === 'mf-manifest' ? 'mf' : baseName;
   const fileName = `${baseWithoutManifestSuffix}-stats${fileExt}`;
 
-  return parsed.dir ? path.join(parsed.dir, fileName) : fileName;
+  return parsed.dir ? normalizePathForImport(path.join(parsed.dir, fileName)) : fileName;
 }
 
 export default Manifest;

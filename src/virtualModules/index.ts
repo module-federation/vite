@@ -36,11 +36,29 @@ export {
   getPreBuildShareItem,
   getProjectResolvedImportPath,
   getSharedImportSource,
+  addTreeShakingGraphQuery,
+  getTreeShakingGraphToken,
+  getTreeShakingSharedProviderImportId,
+  getTreeShakingSharedProviderName,
+  hasTreeShakingSharedProvider,
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
+  TREE_SHAKING_PROVIDER_TAG,
+  TREE_SHAKING_GRAPH_QUERY,
+  stripTreeShakingGraphQuery,
   writeLoadShareModule,
   writePreBuildLibPath,
+  writeTreeShakingSharedProvider,
+  refreshTreeShakingModules,
 } from './virtualShared_preBuild';
+
+export {
+  getTreeShakingUsedExports,
+  markTreeShakingPackageUnsafe,
+  recordTreeShakingExports,
+  resetTreeShakingExports,
+  setTreeShakingBuildMode,
+} from '../utils/treeShaking';
 
 export { generateExposes, getExposesCssMapPlaceholder } from './virtualExposes';
 

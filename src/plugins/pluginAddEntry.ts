@@ -31,7 +31,11 @@ interface AddEntryOptions {
 const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
   (name) => name === 'hostInit',
   (name) => name === 'remoteEntry',
-  (name) => name.startsWith('_virtual_mf'),
+  // Tree-shaken shares deliberately keep their complete provider as a lazy
+  // fallback. Preloading every virtual MF chunk would fetch that fallback
+  // before runtime provider selection has a chance to choose the optimized
+  // provider.
+  (name) => name.startsWith('_virtual_mf') && !name.includes('__prebuild__'),
   (name) => name === 'index',
 ];
 
@@ -359,7 +363,7 @@ const addEntry = ({
   }
 
   function normalizeModuleId(id: string) {
-    return id.split('?')[0].replace(/\\/g, '/');
+    return normalizePathForImport(id.split('?')[0]);
   }
 
   function resolveProjectId(id: string) {
@@ -414,8 +418,8 @@ const addEntry = ({
           // On Windows, naive drive-letter stripping leaves the full directory
           // tree in the URL (e.g. /Repositories/.../node_modules/...) causing 404s.
           // Instead, compute the path relative to Vite's project root.
-          const normalized = resolvedEntryPath.replace(/\\\\?/g, '/');
-          const root = config.root.replace(/\\\\?/g, '/').replace(/\/$/, '');
+          const normalized = normalizePathForImport(resolvedEntryPath);
+          const root = normalizePathForImport(config.root).replace(/\/$/, '');
           const relativePath = normalized.startsWith(root + '/')
             ? normalized.slice(root.length)
             : '/' + normalized.replace(/^[A-Za-z]:[\\/]/, '');

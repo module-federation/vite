@@ -1,5 +1,6 @@
 import { SharedCounter, formatLabel, createFilter, capitalize } from "@vite-vite/shared-lib";
 import { getCurrentRowChangedEventName } from "@vite-vite/shared-consumer";
+import { Button } from "antd";
 import R from "react";
 import RD from "react-dom/client";
 
@@ -38,6 +39,12 @@ export default function HostApp() {
         <code>createFilter</code> result for "an":{" "}
         {JSON.stringify(filterByName("an"))}
       </p>
+
+      <section aria-label="Ant Design shared tree shaking host">
+        <h2>Ant Design Shared Tree Shaking</h2>
+        <p>The host statically imports only the Ant Design Button component.</p>
+        <Button type="primary">Host Button</Button>
+      </section>
 
       <hr />
 
