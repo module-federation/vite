@@ -4,7 +4,6 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { chromium } from '@playwright/test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer as createViteServer, version as viteVersion } from 'vite';
@@ -20,7 +19,8 @@ let fixtureRoot: string;
 beforeEach(async () => {
   fixtureRoot = await mkdtemp(path.join(FIXTURE_PARENT, '.issue-913-'));
   await mkdir(path.join(fixtureRoot, 'src'));
-  const pluginEntry = pathToFileURL(path.join(REPO_ROOT, 'src/index.ts')).href;
+  const pluginEntry = path.join(REPO_ROOT, 'src/index.ts');
+  const ssrEntryLoaderEntry = path.join(REPO_ROOT, 'src/utils/ssrEntryLoader.ts');
   await Promise.all([
     writeFile(
       path.join(fixtureRoot, 'index.html'),
@@ -59,6 +59,11 @@ export default function RemoteHookComponent({ hostReact }) {
 
 export default {
   cacheDir: process.env.ISSUE_913_CACHE_DIR,
+  resolve: {
+    alias: {
+      '@module-federation/vite/ssrEntryLoader': ${JSON.stringify(ssrEntryLoaderEntry)},
+    },
+  },
   plugins: [federation({
     name: 'issue913Remote',
     hostInitInjectLocation: 'entry',
@@ -79,6 +84,11 @@ export default {
 
 export default {
   cacheDir: process.env.ISSUE_913_CACHE_DIR,
+  resolve: {
+    alias: {
+      '@module-federation/vite/ssrEntryLoader': ${JSON.stringify(ssrEntryLoaderEntry)},
+    },
+  },
   plugins: [federation({
     name: 'issue913Host',
     remotes: {
