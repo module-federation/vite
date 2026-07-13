@@ -444,7 +444,10 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
   }
   for (const key of tempFileCache.keys()) {
     const url = key.slice(key.indexOf('::') + 2);
-    if (url.startsWith(origin)) tempFileCache.delete(key);
+    if (url.startsWith(origin)) {
+      tempFileCache.delete(key);
+      tempFilePathCache.delete(key);
+    }
   }
 }
 
@@ -467,6 +470,7 @@ export function revalidate(remoteEntryUrl?: string): void {
     ssrEntryCache.clear();
     manifestFetchCache.clear();
     tempFileCache.clear();
+    tempFilePathCache.clear();
   }
 
   const federation = (
@@ -488,6 +492,7 @@ export function revalidate(remoteEntryUrl?: string): void {
 // ---------------------------------------------------------------------------
 
 const tempFileCache = new Map<string, Promise<string>>();
+const tempFilePathCache = new Map<string, Promise<string>>();
 
 // Lazily initialised on the server only — avoids evaluating Node APIs in browser.
 let ssrCacheDirPromise: Promise<string> | undefined;
@@ -595,14 +600,35 @@ async function fetchEsmToTempFile(
   url: string,
   tmpDir: string,
   visited: Map<string, string>,
+  pending: Set<Promise<string>>,
   sharedPkgMap?: Map<string, string>,
   versionKey: string = UNVERSIONED
 ): Promise<string> {
   const cacheKey = `${versionKey}::${url}`;
   if (visited.has(url)) return visited.get(url)!;
-  if (tempFileCache.has(cacheKey)) return tempFileCache.get(cacheKey)!;
+  const cached = tempFileCache.get(cacheKey);
+  if (cached) {
+    pending.add(cached);
+    const tmpFile = await tempFilePathCache.get(cacheKey)!;
+    visited.set(url, tmpFile);
+    return tmpFile;
+  }
+
+  const tmpFilePromise = (async () => {
+    const { createHash } = await _crypto();
+    const { join } = await _path();
+    const hash = createHash('sha1').update(cacheKey).digest('hex').slice(0, 12);
+    return join(tmpDir, `${hash}.js`);
+  })();
+  tempFilePathCache.set(cacheKey, tmpFilePromise);
 
   const promise = (async () => {
+    // Reserve the destination before descending into imports. A circular edge
+    // can then reference the ancestor's future file instead of awaiting the
+    // ancestor's still-pending fetch promise.
+    const tmpFile = await tmpFilePromise;
+    visited.set(url, tmpFile);
+
     const res = await fetch(url);
     let code = await res.text();
     if (!res.ok) {
@@ -631,7 +657,14 @@ async function fetchEsmToTempFile(
       [...new Set(relImports)]
         .filter((u) => u.startsWith('http://') || u.startsWith('https://'))
         .map(async (u) => {
-          const tmpPath = await fetchEsmToTempFile(u, tmpDir, visited, sharedPkgMap, versionKey);
+          const tmpPath = await fetchEsmToTempFile(
+            u,
+            tmpDir,
+            visited,
+            pending,
+            sharedPkgMap,
+            versionKey
+          );
           subMap.set(u, `file://${tmpPath}`);
         })
     );
@@ -643,18 +676,35 @@ async function fetchEsmToTempFile(
       code = code.split(httpUrl).join(fileUrl);
     }
 
-    const { createHash } = await _crypto();
-    const { join } = await _path();
     const { writeFileSync } = await _fs();
-    const hash = createHash('sha1').update(cacheKey).digest('hex').slice(0, 12);
-    const tmpFile = join(tmpDir, `${hash}.js`);
     writeFileSync(tmpFile, code, 'utf8');
-    visited.set(url, tmpFile);
     return tmpFile;
   })();
 
   tempFileCache.set(cacheKey, promise);
+  pending.add(promise);
   return promise;
+}
+
+async function fetchEsmGraphToTempFile(
+  url: string,
+  tmpDir: string,
+  sharedPkgMap?: Map<string, string>,
+  versionKey: string = UNVERSIONED
+): Promise<string> {
+  const pending = new Set<Promise<string>>();
+  const rootFile = await fetchEsmToTempFile(
+    url,
+    tmpDir,
+    new Map(),
+    pending,
+    sharedPkgMap,
+    versionKey
+  );
+  // Circular edges return their reserved path immediately. Wait for every
+  // discovered writer before importing the root so all referenced files exist.
+  await Promise.all(pending);
+  return rootFile;
 }
 
 async function importTempModule(
@@ -775,7 +825,7 @@ async function loadSSRRemoteEntry(
     const sharedPkgMap = new Map(Object.entries(resolvedShared));
 
     try {
-      const tmpFile = await fetchEsmToTempFile(url, cacheDir, new Map(), sharedPkgMap, versionKey);
+      const tmpFile = await fetchEsmGraphToTempFile(url, cacheDir, sharedPkgMap, versionKey);
       return await importTempModule(tmpFile, versionKey);
     } catch (error) {
       if (isSsrEntryHttpError(error)) throw error;
