@@ -4,6 +4,7 @@ import type {
   ResolvedConfig,
   Rollup,
 } from 'vite';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
@@ -12,6 +13,54 @@ import { getHostAutoInitPath } from '../../virtualModules';
 import pluginProxyRemoteEntry from '../pluginProxyRemoteEntry';
 
 describe('pluginProxyRemoteEntry', () => {
+  it('refreshes nested remote dependencies before generating virtual exposes', async () => {
+    normalizeModuleFederationOptions({ name: 'test' });
+    const expose = resolve('integration/fixtures/nested-remote-transitive/exposed-widget.js');
+    const store = resolve('integration/fixtures/nested-remote-transitive/store.js');
+    const plugin = pluginProxyRemoteEntry({
+      options: getDefaultMockOptions({
+        exposes: { './widget': { import: expose } as any },
+        remotes: {
+          remoteA: {
+            name: 'remoteA',
+            entry: 'http://localhost:3001/remoteEntry.js',
+            type: 'module',
+          },
+        },
+      }),
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+
+    let exposeResolveCalls = 0;
+    const context = {
+      resolve: async (source: string) => {
+        if (source === expose) {
+          exposeResolveCalls += 1;
+          return { id: expose };
+        }
+        if (source === './store.js') return { id: store };
+        return undefined;
+      },
+    } as any;
+
+    callHook(
+      plugin.config,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    const generated = await callHook(plugin.load, context, 'virtual:mf-exposes');
+
+    expect(generated).toContain('__loadRemote__remoteA_mf_1_shared_mf_1_helpers__loadRemote__');
+    await callHook(plugin.load, context, 'virtual:mf-exposes');
+    expect(exposeResolveCalls).toBe(1);
+
+    callHook(plugin.watchChange, context, store, { event: 'update' });
+    await callHook(plugin.transform, context, '', 'virtual:mf-exposes');
+    expect(exposeResolveCalls).toBe(2);
+  });
+
   it('uses an inlined data-URL origin for dev host init in SSR/module-runner contexts, protocol relative fallback origin otherwise', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const plugin = pluginProxyRemoteEntry({
