@@ -14,6 +14,7 @@ import {
 } from '../virtualModules/virtualRemoteEntrySSR';
 
 const MAX_RUNNER_BODY_BYTES = 1024 * 1024;
+const MAX_RUNNER_START_OFFSET = 1024 * 1024;
 const ALLOWED_RUNNER_INVOKE_NAMES = new Set(['fetchModule', 'getBuiltins']);
 const VITE_FS_PREFIX = '/@fs/';
 
@@ -34,6 +35,27 @@ type RunnerValidationConfig = {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSafeRunnerFetchModuleOptions(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  const allowedKeys = new Set(['cached', 'startOffset', 'inlineSourceMap']);
+  for (const [key, option] of Object.entries(value)) {
+    if (!allowedKeys.has(key)) return false;
+    if (key === 'startOffset') {
+      if (
+        typeof option !== 'number' ||
+        !Number.isSafeInteger(option) ||
+        option < 0 ||
+        option > MAX_RUNNER_START_OFFSET
+      ) {
+        return false;
+      }
+    } else if (typeof option !== 'boolean') {
+      return false;
+    }
+  }
+  return true;
 }
 
 function stripQueryAndHash(id: string): string {
@@ -140,7 +162,7 @@ function isRunnerInvokePayload(
   return (
     isSafeRunnerFetchModuleId(id, config) &&
     (importer === undefined || importer === null || isSafeRunnerFetchModuleId(importer, config)) &&
-    (opts === undefined || isPlainObject(opts))
+    (opts === undefined || isSafeRunnerFetchModuleOptions(opts))
   );
 }
 
@@ -360,14 +382,6 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         if (typeof (ssrEnv?.fetchModule ?? clientEnv?.fetchModule) === 'function' && runnerEnv) {
           const runnerBase = '/__mf_runner__';
           server.middlewares.use(runnerBase, async (req, res) => {
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            if (req.method === 'OPTIONS') {
-              res.setHeader('Access-Control-Allow-Methods', 'POST');
-              res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-              res.statusCode = 204;
-              res.end();
-              return;
-            }
             if (req.method !== 'POST') {
               res.statusCode = 405;
               res.end('Method not allowed');
