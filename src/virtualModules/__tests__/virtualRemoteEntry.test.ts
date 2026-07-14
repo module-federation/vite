@@ -910,6 +910,9 @@ describe('virtualRemoteEntry', () => {
     );
 
     expect(code).toContain('const shareScopeNames = Array.isArray(["default","scope1"])');
+    expect(code).toContain('const getShareScopeName = (pkg, share) =>');
+    expect(code).toContain('return [...new Set([...configuredScopes, ...shareScopeNames])]');
+    expect(code).toContain('getShareScope(getShareScopeName(pkg, usedShare))');
     expect(code).toContain('for (const shareScopeName of shareScopeNames)');
     expect(code).toContain('initRes.initShareScopeMap(shareScopeName, scopeShare)');
     expect(code).toContain('initRes.initializeSharing(shareScopeName');

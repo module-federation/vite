@@ -58,15 +58,19 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
       : [${JSON.stringify(options.shareScope)}];
     try {
       for (const scopeName of shareScopeNames) {
-      const scopeShare = Array.isArray(${JSON.stringify(options.shareScope)}) ? (shared?.[scopeName] || {}) : shared;
-      initRes.initShareScopeMap(scopeName, scopeShare);
-      await Promise.all(
-        await initRes.initializeSharing(scopeName, {
-          strategy: ${JSON.stringify(options.shareStrategy ?? 'version-first')},
-          from: 'build',
-          initScope,
-        })
-      );
+        try {
+          const scopeShare = Array.isArray(${JSON.stringify(options.shareScope)}) ? (shared?.[scopeName] || {}) : shared;
+          initRes.initShareScopeMap(scopeName, scopeShare);
+          await Promise.all(
+            await initRes.initializeSharing(scopeName, {
+              strategy: ${JSON.stringify(options.shareStrategy ?? 'version-first')},
+              from: 'build',
+              initScope,
+            })
+          );
+        } catch (e) {
+          console.error('[Module Federation SSR]', e);
+        }
       }
     } catch (e) {
       console.error('[Module Federation SSR]', e);

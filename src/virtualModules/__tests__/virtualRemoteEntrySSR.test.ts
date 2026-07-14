@@ -36,6 +36,7 @@ describe('virtualRemoteEntrySSR', () => {
 
     expect(code).toContain('const shareScopeNames = Array.isArray(["default","scope1"])');
     expect(code).toContain('for (const scopeName of shareScopeNames)');
+    expect(code).toContain("console.error('[Module Federation SSR]', e);");
     expect(code).toContain('initRes.initShareScopeMap(scopeName, scopeShare)');
     expect(code).toContain('initRes.initializeSharing(scopeName');
   });

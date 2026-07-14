@@ -1002,9 +1002,19 @@ export function generateRemoteEntry(
   async function init(shared = {}, initScope = []) {
     ${sharedCacheHelperCode}
     const getShareScope = (scopeName) => ${hasMultipleShareScopes} ? (shared?.[scopeName] || {}) : shared;
-    const getShareVersions = (pkg, share) => {
+    const getShareScopeNames = (share) => {
       const configuredScopes = Array.isArray(share?.scope) ? share.scope : [share?.scope || shareScopeName];
-      for (const scopeName of configuredScopes) {
+      if (!${hasMultipleShareScopes}) return configuredScopes;
+      return [...new Set([...configuredScopes, ...shareScopeNames])];
+    };
+    const getShareScopeName = (pkg, share) => {
+      for (const scopeName of getShareScopeNames(share)) {
+        if (getShareScope(scopeName)?.[pkg]) return scopeName;
+      }
+      return shareScopeName;
+    };
+    const getShareVersions = (pkg, share) => {
+      for (const scopeName of getShareScopeNames(share)) {
         const versions = getShareScope(scopeName)?.[pkg];
         if (versions) return versions;
       }
@@ -1454,15 +1464,9 @@ export function generateRemoteEntry(
         const resolvedExternalProvider = __mfResolveExternalSharedProvider(
           federationInstances,
           scopeRoot,
+          ${hasMultipleShareScopes ? 'getShareScope(getShareScopeName(pkg, usedShare))' : 'shared'},
           ${
-            hasMultipleShareScopes
-              ? 'getShareScope(Array.isArray(usedShare.scope) ? usedShare.scope[0] : (usedShare.scope || shareScopeName))'
-              : 'shared'
-          },
-          ${
-            hasMultipleShareScopes
-              ? 'Array.isArray(usedShare.scope) ? usedShare.scope[0] : (usedShare.scope || shareScopeName)'
-              : `'${options.shareScope}'`
+            hasMultipleShareScopes ? 'getShareScopeName(pkg, usedShare)' : `'${options.shareScope}'`
           },
           pkg,
           providerEntry,
