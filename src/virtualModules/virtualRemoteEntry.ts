@@ -1021,20 +1021,43 @@ export function generateRemoteEntry(
         })
         .join(', ')}])
       : [];
+    const __mfRuntimeShareLoadIdKey = "__mf_vite_runtime_share_load_id__";
+    let __mfRuntimeShareLoadId = 0;
+    const __mfRuntimeShareSelections = new Map();
+    const __mfRuntimeShareLifecycles = new Map();
     const initRes = runtimeInit({
       name: mfName,
       remotes: ${options.shareStrategy === 'loaded-first' ? '[]' : 'usedRemotes'},
       shared: usedShared,
-      plugins: [${hasTreeShakingShared ? '__mfTreeShakingSnapshotPlugin(),' : ''} ...__browserPlugins, ...__ssrPlugins],
+      plugins: [__mfSharePinLifecyclePlugin(), ${hasTreeShakingShared ? '__mfTreeShakingSnapshotPlugin(),' : ''} ...__browserPlugins, ...__ssrPlugins],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
     initRes.initShareScopeMap('${options.shareScope}', shared);
+    function __mfSharePinLifecyclePlugin() {
+      return {
+        name: "vite-share-pin-lifecycle-plugin",
+        resolveShare(args) {
+          const loadId = args.shareInfo?.[__mfRuntimeShareLoadIdKey];
+          const lifecycle = loadId === undefined
+            ? undefined
+            : __mfRuntimeShareLifecycles.get(loadId);
+          if (!lifecycle) return args;
+          lifecycle.defaultResolver = args.resolver;
+          lifecycle.pinned.reveal();
+          return args;
+        }
+      };
+    }
     const runtimeResolveShareHook = initRes.sharedHandler.hooks.lifecycle.resolveShare;
     const __mfRuntimeProviderOrigins = new WeakMap();
-    const __mfRuntimeShareLoadIdKey = "__mf_vite_runtime_share_load_id__";
-    let __mfRuntimeShareLoadId = 0;
-    const __mfRuntimeShareSelections = new Map();
     runtimeResolveShareHook.on((args) => {
+      const loadId = args.shareInfo?.[__mfRuntimeShareLoadIdKey];
+      const lifecycle = loadId === undefined
+        ? undefined
+        : __mfRuntimeShareLifecycles.get(loadId);
+      if (lifecycle && args.resolver === lifecycle.defaultResolver) {
+        lifecycle.pinned.reapply();
+      }
       const resolver = args.resolver;
       if (typeof resolver !== "function") return args;
       const instrumentedResolver = (...resolverArgs) => {
@@ -1047,7 +1070,6 @@ export function generateRemoteEntry(
         ) {
           __mfRuntimeProviderOrigins.set(selectedProvider, { from: selectedProvider.from });
         }
-        const loadId = args.shareInfo?.[__mfRuntimeShareLoadIdKey];
         if (loadId !== undefined && selectedProvider) {
           __mfRuntimeShareSelections.set(loadId, selectedProvider);
         }
@@ -1065,11 +1087,27 @@ export function generateRemoteEntry(
       });
       const providerFrom = provider.from;
       versionMap[version] = pinnedProvider;
+      const isCurrentProviderActive = () => currentProvider === undefined
+        ? versionMap[version] === undefined
+        : versionMap[version] === currentProvider;
       return {
         provider: pinnedProvider,
+        reveal() {
+          if (versionMap[version] !== pinnedProvider) return false;
+          if (currentProvider === undefined) delete versionMap[version];
+          else versionMap[version] = currentProvider;
+          return true;
+        },
+        reapply() {
+          if (!isCurrentProviderActive()) return false;
+          versionMap[version] = pinnedProvider;
+          return true;
+        },
         release(loaded, selected = true) {
           provider.from = providerFrom;
-          if (versionMap[version] !== pinnedProvider) return false;
+          if (versionMap[version] !== pinnedProvider) {
+            return !selected && isCurrentProviderActive();
+          }
           if (!selected) {
             if (currentProvider === undefined) delete versionMap[version];
             else versionMap[version] = currentProvider;
@@ -1112,8 +1150,12 @@ export function generateRemoteEntry(
       }
       return match;
     };
-    const __mfLoadRuntimeShare = async (pkg, shareConfig) => {
+    const __mfLoadRuntimeShare = async (pkg, shareConfig, pinned) => {
       const loadId = ++__mfRuntimeShareLoadId;
+      __mfRuntimeShareLifecycles.set(loadId, {
+        pinned,
+        defaultResolver: undefined
+      });
       try {
         const factory = await initRes.loadShare(pkg, {
           customShareInfo: {
@@ -1127,6 +1169,7 @@ export function generateRemoteEntry(
         };
       } finally {
         __mfRuntimeShareSelections.delete(loadId);
+        __mfRuntimeShareLifecycles.delete(loadId);
       }
     };
     const __mfLoadPinnedRuntimeShare = async (
@@ -1148,7 +1191,7 @@ export function generateRemoteEntry(
       if (!pinned) return undefined;
       let runtimeLoad;
       try {
-        runtimeLoad = await __mfLoadRuntimeShare(pkg, shareConfig);
+        runtimeLoad = await __mfLoadRuntimeShare(pkg, shareConfig, pinned);
       } catch (error) {
         pinned.release(false);
         throw error;

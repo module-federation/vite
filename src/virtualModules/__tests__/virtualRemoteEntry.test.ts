@@ -134,9 +134,21 @@ type RuntimeBridgeProvider = {
   strategy?: string;
 };
 
-async function getRuntimeBridgeLoader(initRes: {
-  loadShare: (pkg: string, options: unknown) => Promise<unknown>;
-}) {
+type RuntimeResolveShareArgs = {
+  shareInfo?: Record<string, unknown>;
+  shareScopeMap?: Record<string, Record<string, Record<string, RuntimeBridgeProvider>>>;
+  resolver: (...args: unknown[]) => {
+    shared: RuntimeBridgeProvider;
+    useTreesShaking?: boolean;
+  };
+};
+
+async function getRuntimeBridgeLoader(
+  initRes: {
+    loadShare: (pkg: string, options: unknown) => Promise<unknown>;
+  },
+  resolveShare?: (args: RuntimeResolveShareArgs) => RuntimeResolveShareArgs | undefined
+) {
   const mod = await import('../virtualRemoteEntry');
   const code = mod.generateRemoteEntry(
     {
@@ -153,58 +165,84 @@ async function getRuntimeBridgeLoader(initRes: {
     'virtual:exposes',
     'serve'
   );
-  const helperCode = code.slice(
+  const lifecycleStateCode = code.slice(
+    code.indexOf('const __mfRuntimeShareLoadIdKey ='),
+    code.indexOf('const initRes = runtimeInit({')
+  );
+  const lifecyclePluginCode = code.slice(
+    code.indexOf('function __mfSharePinLifecyclePlugin()'),
+    code.indexOf('const runtimeResolveShareHook =')
+  );
+  const runtimeBridgeCode = code.slice(
     code.indexOf('const __mfRuntimeProviderOrigins ='),
     code.indexOf('const bridgedProviders =')
   );
+  const helperCode = `${lifecycleStateCode}\n${lifecyclePluginCode}\n${runtimeBridgeCode}`;
 
   let recordSelection = (
     _provider: RuntimeBridgeProvider,
-    _shareInfo?: Record<string, unknown>
+    _shareInfo?: Record<string, unknown>,
+    _shareScopeMap?: RuntimeResolveShareArgs['shareScopeMap']
   ) => {};
+  let runtimeResolveShareListener = (args: RuntimeResolveShareArgs) => args;
   const runtimeResolveShareHook = {
-    on(
-      listener: (args: {
-        shareInfo?: Record<string, unknown>;
-        resolver: () => { shared: RuntimeBridgeProvider };
-      }) => {
-        resolver: () => { shared: RuntimeBridgeProvider };
-      }
-    ) {
-      recordSelection = (provider, shareInfo) => {
-        const args = { shareInfo, resolver: () => ({ shared: provider }) };
-        (listener(args) || args).resolver();
-      };
+    on(listener: (args: RuntimeResolveShareArgs) => RuntimeResolveShareArgs) {
+      runtimeResolveShareListener = listener;
     },
   };
-  const loadPinnedShare = new Function(
+  const helpers = new Function(
     'initRes',
     'runtimeResolveShareHook',
-    `${helperCode}; return __mfLoadPinnedRuntimeShare;`
-  )(initRes, runtimeResolveShareHook) as ((
-    pkg: string,
-    shareConfig: Record<string, unknown>,
-    versionMap: Record<string, RuntimeBridgeProvider>,
-    version: string,
-    currentProvider: RuntimeBridgeProvider | undefined,
-    provider: RuntimeBridgeProvider,
-    providerRegistered?: boolean
-  ) => Promise<
-    | {
-        provider: RuntimeBridgeProvider;
-        selection: {
+    `${helperCode}; return {
+      loadPinnedShare: __mfLoadPinnedRuntimeShare,
+      pinLifecyclePlugin: __mfSharePinLifecyclePlugin()
+    };`
+  )(initRes, runtimeResolveShareHook) as {
+    loadPinnedShare: (
+      pkg: string,
+      shareConfig: Record<string, unknown>,
+      versionMap: Record<string, RuntimeBridgeProvider>,
+      version: string,
+      currentProvider: RuntimeBridgeProvider | undefined,
+      provider: RuntimeBridgeProvider,
+      providerRegistered?: boolean
+    ) => Promise<
+      | {
           provider: RuntimeBridgeProvider;
-          version: string;
-          from: string;
-          registered: boolean;
-        };
-        resolved: unknown;
-      }
-    | undefined
-  >) & {
-    recordSelection(provider: RuntimeBridgeProvider, shareInfo?: Record<string, unknown>): void;
+          selection: {
+            provider: RuntimeBridgeProvider;
+            version: string;
+            from: string;
+            registered: boolean;
+          };
+          resolved: unknown;
+        }
+      | undefined
+    >;
+    pinLifecyclePlugin: {
+      resolveShare: (args: RuntimeResolveShareArgs) => RuntimeResolveShareArgs;
+    };
   };
-  loadPinnedShare.recordSelection = (provider, shareInfo) => recordSelection(provider, shareInfo);
+  recordSelection = (provider, shareInfo, shareScopeMap) => {
+    let args: RuntimeResolveShareArgs = {
+      shareInfo,
+      shareScopeMap,
+      resolver: () => ({ shared: provider }),
+    };
+    args = helpers.pinLifecyclePlugin.resolveShare(args) || args;
+    args = resolveShare?.(args) || args;
+    args = runtimeResolveShareListener(args) || args;
+    args.resolver();
+  };
+  const loadPinnedShare = helpers.loadPinnedShare as typeof helpers.loadPinnedShare & {
+    recordSelection(
+      provider: RuntimeBridgeProvider,
+      shareInfo?: Record<string, unknown>,
+      shareScopeMap?: RuntimeResolveShareArgs['shareScopeMap']
+    ): void;
+  };
+  loadPinnedShare.recordSelection = (provider, shareInfo, shareScopeMap) =>
+    recordSelection(provider, shareInfo, shareScopeMap);
   return loadPinnedShare;
 }
 
@@ -1106,7 +1144,9 @@ describe('virtualRemoteEntry', () => {
     expect(code.slice(aliasCacheLoop, code.indexOf('const __mfSeedOrder ='))).toContain(
       'if (share.treeShaking) continue;'
     );
-    expect(code).toContain('plugins: [__mfTreeShakingSnapshotPlugin(),');
+    expect(code).toContain(
+      'plugins: [__mfSharePinLifecyclePlugin(), __mfTreeShakingSnapshotPlugin(),'
+    );
   });
 
   it('coverage-caches runtime-infer partials even when provider coverage is empty', async () => {
@@ -2683,6 +2723,144 @@ describe('virtualRemoteEntry', () => {
         'version-first'
       )
     ).toBeUndefined();
+  });
+
+  it('exposes the pre-pin provider without changing the default runtime selection', async () => {
+    const rootFactory = () => ({ marker: 'root-react' });
+    const laterFactory = () => ({ marker: 'later-react' });
+    const rootProvider: RuntimeBridgeProvider = {
+      from: 'host',
+      version: '18.3.1',
+      lib: rootFactory,
+      loaded: true,
+    };
+    const laterProvider: RuntimeBridgeProvider = {
+      from: 'rspack',
+      version: '18.3.1',
+      lib: laterFactory,
+      loaded: true,
+    };
+    const versionMap: Record<string, RuntimeBridgeProvider> = {
+      '18.3.1': laterProvider,
+    };
+    const lifecycle: string[] = [];
+    const inspectResolveShare = vi.fn((args: RuntimeResolveShareArgs) => {
+      lifecycle.push('resolveShare');
+      expect(args.shareScopeMap?.default.react['18.3.1']).toBe(laterProvider);
+      return args;
+    });
+    let recordSelection!: (
+      provider: RuntimeBridgeProvider,
+      shareInfo?: Record<string, unknown>,
+      shareScopeMap?: RuntimeResolveShareArgs['shareScopeMap']
+    ) => void;
+    const loadPinnedShare = await getRuntimeBridgeLoader(
+      {
+        loadShare: async (_pkg, options) => {
+          lifecycle.push('loadShare:start');
+          const pinnedProvider = versionMap['18.3.1'];
+          expect(pinnedProvider).not.toBe(laterProvider);
+          recordSelection(
+            pinnedProvider,
+            (options as { customShareInfo?: Record<string, unknown> }).customShareInfo,
+            { default: { react: versionMap } }
+          );
+          lifecycle.push('loadShare:end');
+          return rootFactory;
+        },
+      },
+      inspectResolveShare
+    );
+    recordSelection = loadPinnedShare.recordSelection;
+
+    await expect(
+      loadPinnedShare(
+        'react',
+        { requiredVersion: '^18.0.0' },
+        versionMap,
+        '18.3.1',
+        laterProvider,
+        rootProvider
+      )
+    ).resolves.toMatchObject({
+      selection: { version: '18.3.1', from: 'host' },
+      resolved: { marker: 'root-react' },
+    });
+    expect(inspectResolveShare).toHaveBeenCalledOnce();
+    expect(lifecycle).toEqual(['loadShare:start', 'resolveShare', 'loadShare:end']);
+    expect(versionMap['18.3.1']).not.toBe(laterProvider);
+    expect(versionMap['18.3.1']).toMatchObject({ from: 'host', loaded: true });
+  });
+
+  it('lets resolveShare select the real pre-pin provider', async () => {
+    const rootFactory = () => ({ marker: 'root-react' });
+    const laterFactory = () => ({ marker: 'later-react' });
+    const rootProvider: RuntimeBridgeProvider = {
+      from: 'host',
+      version: '18.3.1',
+      lib: rootFactory,
+      loaded: true,
+    };
+    const laterProvider: RuntimeBridgeProvider = {
+      from: 'rspack',
+      version: '18.3.1',
+      lib: laterFactory,
+      loaded: true,
+    };
+    const versionMap: Record<string, RuntimeBridgeProvider> = {
+      '18.3.1': laterProvider,
+    };
+    const lifecycle: string[] = [];
+    const overrideResolveShare = vi.fn((args: RuntimeResolveShareArgs) => {
+      lifecycle.push('resolveShare');
+      const selectedProvider = args.shareScopeMap?.default.react['18.3.1'];
+      expect(selectedProvider).toBe(laterProvider);
+      return {
+        ...args,
+        resolver: () => ({ shared: selectedProvider! }),
+      };
+    });
+    let recordSelection!: (
+      provider: RuntimeBridgeProvider,
+      shareInfo?: Record<string, unknown>,
+      shareScopeMap?: RuntimeResolveShareArgs['shareScopeMap']
+    ) => void;
+    const loadPinnedShare = await getRuntimeBridgeLoader(
+      {
+        loadShare: async (_pkg, options) => {
+          lifecycle.push('loadShare:start');
+          const pinnedProvider = versionMap['18.3.1'];
+          expect(pinnedProvider).not.toBe(laterProvider);
+          recordSelection(
+            pinnedProvider,
+            (options as { customShareInfo?: Record<string, unknown> }).customShareInfo,
+            { default: { react: versionMap } }
+          );
+          lifecycle.push('loadShare:end');
+          return laterFactory;
+        },
+      },
+      overrideResolveShare
+    );
+    recordSelection = loadPinnedShare.recordSelection;
+
+    await expect(
+      loadPinnedShare(
+        'react',
+        { requiredVersion: '^18.0.0' },
+        versionMap,
+        '18.3.1',
+        laterProvider,
+        rootProvider
+      )
+    ).resolves.toMatchObject({
+      provider: laterProvider,
+      selection: { version: '18.3.1', from: 'rspack' },
+      resolved: { marker: 'later-react' },
+    });
+    expect(overrideResolveShare).toHaveBeenCalledOnce();
+    expect(lifecycle).toEqual(['loadShare:start', 'resolveShare', 'loadShare:end']);
+    expect(versionMap['18.3.1']).toBe(laterProvider);
   });
 
   it('awaits and materializes a loading-only external provider', async () => {
