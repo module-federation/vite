@@ -11,6 +11,7 @@ import {
 } from '../utils/cssModuleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { hasPackageDependency } from '../utils/packageUtils';
 import { filterId, resolvePublicPath } from '../utils/pathNormalization';
 import {
   generateExposes,
@@ -142,12 +143,11 @@ export default function ({
     },
     async buildStart() {
       await refreshExposeRemoteDependencies(this);
-      // Emit each exposed module as a chunk entry so the bundler properly
-      // code-splits shared dependencies away from the main entry's side effects.
-      // Without this, the bundler may merge exposed modules into the main entry
-      // chunk, causing the host to execute the remote's bootstrap code (e.g.
-      // createApp().mount()) when loading an exposed component.
-      if (_command !== 'build') return;
+      // TanStack Start 1.171.x expects a single client application entry.
+      // Its manifest plugin rejects the additional exposed-module entries
+      // emitted here. Preserve those entries for other Vite integrations,
+      // where they keep exposed modules separated from the host entry.
+      if (_command !== 'build' || hasPackageDependency('@tanstack/react-start', root)) return;
       for (const expose of Object.values(options.exposes)) {
         const resolved = await this.resolve(expose.import);
         if (resolved) {
