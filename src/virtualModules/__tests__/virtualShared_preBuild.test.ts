@@ -427,6 +427,7 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js') ||
       filePath.endsWith('/repo/packages/mock-package-star-entry.js') ||
       filePath.endsWith('/repo/packages/default-only.js') ||
+      filePath.endsWith('/repo/packages/default-only-type-exports.ts') ||
       filePath.endsWith('/repo/packages/default-only-export-lookalikes.js') ||
       filePath.endsWith('/repo/packages/minified-star-export.js') ||
       filePath.endsWith('/repo/packages/comment-separated-star-export.js') ||
@@ -460,6 +461,12 @@ export * from 'mock-package-star-dependency'; export const directExport = 1;`;
       return `// docs: export * from './missing-comment';
 const snippet = "export const phantom = 1";
 const pattern = /export\\s+\\*\\s+from/;
+export default function createDefaultOnly() {}`;
+    }
+    if (filePath.endsWith('/repo/packages/default-only-type-exports.ts')) {
+      return `export type { Phantom } from './types';
+export interface Shape { value: string }
+export declare const declaredOnly: string;
 export default function createDefaultOnly() {}`;
     }
     if (filePath.endsWith('/repo/packages/default-only-export-lookalikes.js')) {
@@ -1388,6 +1395,33 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('export * from "/repo/packages/default-only.js"');
     expect(generatedCode).not.toContain('let current = __mfLocalShare;');
     expect(generatedCode).not.toContain('phantom');
+  });
+
+  it('ignores erased TypeScript exports when determining live proxy coverage', () => {
+    const pkg = 'mock-package-with-reserved';
+    const importPath = '/repo/packages/default-only-type-exports.ts';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const __mfApplySharedDefaultExport = (mod) => {');
+    expect(generatedCode).toContain(`export * from ${JSON.stringify(importPath)}`);
+    expect(generatedCode).not.toContain('let current = __mfLocalShare;');
+    expect(generatedCode).not.toContain('Phantom');
+    expect(generatedCode).not.toContain('declaredOnly');
   });
 
   it.each([

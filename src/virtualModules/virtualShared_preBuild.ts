@@ -515,9 +515,9 @@ function getNamedExportsViaRegex(
     }
   }
 
-  // A default export and an empty export list add no runtime named bindings,
-  // so an otherwise complete scan can still use the default-only live proxy.
-  const noNamedExportRegex = /export(?:\s+default\b|\s*\{\s*\})/g;
+  // Default, empty, and type-only exports add no runtime named bindings, so an
+  // otherwise complete scan can still use the default-only live proxy.
+  const noNamedExportRegex = /export(?:\s+default\b|\s*\{\s*\}|\s+(?:type|interface|declare)\b)/g;
   while ((match = noNamedExportRegex.exec(source)) !== null) {
     if (!codePositions[match.index]) continue;
     recognizedExportStarts.add(match.index);
