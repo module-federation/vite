@@ -364,7 +364,6 @@ const normalizeRuntimeShareCode = `const __mfNormalizeRuntimeShare = (mod) => {
 
 // Emitted into remoteEntry for shared provider selection.
 export const sharedProviderSelectionHelperCode = `const __mfOriginalProviderKey = Symbol("mf.originalSharedProvider");
-          const __mfTransparentResolverKey = Symbol.for("module-federation.vite.transparent-resolver");
           const __mfResolveShareHook = { emit: (params) => params };
           const __mfCreateProviderSelectionVersions = (versions, strategy) => {
             if (strategy !== "version-first") return versions;
@@ -396,35 +395,20 @@ export const sharedProviderSelectionHelperCode = `const __mfOriginalProviderKey 
             versions,
             pkg,
             share,
-            strategy,
-            resolveShareHook = __mfResolveShareHook,
-            selectionState
+            strategy
           ) => {
             if (!versions || !share) return undefined;
-            if (selectionState) selectionState.resolveShareHookUsed = false;
             const scopes = Array.isArray(share.scope) ? share.scope : [share.scope || "default"];
             const selectionVersions = __mfCreateProviderSelectionVersions(versions, strategy);
             const shareScopeMap = {};
             for (const scope of scopes) {
               shareScopeMap[scope || "default"] = { [pkg]: selectionVersions };
             }
-            const observedResolveShareHook = selectionState ? {
-              emit(params) {
-                const defaultResolver = params.resolver;
-                const resolvedParams = resolveShareHook.emit(params) || params;
-                let observedResolver = resolvedParams.resolver;
-                while (observedResolver?.[__mfTransparentResolverKey]) {
-                  observedResolver = observedResolver[__mfTransparentResolverKey];
-                }
-                selectionState.resolveShareHookUsed = observedResolver !== defaultResolver;
-                return resolvedParams;
-              }
-            } : resolveShareHook;
             const selected = runtimeShare.getRegisteredShare(
               shareScopeMap,
               pkg,
               { ...share, scope: scopes, strategy },
-              observedResolveShareHook
+              __mfResolveShareHook
             )?.shared;
             return selected?.[__mfOriginalProviderKey] || selected;
           };`;
@@ -433,9 +417,7 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
             versions,
             pkg,
             localShare,
-            strategy,
-            resolveShareHook = __mfResolveShareHook,
-            selectionState
+            strategy
           ) => {
             const isLocalProvider = (provider) => __mfMatchesSharedProvider(provider, localShare);
             const candidates = Object.fromEntries(
@@ -455,9 +437,7 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
               candidates,
               pkg,
               localShare,
-              strategy,
-              resolveShareHook,
-              selectionState
+              strategy
             );
             return isLocalProvider(provider) ? undefined : provider;
           };
@@ -473,10 +453,9 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
             version,
             provider,
             passedProvider,
-            strategy,
-            resolveShareHookUsed = false
+            strategy
           ) => {
-            if (resolveShareHookUsed || strategy !== "version-first" || !passedProvider) return undefined;
+            if (strategy !== "version-first" || !passedProvider) return undefined;
             const scopeRootProviders = scopeRoot?.options?.shared?.[pkg];
             const configuredScopeRootProvider = Array.isArray(scopeRootProviders)
               ? scopeRootProviders.find((candidate) => candidate?.version === version)
@@ -487,7 +466,10 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
             const scopeRootProvider = registeredScopeRootProvider || (
               __mfMatchesSharedProvider(configuredScopeRootProvider, passedProvider)
                 ? configuredScopeRootProvider
-                : undefined
+                // A plain Webpack/Rspack host has no enhanced-runtime instance.
+                // Its pre-init snapshot is still authoritative when this remote's
+                // registration rewrites the same-version provider in-place.
+                : scopeRoot ? undefined : passedProvider
             );
             if (!scopeRootProvider) return undefined;
             const selectedFromLaterInstance = instances.some((instance) =>
@@ -506,8 +488,7 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
             providerEntry,
             selectedExternalProvider,
             passedProvider,
-            strategy,
-            resolveShareHookUsed
+            strategy
           ) => {
             const scopeRootProvider = providerEntry.registered ? __mfGetScopeRootProvider(
               instances,
@@ -518,14 +499,12 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
               providerEntry.version,
               providerEntry.provider,
               passedProvider,
-              strategy,
-              resolveShareHookUsed
+              strategy
             ) : undefined;
             const provider = scopeRootProvider || selectedExternalProvider;
             if (!provider) return undefined;
             if (
               providerEntry.registered &&
-              !resolveShareHookUsed &&
               !__mfMatchesSharedProvider(provider, passedProvider)
             ) return undefined;
             return { provider, scopeRootProvider };
@@ -642,8 +621,7 @@ function generateRuntimeSharedCacheSeedCode(shareStrategy: string) {
         initialShared[pkg],
         pkg,
         share,
-        ${JSON.stringify(shareStrategy)},
-        runtimeResolveShareHook
+        ${JSON.stringify(shareStrategy)}
       ));
     };
     const __mfFirstRuntimeSeedBarrierIndex = __mfSeedKeys.findIndex(
@@ -1075,7 +1053,6 @@ export function generateRemoteEntry(
         }
         return resolved;
       };
-      instrumentedResolver[__mfTransparentResolverKey] = resolver;
       args.resolver = instrumentedResolver;
       return args;
     });
@@ -1206,6 +1183,22 @@ export function generateRemoteEntry(
         pinnedMatchesFactory
           ? provider
           : runtimeLoad.selectedProvider;
+      if (
+        runtimeSelectedProvider &&
+        !providerSelections.some((selection) => selection.provider === runtimeSelectedProvider)
+      ) {
+        const runtimeProviderOrigin = __mfRuntimeProviderOrigins.get(runtimeSelectedProvider);
+        const selectedVersion = typeof runtimeSelectedProvider.version === "string" && runtimeSelectedProvider.version
+          ? runtimeSelectedProvider.version
+          : version;
+        providerSelections.push({
+          provider: runtimeSelectedProvider,
+          version: selectedVersion,
+          from: runtimeProviderOrigin ? runtimeProviderOrigin.from : runtimeSelectedProvider.from,
+          registered: versionMap?.[selectedVersion] === runtimeSelectedProvider,
+          loadedFactory: factory
+        });
+      }
       const selection = providerSelections.find(
         (candidate) => candidate.provider === runtimeSelectedProvider
       ) ?? __mfMatchLoadedSharedProvider(providerSelections, factory);
@@ -1237,8 +1230,7 @@ export function generateRemoteEntry(
           versionMap,
           pkg,
           usedShare,
-          '${options.shareStrategy}',
-          runtimeResolveShareHook
+          '${options.shareStrategy}'
         );
         const providerEntry = __mfFindSharedProviderEntry(versionMap, provider);
         if (!providerEntry) return;
@@ -1333,19 +1325,18 @@ export function generateRemoteEntry(
         const usedCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, usedShare.shareConfig?.singleton, usedShare.version, usedShare.scope);
         const cachedShare = __mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor);
         const cachedShareOwner = __mfReadSharedCacheOwner(__mfModuleCache.share, usedCacheDescriptor);
-        const externalProviderSelection = {};
         const selectedExternalProvider = __mfSelectExternalSharedProvider(
           versionMap,
           pkg,
           usedShare,
-          '${options.shareStrategy}',
-          runtimeResolveShareHook,
-          externalProviderSelection
+          '${options.shareStrategy}'
         );
         const selectedRuntimeProvider = selectedExternalProvider ||
-          __mfSelectSharedProvider(versionMap, pkg, usedShare, '${options.shareStrategy}', runtimeResolveShareHook);
+          __mfSelectSharedProvider(versionMap, pkg, usedShare, '${options.shareStrategy}') ||
+          usedShare;
         const providerEntry = __mfFindSharedProviderEntry(versionMap, selectedRuntimeProvider);
         if (!providerEntry) return;
+        const selectedLocalProvider = __mfMatchesSharedProvider(selectedRuntimeProvider, usedShare);
         const { version } = providerEntry;
         const passedProvider = passedVersionMap?.[version];
         const resolvedExternalProvider = __mfResolveExternalSharedProvider(
@@ -1357,11 +1348,13 @@ export function generateRemoteEntry(
           providerEntry,
           selectedExternalProvider,
           passedProvider,
-          '${options.shareStrategy}',
-          externalProviderSelection.resolveShareHookUsed
+          '${options.shareStrategy}'
         );
-        if (!resolvedExternalProvider) return;
-        const { provider, scopeRootProvider } = resolvedExternalProvider;
+        if (!resolvedExternalProvider && !selectedLocalProvider) return;
+        const { provider, scopeRootProvider } = resolvedExternalProvider || {
+          provider: selectedRuntimeProvider,
+          scopeRootProvider: undefined
+        };
         // Non-singleton proxies may have already snapshotted their local exports while
         // seeding shared dependencies. Late cache replacement is safe only for the
         // live-bound singleton proxies.
@@ -1386,11 +1379,12 @@ export function generateRemoteEntry(
           version,
           liveProvider,
           provider,
-          providerEntry.registered
+          providerEntry.registered && !selectedLocalProvider
         );
         const actualProvider = loadedShare?.provider;
         const actualSelection = loadedShare?.selection;
         if (!actualSelection) return;
+        if (__mfMatchesSharedProvider(actualProvider, usedShare)) return;
         if (expectedSelection) {
           if (
             expectedSelection.version !== actualSelection.version ||
@@ -1514,9 +1508,8 @@ export function generateRemoteEntry(
         versionMap,
         pkg,
         share,
-        '${options.shareStrategy}',
-        runtimeResolveShareHook
-      );
+        '${options.shareStrategy}'
+      ) || share;
       const providerEntry = __mfFindSharedProviderEntry(versionMap, provider);
       if (!providerEntry) return;
       const { version } = providerEntry;
@@ -1528,12 +1521,13 @@ export function generateRemoteEntry(
         version,
         currentProvider,
         provider,
-        providerEntry.registered
+        providerEntry.registered && !__mfMatchesSharedProvider(provider, share)
       );
       const providerSelection = loadedShare?.selection;
       const actualProvider = loadedShare?.provider;
       const resolved = loadedShare?.resolved;
       if (!providerSelection) return;
+      if (__mfMatchesSharedProvider(actualProvider, share)) return;
       if (resolved === undefined) return;
       const latestCachedShare = share.treeShaking
         ? __mfReadTreeShakingSharedSelection(__mfModuleCache.share, cacheDescriptor, mfName)

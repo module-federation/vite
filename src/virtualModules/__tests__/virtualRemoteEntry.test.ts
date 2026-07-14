@@ -83,11 +83,7 @@ async function getExternalSharedProviderSelector() {
       loading?: Promise<unknown>;
       get?: () => unknown;
     },
-    strategy: 'version-first' | 'loaded-first',
-    resolveShareHook?: {
-      emit: (params: any) => any;
-    },
-    selectionState?: { resolveShareHookUsed?: boolean }
+    strategy: 'version-first' | 'loaded-first'
   ) => unknown;
 }
 
@@ -105,8 +101,7 @@ async function getScopeRootProviderResolver() {
     version: string,
     provider: unknown,
     passedProvider: unknown,
-    strategy: 'version-first' | 'loaded-first',
-    resolveShareHookUsed?: boolean
+    strategy: 'version-first' | 'loaded-first'
   ) => unknown;
 }
 
@@ -124,8 +119,7 @@ async function getExternalSharedProviderResolver() {
     providerEntry: { version: string; provider: unknown; registered: boolean },
     selectedExternalProvider: unknown,
     passedProvider: unknown,
-    strategy: 'version-first' | 'loaded-first',
-    resolveShareHookUsed?: boolean
+    strategy: 'version-first' | 'loaded-first'
   ) => { provider: unknown; scopeRootProvider: unknown } | undefined;
 }
 
@@ -186,13 +180,8 @@ async function getRuntimeBridgeLoader(initRes: {
   const loadPinnedShare = new Function(
     'initRes',
     'runtimeResolveShareHook',
-    '__mfTransparentResolverKey',
     `${helperCode}; return __mfLoadPinnedRuntimeShare;`
-  )(
-    initRes,
-    runtimeResolveShareHook,
-    Symbol.for('module-federation.vite.transparent-resolver')
-  ) as ((
+  )(initRes, runtimeResolveShareHook) as ((
     pkg: string,
     shareConfig: Record<string, unknown>,
     versionMap: Record<string, RuntimeBridgeProvider>,
@@ -2306,7 +2295,7 @@ describe('virtualRemoteEntry', () => {
     expect(preSeedBridgeCode).toMatch(
       /__mfGetSharedCacheDescriptor\(\s*pkg,\s*singleton,\s*usedShare\.version/
     );
-    expect(preSeedBridgeCode).toContain("'version-first',\n          runtimeResolveShareHook");
+    expect(preSeedBridgeCode).not.toContain('runtimeResolveShareHook');
     expect(preSeedBridgeCode).not.toContain('__mfLoadPinnedRuntimeShare(');
     expect(preSeedBridgeCode).toContain(
       'if (providerEntry.registered && !__mfMatchesSharedProvider(liveProvider, provider)) return;'
@@ -2341,20 +2330,28 @@ describe('virtualRemoteEntry', () => {
       'const selectedRuntimeProvider = selectedExternalProvider ||'
     );
     expect(bridgeHelperCode).toContain(
-      "__mfSelectSharedProvider(versionMap, pkg, usedShare, 'version-first', runtimeResolveShareHook)"
+      "__mfSelectSharedProvider(versionMap, pkg, usedShare, 'version-first') ||\n          usedShare"
+    );
+    expect(bridgeHelperCode).toContain(
+      "__mfSelectSharedProvider(versionMap, pkg, usedShare, 'version-first')"
     );
     expect(bridgeHelperCode).toContain('const passedProvider = passedVersionMap?.[version];');
-    expect(bridgeHelperCode).toContain('const externalProviderSelection = {};');
+    expect(bridgeHelperCode).not.toContain('runtimeResolveShareHook');
+    expect(bridgeHelperCode).not.toContain('externalProviderSelection');
     expect(bridgeHelperCode).toContain(
       'const resolvedExternalProvider = __mfResolveExternalSharedProvider('
     );
-    expect(bridgeHelperCode).toContain('externalProviderSelection.resolveShareHookUsed');
     expect(bridgeHelperCode).toContain(
-      'const { provider, scopeRootProvider } = resolvedExternalProvider;'
+      'const { provider, scopeRootProvider } = resolvedExternalProvider || {'
     );
     expect(bridgeHelperCode).toContain('providerEntry.registered &&');
     expect(bridgeHelperCode).toContain('!__mfMatchesSharedProvider(liveProvider, provider)');
-    expect(bridgeHelperCode).toContain('if (!resolvedExternalProvider) return;');
+    expect(bridgeHelperCode).toContain(
+      'if (!resolvedExternalProvider && !selectedLocalProvider) return;'
+    );
+    expect(bridgeHelperCode).toContain(
+      'if (__mfMatchesSharedProvider(actualProvider, usedShare)) return;'
+    );
     expect(bridgeHelperCode).toContain('bridgeSelections.set(pkg, {');
     expect(bridgeHelperCode).toContain('const loadedShare = await __mfLoadPinnedRuntimeShare(');
     expect(bridgeHelperCode).toContain('if (!actualSelection) return;');
@@ -2423,6 +2420,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('const initFrom =');
     expect(code).not.toContain('expectedFrom');
     expect(code).not.toContain('__mfModuleCache.share[usedCacheKey] = normalized;');
+    expect(code.match(/runtimeResolveShareHook/g)).toHaveLength(2);
   });
 
   it('materializes only an originally passed root provider replaced by a later instance', async () => {
@@ -2550,7 +2548,53 @@ describe('virtualRemoteEntry', () => {
     ).toBeUndefined();
   });
 
-  it('preserves a later external provider explicitly selected by the resolveShare hook', async () => {
+  it('restores a plain host provider from the pre-init snapshot after remote registration', async () => {
+    const getScopeRootProvider = await getScopeRootProviderResolver();
+    const hostGet = vi.fn(async () => () => ({ marker: 'host-react' }));
+    const passedProvider = {
+      from: 'webpack-host',
+      version: '18.3.1',
+      get: hostGet,
+    };
+    const rewrittenProvider = {
+      ...passedProvider,
+      from: 'vite-remote',
+    };
+    const shared = { react: { '18.3.1': rewrittenProvider } };
+    const remote = {
+      options: { name: 'vite-remote' },
+      shareScopeMap: { default: shared },
+    };
+
+    expect(
+      getScopeRootProvider(
+        [remote],
+        undefined,
+        shared,
+        'default',
+        'react',
+        '18.3.1',
+        rewrittenProvider,
+        passedProvider,
+        'version-first'
+      )
+    ).toBe(passedProvider);
+    expect(
+      getScopeRootProvider(
+        [],
+        undefined,
+        shared,
+        'default',
+        'react',
+        '18.3.1',
+        rewrittenProvider,
+        passedProvider,
+        'version-first'
+      )
+    ).toBeUndefined();
+  });
+
+  it('keeps speculative external selection outside the public resolveShare lifecycle', async () => {
     const [selectExternalProvider, resolveExternalProvider] = await Promise.all([
       getExternalSharedProviderSelector(),
       getExternalSharedProviderResolver(),
@@ -2571,24 +2615,18 @@ describe('virtualRemoteEntry', () => {
       version: '18.3.1',
       shareConfig: { singleton: true, requiredVersion: '^18.0.0' },
     };
-    const selectionState: { resolveShareHookUsed?: boolean } = {};
     const resolveShareHook = {
-      emit: (params: any) => ({
-        ...params,
-        resolver: () => ({
-          shared: params.shareScopeMap.default.react['18.3.1'],
-          useTreesShaking: false,
-        }),
+      emit: vi.fn(() => {
+        throw new Error('public resolveShare hook must not run during speculation');
       }),
     };
 
-    const selectedProvider = selectExternalProvider(
+    const selectedProvider = (selectExternalProvider as (...args: any[]) => unknown)(
       shared.react,
       'react',
       localProvider,
       'version-first',
-      resolveShareHook,
-      selectionState
+      resolveShareHook
     );
     const providerEntry = {
       version: '18.3.1',
@@ -2597,7 +2635,7 @@ describe('virtualRemoteEntry', () => {
     };
 
     expect(selectedProvider).toBe(laterProvider);
-    expect(selectionState.resolveShareHookUsed).toBe(true);
+    expect(resolveShareHook.emit).not.toHaveBeenCalled();
     expect(
       resolveExternalProvider(
         [root, sibling],
@@ -2608,24 +2646,9 @@ describe('virtualRemoteEntry', () => {
         providerEntry,
         selectedProvider,
         rootProvider,
-        'version-first',
-        false
+        'version-first'
       )
     ).toEqual({ provider: rootProvider, scopeRootProvider: rootProvider });
-    expect(
-      resolveExternalProvider(
-        [root, sibling],
-        root,
-        shared,
-        'default',
-        'react',
-        providerEntry,
-        selectedProvider,
-        rootProvider,
-        'version-first',
-        selectionState.resolveShareHookUsed
-      )
-    ).toEqual({ provider: laterProvider, scopeRootProvider: undefined });
   });
 
   it('does not give parent authority to a provider registered after the initial snapshot', async () => {
@@ -2644,8 +2667,7 @@ describe('virtualRemoteEntry', () => {
         { version: '19.0.0', provider: laterProvider, registered: true },
         laterProvider,
         undefined,
-        'version-first',
-        false
+        'version-first'
       )
     ).toBeUndefined();
     expect(
@@ -2658,8 +2680,7 @@ describe('virtualRemoteEntry', () => {
         { version: '19.0.0', provider: staleProvider, registered: true },
         staleProvider,
         undefined,
-        'version-first',
-        false
+        'version-first'
       )
     ).toBeUndefined();
   });
@@ -2892,25 +2913,30 @@ describe('virtualRemoteEntry', () => {
     const versionMap: Record<string, RuntimeBridgeProvider> = {
       '18.2.0': registeredProvider,
     };
+    let recordSelection!: (
+      provider: RuntimeBridgeProvider,
+      shareInfo?: Record<string, unknown>
+    ) => void;
     const loadPinnedShare = await getRuntimeBridgeLoader({
-      loadShare: async () => {
-        const pinnedProvider = versionMap['18.3.1'];
-        pinnedProvider.from = 'remote';
-        pinnedProvider.lib = factory;
-        pinnedProvider.loaded = true;
+      loadShare: async (_pkg, options) => {
+        recordSelection(
+          pluginProvider,
+          (options as { customShareInfo?: Record<string, unknown> }).customShareInfo
+        );
+        pluginProvider.from = 'remote';
         return factory;
       },
     });
+    recordSelection = loadPinnedShare.recordSelection;
 
     await expect(
       loadPinnedShare(
         'react',
         { requiredVersion: '^18.0.0' },
         versionMap,
-        '18.3.1',
-        undefined,
-        pluginProvider,
-        false
+        '18.2.0',
+        registeredProvider,
+        registeredProvider
       )
     ).resolves.toMatchObject({
       provider: pluginProvider,
@@ -2921,6 +2947,7 @@ describe('virtualRemoteEntry', () => {
       },
       resolved: { marker: 'plugin-react' },
     });
+    expect(versionMap['18.2.0']).toBe(registeredProvider);
     expect(versionMap['18.3.1']).toBeUndefined();
     expect(pluginProvider.from).toBe('plugin-host');
     expect(pluginProvider.lib).toBeUndefined();
@@ -3372,27 +3399,21 @@ describe('virtualRemoteEntry', () => {
     expect(hostGet).not.toHaveBeenCalled();
   });
 
-  it('uses the runtime resolve hook for external provider selection', async () => {
+  it('does not emit the public resolve hook during external provider speculation', async () => {
     const selectProvider = await getExternalSharedProviderSelector();
-    const pluginProvider = { from: 'plugin-provider', lib: () => ({ marker: 'plugin' }) };
-    const defaultProvider = { from: 'default-provider', lib: () => ({ marker: 'default' }) };
+    const pluginProvider = { from: 'plugin-provider', get: vi.fn() };
+    const defaultProvider = { from: 'default-provider', get: vi.fn() };
     const localProvider = {
       from: 'remote',
-      version: '3.0.0',
+      version: '0.5.0',
       shareConfig: { singleton: true, requiredVersion: '*' },
     };
     const resolveShareHook = {
-      emit: (params: any) => ({
-        ...params,
-        resolver: () => ({
-          shared: params.shareScopeMap.default.react['1.0.0'],
-          useTreesShaking: false,
-        }),
-      }),
+      emit: vi.fn(),
     };
 
     expect(
-      selectProvider(
+      (selectProvider as (...args: any[]) => unknown)(
         {
           '1.0.0': pluginProvider,
           '2.0.0': defaultProvider,
@@ -3402,7 +3423,8 @@ describe('virtualRemoteEntry', () => {
         'version-first',
         resolveShareHook
       )
-    ).toBe(pluginProvider);
+    ).toBe(defaultProvider);
+    expect(resolveShareHook.emit).not.toHaveBeenCalled();
   });
 
   it('tracks hook-selected providers that are not the registered map object', async () => {

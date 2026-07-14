@@ -45,8 +45,11 @@ test('uses a runtime host get-only React singleton', async ({ page }) => {
     };
     return runtimeGlobal.__runtimeRegisterShareHooks ?? [];
   });
-  expect(shareHooks).toEqual(
-    expect.arrayContaining(['beforeLoadShare', 'resolveShare', 'afterLoadShare'])
-  );
+  const beforeLoadShareIndex = shareHooks.indexOf('beforeLoadShare');
+  const resolveShareIndex = shareHooks.indexOf('resolveShare');
+  const afterLoadShareIndex = shareHooks.indexOf('afterLoadShare');
+  expect(beforeLoadShareIndex).toBeGreaterThanOrEqual(0);
+  expect(beforeLoadShareIndex).toBeLessThan(resolveShareIndex);
+  expect(resolveShareIndex).toBeLessThan(afterLoadShareIndex);
   expect(pageErrors).toEqual([]);
 });
