@@ -15,6 +15,7 @@ export default defineConfig({
         './MessageCard': './src/MessageCard.jsx',
         './message': './src/message.js',
       },
+      runtimePlugins: ['./src/runtimePlugin.js'],
       shared: {
         react: {
           singleton: true,

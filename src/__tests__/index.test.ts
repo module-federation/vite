@@ -190,6 +190,23 @@ function getModuleFederationVitePlugin(): FederationPlugin {
   return plugin;
 }
 
+function getModuleFederationVitePluginWithShared(): FederationPlugin {
+  const plugin = (
+    federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      shared: {
+        react: {
+          singleton: true,
+        },
+      },
+    }) as Plugin[]
+  ).find((entry) => entry.name === 'module-federation-vite');
+
+  if (!plugin) throw new Error('module-federation-vite plugin not found');
+  return plugin;
+}
+
 function getModuleFederationVitePluginWithImportFalse(implementation?: string): FederationPlugin {
   const plugin = (
     federation({
@@ -1774,6 +1791,34 @@ describe('vite:module-federation-early-init', () => {
     );
     expect(config.optimizeDeps.include).toContain('@module-federation/runtime');
     expect(config.optimizeDeps.include).not.toContain('@module-federation/runtime/helpers');
+  });
+
+  it('aliases and prebundles runtime helpers for normal shared dependencies', () => {
+    const plugin = getModuleFederationVitePluginWithShared();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: [],
+      },
+      resolve: {
+        alias: [],
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const runtimeHelpersAlias = config.resolve.alias.find(
+      (alias: { find: string | RegExp }) =>
+        alias.find instanceof RegExp && alias.find.test('@module-federation/runtime/helpers')
+    );
+
+    expect(runtimeHelpersAlias.replacement).toEqual(
+      expect.stringMatching(/@module-federation\/runtime\/dist\/helpers\.js$/)
+    );
+    expect(config.optimizeDeps.include).toContain('@module-federation/runtime/helpers');
   });
 
   it('aliases runtime helpers to the same runtime package for import:false provider selection', () => {

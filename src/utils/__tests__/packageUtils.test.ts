@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { pathToFileURL } from 'url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../buildPaths';
 import {
   getInstalledPackageEntry,
@@ -365,6 +365,146 @@ describe('getSharedCacheKey', () => {
 
     expect(cache['default:react']).toBe(react);
     expect(cache.react).toBe(react);
+  });
+
+  it('treats reserved aliases as own properties without reading or mutating prototypes', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return { read: __mfReadSharedCache, write: __mfWriteSharedCache };`
+    )() as {
+      read: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] }
+      ) => unknown;
+      write: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown
+      ) => unknown;
+    };
+    const cache: Record<PropertyKey, unknown> = {};
+    const originalPrototype = Object.getPrototypeOf(cache);
+
+    expect(
+      runtime.read(cache, {
+        canonical: 'default:constructor',
+        aliases: ['constructor'],
+      })
+    ).toBeUndefined();
+    expect(
+      runtime.read(cache, {
+        canonical: 'default:__proto__',
+        aliases: ['__proto__'],
+      })
+    ).toBeUndefined();
+
+    const constructorValue = { marker: 'constructor-share' };
+    runtime.write(
+      cache,
+      {
+        canonical: 'default:constructor',
+        aliases: ['constructor'],
+      },
+      constructorValue
+    );
+    expect(Object.prototype.hasOwnProperty.call(cache, 'constructor')).toBe(true);
+    expect(cache.constructor).toBe(constructorValue);
+    expect(Object.getPrototypeOf(cache)).toBe(originalPrototype);
+
+    const protoValue = { marker: 'proto-share' };
+    runtime.write(
+      cache,
+      {
+        canonical: 'default:__proto__',
+        aliases: ['__proto__'],
+      },
+      protoValue
+    );
+    expect(Object.prototype.hasOwnProperty.call(cache, '__proto__')).toBe(true);
+    expect(cache.__proto__).toBe(protoValue);
+    expect(Object.getPrototypeOf(cache)).toBe(originalPrototype);
+  });
+
+  it('synchronizes aliases and notifies canonical subscribers when cache values change', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return {
+        subscribe: __mfSubscribeSharedCache,
+        write: __mfWriteSharedCache
+      };`
+    )() as {
+      subscribe: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        listener: (value: unknown) => void
+      ) => void;
+      write: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown
+      ) => unknown;
+    };
+    const localReact = { marker: 'local-react' };
+    const hostReact = { marker: 'host-react' };
+    const cache: Record<PropertyKey, unknown> = {
+      'default:react': localReact,
+      react: localReact,
+    };
+    const descriptor = {
+      canonical: 'default:react',
+      aliases: ['react'],
+    };
+    const listener = vi.fn();
+
+    runtime.subscribe(cache, descriptor, listener);
+    expect(runtime.write(cache, descriptor, hostReact)).toBe(hostReact);
+
+    expect(cache['default:react']).toBe(hostReact);
+    expect(cache.react).toBe(hostReact);
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith(hostReact);
+  });
+
+  it('sets, overwrites, and clears shared cache ownership', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return {
+        readOwner: __mfReadSharedCacheOwner,
+        write: __mfWriteSharedCache
+      };`
+    )() as {
+      readOwner: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] }
+      ) => unknown;
+      write: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown,
+        owner?: string
+      ) => unknown;
+    };
+    const cache: Record<PropertyKey, unknown> = {};
+    const descriptor = {
+      canonical: 'default:react',
+      aliases: ['react'],
+    };
+    const provisionalReact = { marker: 'remote-react' };
+    const hostReact = { marker: 'host-react' };
+    const unownedReact = { marker: 'unowned-react' };
+
+    runtime.write(cache, descriptor, provisionalReact, 'remote');
+    expect(runtime.readOwner(cache, descriptor)).toBe('remote');
+
+    runtime.write(cache, descriptor, hostReact, 'host');
+    expect(runtime.readOwner(cache, descriptor)).toBe('host');
+    expect(cache['default:react']).toBe(hostReact);
+    expect(cache.react).toBe(hostReact);
+
+    runtime.write(cache, descriptor, unownedReact);
+    expect(runtime.readOwner(cache, descriptor)).toBeUndefined();
+    expect(cache['default:react']).toBe(unownedReact);
+    expect(cache.react).toBe(unownedReact);
   });
 
   it('keeps partial modules coverage-aware without poisoning the full-module cache', () => {

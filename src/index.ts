@@ -186,10 +186,6 @@ function appendResolveAlias(config: UserConfig, alias: ResolveAliasEntry): void 
   ];
 }
 
-function hasImportFalseShared(options: NormalizedModuleFederationOptions): boolean {
-  return Object.values(options.shared ?? {}).some((share) => share?.shareConfig?.import === false);
-}
-
 function getRuntimeHelpersImplementation(runtimeImplementation: string): string {
   const indexEntryMatch = runtimeImplementation.match(/^(.*[\\/])index(\.[cm]?js)$/);
   if (indexEntryMatch) {
@@ -1133,10 +1129,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
         isSsrBuild = _command === 'build' && config.build?.ssr === true;
-        const needsSharedProviderSelectionHelper = hasImportFalseShared(options);
-        const needsRuntimeHelpers =
-          needsSharedProviderSelectionHelper ||
-          Object.values(options.shared ?? {}).some((share) => !!share?.shareConfig.treeShaking);
+        const needsRuntimeHelpers = Object.keys(options.shared ?? {}).length > 0;
 
         if (needsRuntimeHelpers) {
           appendResolveAlias(config, {

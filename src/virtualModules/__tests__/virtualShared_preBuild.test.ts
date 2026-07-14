@@ -30,6 +30,29 @@ type MockRequire = NodeJS.Require & {
   resolve: NodeJS.RequireResolve;
 };
 
+function expectLiveSingletonProxy(generatedCode: string, pkg: string, namedExports: string[]) {
+  const cacheDescriptor = JSON.stringify({
+    canonical: `default:${pkg}`,
+    aliases: [pkg],
+  });
+  const exportList = namedExports.map((name, index) => `__mf_${index} as ${name}`).join(', ');
+
+  expect(generatedCode).toContain('let __mfDefaultExport;');
+  namedExports.forEach((name, index) => {
+    expect(generatedCode).toContain(`let __mf_${index};`);
+    expect(generatedCode).toContain(`__mf_${index} = mod[${JSON.stringify(name)}];`);
+  });
+  expect(generatedCode).toContain('const __mfApplySharedExports = (mod) => {');
+  expect(generatedCode).toContain('__mfDefaultExport = (() => {');
+  expect(generatedCode).toContain(
+    `__mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplySharedExports);`
+  );
+  expect(generatedCode).toContain('__mfApplySharedExports(exportModule);');
+  expect(generatedCode).toContain('export { __mfDefaultExport as default };');
+  expect(generatedCode).toContain(`export { ${exportList} };`);
+  expect(generatedCode).not.toMatch(/const \{[^}]+\} = exportModule;/);
+}
+
 describe('tree-shaking graph ids', () => {
   it('adds, reads, replaces, and strips the graph token without losing other query data', () => {
     const tagged = addTreeShakingGraphQuery('/pkg/index.js?raw=true#fragment', '@scope/pkg');
@@ -82,6 +105,7 @@ vi.mock('../../utils/packageUtils', () => ({
             if (value !== undefined) return value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {
+              if (!Object.prototype.hasOwnProperty.call(cache, alias)) continue;
               const aliasValue = cache[alias];
               if (aliasValue !== undefined) {
                 cache[descriptor.canonical] = aliasValue;
@@ -90,11 +114,60 @@ vi.mock('../../utils/packageUtils', () => ({
             }
             return undefined;
           };
-          const __mfWriteSharedCache = (cache, descriptor, value) => {
+          const __mfSharedCacheListenersKey = Symbol.for("module-federation.shared-cache-listeners");
+          const __mfGetSharedCacheListeners = (cache) => {
+            let listeners = cache[__mfSharedCacheListenersKey];
+            if (listeners === undefined) {
+              listeners = Object.create(null);
+              Object.defineProperty(cache, __mfSharedCacheListenersKey, {
+                value: listeners,
+                enumerable: false,
+                configurable: false,
+                writable: false
+              });
+            }
+            return listeners;
+          };
+          const __mfSubscribeSharedCache = (cache, descriptor, listener) => {
+            const listeners = __mfGetSharedCacheListeners(cache);
+            (listeners[descriptor.canonical] ||= new Set()).add(listener);
+          };
+          const __mfSharedCacheOwnersKey = Symbol.for("module-federation.shared-cache-owners");
+          const __mfGetSharedCacheOwners = (cache) => {
+            let owners = cache[__mfSharedCacheOwnersKey];
+            if (owners === undefined) {
+              owners = Object.create(null);
+              Object.defineProperty(cache, __mfSharedCacheOwnersKey, {
+                value: owners,
+                enumerable: false,
+                configurable: false,
+                writable: false
+              });
+            }
+            return owners;
+          };
+          const __mfReadSharedCacheOwner = (cache, descriptor) =>
+            cache[__mfSharedCacheOwnersKey]?.[descriptor.canonical];
+          const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
             cache[descriptor.canonical] = value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {
-              if (cache[alias] === undefined) cache[alias] = value;
+              Object.defineProperty(cache, alias, {
+                value,
+                enumerable: true,
+                configurable: true,
+                writable: true
+              });
+            }
+            const owners = cache[__mfSharedCacheOwnersKey];
+            if (owner === undefined) {
+              if (owners) delete owners[descriptor.canonical];
+            } else {
+              __mfGetSharedCacheOwners(cache)[descriptor.canonical] = owner;
+            }
+            const listeners = cache[__mfSharedCacheListenersKey]?.[descriptor.canonical];
+            if (listeners) {
+              for (const listener of listeners) listener(value);
             }
             return value;
           };`,
@@ -143,8 +216,17 @@ vi.mock('../../utils/packageUtils', () => ({
     ) {
       return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/browser.js';
     }
+    if (pkg === 'mock-package-dual-shape') {
+      return '/repo/apps/remote/node_modules/mock-package-dual-shape/dist/browser.js';
+    }
+    if (pkg === 'mock-package-cjs-comment') {
+      return '/repo/apps/remote/node_modules/mock-package-cjs-comment/index.js';
+    }
     if (pkg === 'workspace-shared-lib') {
       return '/repo/packages/workspace-shared-lib/src/index.tsx';
+    }
+    if (pkg === 'workspace-unknown-exports') {
+      return '/repo/packages/workspace-unknown-exports/src/index.ts';
     }
     if (pkg === 'workspace-esm-symlink') {
       return '/repo/apps/remote/node_modules/workspace-esm-symlink/src/index.ts';
@@ -180,6 +262,13 @@ vi.mock('../../utils/packageUtils', () => ({
         path: '/repo/packages/workspace-shared-lib/package.json',
         dir: '/repo/packages/workspace-shared-lib',
         packageJson: { name: 'workspace-shared-lib' },
+      };
+    }
+    if (opts?.fromResolvedEntry?.includes('/repo/packages/workspace-unknown-exports/')) {
+      return {
+        path: '/repo/packages/workspace-unknown-exports/package.json',
+        dir: '/repo/packages/workspace-unknown-exports',
+        packageJson: { name: 'workspace-unknown-exports' },
       };
     }
     if (
@@ -321,7 +410,13 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-browser-conditional/dist/browser.js') ||
       filePath.endsWith('node_modules/mock-package-browser-conditional/dist/server.js') ||
       filePath.endsWith('/mock-package-browser-conditional/dist/server.js') ||
+      filePath.endsWith('node_modules/mock-package-dual-shape/dist/browser.js') ||
+      filePath.endsWith('/mock-package-dual-shape/dist/browser.js') ||
+      filePath.endsWith('node_modules/mock-package-cjs-comment/index.js') ||
+      filePath.endsWith('/mock-package-cjs-comment/index.js') ||
       filePath.endsWith('/repo/packages/workspace-shared-lib/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-unknown-exports/package.json') ||
+      filePath.endsWith('/repo/packages/workspace-unknown-exports/src/index.ts') ||
       filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json') ||
       filePath.endsWith('/repo/packages/workspace-cycle-a/package.json') ||
       filePath.endsWith('/repo/packages/workspace-cycle-b/package.json') ||
@@ -331,13 +426,127 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/workspace-dual-format/package.json') ||
       filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js') ||
       filePath.endsWith('/repo/packages/mock-package-star-entry.js') ||
+      filePath.endsWith('/repo/packages/default-only.js') ||
+      filePath.endsWith('/repo/packages/default-only-type-exports.ts') ||
+      filePath.endsWith('/repo/packages/default-only-export-lookalikes.js') ||
+      filePath.endsWith('/repo/packages/minified-star-export.js') ||
+      filePath.endsWith('/repo/packages/comment-separated-star-export.js') ||
+      filePath.endsWith('/repo/packages/default-only-cjs-lookalikes.js') ||
+      filePath.endsWith('/repo/packages/typescript-cjs-barrel.js') ||
+      filePath.endsWith('/repo/packages/babel-cjs-barrel.js') ||
+      filePath.endsWith('/repo/packages/default-with-unknown-star.js') ||
+      filePath.endsWith('/repo/packages/partial-with-unknown-star.js') ||
+      filePath.endsWith('/repo/packages/barrel-with-cjs-star.js') ||
+      filePath.endsWith('/repo/packages/hidden.cjs') ||
+      filePath.endsWith('/repo/packages/multi-declarator.js') ||
+      filePath.endsWith('/repo/packages/postfix-multi-declarator.js') ||
+      filePath.endsWith('/repo/packages/string-export-list.js') ||
+      filePath.endsWith('/repo/packages/string-namespace-export.js') ||
+      filePath.endsWith('/repo/packages/nested-destructuring.js') ||
+      filePath.endsWith('/repo/packages/defaulted-destructuring.js') ||
+      filePath.endsWith('/repo/packages/typed-destructuring.ts') ||
+      filePath.endsWith('/repo/packages/decorated-export.ts') ||
+      filePath.endsWith('/repo/packages/export-import-alias.ts') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts')
     );
   }),
   readFileSync: vi.fn((filePath: string) => {
     filePath = normalizePathForImport(filePath);
     if (filePath.endsWith('/repo/packages/mock-package-star-entry.js')) {
-      return "export * from 'mock-package-star-dependency'; export const directExport = 1;";
+      return `// docs: export * from './missing-comment';
+const snippet = "export * from './missing-string'";
+export * from 'mock-package-star-dependency'; export const directExport = 1;`;
+    }
+    if (filePath.endsWith('/repo/packages/default-only.js')) {
+      return `// docs: export * from './missing-comment';
+const snippet = "export const phantom = 1";
+const pattern = /export\\s+\\*\\s+from/;
+export default function createDefaultOnly() {}`;
+    }
+    if (filePath.endsWith('/repo/packages/default-only-type-exports.ts')) {
+      return `export type { Phantom } from './types';
+export interface Shape { value: string }
+export declare const declaredOnly: string;
+export default function createDefaultOnly() {}`;
+    }
+    if (filePath.endsWith('/repo/packages/default-only-export-lookalikes.js')) {
+      return `// export*from"./comment.js";
+const minifiedSnippet = 'export*from"./string.js"';
+const separatedSnippet = 'export/* comment */*from"./string.js"';
+const markerPattern = /export\\*from/;
+export default function createDefaultOnly() {}`;
+    }
+    if (filePath.endsWith('/repo/packages/minified-star-export.js')) {
+      return 'export*from"./dependency.js";';
+    }
+    if (filePath.endsWith('/repo/packages/comment-separated-star-export.js')) {
+      return 'export/* first */*/* second */from/* third */"./dependency.js";';
+    }
+    if (filePath.endsWith('/repo/packages/default-only-cjs-lookalikes.js')) {
+      return `// Object.defineProperty(exports, "__esModule", { value: true });
+const typescriptSnippet = "__exportStar(require('./dependency'), exports)";
+const babelSnippet = 'Object.defineProperty(exports, "named", descriptor)';
+const assignmentSnippet = 'exports = module.exports';
+const markerPattern = /exports\\s*(?:[,)]|=(?!=|>))/;
+export default function createDefaultOnly() {}`;
+    }
+    if (filePath.endsWith('/repo/packages/typescript-cjs-barrel.js')) {
+      return `"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+__exportStar(require("./dependency"), exports);`;
+    }
+    if (filePath.endsWith('/repo/packages/babel-cjs-barrel.js')) {
+      return `"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+var dependency = require("./dependency");
+Object.keys(dependency).forEach(function (key) {
+  if (key === "default" || key === "__esModule") return;
+  Object.defineProperty(exports, key, {
+    enumerable: true,
+    get: function () { return dependency[key]; }
+  });
+});`;
+    }
+    if (filePath.endsWith('/repo/packages/default-with-unknown-star.js')) {
+      return "export default {}; export * from 'unresolved-virtual-module';";
+    }
+    if (filePath.endsWith('/repo/packages/partial-with-unknown-star.js')) {
+      return "export const visible = 1; export * from 'unresolved-virtual-module';";
+    }
+    if (filePath.endsWith('/repo/packages/barrel-with-cjs-star.js')) {
+      return "export const visible = 1; export * from './hidden.cjs';";
+    }
+    if (filePath.endsWith('/repo/packages/hidden.cjs')) {
+      return "module['exports'] = { hidden: 1 };";
+    }
+    if (filePath.endsWith('/repo/packages/multi-declarator.js')) {
+      return `export const first =
+  /\\{;/,
+  second = 2;`;
+    }
+    if (filePath.endsWith('/repo/packages/postfix-multi-declarator.js')) {
+      return 'export let first = count++ / total, second = /x/;';
+    }
+    if (filePath.endsWith('/repo/packages/string-export-list.js')) {
+      return 'const foo = 1; export { foo as "a-b", foo as valid };';
+    }
+    if (filePath.endsWith('/repo/packages/string-namespace-export.js')) {
+      return `export const visible = 1; export * as "a-b" from './dependency.js';`;
+    }
+    if (filePath.endsWith('/repo/packages/nested-destructuring.js')) {
+      return 'export const visible = 1; export const { nested: { a, b } } = obj;';
+    }
+    if (filePath.endsWith('/repo/packages/defaulted-destructuring.js')) {
+      return 'export const visible = 1; export const { a = fn(1, fake), b } = obj;';
+    }
+    if (filePath.endsWith('/repo/packages/typed-destructuring.ts')) {
+      return 'export const visible = 1; export const { a, b }: Actions = obj;';
+    }
+    if (filePath.endsWith('/repo/packages/decorated-export.ts')) {
+      return 'export const visible = 1; export @dec class Foo {}';
+    }
+    if (filePath.endsWith('/repo/packages/export-import-alias.ts')) {
+      return 'export const visible = 1; export import Alias = Namespace;';
     }
     if (filePath.endsWith('node_modules/mock-package-star-dependency/index.js')) {
       return 'export const fromStar = 1; export function anotherFromStar() {}';
@@ -463,7 +672,10 @@ export { type, other } from './foo';`;
       });
     }
     if (filePath.endsWith('node_modules/mock-package-enum-destructure/src/index.js')) {
-      return `export enum Color {
+      return `export abstract class Base {}
+export const enum Direction { Up }
+export module LegacyModule {}
+export enum Color {
   Red = 'red',
   Blue = 'blue',
 }
@@ -492,13 +704,25 @@ export const [firstItem, ...restItems] = tuple;`;
       });
     }
     if (filePath.endsWith('node_modules/mock-package-browser-conditional/dist/browser.js')) {
-      return 'export const clientOnly = true;';
+      return '// module.exports = legacy;\nexport const clientOnly = true;';
     }
     if (filePath.endsWith('node_modules/mock-package-browser-conditional/dist/server.js')) {
       return 'export const serverOnly = true;';
     }
+    if (filePath.endsWith('node_modules/mock-package-dual-shape/dist/browser.js')) {
+      return 'export const browserNamed = true;';
+    }
+    if (filePath.endsWith('node_modules/mock-package-cjs-comment/index.js')) {
+      return "// export const phantom = 1;\nmodule['exports'] = { real: 1 };";
+    }
     if (filePath.endsWith('/repo/packages/workspace-shared-lib/package.json')) {
       return JSON.stringify({ name: 'workspace-shared-lib' });
+    }
+    if (filePath.endsWith('/repo/packages/workspace-unknown-exports/package.json')) {
+      return JSON.stringify({ name: 'workspace-unknown-exports' });
+    }
+    if (filePath.endsWith('/repo/packages/workspace-unknown-exports/src/index.ts')) {
+      return "export default {}; export * from 'unresolved-workspace-module';";
     }
     if (filePath.endsWith('/repo/packages/workspace-name-mismatch/package.json')) {
       return JSON.stringify({ name: 'different-package-name' });
@@ -595,6 +819,39 @@ vi.mock('module', async (importOriginal) => {
             __esModule: true,
           };
         }
+        if (pkg === 'mock-package-string-export') {
+          return {
+            'foo-bar': 1,
+            default: {},
+            __esModule: true,
+          };
+        }
+        if (pkg.endsWith('/mock-package-cjs-comment/index.js')) {
+          return {
+            real: 1,
+            default: {},
+            __esModule: true,
+          };
+        }
+        if (pkg.endsWith('/typescript-cjs-barrel.js')) {
+          return {
+            typescriptNamed: 1,
+            default: {},
+            __esModule: true,
+          };
+        }
+        if (pkg.endsWith('/babel-cjs-barrel.js')) {
+          return {
+            babelNamed: 1,
+            default: {},
+            __esModule: true,
+          };
+        }
+        if (pkg.endsWith('/default-only-cjs-lookalikes.js')) {
+          const error = new Error('ERR_REQUIRE_ESM');
+          (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
+          throw error;
+        }
         if (pkg === 'workspace-producer') {
           return {
             useProducer: () => 1,
@@ -604,6 +861,9 @@ vi.mock('module', async (importOriginal) => {
           };
         }
         if (pkg === 'transitive-pkg') {
+          throw new Error('MODULE_NOT_FOUND');
+        }
+        if (pkg === 'host-only-dep') {
           throw new Error('MODULE_NOT_FOUND');
         }
         if (pkg === 'mock-package-esm-only/stores') {
@@ -696,6 +956,9 @@ vi.mock('module', async (importOriginal) => {
           if (pkg === 'workspace-shared-lib') {
             return '/repo/packages/workspace-shared-lib/src/index.tsx';
           }
+          if (pkg === 'workspace-unknown-exports') {
+            return '/repo/packages/workspace-unknown-exports/src/index.ts';
+          }
           if (pkg === 'workspace-esm-symlink') {
             const error = new Error('ERR_PACKAGE_PATH_NOT_EXPORTED');
             (error as Error & { code?: string }).code = 'ERR_PACKAGE_PATH_NOT_EXPORTED';
@@ -776,17 +1039,40 @@ describe('writeLoadShareModule', () => {
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls[0][0];
 
-    // Destructuring should alias the keys
-    // const { delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule;
-    expect(generatedCode).toContain(
-      'const { delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule;'
-    );
+    expectLiveSingletonProxy(generatedCode, pkg, ['delete', 'get', 'request']);
+  });
 
-    // Export uses aliased keys AS the original keys
-    // export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };
+  it('uses live exported bindings for eager singleton proxies with known named exports', () => {
+    const pkg = 'mock-package-browser-conditional';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const cacheDescriptor =
+      '{"canonical":"default:mock-package-browser-conditional","aliases":["mock-package-browser-conditional"]}';
+
+    expect(generatedCode).toContain('let __mfDefaultExport;');
+    expect(generatedCode).toContain('let __mf_0;');
+    expect(generatedCode).toContain('const __mfApplySharedExports = (mod) => {');
+    expect(generatedCode).toContain('__mf_0 = mod["clientOnly"];');
     expect(generatedCode).toContain(
-      'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
+      `__mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplySharedExports);`
     );
+    expect(generatedCode).toContain('__mfApplySharedExports(exportModule);');
+    expect(generatedCode).toContain('export { __mfDefaultExport as default };');
+    expect(generatedCode).toContain('export { __mf_0 as clientOnly };');
+    expect(generatedCode).not.toContain('const { clientOnly: __mf_0 } = exportModule;');
   });
 
   it('aliases reserved named exports in prebuild wrappers instead of declaring them', () => {
@@ -821,7 +1107,7 @@ describe('writeLoadShareModule', () => {
     );
   });
 
-  it('uses prebuild aliases with configured import sources', () => {
+  it('keeps an uninspectable configured prebuild source authoritative', () => {
     const mockShareItem: ShareItem = {
       name: 'mock-package-with-reserved',
       from: '',
@@ -841,12 +1127,11 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).toContain(
-      'import * as __mfPrebuildNamespace from "/abs/mock-package-with-reserved/index.js";'
+      'import * as __mfPrebuildExports from "/abs/mock-package-with-reserved/index.js";'
     );
-    expect(generatedCode).not.toContain('export const delete');
-    expect(generatedCode).toContain(
-      'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
-    );
+    expect(generatedCode).toContain('export * from "/abs/mock-package-with-reserved/index.js";');
+    expect(generatedCode).not.toContain('__mfPrebuildNamespace');
+    expect(generatedCode).not.toContain('__mf_0 as delete');
   });
 
   it('detects prebuild named exports from shareConfig.import when it points at a non-package module', () => {
@@ -954,7 +1239,7 @@ describe('writeLoadShareModule', () => {
       '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:react","aliases":["react"]})'
     );
     expect(generatedCode).toContain(
-      '__mfWriteSharedCache(__mfModuleCache.share, {"canonical":"default:react","aliases":["react"]}, exportModule)'
+      '__mfWriteSharedCache(__mfModuleCache.share, {"canonical":"default:react","aliases":["react"]}, exportModule, "test")'
     );
     expect(generatedCode).not.toContain(
       'let exportModule = __mfModuleCache.share["default:react"]'
@@ -979,8 +1264,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const __mfDefaultExport = (() => {');
-    expect(generatedCode).toContain('export default __mfDefaultExport;');
+    expectLiveSingletonProxy(generatedCode, pkg, ['delete', 'get', 'request']);
   });
 
   it('uses shareConfig.import as the concrete import source when provided', () => {
@@ -1029,12 +1313,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'import * as __mfLocalShare from "/repo/packages/custom-shared-source";'
     );
-    expect(generatedCode).toContain(
-      'const { sharedValue: __mf_0, useSharedFeature: __mf_1 } = exportModule;'
-    );
-    expect(generatedCode).toContain(
-      'export { __mf_0 as sharedValue, __mf_1 as useSharedFeature };'
-    );
+    expectLiveSingletonProxy(generatedCode, pkg, ['sharedValue', 'useSharedFeature']);
     expect(generatedCode).not.toContain('export * from "/repo/packages/custom-shared-source"');
     expect(generatedCode).not.toContain('mock-import-id');
   });
@@ -1058,15 +1337,10 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
-      'const { directExport: __mf_0, fromStar: __mf_1, anotherFromStar: __mf_2 } = exportModule;'
-    );
-    expect(generatedCode).toContain(
-      'export { __mf_0 as directExport, __mf_1 as fromStar, __mf_2 as anotherFromStar };'
-    );
+    expectLiveSingletonProxy(generatedCode, pkg, ['directExport', 'fromStar', 'anotherFromStar']);
   });
 
-  it('falls back to package-based named export detection when shareConfig.import cannot be inspected', () => {
+  it('keeps an uninspectable configured singleton proxy on one local module', () => {
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -1088,12 +1362,573 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'import * as __mfLocalShare from "/missing/mock-package-with-reserved/index.js";'
     );
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).toContain('export default __mfDefaultExport;');
+    expect(generatedCode).toContain('export * from "/missing/mock-package-with-reserved/index.js"');
+    expect(generatedCode).not.toContain('__mfSubscribeSharedCache(__mfModuleCache.share');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as delete');
+  });
+
+  it('keeps a complete default-only ESM singleton live across cache replacement', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/default-only.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const __mfApplySharedDefaultExport = (mod) => {');
+    expect(generatedCode).toContain('__mfApplySharedDefaultExport(exportModule);');
+    expect(generatedCode).toContain('export { __mfDefaultExport as default };');
+    expect(generatedCode).toContain('export * from "/repo/packages/default-only.js"');
+    expect(generatedCode).not.toContain('let current = __mfLocalShare;');
+    expect(generatedCode).not.toContain('phantom');
+  });
+
+  it('ignores erased TypeScript exports when determining live proxy coverage', () => {
+    const pkg = 'mock-package-with-reserved';
+    const importPath = '/repo/packages/default-only-type-exports.ts';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const __mfApplySharedDefaultExport = (mod) => {');
+    expect(generatedCode).toContain(`export * from ${JSON.stringify(importPath)}`);
+    expect(generatedCode).not.toContain('let current = __mfLocalShare;');
+    expect(generatedCode).not.toContain('Phantom');
+    expect(generatedCode).not.toContain('declaredOnly');
+  });
+
+  it.each([
+    ['minified', '/repo/packages/minified-star-export.js'],
+    ['comment-separated', '/repo/packages/comment-separated-star-export.js'],
+  ])('treats an unrecognized %s export declaration as unknown coverage', (_syntax, importPath) => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).toContain(`export * from ${JSON.stringify(importPath)}`);
+    expect(generatedCode).not.toContain('__mfApplySharedDefaultExport');
+    expect(generatedCode).not.toContain('__mfSubscribeSharedCache(__mfModuleCache.share');
+  });
+
+  it('ignores unmatched export syntax in comments, strings, and regular expressions', () => {
+    const pkg = 'mock-package-with-reserved';
+    const importPath = '/repo/packages/default-only-export-lookalikes.js';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const __mfApplySharedDefaultExport = (mod) => {');
+    expect(generatedCode).toContain(`export * from ${JSON.stringify(importPath)}`);
+    expect(generatedCode).not.toContain('let current = __mfLocalShare;');
+  });
+
+  it.each([
+    ['TypeScript', '/repo/packages/typescript-cjs-barrel.js', 'typescriptNamed'],
+    ['Babel', '/repo/packages/babel-cjs-barrel.js', 'babelNamed'],
+  ])('uses runtime keys for %s-transpiled CommonJS barrels', (_transpiler, importPath, name) => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expectLiveSingletonProxy(generatedCode, pkg, [name]);
+    expect(generatedCode).not.toContain(`export * from ${JSON.stringify(importPath)}`);
+  });
+
+  it('ignores CommonJS export markers in comments, strings, and regular expressions', () => {
+    const pkg = 'mock-package-with-reserved';
+    const importPath = '/repo/packages/default-only-cjs-lookalikes.js';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const __mfApplySharedDefaultExport = (mod) => {');
+    expect(generatedCode).toContain(`export * from ${JSON.stringify(importPath)}`);
+    expect(generatedCode).not.toContain('let current = __mfLocalShare;');
+  });
+
+  it('does not treat a default export with unresolved star exports as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/default-with-unknown-star.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).toContain('export * from "/repo/packages/default-with-unknown-star.js"');
+    expect(generatedCode).not.toContain('__mfSubscribeSharedCache(__mfModuleCache.share');
+    expect(generatedCode).not.toContain('__mfApplySharedDefaultExport');
+  });
+
+  it('does not treat partial exports with an unresolved star as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/partial-with-unknown-star.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).toContain('export * from "/repo/packages/partial-with-unknown-star.js"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as visible');
+  });
+
+  it('does not treat an ESM barrel over CommonJS as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/barrel-with-cjs-star.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).toContain('export * from "/repo/packages/barrel-with-cjs-star.js"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+  });
+
+  it('does not treat multi-declarator exports as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/multi-declarator.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).toContain('export * from "/repo/packages/multi-declarator.js"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as first');
+  });
+
+  it('detects multi-declarators after postfix division expressions', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/postfix-multi-declarator.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('export * from "/repo/packages/postfix-multi-declarator.js"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as first');
+  });
+
+  it('does not treat string-named export lists as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/string-export-list.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('export * from "/repo/packages/string-export-list.js"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as valid');
+  });
+
+  it('does not treat string-named namespace exports as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/string-namespace-export.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('export * from "/repo/packages/string-namespace-export.js"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as visible');
+  });
+
+  it('does not treat nested destructuring exports as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/nested-destructuring.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('export * from "/repo/packages/nested-destructuring.js"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as visible');
+  });
+
+  it('does not infer bogus exports from defaulted destructuring expressions', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/defaulted-destructuring.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('export * from "/repo/packages/defaulted-destructuring.js"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as visible');
+    expect(generatedCode).not.toContain('as fake');
+  });
+
+  it('does not treat typed destructuring exports as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/typed-destructuring.ts',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('export * from "/repo/packages/typed-destructuring.ts"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as visible');
+  });
+
+  it('does not treat decorated exports as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/decorated-export.ts',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('export * from "/repo/packages/decorated-export.ts"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as visible');
+  });
+
+  it('treats TypeScript export-import aliases as unknown coverage', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/export-import-alias.ts',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expect(generatedCode).not.toContain('__mf_0 as visible');
+  });
+
+  it('keeps unknown configured exports local in remote-only serve mode', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: { './App': './src/App.ts' },
+    });
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/missing/virtual-shared-module.js',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
     expect(generatedCode).toContain(
-      'const { delete: __mf_0, get: __mf_1, request: __mf_2 } = exportModule;'
+      'import * as __mfLocalShare from "/missing/virtual-shared-module.js";'
     );
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).toContain('export * from "/missing/virtual-shared-module.js"');
+    expect(generatedCode).not.toContain('__mfApplyLazyShareExports');
+    expect(generatedCode).not.toContain('pendingShareLoads');
+  });
+
+  it('statically imports unknown workspace exports in serve mode', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: { './App': './src/App.ts' },
+    });
+    const pkg = 'workspace-unknown-exports';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/workspace-unknown-exports/src/index.ts',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
     expect(generatedCode).toContain(
-      'export { __mf_0 as delete, __mf_1 as get, __mf_2 as request };'
+      'import * as __mfLocalShare from "/repo/packages/workspace-unknown-exports/src/index.ts";'
     );
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).not.toContain('__mfApplyLazyShareExports');
+  });
+
+  it('uses a direct local source for unknown workspace exports in build mode', () => {
+    const pkg = 'workspace-unknown-exports';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const localSource = '/repo/packages/workspace-unknown-exports/src/index.ts';
+
+    expect(generatedCode).toContain(`import * as __mfLocalShare from "${localSource}";`);
+    expect(generatedCode).toContain(`export * from "${localSource}"`);
+    expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+  });
+
+  it('treats unsupported runtime export names as unknown coverage', () => {
+    const pkg = 'mock-package-string-export';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).toContain('export * from "/resolved/mock-package-string-export"');
+    expect(generatedCode).not.toContain('__prebuild__');
+    expect(generatedCode).not.toContain('__mfApplySharedDefaultExport');
   });
 
   it('detects named exports from the ESM entry of configured bare import sources', () => {
@@ -1118,8 +1953,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'import * as __mfLocalShare from "mock-package-browser-conditional";'
     );
-    expect(generatedCode).toContain('const { clientOnly: __mf_0 } = exportModule;');
-    expect(generatedCode).toContain('export { __mf_0 as clientOnly };');
+    expectLiveSingletonProxy(generatedCode, pkg, ['clientOnly']);
     expect(generatedCode).not.toContain('serverOnly');
   });
 
@@ -1193,10 +2027,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
-      'const { useCounter: __mf_0, useLogger: __mf_1 } = exportModule;'
-    );
-    expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
+    expectLiveSingletonProxy(generatedCode, pkg, ['useCounter', 'useLogger']);
     expect(generatedCode).not.toContain('export * from');
   });
 
@@ -1218,8 +2049,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('const { ångstrom: __mf_0, café: __mf_1 } = exportModule;');
-    expect(generatedCode).toContain('export { __mf_0 as ångstrom, __mf_1 as café };');
+    expectLiveSingletonProxy(generatedCode, pkg, ['ångstrom', 'café']);
   });
 
   it('does not reference prebuild modules when import: false', () => {
@@ -1337,6 +2167,53 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).toContain('__mf_0 as clientOnly');
     expect(generatedCode).not.toContain('serverOnly');
+  });
+
+  it('uses the Vite import entry when the require condition has a different shape', () => {
+    const pkg = 'mock-package-dual-shape';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('__mf_0 as browserNamed');
+    expect(mfWarnSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses CommonJS runtime keys instead of comment-like ESM syntax', () => {
+    const pkg = 'mock-package-cjs-comment';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('__mf_0 as real');
+    expect(generatedCode).not.toContain('phantom');
+    expect(mfWarnSpy).not.toHaveBeenCalled();
   });
 
   it('prefers browser conditional exports for project-resolved import paths', () => {
@@ -1542,6 +2419,13 @@ describe('writeLoadShareModule', () => {
     // `export enum Color` is a runtime value and must be re-exported.
     expect(generatedCode).toContain('exportModule["Color"]');
     expect(generatedCode).toContain('as Color');
+    expect(generatedCode).toContain('exportModule["Base"]');
+    expect(generatedCode).toContain('as Base');
+    expect(generatedCode).toContain('exportModule["Direction"]');
+    expect(generatedCode).toContain('as Direction');
+    expect(generatedCode).toContain('exportModule["LegacyModule"]');
+    expect(generatedCode).toContain('as LegacyModule');
+    expect(generatedCode).not.toContain('as enum');
     // Destructuring exports (e.g. createSlice actions) keep their bound names.
     expect(generatedCode).toContain('exportModule["createActionAddItem"]');
     expect(generatedCode).toContain('as createActionAddItem');
@@ -1606,6 +2490,13 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('initPromise.then');
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode.match(/let exportModule/g)?.length ?? 0).toBe(1);
+    expect(generatedCode).toContain('let __mf_default;');
+    expect(generatedCode).toContain('const __mfApplyLazyShareExports = (mod) => {');
+    expect(generatedCode).toContain('__mf_default = mod.default ?? mod;');
+    expect(generatedCode).toContain(
+      '__mfSubscribeSharedCache(__mfModuleCache.share, {"canonical":"default:workspace-shared-lib","aliases":["workspace-shared-lib"]}, __mfApplyLazyShareExports);'
+    );
+    expect(generatedCode).toContain('export { __mf_default as default };');
   });
 
   it('prepends workspace singleton static import for SSR build loads only', async () => {
@@ -1691,6 +2582,13 @@ describe('writeLoadShareModule', () => {
       'import * as __mfLocalShare from "/repo/packages/workspace-cycle-a/src/index.ts";'
     );
     expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).toContain('let __mf_default;');
+    expect(generatedCode).toContain('const __mfApplyEagerShareExports = (mod) => {');
+    expect(generatedCode).toContain('__mf_default = mod.default ?? mod;');
+    expect(generatedCode).toContain(
+      '__mfSubscribeSharedCache(__mfModuleCache.share, {"canonical":"default:workspace-cycle-a","aliases":["workspace-cycle-a"]}, __mfApplyEagerShareExports);'
+    );
+    expect(generatedCode).toContain('__mfApplyEagerShareExports(exportModule);');
     expect(generatedCode).not.toContain('initPromise.then');
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode).toContain('Promise.resolve().then');
@@ -1733,8 +2631,17 @@ describe('writeLoadShareModule', () => {
       'import * as __mfLocalShare from "/repo/packages/workspace-producer/src/index.ts";'
     );
     expect(generatedCode).toContain('export { __mf_default as default };');
-    expect(generatedCode).toContain('const __mf_0 = exportModule["useProducer"];');
-    expect(generatedCode).toContain('const __mf_1 = exportModule["createProducer"];');
+    expect(generatedCode).toContain('let __mf_default;');
+    expect(generatedCode).toContain('let __mf_0;');
+    expect(generatedCode).toContain('let __mf_1;');
+    expect(generatedCode).toContain('const __mfApplyEagerShareExports = (mod) => {');
+    expect(generatedCode).toContain('__mf_0 = mod["useProducer"];');
+    expect(generatedCode).toContain('__mf_1 = mod["createProducer"];');
+    expect(generatedCode).toContain('__mf_default = mod.default ?? mod;');
+    expect(generatedCode).toContain(
+      '__mfSubscribeSharedCache(__mfModuleCache.share, {"canonical":"default:workspace-producer","aliases":["workspace-producer"]}, __mfApplyEagerShareExports);'
+    );
+    expect(generatedCode).toContain('__mfApplyEagerShareExports(exportModule);');
     expect(generatedCode).toContain('export { __mf_0 as useProducer, __mf_1 as createProducer };');
     expect(generatedCode).not.toContain('export { useProducer, createProducer } from');
     expect(generatedCode).not.toContain('initPromise.then');
@@ -1810,9 +2717,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'import * as __mfLocalShare from "lit/directives/class-map.js";'
     );
-    expect(generatedCode).toContain('const __mfDefaultExport = (() => {');
-    expect(generatedCode).toContain('export default __mfDefaultExport;');
-    expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
+    expectLiveSingletonProxy(generatedCode, pkg, ['useCounter', 'useLogger']);
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('import("lit/directives/class-map.js")');
     expect(generatedCode).not.toContain('const {initPromise} = require(');
@@ -1839,9 +2744,7 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).toContain('const __mfCacheGlobalKey =');
     expect(generatedCode).toContain('import * as __mfLocalShare from "lit";');
-    expect(generatedCode).toContain('const __mfDefaultExport = (() => {');
-    expect(generatedCode).toContain('export default __mfDefaultExport;');
-    expect(generatedCode).toContain('export { __mf_0 as useCounter, __mf_1 as useLogger };');
+    expectLiveSingletonProxy(generatedCode, pkg, ['useCounter', 'useLogger']);
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('import("lit")');
     expect(generatedCode).not.toContain('const {initPromise} = require(');
@@ -2037,7 +2940,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
-  it('generates ESM loadShare wrappers for vue root share in serve mode', () => {
+  it('generates a live default binding for default-only vue singletons in serve mode', () => {
     const pkg = 'vue';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -2054,10 +2957,19 @@ describe('writeLoadShareModule', () => {
     writeLoadShareModule(pkg, mockShareItem, 'serve', false);
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const cacheDescriptor = '{"canonical":"default:vue","aliases":["vue"]}';
 
     expect(generatedCode).toContain('const __mfCacheGlobalKey =');
-    expect(generatedCode).toContain('export default exportModule.default ?? exportModule');
-    expect(generatedCode).toContain('export * from');
+    expect(generatedCode).toContain('let __mfDefaultExport;');
+    expect(generatedCode).toContain('const __mfApplySharedDefaultExport = (mod) => {');
+    expect(generatedCode).toContain('__mfDefaultExport = mod.default ?? mod;');
+    expect(generatedCode).toContain(
+      `__mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplySharedDefaultExport);`
+    );
+    expect(generatedCode).toContain('__mfApplySharedDefaultExport(exportModule);');
+    expect(generatedCode).toContain('export { __mfDefaultExport as default };');
+    expect(generatedCode).toContain('export * from "mock-import-id"');
+    expect(generatedCode).not.toContain('export default exportModule.default ?? exportModule');
     expect(generatedCode).not.toContain('module.exports = exportModule');
     expect(generatedCode).not.toContain('await ');
   });

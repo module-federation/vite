@@ -252,6 +252,7 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
             if (value !== undefined) return value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {
+              if (!Object.prototype.hasOwnProperty.call(cache, alias)) continue;
               const aliasValue = cache[alias];
               if (aliasValue !== undefined) {
                 cache[descriptor.canonical] = aliasValue;
@@ -260,11 +261,60 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
             }
             return undefined;
           };
-          const __mfWriteSharedCache = (cache, descriptor, value) => {
+          const __mfSharedCacheListenersKey = Symbol.for("module-federation.shared-cache-listeners");
+          const __mfGetSharedCacheListeners = (cache) => {
+            let listeners = cache[__mfSharedCacheListenersKey];
+            if (listeners === undefined) {
+              listeners = Object.create(null);
+              Object.defineProperty(cache, __mfSharedCacheListenersKey, {
+                value: listeners,
+                enumerable: false,
+                configurable: false,
+                writable: false
+              });
+            }
+            return listeners;
+          };
+          const __mfSubscribeSharedCache = (cache, descriptor, listener) => {
+            const listeners = __mfGetSharedCacheListeners(cache);
+            (listeners[descriptor.canonical] ||= new Set()).add(listener);
+          };
+          const __mfSharedCacheOwnersKey = Symbol.for("module-federation.shared-cache-owners");
+          const __mfGetSharedCacheOwners = (cache) => {
+            let owners = cache[__mfSharedCacheOwnersKey];
+            if (owners === undefined) {
+              owners = Object.create(null);
+              Object.defineProperty(cache, __mfSharedCacheOwnersKey, {
+                value: owners,
+                enumerable: false,
+                configurable: false,
+                writable: false
+              });
+            }
+            return owners;
+          };
+          const __mfReadSharedCacheOwner = (cache, descriptor) =>
+            cache[__mfSharedCacheOwnersKey]?.[descriptor.canonical];
+          const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
             cache[descriptor.canonical] = value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {
-              if (cache[alias] === undefined) cache[alias] = value;
+              Object.defineProperty(cache, alias, {
+                value,
+                enumerable: true,
+                configurable: true,
+                writable: true
+              });
+            }
+            const owners = cache[__mfSharedCacheOwnersKey];
+            if (owner === undefined) {
+              if (owners) delete owners[descriptor.canonical];
+            } else {
+              __mfGetSharedCacheOwners(cache)[descriptor.canonical] = owner;
+            }
+            const listeners = cache[__mfSharedCacheListenersKey]?.[descriptor.canonical];
+            if (listeners) {
+              for (const listener of listeners) listener(value);
             }
             return value;
           };

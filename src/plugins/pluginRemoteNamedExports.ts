@@ -19,6 +19,7 @@
  * build time.  Use explicit named re-exports instead.
  */
 import type { Plugin } from 'vite';
+import { createCodePositionMap } from '../utils/codePositionMap';
 import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
@@ -498,58 +499,6 @@ function collectFromRegex(
   }
 
   return result.length > 0 ? result : undefined;
-}
-
-function createCodePositionMap(code: string): boolean[] {
-  const positions = Array(code.length).fill(true);
-
-  function mask(start: number, end: number): void {
-    for (let i = start; i < end; i++) positions[i] = false;
-  }
-
-  for (let i = 0; i < code.length; ) {
-    const char = code[i];
-    const next = code[i + 1];
-
-    if (char === '/' && next === '/') {
-      const start = i;
-      i += 2;
-      while (i < code.length && code[i] !== '\n' && code[i] !== '\r') i++;
-      mask(start, i);
-      continue;
-    }
-
-    if (char === '/' && next === '*') {
-      const start = i;
-      i += 2;
-      while (i < code.length && !(code[i] === '*' && code[i + 1] === '/')) i++;
-      i = Math.min(code.length, i + 2);
-      mask(start, i);
-      continue;
-    }
-
-    if (char === '"' || char === "'" || char === '`') {
-      const quote = char;
-      const start = i++;
-      while (i < code.length) {
-        if (code[i] === '\\') {
-          i += 2;
-          continue;
-        }
-        if (code[i] === quote) {
-          i++;
-          break;
-        }
-        i++;
-      }
-      mask(start, i);
-      continue;
-    }
-
-    i++;
-  }
-
-  return positions;
 }
 
 // ── Plugin factory ────────────────────────────────────────────────

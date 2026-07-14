@@ -3,19 +3,24 @@ import ReactDOM from 'react-dom';
 import { createInstance } from '@module-federation/enhanced/runtime';
 
 const remoteEntryUrl =
-  import.meta.env.VITE_REMOTE_ENTRY_URL ??
-  'http://localhost:4176/mf-manifest.json';
+  import.meta.env.VITE_REMOTE_ENTRY_URL ?? 'http://localhost:4176/mf-manifest.json';
 
 const mf = createInstance({
   name: 'viteRuntimeRegisterHost',
   remotes: [],
 });
 
+globalThis.__runtimeRegisterHostReactUseState = React.useState;
+globalThis.__runtimeRegisterReactGetCalls = 0;
+
 mf.registerShared({
   react: {
     version: React.version,
     scope: 'default',
-    lib: () => React,
+    get: async () => {
+      globalThis.__runtimeRegisterReactGetCalls += 1;
+      return () => React;
+    },
     shareConfig: {
       singleton: true,
       requiredVersion: `^${React.version}`,
@@ -24,7 +29,7 @@ mf.registerShared({
   'react-dom': {
     version: ReactDOM.version || React.version,
     scope: 'default',
-    lib: () => ReactDOM,
+    get: async () => () => ReactDOM,
     shareConfig: {
       singleton: true,
       requiredVersion: `^${ReactDOM.version || React.version}`,
