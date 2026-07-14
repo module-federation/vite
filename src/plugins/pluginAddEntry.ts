@@ -26,6 +26,7 @@ interface AddEntryOptions {
   /** When true, skip the dev HTML-entry fallback (used for MF remotes whose index.html is never browser-requested). */
   forceClientInjected?: boolean;
   skipTransformFor?: string[];
+  federationOptions?: NormalizedModuleFederationOptions;
 }
 
 const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
@@ -134,6 +135,7 @@ const addEntry = ({
   inject = 'entry',
   forceClientInjected,
   skipTransformFor = [],
+  federationOptions,
 }: AddEntryOptions): Plugin[] => {
   const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
   const ENTRY_BOOTSTRAP_PARAM = 'mf-entry-bootstrap';
@@ -276,14 +278,15 @@ const __mfCurrentScript = document.currentScript;
     // though the user explicitly opted into the on-demand strategy.
     const shouldPreloadRemotes =
       !options?.skipRemotePreload &&
-      getNormalizeModuleFederationOptions()?.shareStrategy !== 'loaded-first';
+      (federationOptions ?? getNormalizeModuleFederationOptions())?.shareStrategy !==
+        'loaded-first';
 
     // Keep only sub-path entries (e.g. "remote/App"); skip bare remote keys
     // ("remote" or scoped "@scope/remote") since they refer to the container
     // itself, not an exposed module. The previous `includes('/')` check
     // incorrectly matched scoped names like "@scope/remote".
     const remotePreloads = shouldPreloadRemotes
-      ? Object.entries(getUsedRemotesMap())
+      ? Object.entries(getUsedRemotesMap(federationOptions))
           .flatMap(([remoteKey, remotes]) =>
             Array.from(remotes).filter((remote) => remote !== remoteKey)
           )

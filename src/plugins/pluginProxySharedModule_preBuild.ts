@@ -6,6 +6,7 @@ import { normalizePathForImport } from '../utils/buildPaths';
 import { mfWarn } from '../utils/logger';
 import {
   getNormalizeModuleFederationOptions,
+  type NormalizedModuleFederationOptions,
   type NormalizedShared,
   type ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
@@ -254,8 +255,9 @@ export function proxySharedModule(options: {
   shared?: NormalizedShared;
   include?: string | string[];
   exclude?: string | string[];
+  federationOptions?: NormalizedModuleFederationOptions;
 }): Plugin[] {
-  const { shared = {} } = options;
+  const { shared = {}, federationOptions } = options;
   let _config: ResolvedConfig | undefined;
   let _command = 'serve';
   let useDirectReactImport = false;
@@ -292,7 +294,7 @@ export function proxySharedModule(options: {
     const treeShaking = shareItem.shareConfig.treeShaking;
     if (!treeShaking) return undefined;
 
-    const normalizedOptions = getNormalizeModuleFederationOptions();
+    const normalizedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
     const outputDir = normalizedOptions.treeShakingDir
       ? normalizeTreeShakingOutputPath(normalizedOptions.treeShakingDir)
       : undefined;
@@ -330,17 +332,19 @@ export function proxySharedModule(options: {
       configureServer(server) {
         devServer = server;
         setLocalSharedImportMapInvalidator(() => {
-          const module = server.moduleGraph.getModuleById(getResolvedLocalSharedImportMapId());
+          const module = server.moduleGraph.getModuleById(
+            getResolvedLocalSharedImportMapId(federationOptions)
+          );
           if (module) server.moduleGraph.invalidateModule(module);
-        });
+        }, federationOptions);
       },
       resolveId(source) {
-        if (source === getLocalSharedImportMapPath()) {
-          return getResolvedLocalSharedImportMapId();
+        if (source === getLocalSharedImportMapPath(federationOptions)) {
+          return getResolvedLocalSharedImportMapId(federationOptions);
         }
       },
       load(id) {
-        if (id === getResolvedLocalSharedImportMapId()) {
+        if (id === getResolvedLocalSharedImportMapId(federationOptions)) {
           return parsePromise.then((_) => {
             // Export analysis is additive across the module graph. Materialize
             // and emit optimized providers only when the shared map itself is
@@ -348,20 +352,20 @@ export function proxySharedModule(options: {
             refreshTreeShakingModules();
             const providerPackages = new Set([
               ...Object.keys(shared).filter((pkg) => !pkg.endsWith('/')),
-              ...getUsedShares(),
+              ...getUsedShares(federationOptions),
             ]);
             for (const pkg of providerPackages) {
               const sharedKey = findSharedKeyForSource(pkg, shared);
               const shareItem = shared[pkg] || (sharedKey ? shared[sharedKey] : undefined);
               if (shareItem) emitTreeShakingProvider(this, pkg, shareItem);
             }
-            return generateLocalSharedImportMap();
+            return generateLocalSharedImportMap(federationOptions);
           });
         }
       },
       closeBundle() {
         if (devServer) return;
-        setLocalSharedImportMapInvalidator(undefined);
+        setLocalSharedImportMapInvalidator(undefined, federationOptions);
       },
     },
     {
@@ -397,7 +401,7 @@ export function proxySharedModule(options: {
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/')) return;
           if (useDirectReactImport && key === 'react') {
-            addUsedShares(key);
+            addUsedShares(key, federationOptions);
             return;
           }
           writeLoadShareModule(key, shared[key], _command, isRolldown);
@@ -406,10 +410,10 @@ export function proxySharedModule(options: {
           if (shared[key].shareConfig.import !== false) {
             writePreBuildLibPath(key, shared[key]);
           }
-          addUsedShares(key);
+          addUsedShares(key, federationOptions);
         });
-        writeLocalSharedImportMap();
-        refreshHostAutoInit();
+        writeLocalSharedImportMap(federationOptions);
+        refreshHostAutoInit(federationOptions);
       },
       buildStart() {
         if (_command !== 'build') return;
@@ -545,9 +549,9 @@ export function proxySharedModule(options: {
           if (shared[key].shareConfig.import !== false) {
             writePreBuildLibPath(shareSource, shared[key]);
           }
-          addUsedShares(shareSource);
-          writeLocalSharedImportMap();
-          refreshHostAutoInit();
+          addUsedShares(shareSource, federationOptions);
+          writeLocalSharedImportMap(federationOptions);
+          refreshHostAutoInit(federationOptions);
         }
         return this.resolve(loadSharePath, importer, { skipSelf: true });
       },

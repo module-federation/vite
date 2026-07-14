@@ -295,10 +295,117 @@ describe('pluginMFManifest', () => {
     ).toBeTruthy();
   });
 
-  it('keeps manifest generation bound to the plugin instance options', async () => {
-    await runGenerateBundleWithManifest(true);
+  it('isolates manifest usage and shares across plugin instances', async () => {
+    const makeOptions = (owner: 'a' | 'b') =>
+      ({
+        name: `host-${owner}`,
+        internalName: 'shared-internal-name',
+        filename: 'remoteEntry.js',
+        getPublicPath: undefined,
+        varFilename: undefined,
+        dts: false,
+        manifest: true,
+        exposes: {},
+        remotes: {
+          catalog: {
+            name: `catalog-${owner}`,
+            entryGlobalName: `catalog-${owner}`,
+            entry: `https://${owner}.invalid/remoteEntry.js`,
+            type: 'module',
+          },
+        },
+        shared: {
+          'shared-lib': {
+            name: 'shared-lib',
+            version: owner === 'a' ? '1.0.0' : '2.0.0',
+            scope: owner === 'a' ? 'scope-a' : 'scope-b',
+            shareConfig: { requiredVersion: '*', singleton: true },
+          },
+        },
+        bundleAllCSS: false,
+        shareStrategy: 'version-first',
+        implementation: 'module-federation-runtime',
+        runtimePlugins: [],
+        virtualModuleDir: '__mf__virtual',
+        hostInitInjectLocation: 'html',
+        moduleParseTimeout: 10,
+        ignoreOrigin: false,
+      }) as never;
+    const optionsA = makeOptions('a');
+    const optionsB = makeOptions('b');
+    const usedRemotes = new Map<object, Record<string, Set<string>>>([
+      [optionsA, { catalog: new Set(['catalog/ProductA']) }],
+      [optionsB, { catalog: new Set(['catalog/ProductB']) }],
+    ]);
+    const usedShares = new Map<object, Set<string>>([
+      [optionsA, new Set(['shared-lib'])],
+      [optionsB, new Set(['shared-lib'])],
+    ]);
+    getUsedRemotesMap.mockImplementation((options) => usedRemotes.get(options) ?? {});
+    getUsedShares.mockImplementation((options) => usedShares.get(options) ?? new Set());
+    getNormalizeShareItem.mockImplementation(
+      (key: string, options: { shared: Record<string, unknown> }) => options.shared[key]
+    );
 
-    expect(getNormalizeModuleFederationOptions).toHaveBeenCalledTimes(1);
+    const render = async (buildPlugin: ReturnType<typeof manifestPlugin>[1]) => {
+      const emitted: Record<string, string> = {};
+      callHook(
+        buildPlugin.config,
+        {} as ConfigPluginContext,
+        {},
+        {
+          command: 'build',
+          mode: 'test',
+        }
+      );
+      callHook(
+        buildPlugin.configResolved,
+        {} as MinimalPluginContextWithoutEnvironment,
+        { root: '/', base: '/', build: {}, server: {} } as unknown as ResolvedConfig
+      );
+      await runGenerateBundle(
+        buildPlugin,
+        {
+          emitFile(asset) {
+            if ('fileName' in asset && 'source' in asset && typeof asset.fileName === 'string') {
+              emitted[asset.fileName] = String(asset.source);
+            }
+            return 'id';
+          },
+          resolve: async (source) =>
+            ({ id: `/node_modules/${source}/index.js`, external: false }) as ResolvedId,
+        },
+        makeBundle()
+      );
+      return JSON.parse(emitted['mf-manifest.json']);
+    };
+
+    const [, buildA] = manifestPlugin(optionsA);
+    const [, buildB] = manifestPlugin(optionsB);
+    // Simulate another plugin becoming the process-global last writer before
+    // either original instance emits its manifest.
+    getNormalizeModuleFederationOptions.mockReturnValue(optionsB);
+    const manifestA = await render(buildA);
+    const manifestB = await render(buildB);
+
+    expect(manifestA.remotes).toContainEqual(
+      expect.objectContaining({ federationContainerName: 'catalog-a', moduleName: 'ProductA' })
+    );
+    expect(manifestA.remotes).not.toContainEqual(
+      expect.objectContaining({ moduleName: 'ProductB' })
+    );
+    expect(manifestA.shared).toContainEqual(
+      expect.objectContaining({ name: 'shared-lib', version: '1.0.0' })
+    );
+    expect(manifestB.remotes).toContainEqual(
+      expect.objectContaining({ federationContainerName: 'catalog-b', moduleName: 'ProductB' })
+    );
+    expect(manifestB.shared).toContainEqual(
+      expect.objectContaining({ name: 'shared-lib', version: '2.0.0' })
+    );
+    expect(getUsedRemotesMap).toHaveBeenCalledWith(optionsA);
+    expect(getUsedShares).toHaveBeenCalledWith(optionsA);
+    expect(getNormalizeShareItem).toHaveBeenCalledWith('shared-lib', optionsA);
   });
 
   it('points ssrRemoteEntry at the dedicated SSR entry filename', async () => {

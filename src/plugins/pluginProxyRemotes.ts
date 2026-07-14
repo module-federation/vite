@@ -53,8 +53,8 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     }
     const consumer = resolveRemoteConsumer(pluginContext, hasMultiEnvironment);
     const remoteModule = getRemoteVirtualModule(source, command, enableSsrInit, consumer, options);
-    addUsedRemote(remoteName, source);
-    refreshHostAutoInit();
+    addUsedRemote(remoteName, source, options);
+    refreshHostAutoInit(options);
     return remoteModule.getImportId();
   }
 

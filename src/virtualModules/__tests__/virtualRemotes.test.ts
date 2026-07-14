@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SERVER_ENV_GUARD } from '../../utils/ssrCapabilities';
-import { getRemoteVirtualModule, generateRemotes, resolveRemoteInitMode } from '../virtualRemotes';
+import VirtualModule from '../../utils/VirtualModule';
+import {
+  addUsedRemote,
+  generateRemotes,
+  getRemoteVirtualModule,
+  getUsedRemotesMap,
+  resolveRemoteInitMode,
+} from '../virtualRemotes';
 
 const mockOptions = vi.hoisted(() => ({
   shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
@@ -18,7 +25,12 @@ vi.mock('../../utils/packageUtils', async () => {
 });
 
 vi.mock('../virtualRemoteEntry', () => ({
-  getHostAutoInitPath: () => '/virtual/hostInit.js',
+  getHostAutoInitPath: (options?: { remotes?: Record<string, { entry: string }> }) => {
+    const entry = Object.values(options?.remotes ?? {})[0]?.entry;
+    return entry?.includes('tenant-')
+      ? `/virtual/hostInit-${encodeURIComponent(entry)}.js`
+      : '/virtual/hostInit.js';
+  },
 }));
 
 vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
@@ -446,7 +458,7 @@ describe('generateRemotes', () => {
 
   it('scopes wrappers and generated remote entries to explicit plugin options', () => {
     const optionsA = {
-      internalName: 'host_a',
+      internalName: 'shared_host_name',
       shareStrategy: 'loaded-first',
       remotes: {
         remote: {
@@ -459,7 +471,7 @@ describe('generateRemotes', () => {
       },
     } as never;
     const optionsB = {
-      internalName: 'host_b',
+      internalName: 'shared_host_name',
       shareStrategy: 'loaded-first',
       remotes: {
         remote: {
@@ -472,16 +484,31 @@ describe('generateRemotes', () => {
       },
     } as never;
 
-    const wrapperA = getRemoteVirtualModule('remote/Card', 'serve', false, 'client', optionsA);
-    const wrapperB = getRemoteVirtualModule('remote/Card', 'serve', false, 'client', optionsB);
+    const wrapperA = getRemoteVirtualModule('remote/Card', 'serve', true, 'client', optionsA);
+    const wrapperB = getRemoteVirtualModule('remote/Card', 'serve', true, 'client', optionsB);
 
     expect(wrapperA).not.toBe(wrapperB);
-    expect(wrapperA.getImportId()).toContain('host_a');
-    expect(wrapperB.getImportId()).toContain('host_b');
+    expect(wrapperA.getImportId()).not.toBe(wrapperB.getImportId());
+    expect(VirtualModule.findById(wrapperA.getImportId())).toBe(wrapperA);
+    expect(VirtualModule.findById(wrapperB.getImportId())).toBe(wrapperB);
     expect(wrapperA.code).toContain('https://tenant-a.invalid/remoteEntry.js');
     expect(wrapperA.code).not.toContain('https://tenant-b.invalid/remoteEntry.js');
     expect(wrapperB.code).toContain('https://tenant-b.invalid/remoteEntry.js');
     expect(wrapperB.code).not.toContain('https://tenant-a.invalid/remoteEntry.js');
+    expect(wrapperA.code).toContain(
+      '/virtual/hostInit-https%3A%2F%2Ftenant-a.invalid%2FremoteEntry.js.js'
+    );
+    expect(wrapperA.code).not.toContain(
+      '/virtual/hostInit-https%3A%2F%2Ftenant-b.invalid%2FremoteEntry.js.js'
+    );
+    expect(wrapperA.code).toContain(
+      'remotes: [{"name":"remote","entry":"https://tenant-a.invalid/remoteEntry.js","type":"module"}]'
+    );
+
+    addUsedRemote('remote', 'remote/CardA', optionsA);
+    addUsedRemote('remote', 'remote/CardB', optionsB);
+    expect([...getUsedRemotesMap(optionsA).remote]).toEqual(['remote/CardA']);
+    expect([...getUsedRemotesMap(optionsB).remote]).toEqual(['remote/CardB']);
   });
 
   it('uses ESM remote wrappers in Rollup build mode', () => {

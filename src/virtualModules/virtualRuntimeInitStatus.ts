@@ -4,8 +4,8 @@ import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
 export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
 
-export function getRuntimeInitGlobalKey() {
-  return `__mf_init__${virtualRuntimeInitStatus.getImportId()}__`;
+export function getRuntimeInitGlobalKey(ownerImportId?: string) {
+  return `__mf_init__${ownerImportId ?? virtualRuntimeInitStatus.getImportId()}__`;
 }
 
 function getDeferredInitPromiseCode() {
@@ -30,7 +30,8 @@ export function setSsrRemotes(remotes: Array<{ name: string; entry: string; type
 function getSsrNoopResolveCode(
   enableSsrInit: boolean,
   hostInitImportId?: string,
-  initResolveExpression = 'initResolve'
+  initResolveExpression = 'initResolve',
+  ssrRemotes = _ssrRemotes
 ) {
   if (!enableSsrInit) return '';
 
@@ -55,7 +56,7 @@ function getSsrNoopResolveCode(
   // dep optimization or client-bundle inclusion — they only run server-side.
   //
   // Falls back to noops if the runtime is unavailable.
-  const remotesJson = JSON.stringify(_ssrRemotes);
+  const remotesJson = JSON.stringify(ssrRemotes);
   return `if (${SERVER_ENV_GUARD}) {
     var _noop = { loadRemote: function() { return Promise.resolve(undefined); }, loadShare: function() { return Promise.resolve(undefined); } };
     ${hostInitResolveCode}.then(function(resolved) {
@@ -98,9 +99,13 @@ const ${options.exposedConst} = ${options.stateVar}.${options.exposedProperty};
 `;
 }
 
-export function getRuntimeInitBootstrapCode(enableSsrInit = false, hostInitImportId?: string) {
+export function getRuntimeInitBootstrapCode(
+  enableSsrInit = false,
+  hostInitImportId?: string,
+  ssrRemotes?: Array<{ name: string; entry: string; type: string }>
+) {
   return `
-const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey())};
+const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey(hostInitImportId))};
 const moduleCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
 globalThis[moduleCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[moduleCacheGlobalKey].share ||= {};
@@ -119,7 +124,7 @@ ${
     ? `
 if (${SERVER_ENV_GUARD} && !globalThis[globalKey].ssrInitStarted) {
   globalThis[globalKey].ssrInitStarted = true;
-  ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId, 'globalThis[globalKey].initResolve')}
+  ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId, 'globalThis[globalKey].initResolve', ssrRemotes)}
 }`
     : ''
 }

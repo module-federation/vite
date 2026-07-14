@@ -290,7 +290,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       );
 
       // Create core virtual modules
-      initVirtualModules(_command, getRemoteEntryId(options));
+      initVirtualModules(_command, getRemoteEntryId(options), false, options);
 
       const isRolldown = getIsRolldown(this);
 
@@ -300,7 +300,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       // in the emitted localSharedImportMap chunk.
       if (remotes && Object.keys(remotes).length > 0) {
         for (const key of Object.keys(remotes)) {
-          addUsedRemote(key, key);
+          addUsedRemote(key, key, options);
         }
         if (_command === 'serve') {
           config.optimizeDeps = config.optimizeDeps || {};
@@ -348,7 +348,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   'export default __mfShared.default ?? __mfShared;'
                 );
               },
-              resolveId(source: string, importer?: string, options?: { kind?: string }) {
+              resolveId(source: string, importer?: string, resolveOptions?: { kind?: string }) {
                 if (createViteEncodedIdPrefixRegExp('virtual:mf:').test(source)) {
                   return { id: source, external: true };
                 }
@@ -361,15 +361,16 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   source === 'react' &&
                   key === 'react' &&
                   shareItem.shareConfig?.singleton === true;
-                const isReactRequire = options?.kind?.startsWith('require') && isReactSingleton;
-                if (options?.kind?.startsWith('require') && !isReactSingleton) return;
+                const isReactRequire =
+                  resolveOptions?.kind?.startsWith('require') && isReactSingleton;
+                if (resolveOptions?.kind?.startsWith('require') && !isReactSingleton) return;
                 if (isCommonJsImporter(importer) && !isReactSingleton) return;
                 if (isReactRequire) {
                   writeLoadShareModule(source, shareItem, _command, isRolldown);
                   if (shareItem.shareConfig?.import !== false) {
                     writePreBuildLibPath(source, shareItem);
                   }
-                  addUsedShares(source);
+                  addUsedShares(source, options);
                   return { id: 'module-federation:optimized-require-react' };
                 }
                 const loadSharePath = getLoadShareModulePath(source, isRolldown);
@@ -377,7 +378,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 if (shareItem.shareConfig?.import !== false) {
                   writePreBuildLibPath(source, shareItem);
                 }
-                addUsedShares(source);
+                addUsedShares(source, options);
                 return { id: loadSharePath, external: true };
               },
             });
@@ -412,7 +413,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (shareItem.shareConfig?.import !== false) {
                     writePreBuildLibPath(args.path, shareItem);
                   }
-                  addUsedShares(args.path);
+                  addUsedShares(args.path, options);
                   return {
                     loader: 'js',
                     resolveDir: root,
@@ -444,7 +445,7 @@ export default __mfShared.default ?? __mfShared;`,
             continue;
           }
           if (isVinext && key === 'react') {
-            addUsedShares(key);
+            addUsedShares(key, options);
             continue;
           }
           getLoadShareModulePath(key, isRolldown);
@@ -454,7 +455,7 @@ export default __mfShared.default ?? __mfShared;`,
           if (shareItem.shareConfig?.import !== false) {
             writePreBuildLibPath(key, shareItem);
           }
-          addUsedShares(key);
+          addUsedShares(key, options);
           if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
             const optimizeDeps = (config.optimizeDeps ??= {});
             optimizeDeps.include ??= [];
@@ -477,7 +478,7 @@ export default __mfShared.default ?? __mfShared;`,
               getLoadShareModulePath(subpath, isRolldown);
               writeLoadShareModule(subpath, shareItem, _command, isRolldown);
               writePreBuildLibPath(subpath, shareItem);
-              addUsedShares(subpath);
+              addUsedShares(subpath, options);
               if (canResolveSharedSubpath(subpath, root)) {
                 optimizeDeps.include.push(subpath);
               } else {
@@ -486,7 +487,7 @@ export default __mfShared.default ?? __mfShared;`,
             }
           }
         }
-        writeLocalSharedImportMap();
+        writeLocalSharedImportMap(options);
       }
     },
 
@@ -587,8 +588,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             command,
             isRolldown: getIsRolldown(this),
             findSharedKey,
-            addUsedShares,
-            writeLocalSharedImportMap,
+            addUsedShares: (pkg) => addUsedShares(pkg, options),
+            writeLocalSharedImportMap: () => writeLocalSharedImportMap(options),
           });
           virtualModule = VirtualModule.findById(id);
         }
@@ -645,7 +646,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           command as 'serve' | 'build',
           Object.keys(options.remotes).length > 0
         );
-        initVirtualModules(command, remoteEntryId, ssrCapabilities.enableSsrInitBootstrap);
+        initVirtualModules(command, remoteEntryId, ssrCapabilities.enableSsrInitBootstrap, options);
       },
     },
     aliasToArrayPlugin,
@@ -687,17 +688,20 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       entryName: 'remoteEntry',
       entryPath: remoteEntryId,
       fileName: filename,
+      federationOptions: options,
     }),
     ...addEntry({
       entryName: 'hostInit',
-      entryPath: () => getHostAutoInitPath(),
+      entryPath: () => getHostAutoInitPath(options),
       inject: hostInitInjectLocation,
       forceClientInjected: Object.keys(options.exposes).length > 0,
       skipTransformFor: Object.values(options.exposes).map((expose) => expose.import),
+      federationOptions: options,
     }),
     ...addEntry({
       entryName: 'virtualExposes',
       entryPath: virtualExposesId,
+      federationOptions: options,
     }),
     pluginProxyRemoteEntry({ options, remoteEntryId, virtualExposesId }),
     pluginProxyRemotes(options),
@@ -705,10 +709,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     ...pluginModuleParseEnd(
       (id: string) => {
         return (
-          id.includes(getHostAutoInitImportId()) ||
+          id.includes(getHostAutoInitImportId(options)) ||
           id.includes(remoteEntryId) ||
           id.includes(virtualExposesId) ||
-          id.includes(getLocalSharedImportMapPath()) ||
+          id.includes(getLocalSharedImportMapPath(options)) ||
           id.includes(LOAD_SHARE_TAG) ||
           id.includes(PREBUILD_TAG) ||
           id.includes(TREE_SHAKING_PROVIDER_TAG) ||
@@ -723,6 +727,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     ),
     ...proxySharedModule({
       shared,
+      federationOptions: options,
     }),
     {
       name: 'module-federation-esm-shims',
@@ -1260,7 +1265,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
       },
     },
-    ...pluginManifest(),
+    ...pluginManifest(options),
     ...pluginSSRRemoteEntry(options),
     ...pluginVarRemoteEntry(),
     {

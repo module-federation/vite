@@ -4,6 +4,7 @@ import {
   writeLocalSharedImportMap,
 } from './virtualRemoteEntry';
 import { writeRuntimeInitStatus } from './virtualRuntimeInitStatus';
+import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 export {
   addUsedShares,
@@ -64,8 +65,13 @@ export { generateExposes, getExposesCssMapPlaceholder } from './virtualExposes';
 
 export { setSsrRemotes } from './virtualRuntimeInitStatus';
 
-export function initVirtualModules(command: string, remoteEntryId?: string, enableSsrInit = false) {
-  writeLocalSharedImportMap();
-  writeHostAutoInit(remoteEntryId, command);
-  writeRuntimeInitStatus(command, enableSsrInit, getHostAutoInitPath());
+export function initVirtualModules(
+  command: string,
+  remoteEntryId?: string,
+  enableSsrInit = false,
+  options?: NormalizedModuleFederationOptions
+) {
+  writeLocalSharedImportMap(options);
+  writeHostAutoInit(remoteEntryId, command, options);
+  writeRuntimeInitStatus(command, enableSsrInit, getHostAutoInitPath(options));
 }

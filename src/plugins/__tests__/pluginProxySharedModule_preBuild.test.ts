@@ -161,7 +161,11 @@ vi.mock('../../utils/VirtualModule', () => ({
 }));
 
 import { findSharedKey, proxySharedModule } from '../pluginProxySharedModule_preBuild';
-import { getUsedShares } from '../../virtualModules';
+import {
+  getResolvedLocalSharedImportMapId,
+  getUsedShares,
+  writeLocalSharedImportMap,
+} from '../../virtualModules';
 import {
   NormalizedShared,
   normalizeModuleFederationOptions,
@@ -222,13 +226,13 @@ vi.mock('../../virtualModules', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../virtualModules')>();
   return {
     ...actual,
-    addUsedShares: (pkg: string) => {
+    addUsedShares: (pkg: string, options?: any) => {
       addUsedSharesMock(pkg);
-      return actual.addUsedShares(pkg);
+      return actual.addUsedShares(pkg, options);
     },
-    refreshHostAutoInit: () => {
+    refreshHostAutoInit: (options?: any) => {
       refreshHostAutoInitMock();
-      return actual.refreshHostAutoInit();
+      return actual.refreshHostAutoInit(options);
     },
     writeLoadShareModule: (
       pkg: string,
@@ -243,7 +247,10 @@ vi.mock('../../virtualModules', async (importOriginal) => {
       writePreBuildLibPathMock(pkg, shareItem);
       preBuildShareItemMap.set(pkg, shareItem);
     },
-    writeLocalSharedImportMap: writeLocalSharedImportMapMock,
+    writeLocalSharedImportMap: (options?: any) => {
+      writeLocalSharedImportMapMock();
+      return actual.writeLocalSharedImportMap(options);
+    },
     getPreBuildShareItem: (pkg: string) => preBuildShareItemMap.get(pkg),
     hasTreeShakingSharedProvider: hasTreeShakingSharedProviderMock,
     getTreeShakingSharedProviderImportId: getTreeShakingSharedProviderImportIdMock,
@@ -394,6 +401,94 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(code).toContain('export {');
     expect(code).toContain('usedShared');
     expect(code).toContain('@module-federation/runtime');
+  });
+
+  it('emits tree-shaking providers into the owning federation output directory', async () => {
+    hasTreeShakingSharedProviderMock.mockReturnValue(true);
+    const optionsA = normalizeModuleFederationOptions({
+      name: 'same-host',
+      treeShakingDir: 'tenant-a',
+      shared: {
+        react: { treeShaking: { mode: 'runtime-infer', usedExports: ['createElement'] } },
+      },
+    });
+    normalizeModuleFederationOptions({
+      name: 'same-host',
+      treeShakingDir: 'tenant-b',
+      shared: {
+        react: { treeShaking: { mode: 'runtime-infer', usedExports: ['createElement'] } },
+      },
+    });
+
+    const plugins = proxySharedModule({
+      shared: optionsA.shared,
+      federationOptions: optionsA,
+    });
+    callHook(
+      getProxyPlugin(plugins).config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' }
+    );
+    const emitFile = vi.fn(() => 'asset-id');
+    await callHook(
+      getLocalSharedImportMapPlugin(plugins).load,
+      { emitFile } as any,
+      getResolvedLocalSharedImportMapId(optionsA),
+      {} as any
+    );
+
+    expect(emitFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: 'tenant-a/tree-shaking-provider-react.js',
+      })
+    );
+  });
+
+  it('invalidates only the owning dev server local shared map', () => {
+    const optionsA = normalizeModuleFederationOptions({ name: 'same-host', shared: {} });
+    const optionsB = normalizeModuleFederationOptions({ name: 'same-host', shared: {} });
+    const moduleA = {} as any;
+    const moduleB = {} as any;
+    const invalidateA = vi.fn();
+    const invalidateB = vi.fn();
+    const pluginA = getLocalSharedImportMapPlugin(
+      proxySharedModule({ shared: optionsA.shared, federationOptions: optionsA })
+    );
+    const pluginB = getLocalSharedImportMapPlugin(
+      proxySharedModule({ shared: optionsB.shared, federationOptions: optionsB })
+    );
+
+    callHook(
+      pluginA.configureServer,
+      {} as any,
+      {
+        moduleGraph: {
+          getModuleById: () => moduleA,
+          invalidateModule: invalidateA,
+        },
+      } as any
+    );
+    callHook(
+      pluginB.configureServer,
+      {} as any,
+      {
+        moduleGraph: {
+          getModuleById: () => moduleB,
+          invalidateModule: invalidateB,
+        },
+      } as any
+    );
+
+    writeLocalSharedImportMap(optionsA);
+    expect(invalidateA).toHaveBeenCalledWith(moduleA);
+    expect(invalidateB).not.toHaveBeenCalled();
+
+    writeLocalSharedImportMap(optionsB);
+    expect(invalidateB).toHaveBeenCalledWith(moduleB);
+
+    callHook(pluginA.closeBundle, {} as any);
+    callHook(pluginB.closeBundle, {} as any);
   });
 
   it('keeps same-package subpaths inside the independent tree-shaking graph', async () => {

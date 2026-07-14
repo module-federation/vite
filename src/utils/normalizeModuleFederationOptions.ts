@@ -645,6 +645,7 @@ interface DtsHostOptions {
 
 let config: NormalizedModuleFederationOptions;
 let explicitSharedKeys: Set<string> = new Set();
+const explicitSharedKeysByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 
 function resolveRuntimeImplementation(): string {
   const fallback = resolveImportPath('@module-federation/runtime');
@@ -682,12 +683,16 @@ export function getNormalizeModuleFederationOptions() {
   return config;
 }
 
-export function isExplicitSharedKey(key: string) {
-  return explicitSharedKeys.has(key);
+export function isExplicitSharedKey(key: string, options?: NormalizedModuleFederationOptions) {
+  return (
+    (options ? explicitSharedKeysByOptions.get(options) : explicitSharedKeys)?.has(key) ?? false
+  );
 }
 
-export function getNormalizeShareItem(key: string) {
-  const options = getNormalizeModuleFederationOptions();
+export function getNormalizeShareItem(
+  key: string,
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
   const shareItem =
     options.shared[key] ||
     options.shared[getPackageName(key)] ||
@@ -707,7 +712,7 @@ export function normalizeModuleFederationOptions(
     );
   }
 
-  return (config = {
+  const normalized: NormalizedModuleFederationOptions = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
     internalName: toInternalModuleFederationName(options.name),
@@ -740,5 +745,7 @@ export function normalizeModuleFederationOptions(
     moduleParseIdleTimeout: options.moduleParseIdleTimeout,
     varFilename: options.varFilename,
     target: options.target,
-  });
+  };
+  explicitSharedKeysByOptions.set(normalized, new Set(explicitSharedKeys));
+  return (config = normalized);
 }

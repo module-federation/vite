@@ -13,6 +13,17 @@ import {
 } from './virtualRuntimeInitStatus';
 
 const cacheRemoteMap = new WeakMap<NormalizedModuleFederationOptions, Map<string, VirtualModule>>();
+const remoteOptionsIds = new WeakMap<NormalizedModuleFederationOptions, number>();
+let nextRemoteOptionsId = 1;
+
+function getRemoteOptionsId(options: NormalizedModuleFederationOptions): number {
+  let id = remoteOptionsIds.get(options);
+  if (id === undefined) {
+    id = nextRemoteOptionsId++;
+    remoteOptionsIds.set(options, id);
+  }
+  return id;
+}
 export const LOAD_REMOTE_TAG = '__loadRemote__';
 
 export function getRemoteVirtualModule(
@@ -34,7 +45,8 @@ export function getRemoteVirtualModule(
     // wrapper would otherwise replace it and make the browser receive server
     // code (notably without the client host-init import). Keep the historical
     // id for legacy/unified graphs.
-    const virtualName = consumer === 'unified' ? remote : `${remote}__mf_consumer__${consumer}`;
+    const consumerName = consumer === 'unified' ? remote : `${remote}__mf_consumer__${consumer}`;
+    const virtualName = `${consumerName}__mf_owner__${getRemoteOptionsId(options)}`;
     const virtual = new VirtualModule(virtualName, LOAD_REMOTE_TAG, '.js', options.internalName);
     virtual.writeSync(generateRemotes(remote, command, enableSsrInit, consumer, options));
     instanceCache.set(cacheKey, virtual);
@@ -44,11 +56,39 @@ export function getRemoteVirtualModule(
 const usedRemotesMap: Record<string, Set<string>> = {
   // remote1: {remote1/App, remote1, remote1/Button}
 };
-export function addUsedRemote(remoteKey: string, remoteModule: string) {
-  if (!usedRemotesMap[remoteKey]) usedRemotesMap[remoteKey] = new Set();
-  usedRemotesMap[remoteKey].add(remoteModule);
+const usedRemotesByOptions = new WeakMap<
+  NormalizedModuleFederationOptions,
+  Record<string, Set<string>>
+>();
+
+function getScopedUsedRemotesMap(options: NormalizedModuleFederationOptions) {
+  let scoped = usedRemotesByOptions.get(options);
+  if (!scoped) {
+    scoped = {};
+    usedRemotesByOptions.set(options, scoped);
+  }
+  return scoped;
 }
-export function getUsedRemotesMap() {
+
+function recordUsedRemote(
+  map: Record<string, Set<string>>,
+  remoteKey: string,
+  remoteModule: string
+) {
+  if (!map[remoteKey]) map[remoteKey] = new Set();
+  map[remoteKey].add(remoteModule);
+}
+
+export function addUsedRemote(
+  remoteKey: string,
+  remoteModule: string,
+  options?: NormalizedModuleFederationOptions
+) {
+  recordUsedRemote(usedRemotesMap, remoteKey, remoteModule);
+  if (options) recordUsedRemote(getScopedUsedRemotesMap(options), remoteKey, remoteModule);
+}
+export function getUsedRemotesMap(options?: NormalizedModuleFederationOptions) {
+  if (options) return getScopedUsedRemotesMap(options);
   return usedRemotesMap;
 }
 
@@ -287,16 +327,22 @@ export function generateRemotes(
           shareScope: remote.shareScope ?? 'default',
         })}]);`
       : '';
-  const browserHostInitCode = `import(${JSON.stringify(getHostAutoInitPath())})
+  const hostAutoInitPath = getHostAutoInitPath(options);
+  const ssrRemotes = Object.entries(options.remotes).map(([name, item]) => ({
+    name,
+    entry: item.entry,
+    type: item.type ?? 'module',
+  }));
+  const browserHostInitCode = `import(${JSON.stringify(hostAutoInitPath)})
         .then((mod) => mod.hostInitPromise)
         .then(initResolve, initReject);`;
-  const devRuntimeBootstrap = `${getRuntimeInitBootstrapCode(enableSsrInit, getHostAutoInitPath())}
+  const devRuntimeBootstrap = `${getRuntimeInitBootstrapCode(enableSsrInit, hostAutoInitPath, ssrRemotes)}
     const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
   const devHostInitLine = command === 'serve' && consumer !== 'server' ? browserHostInitCode : '';
   const importLine =
     command === 'build'
       ? `${getRuntimeModuleCacheBootstrapCode()}
-    import { hostInitPromise as __mfHostInitPromise } from ${JSON.stringify(getHostAutoInitPath())};`
+    import { hostInitPromise as __mfHostInitPromise } from ${JSON.stringify(hostAutoInitPath)};`
       : `${devRuntimeBootstrap}
     ${devHostInitLine}`;
   const remoteLoadRuntimePromise = command === 'build' ? '__mfHostInitPromise' : 'initPromise';
