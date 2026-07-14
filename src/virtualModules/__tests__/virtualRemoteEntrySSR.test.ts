@@ -24,4 +24,20 @@ describe('virtualRemoteEntrySSR', () => {
     expect(code).not.toContain('name: "__mfe_internal__remote"');
     expect(code).not.toContain('from: "__mfe_internal__remote"');
   });
+
+  it('initializes all configured SSR provider share scopes', () => {
+    const options = getDefaultMockOptions({
+      name: 'remote',
+      shareScope: ['default', 'scope1'],
+      shareStrategy: 'version-first',
+    } as any);
+
+    const code = generateRemoteEntrySSR(options);
+
+    expect(code).toContain('const shareScopeNames = Array.isArray(["default","scope1"])');
+    expect(code).toContain('for (const scopeName of shareScopeNames)');
+    expect(code).toContain("console.error('[Module Federation SSR]', e);");
+    expect(code).toContain('initRes.initShareScopeMap(scopeName, scopeShare)');
+    expect(code).toContain('initRes.initializeSharing(scopeName');
+  });
 });
