@@ -84,7 +84,7 @@ describe('virtualRuntimeInitStatus', () => {
     const { getRuntimeInitPromiseBootstrapCode } = await import('../virtualRuntimeInitStatus');
 
     const result = runCode<{ initPromise: Promise<{ loadRemote: Function; loadShare: Function }> }>(
-      getRuntimeInitPromiseBootstrapCode(true),
+      getRuntimeInitPromiseBootstrapCode(true).replaceAll('import.meta.env.SSR', 'true'),
       'return { initPromise, hasInitResolve: typeof initResolve !== "undefined" };'
     );
 

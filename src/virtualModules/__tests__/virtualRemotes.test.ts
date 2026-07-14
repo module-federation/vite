@@ -68,6 +68,9 @@ function runGeneratedRemoteModule(
 
   const moduleCode = code
     .slice(start)
+    // The Function-based harness runs outside Vite's ESM transform. Model the
+    // client environment that these assertions exercise.
+    .replaceAll('import.meta.env.SSR', 'false')
     .replace(
       'export { exportModule as __moduleExports };',
       'Object.defineProperty(__exports, "__moduleExports", { enumerable: true, get: () => exportModule });'
@@ -115,6 +118,14 @@ describe('resolveRemoteInitMode', () => {
 });
 
 describe('generateRemotes', () => {
+  it('uses distinct virtual ids for client and server environment graphs', () => {
+    const client = getRemoteVirtualModule('remote/environment-split', 'serve', true, 'client');
+    const server = getRemoteVirtualModule('remote/environment-split', 'serve', true, 'server');
+
+    expect(client.getImportId()).not.toBe(server.getImportId());
+    expect(client.code).toContain('hostInitPromise');
+    expect(server.code).not.toContain('.then(initResolve, initReject)');
+  });
   beforeEach(() => {
     mockOptions.shareStrategy = 'version-first';
     hasPackageDependencyMock.mockReset();

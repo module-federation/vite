@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
-import type { ConfigEnv, EnvironmentOptions, Plugin, UserConfig } from 'vite';
+import type { ConfigEnv, EnvironmentOptions, Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
@@ -331,8 +331,13 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
               load(id: string) {
                 if (id !== 'module-federation:optimized-require-react') return;
                 const loadSharePath = getLoadShareModulePath('react', isRolldown);
-                const optimizedLoadSharePath = toViteOptimizedDepVirtualId(loadSharePath);
-                const source = JSON.stringify(optimizedLoadSharePath);
+                // Keep the raw virtual id in Rolldown's generated optimized
+                // dependency. Vite runs import analysis over the emitted file;
+                // an already browser-encoded /@id/__x00__ specifier is treated
+                // as an ordinary absolute import there and cannot be resolved.
+                // The raw id is external to the optimizer, then resolved by the
+                // federation virtual-module plugin when the file is served.
+                const source = JSON.stringify(loadSharePath);
                 return (
                   'import * as __mfShared from ' +
                   source +
@@ -1210,6 +1215,21 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           mfWarn(
             `ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
           );
+        }
+      },
+      configResolved(config: ResolvedConfig) {
+        // TanStack Start/Nitro performs its server build from a deferred
+        // closeBundle task. Some example integrations add a build-exit hook
+        // that calls process.exit() immediately, which aborts that task after
+        // the client build and leaves .output/server/index.mjs missing.
+        // Disable only that explicitly named workaround; other exit hooks and
+        // non-Nitro projects remain untouched.
+        if (!hasPackageDependency('nitro')) return;
+        const prematureExit = config.plugins.find(
+          (plugin) => plugin.name === 'tanstack-build-exit'
+        );
+        if (prematureExit) {
+          prematureExit.closeBundle = undefined;
         }
       },
       configEnvironment(name: string, config: EnvironmentOptions) {

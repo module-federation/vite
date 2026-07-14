@@ -1377,6 +1377,9 @@ describe('vite:module-federation-early-init', () => {
     expect(resolver.resolveId('react', '/repo/src/App.cjs', { kind: 'require-call' })).toEqual({
       id: 'module-federation:optimized-require-react',
     });
+    const optimizedRequireReact = resolver.load('module-federation:optimized-require-react');
+    expect(optimizedRequireReact).toContain(JSON.stringify(getLoadShareModulePath('react', true)));
+    expect(optimizedRequireReact).not.toContain('/@id/__x00__');
     expect(
       resolver.resolveId(toViteOptimizedDepVirtualId(getLoadShareModulePath('react', true)))
     ).toEqual({

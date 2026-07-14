@@ -713,6 +713,17 @@ function getDependencyNames(packageJson: Record<string, unknown> | undefined) {
 function isSharedSingletonConsumedByPeer(pkg: string) {
   const options = getNormalizeModuleFederationOptions();
   const shared = options?.shared || {};
+  // Subpath shares (for example `preact/hooks`) execute against their package
+  // root during module evaluation. Keep the root singleton eager so that the
+  // subpath cannot observe an as-yet-uninitialised lazy namespace.
+  if (
+    Object.entries(shared).some(
+      ([key, item]) =>
+        key !== pkg && key.startsWith(`${pkg}/`) && item.shareConfig.singleton === true
+    )
+  ) {
+    return true;
+  }
   const sharedKeyByPackageName = new Map<string, string>();
   Object.entries(shared)
     .filter(([, item]) => item.shareConfig.singleton === true)
@@ -1180,7 +1191,8 @@ function generateLazyWorkspaceSingletonExports(
   importSource: string,
   cacheDescriptor: string,
   cacheOwner: string,
-  treeShakingConsumer?: string
+  treeShakingConsumer?: string,
+  serveLocalFallback = false
 ) {
   const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
   const declarations =
@@ -1201,7 +1213,8 @@ function generateLazyWorkspaceSingletonExports(
       ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
   const applyLocalFallback = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
-      __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
+      __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
+      __mfApplyLazyShareExports(exportModule);`;
 
   const body = `${declarations}
     const __mfApplyLazyShareExports = (mod) => {
@@ -1210,7 +1223,7 @@ function generateLazyWorkspaceSingletonExports(
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyLazyShareExports);
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
-      if (import.meta.env.SSR) {
+      if (import.meta.env.SSR${serveLocalFallback ? " || (import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')" : ''}) {
         ${applyLocalFallback}
       } else {
         (__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then(() => {
@@ -1246,7 +1259,8 @@ export function prependWorkspaceSingletonSsrImport(code: string): string {
     ) ??
     code.match(
       /initPromise\.then\(\(\)\s*=>\s*\n\s*import\((["'])(.+?)\1\)\.then\(\(mod\)\s*=>\s*\{[\s\S]*?__mfApplyLazyShareExports/
-    );
+    ) ??
+    code.match(/import\((["'])(.+?)\1\)/);
   if (!importMatch) return code;
 
   const quote = importMatch[1];
@@ -1322,7 +1336,12 @@ function generateShareModuleUnwrapCode({
 }
 
 const normalizeLocalShareModuleCode = `const __mfNormalizeShareModule = (mod) => {
-      ${generateShareModuleUnwrapCode({ source: 'mod', preserveNamedExports: true })}
+      const normalized = (() => {
+        ${generateShareModuleUnwrapCode({ source: 'mod', preserveNamedExports: true })}
+      })();
+      return normalized && Object.getPrototypeOf(normalized) === null
+        ? Object.assign({}, normalized)
+        : normalized;
     };`;
 
 export function writeLoadShareModule(
@@ -1418,6 +1437,8 @@ export function writeLoadShareModule(
         isRemoteOnlyContainer() &&
         shareItem.shareConfig.singleton === true &&
         !isDefaultShareScope));
+  const servesRemoteSingletonFallback =
+    command !== 'build' && isRemoteOnlyContainer() && shareItem.shareConfig.singleton === true;
   const isConsumedByPeerSingleton = isSharedSingletonConsumedByPeer(pkg);
   const usesEntryInjectedRemoteFallback =
     hasCompleteExportCoverage &&
@@ -1439,7 +1460,9 @@ export function writeLoadShareModule(
       lazyLocalFallbackSource,
       cacheDescriptor,
       cacheOwner,
-      treeShakingConsumer
+      treeShakingConsumer,
+      command !== 'build' &&
+        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback)
     );
   } else if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
     exportLine = generateEagerWorkspaceSingletonExports(
@@ -1456,7 +1479,9 @@ export function writeLoadShareModule(
       lazyLocalFallbackSource,
       cacheDescriptor,
       cacheOwner,
-      treeShakingConsumer
+      treeShakingConsumer,
+      command !== 'build' &&
+        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback)
     );
   } else if (detectedNamedExports === undefined) {
     // Unknown export coverage cannot be rebound safely: a live default backed by
@@ -1542,7 +1567,12 @@ export function writeLoadShareModule(
         : sharedImportSource;
   const prebuildImportLine =
     usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
-      ? ''
+      ? servesRemoteSingletonFallback ||
+        (usesDeferredSingletonFallback &&
+          command !== 'build' &&
+          (isWorkspaceSingleton || isWorkspacePackage))
+        ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(lazyLocalFallbackSource)};`
+        : ''
       : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
   const devDynamicImportLine = isWorkspacePackage
     ? ''
