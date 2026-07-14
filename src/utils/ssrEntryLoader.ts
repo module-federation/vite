@@ -196,6 +196,10 @@ const ssrEntryCache = new Map<string, SsrEntryCacheRecord>();
 // Dedupe manifest fetches when multiple entry URLs resolve to the same manifest.
 const manifestFetchCache = new Map<string, Promise<Manifest | null>>();
 
+function makeUrlCacheKey(url: string, fetchTimeoutMs: number): string {
+  return `${fetchTimeoutMs}::${url}`;
+}
+
 interface EntryContext {
   entryUrl: string;
   manifestUrl: string;
@@ -251,16 +255,17 @@ async function fetchManifestCached(
   manifestUrl: string,
   fetchTimeoutMs: number
 ): Promise<Manifest | null> {
-  if (!manifestFetchCache.has(manifestUrl)) {
+  const cacheKey = makeUrlCacheKey(manifestUrl, fetchTimeoutMs);
+  if (!manifestFetchCache.has(cacheKey)) {
     const promise = fetchManifest(manifestUrl, fetchTimeoutMs);
-    manifestFetchCache.set(manifestUrl, promise);
+    manifestFetchCache.set(cacheKey, promise);
     void promise.then((manifest) => {
-      if (!manifest && manifestFetchCache.get(manifestUrl) === promise) {
-        manifestFetchCache.delete(manifestUrl);
+      if (!manifest && manifestFetchCache.get(cacheKey) === promise) {
+        manifestFetchCache.delete(cacheKey);
       }
     });
   }
-  return manifestFetchCache.get(manifestUrl)!;
+  return manifestFetchCache.get(cacheKey)!;
 }
 
 /** True when the host configured a manifest URL as the remote entry (any .json name). */
@@ -427,14 +432,14 @@ async function resolveSSREntryImpl(
 }
 
 function setSsrEntryCache(remoteEntryUrl: string, fetchTimeoutMs: number): SsrEntryCacheRecord {
+  const cacheKey = makeUrlCacheKey(remoteEntryUrl, fetchTimeoutMs);
   const record: SsrEntryCacheRecord = {
     promise: resolveSSREntryImpl(remoteEntryUrl, fetchTimeoutMs),
     resolvedAt: Date.now(),
   };
-  ssrEntryCache.set(remoteEntryUrl, record);
+  ssrEntryCache.set(cacheKey, record);
   void record.promise.then((entry) => {
-    if (!entry && ssrEntryCache.get(remoteEntryUrl) === record)
-      ssrEntryCache.delete(remoteEntryUrl);
+    if (!entry && ssrEntryCache.get(cacheKey) === record) ssrEntryCache.delete(cacheKey);
   });
   return record;
 }
@@ -444,7 +449,8 @@ async function getSSREntry(
   maxAgeMs: number | undefined,
   fetchTimeoutMs: number
 ): Promise<SsrEntryCandidate | null> {
-  const cached = ssrEntryCache.get(remoteEntryUrl);
+  const cacheKey = makeUrlCacheKey(remoteEntryUrl, fetchTimeoutMs);
+  const cached = ssrEntryCache.get(cacheKey);
   if (!cached) return setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs).promise;
 
   const isStale =
@@ -455,7 +461,7 @@ async function getSSREntry(
   // (remote redeployed at the same URL), the new key flows into temp-file
   // names, so the fresh entry is imported instead of Node's cached module.
   const previous = await cached.promise.catch(() => null);
-  manifestFetchCache.delete(getManifestUrl(remoteEntryUrl));
+  manifestFetchCache.delete(makeUrlCacheKey(getManifestUrl(remoteEntryUrl), fetchTimeoutMs));
   const record = setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs);
   const next = await record.promise.catch(() => null);
 
@@ -477,8 +483,8 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
   } catch {
     return;
   }
-  for (const key of tempFileCache.keys()) {
-    const url = key.slice(key.indexOf('::') + 2);
+  for (const [key] of tempFileCache) {
+    const url = JSON.parse(key)[2] as string;
     if (url.startsWith(origin)) tempFileCache.delete(key);
   }
 }
@@ -495,8 +501,13 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
  */
 export function revalidate(remoteEntryUrl?: string): void {
   if (remoteEntryUrl) {
-    ssrEntryCache.delete(remoteEntryUrl);
-    manifestFetchCache.delete(getManifestUrl(remoteEntryUrl));
+    for (const key of ssrEntryCache.keys()) {
+      if (key.endsWith(`::${remoteEntryUrl}`)) ssrEntryCache.delete(key);
+    }
+    const manifestUrl = getManifestUrl(remoteEntryUrl);
+    for (const key of manifestFetchCache.keys()) {
+      if (key.endsWith(`::${manifestUrl}`)) manifestFetchCache.delete(key);
+    }
     dropRemoteCaches(remoteEntryUrl);
   } else {
     ssrEntryCache.clear();
@@ -634,7 +645,7 @@ async function fetchEsmToTempFile(
   versionKey: string = UNVERSIONED,
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS
 ): Promise<string> {
-  const cacheKey = `${versionKey}::${url}`;
+  const cacheKey = JSON.stringify([fetchTimeoutMs, versionKey, url]);
   if (visited.has(url)) return visited.get(url)!;
   if (tempFileCache.has(cacheKey)) return tempFileCache.get(cacheKey)!;
 

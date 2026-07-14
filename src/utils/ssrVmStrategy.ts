@@ -19,7 +19,7 @@
  * API is missing.
  */
 import { neutralizeBrowserPreloadHelpers, SsrEntryHttpError } from './ssrEntryLoader';
-import { fetchWithTimeout } from './fetchWithTimeout';
+import { DEFAULT_SSR_FETCH_TIMEOUT_MS, fetchWithTimeout } from './fetchWithTimeout';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
@@ -190,7 +190,11 @@ function resolveSpecifierUrl(specifier: string, referencerUrl: string): string |
 }
 
 function getHttpModule(vm: VmApi, url: string, options: VmStrategyOptions): Promise<VmModule> {
-  const cacheKey = `${options.versionKey}::${url}`;
+  const cacheKey = JSON.stringify([
+    options.fetchTimeoutMs ?? DEFAULT_SSR_FETCH_TIMEOUT_MS,
+    options.versionKey,
+    url,
+  ]);
   if (!httpModuleCache.has(cacheKey)) {
     httpModuleCache.set(
       cacheKey,

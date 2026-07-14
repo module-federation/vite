@@ -546,6 +546,65 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
     expect(firstManifestRequest?.[1]?.signal?.aborted).toBe(true);
   });
 
+  it('does not share in-flight caches between different fetch timeouts', async () => {
+    const manifestUrl = 'http://localhost:5001/mf-manifest.json';
+    let manifestAttempts = 0;
+    const fetch = vi.fn(
+      async (url: string, options?: { method?: string; signal?: AbortSignal }) => {
+        if (url === manifestUrl) {
+          manifestAttempts++;
+          if (options?.signal) {
+            return new Promise<never>((_resolve, reject) => {
+              options.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+                once: true,
+              });
+            });
+          }
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => ({
+              metaData: {
+                ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
+              },
+            }),
+            text: async () => '',
+            headers: { get: (_header: string): string | null => 'application/json' },
+          };
+        }
+
+        const isEntry = url === 'http://localhost:5001/remoteEntry.ssr.js' && !options?.method;
+        return {
+          ok: isEntry,
+          status: isEntry ? 200 : 404,
+          statusText: isEntry ? 'OK' : 'Not Found',
+          json: async () => ({}),
+          text: async () =>
+            isEntry ? 'export async function init() {} export async function get() {}' : '',
+          headers: {
+            get: (_header: string): string | null => (isEntry ? 'application/javascript' : null),
+          },
+        };
+      }
+    );
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    const remoteInfo = { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' };
+    const timedOutPlugin = factory({ fetchTimeoutMs: 5 });
+    const unboundedPlugin = factory({ fetchTimeoutMs: 0 });
+
+    await Promise.all([
+      timedOutPlugin.loadEntry!({ remoteInfo }),
+      unboundedPlugin.loadEntry!({ remoteInfo }),
+    ]);
+
+    expect(manifestAttempts).toBe(2);
+    expect(fetch.mock.calls.some(([url, options]) => url === manifestUrl && !options?.signal)).toBe(
+      true
+    );
+  });
+
   it('dedupes manifest fetches across js and manifest entry URLs', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
