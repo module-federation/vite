@@ -19,11 +19,13 @@
  * API is missing.
  */
 import { neutralizeBrowserPreloadHelpers, SsrEntryHttpError } from './ssrEntryLoader';
+import { DEFAULT_SSR_FETCH_TIMEOUT_MS, fetchWithTimeout } from './fetchWithTimeout';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
   shareScopeName: string;
   versionKey: string;
+  fetchTimeoutMs?: number;
 }
 
 // Minimal structural typings for the experimental vm module APIs so this file
@@ -165,8 +167,8 @@ function getBodyPreview(body: string): string {
   return body.slice(0, 240).replace(/\s+/g, ' ').trim();
 }
 
-async function fetchModuleSource(url: string): Promise<string> {
-  const res = await fetch(url);
+async function fetchModuleSource(url: string, fetchTimeoutMs?: number): Promise<string> {
+  const res = await fetchWithTimeout(url, {}, fetchTimeoutMs);
   const text = await res.text();
   if (!res.ok) {
     throw new SsrEntryHttpError(url, res.status, res.statusText, getBodyPreview(text));
@@ -188,12 +190,16 @@ function resolveSpecifierUrl(specifier: string, referencerUrl: string): string |
 }
 
 function getHttpModule(vm: VmApi, url: string, options: VmStrategyOptions): Promise<VmModule> {
-  const cacheKey = `${options.versionKey}::${url}`;
+  const cacheKey = JSON.stringify([
+    options.fetchTimeoutMs ?? DEFAULT_SSR_FETCH_TIMEOUT_MS,
+    options.versionKey,
+    url,
+  ]);
   if (!httpModuleCache.has(cacheKey)) {
     httpModuleCache.set(
       cacheKey,
       (async () => {
-        const code = await fetchModuleSource(url);
+        const code = await fetchModuleSource(url, options.fetchTimeoutMs);
         return new vm.SourceTextModule(code, {
           identifier: url,
           initializeImportMeta(meta) {
