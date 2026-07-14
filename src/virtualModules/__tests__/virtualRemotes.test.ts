@@ -444,6 +444,46 @@ describe('generateRemotes', () => {
     expect(server.code).not.toContain('__mfCreateDeferredRemoteProxy');
   });
 
+  it('scopes wrappers and generated remote entries to explicit plugin options', () => {
+    const optionsA = {
+      internalName: 'host_a',
+      shareStrategy: 'loaded-first',
+      remotes: {
+        remote: {
+          entryGlobalName: 'remote_a',
+          name: 'remote-a',
+          type: 'module',
+          entry: 'https://tenant-a.invalid/remoteEntry.js',
+          shareScope: 'default',
+        },
+      },
+    } as never;
+    const optionsB = {
+      internalName: 'host_b',
+      shareStrategy: 'loaded-first',
+      remotes: {
+        remote: {
+          entryGlobalName: 'remote_b',
+          name: 'remote-b',
+          type: 'module',
+          entry: 'https://tenant-b.invalid/remoteEntry.js',
+          shareScope: 'default',
+        },
+      },
+    } as never;
+
+    const wrapperA = getRemoteVirtualModule('remote/Card', 'serve', false, 'client', optionsA);
+    const wrapperB = getRemoteVirtualModule('remote/Card', 'serve', false, 'client', optionsB);
+
+    expect(wrapperA).not.toBe(wrapperB);
+    expect(wrapperA.getImportId()).toContain('host_a');
+    expect(wrapperB.getImportId()).toContain('host_b');
+    expect(wrapperA.code).toContain('https://tenant-a.invalid/remoteEntry.js');
+    expect(wrapperA.code).not.toContain('https://tenant-b.invalid/remoteEntry.js');
+    expect(wrapperB.code).toContain('https://tenant-b.invalid/remoteEntry.js');
+    expect(wrapperB.code).not.toContain('https://tenant-a.invalid/remoteEntry.js');
+  });
+
   it('uses ESM remote wrappers in Rollup build mode', () => {
     const virtual = getRemoteVirtualModule('remote/Card', 'build');
 

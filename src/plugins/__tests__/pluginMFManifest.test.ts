@@ -295,6 +295,12 @@ describe('pluginMFManifest', () => {
     ).toBeTruthy();
   });
 
+  it('keeps manifest generation bound to the plugin instance options', async () => {
+    await runGenerateBundleWithManifest(true);
+
+    expect(getNormalizeModuleFederationOptions).toHaveBeenCalledTimes(1);
+  });
+
   it('points ssrRemoteEntry at the dedicated SSR entry filename', async () => {
     const emitted = await runGenerateBundleWithManifest(true);
 

@@ -190,7 +190,8 @@ describe('pluginProxyRemotes', () => {
       'scheduler/SchedulePanel',
       'serve',
       true,
-      'unified'
+      'unified',
+      expect.objectContaining({ name: 'host' })
     );
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
   });
@@ -214,7 +215,13 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'scheduler', '/repo/src/App.tsx');
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true, 'unified');
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
+      'scheduler',
+      'serve',
+      true,
+      'unified',
+      expect.objectContaining({ name: 'host' })
+    );
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
   });
 
@@ -224,7 +231,13 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'scheduler', '/repo/node_modules/.vite/deps/react-dom.js');
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true, 'unified');
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
+      'scheduler',
+      'serve',
+      true,
+      'unified',
+      expect.objectContaining({ name: 'host' })
+    );
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
   });
 
@@ -252,7 +265,8 @@ describe('pluginProxyRemotes', () => {
       'scheduler/SchedulePanel',
       'serve',
       true,
-      'unified'
+      'unified',
+      expect.objectContaining({ name: 'host' })
     );
     expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
   });
@@ -273,14 +287,16 @@ describe('pluginProxyRemotes', () => {
       'scheduler/Button',
       'serve',
       true,
-      'client'
+      'client',
+      expect.objectContaining({ name: 'host' })
     );
     expect(getRemoteVirtualModuleMock).toHaveBeenNthCalledWith(
       2,
       'scheduler/Button',
       'serve',
       true,
-      'server'
+      'server',
+      expect.objectContaining({ name: 'host' })
     );
   });
 });

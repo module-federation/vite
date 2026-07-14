@@ -79,7 +79,13 @@ export function generateExposes(
       .map((key) => {
         const remoteDependencyPreloads = (remoteDependencyMap[key] ?? [])
           .map((remoteId) => {
-            const virtualRemote = getRemoteVirtualModule(remoteId, command);
+            const virtualRemote = getRemoteVirtualModule(
+              remoteId,
+              command,
+              false,
+              'unified',
+              options
+            );
             return `import(${JSON.stringify(virtualRemote.getImportId())})
             .then((mod) => mod.__mf_remote_pending)`;
           })

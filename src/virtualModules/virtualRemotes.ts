@@ -1,5 +1,6 @@
 import {
   getNormalizeModuleFederationOptions,
+  type NormalizedModuleFederationOptions,
   type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
 import type { RemoteConsumer } from '../utils/remoteConsumerTarget';
@@ -11,31 +12,34 @@ import {
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
 
-const cacheRemoteMap: {
-  [remote: string]: VirtualModule;
-} = {};
+const cacheRemoteMap = new WeakMap<NormalizedModuleFederationOptions, Map<string, VirtualModule>>();
 export const LOAD_REMOTE_TAG = '__loadRemote__';
 
 export function getRemoteVirtualModule(
   remote: string,
   command: string,
   enableSsrInit = false,
-  consumer: RemoteConsumer = 'unified'
+  consumer: RemoteConsumer = 'unified',
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
 ) {
-  const { shareStrategy } = getNormalizeModuleFederationOptions();
-  const cacheKey = `${remote}__${command}__${shareStrategy}__${consumer}__${enableSsrInit ? 'ssr-init' : 'no-ssr-init'}`;
-  if (!cacheRemoteMap[cacheKey]) {
+  let instanceCache = cacheRemoteMap.get(options);
+  if (!instanceCache) {
+    instanceCache = new Map();
+    cacheRemoteMap.set(options, instanceCache);
+  }
+  const cacheKey = `${remote}__${command}__${options.shareStrategy}__${consumer}__${enableSsrInit ? 'ssr-init' : 'no-ssr-init'}`;
+  if (!instanceCache.has(cacheKey)) {
     // Environment API graphs must not share a virtual id. VirtualModule's
     // registry is process-global, so an SSR wrapper registered after a client
     // wrapper would otherwise replace it and make the browser receive server
     // code (notably without the client host-init import). Keep the historical
     // id for legacy/unified graphs.
     const virtualName = consumer === 'unified' ? remote : `${remote}__mf_consumer__${consumer}`;
-    cacheRemoteMap[cacheKey] = new VirtualModule(virtualName, LOAD_REMOTE_TAG, '.js');
-    cacheRemoteMap[cacheKey].writeSync(generateRemotes(remote, command, enableSsrInit, consumer));
+    const virtual = new VirtualModule(virtualName, LOAD_REMOTE_TAG, '.js', options.internalName);
+    virtual.writeSync(generateRemotes(remote, command, enableSsrInit, consumer, options));
+    instanceCache.set(cacheKey, virtual);
   }
-  const virtual = cacheRemoteMap[cacheKey];
-  return virtual;
+  return instanceCache.get(cacheKey)!;
 }
 const usedRemotesMap: Record<string, Set<string>> = {
   // remote1: {remote1/App, remote1, remote1/Button}
@@ -264,9 +268,9 @@ export function generateRemotes(
   id: string,
   command: string,
   enableSsrInit = false,
-  consumer: RemoteConsumer = 'unified'
+  consumer: RemoteConsumer = 'unified',
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
 ) {
-  const options = getNormalizeModuleFederationOptions();
   const isLoadedFirst = options.shareStrategy === 'loaded-first';
   const initMode = resolveRemoteInitMode(options.shareStrategy, consumer);
   const deferRemoteLoad = shouldDeferRemoteLoad(initMode);

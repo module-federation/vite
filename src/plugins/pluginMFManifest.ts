@@ -410,7 +410,7 @@ const Manifest = (): Plugin[] => {
    * @returns Complete manifest object
    */
   function generateMFManifest(preloadMap: PreloadMap, disableAssetsAnalyze = false) {
-    const options = getNormalizeModuleFederationOptions();
+    const options = mfOptions;
     const { name, varFilename } = options;
     const resolvedRemoteEntryFile =
       _command === 'serve'
