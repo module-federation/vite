@@ -540,6 +540,16 @@ export function revalidate(remoteEntryUrl?: string): void {
 const tempFileCache = new Map<string, Promise<string>>();
 const tempFilePathCache = new Map<string, Promise<string>>();
 
+function getSsrTransformContextKey(
+  resolvedShared: Record<string, string>,
+  shareScopeName: string
+): string {
+  return JSON.stringify([
+    shareScopeName,
+    Object.entries(resolvedShared).sort(([left], [right]) => left.localeCompare(right)),
+  ]);
+}
+
 // Lazily initialised on the server only — avoids evaluating Node APIs in browser.
 let ssrCacheDirPromise: Promise<string> | undefined;
 async function getSSRCacheDir(): Promise<string> {
@@ -649,9 +659,10 @@ async function fetchEsmToTempFile(
   pending: Set<Promise<string>>,
   sharedPkgMap?: Map<string, string>,
   versionKey: string = UNVERSIONED,
-  fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS
+  fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
+  contextKey = 'default'
 ): Promise<string> {
-  const cacheKey = JSON.stringify([fetchTimeoutMs, versionKey, url]);
+  const cacheKey = JSON.stringify([fetchTimeoutMs, versionKey, url, contextKey]);
   if (visited.has(url)) return visited.get(url)!;
   const cached = tempFileCache.get(cacheKey);
   if (cached) {
@@ -711,7 +722,8 @@ async function fetchEsmToTempFile(
             pending,
             sharedPkgMap,
             versionKey,
-            fetchTimeoutMs
+            fetchTimeoutMs,
+            contextKey
           );
           subMap.set(u, `file://${tmpPath}`);
         })
@@ -743,7 +755,8 @@ async function fetchEsmGraphToTempFile(
   tmpDir: string,
   sharedPkgMap?: Map<string, string>,
   versionKey: string = UNVERSIONED,
-  fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS
+  fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
+  contextKey = 'default'
 ): Promise<string> {
   const pending = new Set<Promise<string>>();
   const rootFile = await fetchEsmToTempFile(
@@ -753,7 +766,8 @@ async function fetchEsmGraphToTempFile(
     pending,
     sharedPkgMap,
     versionKey,
-    fetchTimeoutMs
+    fetchTimeoutMs,
+    contextKey
   );
   // Circular edges return their reserved path immediately. Wait for every
   // discovered writer before importing the root so all referenced files exist.
@@ -887,7 +901,8 @@ async function loadSSRRemoteEntry(
         cacheDir,
         sharedPkgMap,
         versionKey,
-        options.fetchTimeoutMs
+        options.fetchTimeoutMs,
+        getSsrTransformContextKey(resolvedShared, options.shareScopeName)
       );
       return await importTempModule(tmpFile, versionKey);
     } catch (error) {

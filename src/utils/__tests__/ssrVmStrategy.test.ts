@@ -133,6 +133,40 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(namespace.val).toBe(7);
   });
 
+  it('selects federation instances from the requested named share scope', async () => {
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'import { v } from "shared-lib"; export const val = v;',
+      },
+    }) as unknown as typeof globalThis.fetch;
+
+    const defaultLoadShare = vi.fn(async () => () => ({ v: 'default' }));
+    const customLoadShare = vi.fn(async () => () => ({ v: 'custom' }));
+    (globalThis as Record<string, unknown>).__FEDERATION__ = {
+      __INSTANCES__: [
+        {
+          options: { shared: { 'shared-lib': { scope: ['default'] } } },
+          loadShare: defaultLoadShare,
+        },
+        {
+          options: { shared: { 'shared-lib': { scope: ['custom'] } } },
+          loadShare: customLoadShare,
+        },
+      ],
+    };
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions, shareScopeName: 'custom' }
+    )) as { val: string };
+
+    expect(defaultLoadShare).not.toHaveBeenCalled();
+    expect(customLoadShare).toHaveBeenCalledWith('shared-lib');
+    expect(namespace.val).toBe('custom');
+  });
+
   it('falls back to the resolvedShared file map when no instance shares the package', async () => {
     const { mkdtempSync, writeFileSync } = await import('fs');
     const { tmpdir } = await import('os');
@@ -230,5 +264,40 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
       versionKey: 'v2',
     })) as { marker: string };
     expect(next.marker).toBe('v2');
+  });
+
+  it('partitions module and namespace caches by resolved shares and scope', async () => {
+    const { mkdtempSync, writeFileSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    const dir = mkdtempSync(join(tmpdir(), 'mf-vm-cache-scope-'));
+    const firstShared = join(dir, 'first.mjs');
+    const secondShared = join(dir, 'second.mjs');
+    writeFileSync(firstShared, 'export const v = "first";', 'utf8');
+    writeFileSync(secondShared, 'export const v = "second";', 'utf8');
+
+    const entryUrl = 'http://localhost:5001/remoteEntry.ssr.js';
+    global.fetch = makeFetchMock({
+      [entryUrl]: {
+        ok: true,
+        text: 'import { v } from "file-shared"; export const val = v;',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+
+    const first = (await strategy.loadViaVmStrategy(entryUrl, {
+      ...baseOptions,
+      resolvedShared: { 'file-shared': firstShared },
+      shareScopeName: 'first-scope',
+    })) as { val: string };
+    const second = (await strategy.loadViaVmStrategy(entryUrl, {
+      ...baseOptions,
+      resolvedShared: { 'file-shared': secondShared },
+      shareScopeName: 'second-scope',
+    })) as { val: string };
+
+    expect(first.val).toBe('first');
+    expect(second.val).toBe('second');
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 });

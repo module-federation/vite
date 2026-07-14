@@ -86,7 +86,9 @@ export async function isVmStrategyAvailable(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 interface FederationInstanceLike {
-  options?: { shared?: Record<string, unknown> };
+  options?: {
+    shared?: Record<string, { scope?: string | string[] } | undefined>;
+  };
   loadShare?: (name: string) => Promise<false | (() => unknown | undefined) | undefined>;
 }
 
@@ -106,7 +108,10 @@ async function loadBareModule(specifier: string, options: VmStrategyOptions): Pr
     if (typeof instance?.loadShare !== 'function') continue;
     // Only consult instances that actually declare the package as shared —
     // loadShare on an unknown package can register it as a side effect.
-    if (!instance.options?.shared || !(specifier in instance.options.shared)) continue;
+    const shared = instance.options?.shared?.[specifier];
+    if (!shared) continue;
+    const scopes = Array.isArray(shared.scope) ? shared.scope : [shared.scope ?? 'default'];
+    if (!scopes.includes(options.shareScopeName)) continue;
     try {
       const factory = await instance.loadShare(specifier);
       if (typeof factory === 'function') {
@@ -163,6 +168,13 @@ const httpModuleCache = new Map<string, Promise<VmModule>>();
 // Evaluated entry namespaces, same keying.
 const namespaceCache = new Map<string, Promise<unknown>>();
 
+function getVmCacheContextKey(options: VmStrategyOptions): string {
+  return JSON.stringify([
+    options.shareScopeName,
+    Object.entries(options.resolvedShared).sort(([left], [right]) => left.localeCompare(right)),
+  ]);
+}
+
 function getBodyPreview(body: string): string {
   return body.slice(0, 240).replace(/\s+/g, ' ').trim();
 }
@@ -191,6 +203,7 @@ function resolveSpecifierUrl(specifier: string, referencerUrl: string): string |
 
 function getHttpModule(vm: VmApi, url: string, options: VmStrategyOptions): Promise<VmModule> {
   const cacheKey = JSON.stringify([
+    getVmCacheContextKey(options),
     options.fetchTimeoutMs ?? DEFAULT_SSR_FETCH_TIMEOUT_MS,
     options.versionKey,
     url,
@@ -253,7 +266,7 @@ export async function loadViaVmStrategy(
   const vm = await getVmApi();
   if (!vm) return null;
 
-  const cacheKey = `${options.versionKey}::${entryUrl}`;
+  const cacheKey = `${getVmCacheContextKey(options)}::${options.versionKey}::${entryUrl}`;
   if (!namespaceCache.has(cacheKey)) {
     namespaceCache.set(
       cacheKey,
