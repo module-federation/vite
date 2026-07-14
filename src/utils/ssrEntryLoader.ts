@@ -767,8 +767,10 @@ async function importTempModule(
 ): Promise<{ init: unknown; get: unknown }> {
   // The version query busts Node's ESM module cache (and any stale resolution
   // state) when a remote redeploys: same temp path + new version → fresh module.
-  const specifier = `${filePath}?v=${encodeURIComponent(versionKey)}`;
-  return (await import(/* @vite-ignore */ specifier)) as { init: unknown; get: unknown };
+  return (await import(/* @vite-ignore */ `${filePath}?v=${encodeURIComponent(versionKey)}`)) as {
+    init: unknown;
+    get: unknown;
+  };
 }
 
 let warnedVmUnavailable = false;

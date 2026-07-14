@@ -66,7 +66,6 @@ export default {
   },
   plugins: [federation({
     name: 'issue913Remote',
-    hostInitInjectLocation: 'entry',
     filename: 'remoteEntry.js',
     exposes: { './HookComponent': './src/RemoteHookComponent.js' },
     dts: false,
