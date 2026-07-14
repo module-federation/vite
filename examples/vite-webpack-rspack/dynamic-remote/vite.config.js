@@ -8,7 +8,6 @@ export default defineConfig({
     react(),
     federation({
       name: "dynamicRemote",
-      hostInitInjectLocation: "entry",
       filename: "remoteEntry.js",
       // Modules to expose
       exposes: {

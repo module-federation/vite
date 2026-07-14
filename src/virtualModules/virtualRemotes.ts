@@ -25,7 +25,13 @@ export function getRemoteVirtualModule(
   const { shareStrategy } = getNormalizeModuleFederationOptions();
   const cacheKey = `${remote}__${command}__${shareStrategy}__${consumer}__${enableSsrInit ? 'ssr-init' : 'no-ssr-init'}`;
   if (!cacheRemoteMap[cacheKey]) {
-    cacheRemoteMap[cacheKey] = new VirtualModule(remote, LOAD_REMOTE_TAG, '.js');
+    // Environment API graphs must not share a virtual id. VirtualModule's
+    // registry is process-global, so an SSR wrapper registered after a client
+    // wrapper would otherwise replace it and make the browser receive server
+    // code (notably without the client host-init import). Keep the historical
+    // id for legacy/unified graphs.
+    const virtualName = consumer === 'unified' ? remote : `${remote}__mf_consumer__${consumer}`;
+    cacheRemoteMap[cacheKey] = new VirtualModule(virtualName, LOAD_REMOTE_TAG, '.js');
     cacheRemoteMap[cacheKey].writeSync(generateRemotes(remote, command, enableSsrInit, consumer));
   }
   const virtual = cacheRemoteMap[cacheKey];
@@ -109,9 +115,24 @@ function shouldIncludeDeferredProxy(
 function getRemoteModuleRuntimeHelpers() {
   return `
     function __mfUnwrapRemoteDefault(mod) {
-      if (mod == null) return mod;
-      if (mod.__esModule && mod.default != null) return mod.default;
-      return mod.default ?? mod;
+      let value = mod;
+      // A federated expose can pass through more than one ESM/CJS namespace
+      // wrapper (notably with React/Preact lazy imports). Keep unwrapping
+      // explicit default namespaces until the actual component is reached.
+      const seen = new Set();
+      while (value != null && typeof value === "object" && !seen.has(value)) {
+        seen.add(value);
+        if (value.__esModule && value.default != null) {
+          value = value.default;
+          continue;
+        }
+        if (!value.__esModule && value.default != null) {
+          value = value.default;
+          continue;
+        }
+        break;
+      }
+      return value;
     }
     let __mfDefaultExport;
     function __mfSyncDefaultExport() {

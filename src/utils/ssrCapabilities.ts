@@ -1,8 +1,11 @@
 export type MfCommand = 'serve' | 'build';
 
 /** A browser-safe generated expression that is true only in Node.js. */
-export const SERVER_ENV_GUARD =
-  "typeof process !== 'undefined' && !!process.versions && !!process.versions.node";
+// Use Vite's environment flag rather than process.versions.node. Frameworks
+// such as Nuxt can expose a browser process shim containing versions.node,
+// which made client remote wrappers enter the SSR bootstrap and silently
+// resolve through its fallback instead of fetching the browser remote entry.
+export const SERVER_ENV_GUARD = 'import.meta.env.SSR';
 
 export interface SsrCapabilities {
   /** Emit server-side MF runtime bootstrap (ssrEntryLoader import) in dev remote wrappers. */

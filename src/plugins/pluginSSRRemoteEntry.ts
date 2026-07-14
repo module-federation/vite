@@ -82,11 +82,23 @@ function isPathWithinAllowedDirectories(filePath: string, allowedDirectories: st
 }
 
 function isSafeRunnerFetchModuleId(id: unknown, config: RunnerValidationConfig): boolean {
-  if (typeof id !== 'string' || !id || id.includes('\0')) return false;
+  if (typeof id !== 'string' || !id) return false;
 
-  const decoded = decodeViteId(id).replace(/^\0+/, '');
-  if (!decoded || decoded.startsWith('virtual:')) return !!decoded;
-  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(decoded) || decoded.startsWith('//')) return false;
+  const rawDecoded = decodeViteId(id);
+  const decoded = rawDecoded.replace(/^\0+/, '');
+  if (!decoded || rawDecoded.startsWith('\0') || decoded.startsWith('virtual:')) return !!decoded;
+  if (decoded.startsWith('file://')) {
+    try {
+      const filePath = decodeURIComponent(new URL(decoded).pathname);
+      return (
+        path.isAbsolute(filePath) &&
+        isPathWithinAllowedDirectories(filePath, getRunnerAllowedDirectories(config))
+      );
+    } catch {
+      return false;
+    }
+  }
+  if (/^(?:https?|data|blob|javascript):/i.test(decoded) || decoded.startsWith('//')) return false;
 
   const rawCleanId = stripQueryAndHash(decoded);
   const cleanId = decodeRunnerFilePath(rawCleanId);
@@ -94,7 +106,7 @@ function isSafeRunnerFetchModuleId(id: unknown, config: RunnerValidationConfig):
 
   const allowedDirectories = getRunnerAllowedDirectories(config);
   if (cleanId.startsWith(VITE_FS_PREFIX)) {
-    const fsPath = cleanId.slice(VITE_FS_PREFIX.length);
+    const fsPath = `/${cleanId.slice(VITE_FS_PREFIX.length)}`;
     return path.isAbsolute(fsPath) && isPathWithinAllowedDirectories(fsPath, allowedDirectories);
   }
   if (path.isAbsolute(cleanId)) {

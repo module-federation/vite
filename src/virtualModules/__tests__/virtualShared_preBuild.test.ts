@@ -2751,7 +2751,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
-  it('defers bare package singleton fallbacks for remote-only containers in serve mode', () => {
+  it('supports SSR and deferred client fallbacks for remote-only bare package singletons', () => {
     normalizeModuleFederationOptions({
       name: 'remote',
       exposes: {
@@ -2780,14 +2780,15 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).not.toContain('import * as __mfLocalShare from "lit";');
+    expect(generatedCode).toContain('import * as __mfLocalShare from "lit";');
+    expect(generatedCode).toContain('if (import.meta.env.SSR');
     expect(generatedCode).toContain('import("lit").then((mod) => {');
     expect(generatedCode).toContain('export { __mf_default as default };');
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('await ');
   });
 
-  it('defers bare package singleton fallbacks for remote-only dev containers without subpath sharing', () => {
+  it('supports SSR and deferred client fallbacks without subpath sharing', () => {
     normalizeModuleFederationOptions({
       name: 'remote',
       exposes: {
@@ -2816,7 +2817,8 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).not.toContain('import * as __mfLocalShare from "lit";');
+    expect(generatedCode).toContain('import * as __mfLocalShare from "lit";');
+    expect(generatedCode).toContain('if (import.meta.env.SSR');
     expect(generatedCode).toContain('import("lit").then((mod) => {');
     expect(generatedCode).toContain('export { __mf_default as default };');
     expect(generatedCode).not.toContain('__prebuild__');
@@ -2902,7 +2904,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
-  it('defers package subpath singleton fallbacks for remote-only containers in serve mode', () => {
+  it('supports SSR and deferred client fallbacks for remote-only package subpath singletons', () => {
     normalizeModuleFederationOptions({
       name: 'remote',
       exposes: {
@@ -2931,9 +2933,10 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).not.toContain(
+    expect(generatedCode).toContain(
       'import * as __mfLocalShare from "lit/directives/class-map.js";'
     );
+    expect(generatedCode).toContain('if (import.meta.env.SSR');
     expect(generatedCode).toContain('import("lit/directives/class-map.js").then((mod) => {');
     expect(generatedCode).toContain('export { __mf_default as default };');
     expect(generatedCode).not.toContain('__prebuild__');

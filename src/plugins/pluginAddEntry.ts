@@ -194,10 +194,13 @@ const addEntry = ({
       const wrapped =
         body.slice(0, blockStart + 1) +
         `
+const __mfCurrentScript = document.currentScript;
 (async () => {
   await import(${JSON.stringify(initPath)}).then(({ initHost }) => initHost());
 ` +
-        body.slice(blockStart + 1, blockEnd) +
+        body
+          .slice(blockStart + 1, blockEnd)
+          .replaceAll('document.currentScript', '__mfCurrentScript') +
         `
 })();
 ` +

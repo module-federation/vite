@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { getSsrCapabilities } from '../ssrCapabilities';
+import { getSsrCapabilities, SERVER_ENV_GUARD } from '../ssrCapabilities';
+
+it('uses Vite environment detection for generated SSR guards', () => {
+  expect(SERVER_ENV_GUARD).toBe('import.meta.env.SSR');
+  expect(SERVER_ENV_GUARD).not.toContain('process');
+});
 
 describe('getSsrCapabilities', () => {
   it('disables everything when there are no remotes', () => {

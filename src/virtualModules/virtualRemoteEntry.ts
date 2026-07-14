@@ -188,10 +188,12 @@ export function generateLocalSharedImportMap() {
                 ? (res?.default ?? res)
                 : {...res}
               // All npm packages pre-built by vite will be converted to esm
-              Object.defineProperty(exportModule, "__esModule", {
-                value: true,
-                enumerable: false
-              })
+              if (exportModule.__esModule !== true) {
+                Object.defineProperty(exportModule, "__esModule", {
+                  value: true,
+                  enumerable: false
+                })
+              }
               return function () {
                 return exportModule
               }
@@ -342,7 +344,7 @@ function generateSharedCacheSeedItem(pkg: string, shareItem: ShareItem, importPa
         ${normalizeRuntimeShareCode}
         const normalizedModule = __mfNormalizeRuntimeShare(mod);
         const exportModule = normalizedModule === mod ? {...mod} : normalizedModule;
-        Object.defineProperty(exportModule, "__esModule", {
+        if (exportModule.__esModule !== true) Object.defineProperty(exportModule, "__esModule", {
           value: true,
           enumerable: false
         });
@@ -569,7 +571,7 @@ function generateRuntimeSharedCacheSeedCode(shareStrategy: string) {
         ${normalizeRuntimeShareCode}
         const normalizedModule = __mfNormalizeRuntimeShare(resolved);
         const exportModule = normalizedModule === resolved ? {...resolved} : normalizedModule;
-        Object.defineProperty(exportModule, "__esModule", {
+        if (exportModule.__esModule !== true) Object.defineProperty(exportModule, "__esModule", {
           value: true,
           enumerable: false
         });
