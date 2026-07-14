@@ -485,7 +485,10 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
   }
   for (const [key] of tempFileCache) {
     const url = JSON.parse(key)[2] as string;
-    if (url.startsWith(origin)) tempFileCache.delete(key);
+    if (url.startsWith(origin)) {
+      tempFileCache.delete(key);
+      tempFilePathCache.delete(key);
+    }
   }
 }
 
@@ -513,6 +516,7 @@ export function revalidate(remoteEntryUrl?: string): void {
     ssrEntryCache.clear();
     manifestFetchCache.clear();
     tempFileCache.clear();
+    tempFilePathCache.clear();
   }
 
   const federation = (
@@ -534,6 +538,7 @@ export function revalidate(remoteEntryUrl?: string): void {
 // ---------------------------------------------------------------------------
 
 const tempFileCache = new Map<string, Promise<string>>();
+const tempFilePathCache = new Map<string, Promise<string>>();
 
 // Lazily initialised on the server only — avoids evaluating Node APIs in browser.
 let ssrCacheDirPromise: Promise<string> | undefined;
@@ -641,15 +646,36 @@ async function fetchEsmToTempFile(
   url: string,
   tmpDir: string,
   visited: Map<string, string>,
+  pending: Set<Promise<string>>,
   sharedPkgMap?: Map<string, string>,
   versionKey: string = UNVERSIONED,
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS
 ): Promise<string> {
   const cacheKey = JSON.stringify([fetchTimeoutMs, versionKey, url]);
   if (visited.has(url)) return visited.get(url)!;
-  if (tempFileCache.has(cacheKey)) return tempFileCache.get(cacheKey)!;
+  const cached = tempFileCache.get(cacheKey);
+  if (cached) {
+    pending.add(cached);
+    const tmpFile = await tempFilePathCache.get(cacheKey)!;
+    visited.set(url, tmpFile);
+    return tmpFile;
+  }
+
+  const tmpFilePromise = (async () => {
+    const { createHash } = await _crypto();
+    const { join } = await _path();
+    const hash = createHash('sha1').update(cacheKey).digest('hex').slice(0, 12);
+    return join(tmpDir, `${hash}.js`);
+  })();
+  tempFilePathCache.set(cacheKey, tmpFilePromise);
 
   const promise = (async () => {
+    // Reserve the destination before descending into imports. A circular edge
+    // can then reference the ancestor's future file instead of awaiting the
+    // ancestor's still-pending fetch promise.
+    const tmpFile = await tmpFilePromise;
+    visited.set(url, tmpFile);
+
     const res = await fetchWithTimeout(url, {}, fetchTimeoutMs);
     let code = await res.text();
     if (!res.ok) {
@@ -682,6 +708,7 @@ async function fetchEsmToTempFile(
             u,
             tmpDir,
             visited,
+            pending,
             sharedPkgMap,
             versionKey,
             fetchTimeoutMs
@@ -697,21 +724,41 @@ async function fetchEsmToTempFile(
       code = code.split(httpUrl).join(fileUrl);
     }
 
-    const { createHash } = await _crypto();
-    const { join } = await _path();
     const { writeFileSync } = await _fs();
-    const hash = createHash('sha1').update(cacheKey).digest('hex').slice(0, 12);
-    const tmpFile = join(tmpDir, `${hash}.js`);
     writeFileSync(tmpFile, code, 'utf8');
-    visited.set(url, tmpFile);
     return tmpFile;
   })();
 
   tempFileCache.set(cacheKey, promise);
-  return promise.catch((error) => {
+  pending.add(promise);
+  void promise.catch(() => {
     if (tempFileCache.get(cacheKey) === promise) tempFileCache.delete(cacheKey);
-    throw error;
+    if (tempFilePathCache.get(cacheKey) === tmpFilePromise) tempFilePathCache.delete(cacheKey);
   });
+  return promise;
+}
+
+async function fetchEsmGraphToTempFile(
+  url: string,
+  tmpDir: string,
+  sharedPkgMap?: Map<string, string>,
+  versionKey: string = UNVERSIONED,
+  fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS
+): Promise<string> {
+  const pending = new Set<Promise<string>>();
+  const rootFile = await fetchEsmToTempFile(
+    url,
+    tmpDir,
+    new Map(),
+    pending,
+    sharedPkgMap,
+    versionKey,
+    fetchTimeoutMs
+  );
+  // Circular edges return their reserved path immediately. Wait for every
+  // discovered writer before importing the root so all referenced files exist.
+  await Promise.all(pending);
+  return rootFile;
 }
 
 async function importTempModule(
@@ -833,10 +880,9 @@ async function loadSSRRemoteEntry(
     const sharedPkgMap = new Map(Object.entries(resolvedShared));
 
     try {
-      const tmpFile = await fetchEsmToTempFile(
+      const tmpFile = await fetchEsmGraphToTempFile(
         url,
         cacheDir,
-        new Map(),
         sharedPkgMap,
         versionKey,
         options.fetchTimeoutMs

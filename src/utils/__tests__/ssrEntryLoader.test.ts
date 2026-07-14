@@ -918,6 +918,38 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     );
   });
 
+  it('finishes fetching circular relative import graphs', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'import "./assets/cycle.js"; export async function init() {}',
+      },
+      'http://localhost:5001/assets/cycle.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'import "../remoteEntry.ssr.js"; export const cycle = true;',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    const result = await Promise.race([
+      factory().loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.ssr.js' },
+      }).then(() => 'settled'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+    ]);
+
+    expect(result).toBe('settled');
+    expectFetchCalled(fetch, 'http://localhost:5001/remoteEntry.ssr.js');
+    expectFetchCalled(fetch, 'http://localhost:5001/assets/cycle.js');
+    expect(fsMock.writeFileSync).toHaveBeenCalledTimes(2);
+  });
+
   it('fetches loader-wrapped template literal dynamic imports', async () => {
     let written = '';
     const fsMock = await import('fs');
