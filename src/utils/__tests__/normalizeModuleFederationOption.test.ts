@@ -59,6 +59,15 @@ describe('normalizeModuleFederationOption', () => {
     });
   });
 
+  it('preserves multiple provider share scopes', () => {
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shareScope: ['default', 'scope1'],
+      }).shareScope
+    ).toEqual(['default', 'scope1']);
+  });
+
   it('maps reserved remote name internally', () => {
     mfWarnSpy.mockClear();
 
@@ -217,6 +226,21 @@ describe('normalizeModuleFederationOption', () => {
       expect(mfWarnSpy).toHaveBeenCalledWith(
         expect.stringContaining('Reserved internal remoteAlias prefix "__mfe_internal__" detected')
       );
+    });
+
+    it('preserves multiple share scopes on remote config', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          remotes: {
+            remote1: {
+              name: 'remote1',
+              entry: 'http://localhost:3001/remoteEntry.js',
+              shareScope: ['default', 'scope1'],
+            },
+          },
+        }).remotes.remote1.shareScope
+      ).toEqual(['default', 'scope1']);
     });
   });
 

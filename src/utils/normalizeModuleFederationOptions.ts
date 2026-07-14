@@ -46,7 +46,7 @@ export interface RemoteObjectConfig {
   internalName?: string;
   entry: string;
   entryGlobalName?: string;
-  shareScope?: string;
+  shareScope?: string | string[];
 }
 
 const INTERNAL_NAME_PREFIX = '__mfe_internal__';
@@ -460,7 +460,7 @@ export type ModuleFederationOptions = {
   // remoteType?: string;
   remotes?: Record<string, string | RemoteObjectConfig> | undefined;
   runtime?: any;
-  shareScope?: string;
+  shareScope?: string | string[];
   /**
    * Override the public path used for remote entries
    * Defaults to Vite's base config or "auto" if base is empty
@@ -547,7 +547,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
   library: any;
   remotes: Record<string, RemoteObjectConfig>;
   runtime: any;
-  shareScope: string;
+  shareScope: string | string[];
   shared: NormalizedShared;
   runtimePlugins: Array<string | [string, Record<string, unknown>]>;
   implementation: string;

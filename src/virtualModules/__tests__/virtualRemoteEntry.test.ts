@@ -892,6 +892,29 @@ describe('virtualRemoteEntry', () => {
     expect(generatedCode).not.toContain('.catch(remoteEntry.init)');
   });
 
+  it('initializes all configured provider share scopes in remoteEntry', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: ['default', 'scope1'],
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    expect(code).toContain('const shareScopeNames = Array.isArray(["default","scope1"])');
+    expect(code).toContain('for (const shareScopeName of shareScopeNames)');
+    expect(code).toContain('initRes.initShareScopeMap(shareScopeName, scopeShare)');
+    expect(code).toContain('initRes.initializeSharing(shareScopeName');
+  });
+
   it('inlines a dedicated build-only initResolve bootstrap into remoteEntry', async () => {
     const mod = await import('../virtualRemoteEntry');
 

@@ -867,6 +867,7 @@ export function generateRemoteEntry(
   const hasEagerShared = Object.values(options.shared ?? {}).some(
     (share) => share?.shareConfig.eager === true && share.shareConfig.import !== false
   );
+  const hasMultipleShareScopes = Array.isArray(options.shareScope);
   const runtimeImports = [
     'init as runtimeInit',
     'loadRemote',
@@ -887,7 +888,21 @@ export function generateRemoteEntry(
       ];
     }
   });
-  const initializeSharingCode = `try {
+  const initializeSharingCode = hasMultipleShareScopes
+    ? `for (const shareScopeName of shareScopeNamesToInitialize) {
+      try {
+        await retrySharedInit(async () => {
+          await Promise.all(await initRes.initializeSharing(shareScopeName, {
+            strategy: '${options.shareStrategy}',
+            from: "build",
+            initScope
+          }));
+        });
+      } catch (e) {
+        console.error('[Module Federation]', e)
+      }
+    }`
+    : `try {
       await retrySharedInit(async () => {
         await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
           strategy: '${options.shareStrategy}',
@@ -930,7 +945,10 @@ export function generateRemoteEntry(
   }
   ${getRuntimeModuleCacheBootstrapCode()}
   const initTokens = {}
-  const shareScopeName = ${JSON.stringify(options.shareScope)}
+  const shareScopeNames = Array.isArray(${JSON.stringify(options.shareScope)}) ? ${JSON.stringify(options.shareScope)} : [${JSON.stringify(options.shareScope)}]
+  const shareScopeName = ${JSON.stringify(
+    hasMultipleShareScopes ? options.shareScope[0] : options.shareScope
+  )}
   const mfName = ${JSON.stringify(options.name)}
   let localSharedImportMapPromise
   let exposesMapPromise
@@ -981,31 +999,72 @@ export function generateRemoteEntry(
 
   async function init(shared = {}, initScope = []) {
     ${sharedCacheHelperCode}
+    const getShareScope = (scopeName) => ${hasMultipleShareScopes} ? (shared?.[scopeName] || {}) : shared;
+    const getShareVersions = (pkg, share) => {
+      const configuredScopes = Array.isArray(share?.scope) ? share.scope : [share?.scope || shareScopeName];
+      for (const scopeName of configuredScopes) {
+        const versions = getShareScope(scopeName)?.[pkg];
+        if (versions) return versions;
+      }
+      return getShareScope(shareScopeName)?.[pkg];
+    };
     const federationInstances = globalThis.__FEDERATION__?.__INSTANCES__ || [];
     const initRootName = initScope.find((token) => token?.from)?.from;
     const scopeRoot = federationInstances.find((instance) =>
       instance?.options?.name === initRootName &&
-      instance?.shareScopeMap?.['${options.shareScope}'] === shared
+      ${
+        hasMultipleShareScopes
+          ? 'shareScopeNames.some((scopeName) => instance?.shareScopeMap?.[scopeName] === getShareScope(scopeName))'
+          : `instance?.shareScopeMap?.['${options.shareScope}'] === shared`
+      }
     ) || federationInstances.find((instance) =>
       instance?.options?.name !== mfName &&
-      instance?.shareScopeMap?.['${options.shareScope}'] === shared
+      ${
+        hasMultipleShareScopes
+          ? 'shareScopeNames.some((scopeName) => instance?.shareScopeMap?.[scopeName] === getShareScope(scopeName))'
+          : `instance?.shareScopeMap?.['${options.shareScope}'] === shared`
+      }
     );
     const initialShared = Object.create(null);
-    for (const [pkg, versions] of Object.entries(shared)) {
+    ${
+      hasMultipleShareScopes
+        ? `for (const scopeName of shareScopeNames) {
+      for (const [pkg, versions] of Object.entries(getShareScope(scopeName))) {
+        if (initialShared[pkg]) continue;
+        const initialVersions = initialShared[pkg] = Object.create(null);
+        for (const [version, provider] of Object.entries(versions)) {
+          initialVersions[version] = Object.assign({}, provider);
+        }
+      }
+    }`
+        : `for (const [pkg, versions] of Object.entries(shared)) {
       const initialVersions = initialShared[pkg] = Object.create(null);
       for (const [version, provider] of Object.entries(versions)) {
         // Runtime registration mutates provider records in-place, notably their origin.
         // Preserve the parent-visible provider and its original provenance.
         initialVersions[version] = Object.assign({}, provider);
       }
+    }`
     }
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
     // handling circular init calls before an external provider can re-enter this container
-    var initToken = initTokens[shareScopeName];
+    ${
+      hasMultipleShareScopes
+        ? `const shareScopeNamesToInitialize = [];
+    for (const shareScopeName of shareScopeNames) {
+      let initToken = initTokens[shareScopeName];
+      if (!initToken) initToken = initTokens[shareScopeName] = { from: mfName };
+      if (initScope.indexOf(initToken) >= 0) continue;
+      initScope.push(initToken);
+      shareScopeNamesToInitialize.push(shareScopeName);
+    }
+    if (shareScopeNamesToInitialize.length === 0) return;`
+        : `var initToken = initTokens[shareScopeName];
     if (!initToken)
       initToken = initTokens[shareScopeName] = { from: mfName };
     if (initScope.indexOf(initToken) >= 0) return;
-    initScope.push(initToken);
+    initScope.push(initToken);`
+    }
     ${normalizeRuntimeShareCode}
     const __browserPlugins = [${pluginImportNames
       .filter((item) => !isSsrOnlyPlugin(item[1]))
@@ -1032,7 +1091,14 @@ export function generateRemoteEntry(
       plugins: [__mfSharePinLifecyclePlugin(), ${hasTreeShakingShared ? '__mfTreeShakingSnapshotPlugin(),' : ''} ...__browserPlugins, ...__ssrPlugins],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
-    initRes.initShareScopeMap('${options.shareScope}', shared);
+    ${
+      hasMultipleShareScopes
+        ? `for (const shareScopeName of shareScopeNamesToInitialize) {
+      const scopeShare = getShareScope(shareScopeName);
+      initRes.initShareScopeMap(shareScopeName, scopeShare);
+    }`
+        : `initRes.initShareScopeMap('${options.shareScope}', shared);`
+    }
     function __mfSharePinLifecyclePlugin() {
       return {
         name: "vite-share-pin-lifecycle-plugin",
@@ -1080,7 +1146,9 @@ export function generateRemoteEntry(
       if (!versionMap || versionMap[version] !== currentProvider) return undefined;
       const pinnedProvider = Object.assign({}, provider, {
         version: provider.version ?? version,
-        scope: provider.scope ?? currentProvider?.scope ?? ['${options.shareScope}'],
+        scope: provider.scope ?? currentProvider?.scope ?? ${JSON.stringify(
+          hasMultipleShareScopes ? options.shareScope : [options.shareScope]
+        )},
         strategy: 'loaded-first'
       });
       const providerFrom = provider.from;
@@ -1288,7 +1356,9 @@ export function generateRemoteEntry(
           usedShare.scope
         );
         if (__mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor) !== undefined) return;
-        const liveVersionMap = shared[pkg];
+        const liveVersionMap = ${
+          hasMultipleShareScopes ? 'getShareVersions(pkg, usedShare)' : 'shared[pkg]'
+        };
         const liveProvider = liveVersionMap?.[version];
         if (providerEntry.registered && !__mfMatchesSharedProvider(liveProvider, provider)) return;
         let loadedShare;
@@ -1382,8 +1452,16 @@ export function generateRemoteEntry(
         const resolvedExternalProvider = __mfResolveExternalSharedProvider(
           federationInstances,
           scopeRoot,
-          shared,
-          '${options.shareScope}',
+          ${
+            hasMultipleShareScopes
+              ? 'getShareScope(Array.isArray(usedShare.scope) ? usedShare.scope[0] : (usedShare.scope || shareScopeName))'
+              : 'shared'
+          },
+          ${
+            hasMultipleShareScopes
+              ? 'Array.isArray(usedShare.scope) ? usedShare.scope[0] : (usedShare.scope || shareScopeName)'
+              : `'${options.shareScope}'`
+          },
           pkg,
           providerEntry,
           selectedExternalProvider,
@@ -1405,7 +1483,9 @@ export function generateRemoteEntry(
         if (cachedShare !== undefined && cachedShareOwner !== mfName) return;
         // Registration can replace an unloaded same-version root provider in-place.
         // Pin the chosen provider while loadShare() runs its implicit registration.
-        const liveVersionMap = shared[pkg];
+        const liveVersionMap = ${
+          hasMultipleShareScopes ? 'getShareVersions(pkg, usedShare)' : 'shared[pkg]'
+        };
         const liveProvider = liveVersionMap?.[version];
         if (
           providerEntry.registered &&
@@ -1487,7 +1567,7 @@ export function generateRemoteEntry(
       await __mfBridgeExternalSharedProvider(
         pkg,
         usedShare,
-        shared[pkg],
+        ${hasMultipleShareScopes ? 'getShareVersions(pkg, usedShare)' : 'shared[pkg]'},
         initialShared[pkg],
         undefined
       );
@@ -1497,9 +1577,10 @@ export function generateRemoteEntry(
       const globalVersionsByPackage = Object.create(null);
       if (allInstances) {
         for (const [, scopes] of Object.entries(allInstances)) {
-          const scopeShare = scopes?.['${options.shareScope}'];
-          if (!scopeShare) continue;
-          for (const [pkg, versionMap] of Object.entries(scopeShare)) {
+          for (const scopeName of shareScopeNames) {
+            const scopeShare = scopes?.[scopeName];
+            if (!scopeShare) continue;
+            for (const [pkg, versionMap] of Object.entries(scopeShare)) {
             const usedShare = usedShared?.[pkg];
             const passedVersions = initialShared[pkg];
             const bridgeSelection = bridgeSelections.get(pkg);
@@ -1519,6 +1600,7 @@ export function generateRemoteEntry(
               if (!matchesPassedProvider) continue;
               if (provider === usedShare || (usedShare.from && provider.from === usedShare.from)) continue;
               if (globalVersions[version] === undefined) globalVersions[version] = provider;
+            }
             }
           }
         }
@@ -1543,7 +1625,7 @@ export function generateRemoteEntry(
         : __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
       if (share.shareConfig?.import !== false || cachedShare !== undefined) return;
       ${normalizeRuntimeShareCode}
-      const versionMap = shared?.[pkg];
+      const versionMap = ${hasMultipleShareScopes ? 'getShareVersions(pkg, share)' : 'shared?.[pkg]'};
       const provider = __mfSelectSharedProvider(
         versionMap,
         pkg,
