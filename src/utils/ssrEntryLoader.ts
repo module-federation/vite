@@ -811,6 +811,8 @@ async function tryVmStrategy(
     shareScopeName: options.shareScopeName,
     versionKey: ssrEntry.versionKey,
     fetchTimeoutMs: options.fetchTimeoutMs,
+    cacheContext: options.cacheContext,
+    federationInstance: options.federationInstance,
   })) as { init: unknown; get: unknown } | null;
 }
 
@@ -976,6 +978,8 @@ interface ResolvedLoaderOptions {
   shareScopeName: string;
   maxAgeMs?: number;
   fetchTimeoutMs: number;
+  cacheContext: object;
+  federationInstance?: object;
 }
 
 // Default export so the module can be referenced as a runtimePlugin path string.
@@ -986,21 +990,29 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
     shareScopeName: options.shareScopeName ?? 'default',
     maxAgeMs: options.maxAgeMs,
     fetchTimeoutMs: options.fetchTimeoutMs ?? DEFAULT_SSR_FETCH_TIMEOUT_MS,
+    cacheContext: {},
   };
   return {
     name: 'mf-vite:ssr-entry-loader',
-    async loadEntry({ remoteInfo }: { remoteInfo: RemoteInfo }) {
+    async loadEntry({ remoteInfo, origin }: { remoteInfo: RemoteInfo; origin?: object }) {
       // Only intercept on the server — browser should use the normal path.
       if (!isNodeServer()) return;
 
+      // The runtime supplies the owning ModuleFederation instance as `origin`.
+      // Its identity is the VM graph's true share-resolution boundary. Keep a
+      // stable factory-local fallback for direct or older-runtime invocations.
+      const loadOptions = origin
+        ? { ...resolved, cacheContext: origin, federationInstance: origin }
+        : resolved;
+
       const ssrEntry = await getSSREntry(
         remoteInfo.entry,
-        resolved.maxAgeMs,
-        resolved.fetchTimeoutMs
+        loadOptions.maxAgeMs,
+        loadOptions.fetchTimeoutMs
       );
       if (!ssrEntry) return;
 
-      const mod = await loadSSRRemoteEntry(ssrEntry, resolved);
+      const mod = await loadSSRRemoteEntry(ssrEntry, loadOptions);
       if (!mod) return;
 
       return mod;

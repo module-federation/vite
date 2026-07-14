@@ -37,7 +37,12 @@ async function freshStrategy() {
   return await import('../ssrVmStrategy');
 }
 
-const baseOptions = { resolvedShared: {}, shareScopeName: 'default', versionKey: 'v1' };
+const baseOptions = {
+  resolvedShared: {},
+  shareScopeName: 'default',
+  versionKey: 'v1',
+  cacheContext: {},
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -167,6 +172,44 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(namespace.val).toBe('custom');
   });
 
+  it('isolates identical VM coordinates by owning federation instance', async () => {
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'import { v } from "shared-lib"; export const val = v;',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const hostALoadShare = vi.fn(async () => () => ({ v: 'host-a' }));
+    const hostBLoadShare = vi.fn(async () => () => ({ v: 'host-b' }));
+    const hostA = {
+      options: { shared: { 'shared-lib': { scope: ['default'] } } },
+      loadShare: hostALoadShare,
+    };
+    const hostB = {
+      options: { shared: { 'shared-lib': { scope: ['default'] } } },
+      loadShare: hostBLoadShare,
+    };
+    const strategy = await freshStrategy();
+    const entryUrl = 'http://localhost:5001/remoteEntry.ssr.js';
+
+    const first = (await strategy.loadViaVmStrategy(entryUrl, {
+      ...baseOptions,
+      cacheContext: hostA,
+      federationInstance: hostA,
+    })) as { val: string };
+    const second = (await strategy.loadViaVmStrategy(entryUrl, {
+      ...baseOptions,
+      cacheContext: hostB,
+      federationInstance: hostB,
+    })) as { val: string };
+
+    expect(first.val).toBe('host-a');
+    expect(second.val).toBe('host-b');
+    expect(hostALoadShare).toHaveBeenCalledWith('shared-lib');
+    expect(hostBLoadShare).toHaveBeenCalledWith('shared-lib');
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('falls back to the resolvedShared file map when no instance shares the package', async () => {
     const { mkdtempSync, writeFileSync } = await import('fs');
     const { tmpdir } = await import('os');
@@ -289,11 +332,13 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
       ...baseOptions,
       resolvedShared: { 'file-shared': firstShared },
       shareScopeName: 'first-scope',
+      cacheContext: {},
     })) as { val: string };
     const second = (await strategy.loadViaVmStrategy(entryUrl, {
       ...baseOptions,
       resolvedShared: { 'file-shared': secondShared },
       shareScopeName: 'second-scope',
+      cacheContext: {},
     })) as { val: string };
 
     expect(first.val).toBe('first');

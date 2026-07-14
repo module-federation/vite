@@ -26,6 +26,8 @@ interface VmStrategyOptions {
   shareScopeName: string;
   versionKey: string;
   fetchTimeoutMs?: number;
+  cacheContext: object;
+  federationInstance?: object;
 }
 
 // Minimal structural typings for the experimental vm module APIs so this file
@@ -104,7 +106,9 @@ function getFederationInstances(): FederationInstanceLike[] {
  * build-time resolvedShared file map, then plain host import.
  */
 async function loadBareModule(specifier: string, options: VmStrategyOptions): Promise<unknown> {
-  for (const instance of getFederationInstances()) {
+  const owner = options.federationInstance as FederationInstanceLike | undefined;
+  const instances = owner ? [owner] : getFederationInstances();
+  for (const instance of instances) {
     if (typeof instance?.loadShare !== 'function') continue;
     // Only consult instances that actually declare the package as shared —
     // loadShare on an unknown package can register it as a side effect.
@@ -168,8 +172,21 @@ const httpModuleCache = new Map<string, Promise<VmModule>>();
 // Evaluated entry namespaces, same keying.
 const namespaceCache = new Map<string, Promise<unknown>>();
 
+const contextIds = new WeakMap<object, number>();
+let nextContextId = 1;
+
+function getContextId(context: object): number {
+  let id = contextIds.get(context);
+  if (id === undefined) {
+    id = nextContextId++;
+    contextIds.set(context, id);
+  }
+  return id;
+}
+
 function getVmCacheContextKey(options: VmStrategyOptions): string {
   return JSON.stringify([
+    getContextId(options.cacheContext),
     options.shareScopeName,
     Object.entries(options.resolvedShared).sort(([left], [right]) => left.localeCompare(right)),
   ]);
