@@ -371,9 +371,6 @@ export const sharedProviderSelectionHelperCode = `const __mfOriginalProviderKey 
             const selectionVersions = {};
             for (const [version, provider] of Object.entries(versions)) {
               selectionVersions[version] = Object.assign({}, provider, {
-                loaded: false,
-                loading: undefined,
-                lib: undefined,
                 [__mfOriginalProviderKey]: provider
               });
             }
@@ -1102,15 +1099,9 @@ export function generateRemoteEntry(
             return true;
           }
           if (!loaded) {
-            if (typeof pinnedProvider.get !== 'function') {
-              if (currentProvider === undefined) delete versionMap[version];
-              else versionMap[version] = currentProvider;
-              return false;
-            }
-            delete pinnedProvider.loading;
-            if (provider.lib === undefined) delete pinnedProvider.lib;
-            else pinnedProvider.lib = provider.lib;
-            pinnedProvider.loaded = Boolean(provider.lib);
+            if (currentProvider === undefined) delete versionMap[version];
+            else versionMap[version] = currentProvider;
+            return false;
           }
           pinnedProvider.from = providerFrom;
           if (loaded && pinnedProvider.lib) pinnedProvider.loaded = true;

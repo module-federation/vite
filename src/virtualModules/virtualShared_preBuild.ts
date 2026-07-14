@@ -370,6 +370,7 @@ function getNamedExportsViaRegex(
 ): string[] {
   const names = new Set<string>();
   const codePositions = createCodePositionMap(source);
+  const recognizedExportStarts = new Set<number>();
   visited = visited || new Set();
   if (filePath) visited.add(filePath);
 
@@ -382,6 +383,7 @@ function getNamedExportsViaRegex(
   let match: RegExpExecArray | null;
   while ((match = declRegex.exec(source)) !== null) {
     if (!codePositions[match.index]) continue;
+    recognizedExportStarts.add(match.index);
     const name = match[1];
     if (isValidEsmExportName(name)) names.add(name);
   }
@@ -418,6 +420,7 @@ function getNamedExportsViaRegex(
   const bindingNameRegex = new RegExp(`^(${JS_IDENTIFIER_PATTERN})`, 'u');
   while ((match = destructureRegex.exec(source)) !== null) {
     if (!codePositions[match.index]) continue;
+    recognizedExportStarts.add(match.index);
     const inner = match[1].slice(1, -1);
     for (const part of inner.split(',')) {
       // strip a default value (`= ...`); rest elements (`...x`) never have one
@@ -440,6 +443,7 @@ function getNamedExportsViaRegex(
   const exportSpecifierRegex = new RegExp(`(?:\\S+\\s+as\\s+)?(${JS_IDENTIFIER_PATTERN})$`, 'u');
   while ((match = listRegex.exec(source)) !== null) {
     if (!codePositions[match.index]) continue;
+    recognizedExportStarts.add(match.index);
     const specifiers = match[1].split(',');
     for (const specifier of specifiers) {
       const trimmed = specifier.trim();
@@ -466,6 +470,7 @@ function getNamedExportsViaRegex(
   );
   while ((match = namespaceReExportRegex.exec(source)) !== null) {
     if (!codePositions[match.index]) continue;
+    recognizedExportStarts.add(match.index);
     if (isValidEsmExportName(match[1])) names.add(match[1]);
   }
   if (hasCodeMatch(source, /export\s+\*\s+as\s+['"]/g, codePositions)) {
@@ -477,6 +482,7 @@ function getNamedExportsViaRegex(
     const starExportRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
     while ((match = starExportRegex.exec(source)) !== null) {
       if (!codePositions[match.index]) continue;
+      recognizedExportStarts.add(match.index);
       const specifier = match[1];
       const resolvedPath = resolveReExportModule(filePath, specifier);
       if (!resolvedPath) {
@@ -506,6 +512,26 @@ function getNamedExportsViaRegex(
       } catch {
         scanState.complete = false;
       }
+    }
+  }
+
+  // A default export and an empty export list add no runtime named bindings,
+  // so an otherwise complete scan can still use the default-only live proxy.
+  const noNamedExportRegex = /export(?:\s+default\b|\s*\{\s*\})/g;
+  while ((match = noNamedExportRegex.exec(source)) !== null) {
+    if (!codePositions[match.index]) continue;
+    recognizedExportStarts.add(match.index);
+  }
+
+  // Regex extraction must fail closed. Valid syntax can omit whitespace or put
+  // comments between tokens, and silently treating an unmatched declaration as
+  // default-only would mix a cache-backed default with local named exports.
+  const exportKeywordRegex = /\bexport\b/g;
+  while ((match = exportKeywordRegex.exec(source)) !== null) {
+    if (!codePositions[match.index]) continue;
+    if (!recognizedExportStarts.has(match.index)) {
+      scanState.complete = false;
+      break;
     }
   }
 

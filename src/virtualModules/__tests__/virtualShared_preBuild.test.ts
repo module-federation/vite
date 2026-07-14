@@ -427,6 +427,9 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/workspace-dual-format/dist/index.js') ||
       filePath.endsWith('/repo/packages/mock-package-star-entry.js') ||
       filePath.endsWith('/repo/packages/default-only.js') ||
+      filePath.endsWith('/repo/packages/default-only-export-lookalikes.js') ||
+      filePath.endsWith('/repo/packages/minified-star-export.js') ||
+      filePath.endsWith('/repo/packages/comment-separated-star-export.js') ||
       filePath.endsWith('/repo/packages/default-only-cjs-lookalikes.js') ||
       filePath.endsWith('/repo/packages/typescript-cjs-barrel.js') ||
       filePath.endsWith('/repo/packages/babel-cjs-barrel.js') ||
@@ -458,6 +461,19 @@ export * from 'mock-package-star-dependency'; export const directExport = 1;`;
 const snippet = "export const phantom = 1";
 const pattern = /export\\s+\\*\\s+from/;
 export default function createDefaultOnly() {}`;
+    }
+    if (filePath.endsWith('/repo/packages/default-only-export-lookalikes.js')) {
+      return `// export*from"./comment.js";
+const minifiedSnippet = 'export*from"./string.js"';
+const separatedSnippet = 'export/* comment */*from"./string.js"';
+const markerPattern = /export\\*from/;
+export default function createDefaultOnly() {}`;
+    }
+    if (filePath.endsWith('/repo/packages/minified-star-export.js')) {
+      return 'export*from"./dependency.js";';
+    }
+    if (filePath.endsWith('/repo/packages/comment-separated-star-export.js')) {
+      return 'export/* first */*/* second */from/* third */"./dependency.js";';
     }
     if (filePath.endsWith('/repo/packages/default-only-cjs-lookalikes.js')) {
       return `// Object.defineProperty(exports, "__esModule", { value: true });
@@ -1372,6 +1388,59 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('export * from "/repo/packages/default-only.js"');
     expect(generatedCode).not.toContain('let current = __mfLocalShare;');
     expect(generatedCode).not.toContain('phantom');
+  });
+
+  it.each([
+    ['minified', '/repo/packages/minified-star-export.js'],
+    ['comment-separated', '/repo/packages/comment-separated-star-export.js'],
+  ])('treats an unrecognized %s export declaration as unknown coverage', (_syntax, importPath) => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('let current = __mfLocalShare;');
+    expect(generatedCode).toContain(`export * from ${JSON.stringify(importPath)}`);
+    expect(generatedCode).not.toContain('__mfApplySharedDefaultExport');
+    expect(generatedCode).not.toContain('__mfSubscribeSharedCache(__mfModuleCache.share');
+  });
+
+  it('ignores unmatched export syntax in comments, strings, and regular expressions', () => {
+    const pkg = 'mock-package-with-reserved';
+    const importPath = '/repo/packages/default-only-export-lookalikes.js';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('const __mfApplySharedDefaultExport = (mod) => {');
+    expect(generatedCode).toContain(`export * from ${JSON.stringify(importPath)}`);
+    expect(generatedCode).not.toContain('let current = __mfLocalShare;');
   });
 
   it.each([

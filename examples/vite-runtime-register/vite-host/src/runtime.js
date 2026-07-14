@@ -10,11 +10,17 @@ const mf = createInstance({
   remotes: [],
 });
 
+globalThis.__runtimeRegisterHostReactUseState = React.useState;
+globalThis.__runtimeRegisterReactGetCalls = 0;
+
 mf.registerShared({
   react: {
     version: React.version,
     scope: 'default',
-    get: async () => () => React,
+    get: async () => {
+      globalThis.__runtimeRegisterReactGetCalls += 1;
+      return () => React;
+    },
     shareConfig: {
       singleton: true,
       requiredVersion: `^${React.version}`,

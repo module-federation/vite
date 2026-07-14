@@ -2664,6 +2664,47 @@ describe('virtualRemoteEntry', () => {
     ).toBeUndefined();
   });
 
+  it('awaits and materializes a loading-only external provider', async () => {
+    let resolveFactory!: (factory: () => unknown) => void;
+    const exactExports = { marker: 'host-react', useState: vi.fn() };
+    const factory = vi.fn(() => exactExports);
+    const provider: RuntimeBridgeProvider = {
+      from: 'host',
+      version: '18.3.1',
+      loading: new Promise<() => unknown>((resolve) => {
+        resolveFactory = resolve;
+      }),
+    };
+    const versionMap: Record<string, RuntimeBridgeProvider> = {
+      '18.3.1': provider,
+    };
+    const loadPinnedShare = await getRuntimeBridgeLoader({
+      loadShare: createRuntimeShareLoader(versionMap) as (
+        pkg: string,
+        options: unknown
+      ) => Promise<unknown>,
+    });
+
+    const pending = loadPinnedShare(
+      'react',
+      { requiredVersion: '18.3.1' },
+      versionMap,
+      '18.3.1',
+      provider,
+      provider
+    );
+    expect(versionMap['18.3.1'].lib).toBeUndefined();
+
+    resolveFactory(factory);
+
+    await expect(pending).resolves.toMatchObject({
+      selection: { version: '18.3.1', from: 'host' },
+      resolved: exactExports,
+    });
+    expect(versionMap['18.3.1']).toMatchObject({ lib: factory, loaded: true });
+    expect(factory).toHaveBeenCalledOnce();
+  });
+
   it('attributes concurrent runtime loads by factory identity', async () => {
     let resolveOne!: (factory: () => unknown) => void;
     let resolveTwo!: (factory: () => unknown) => void;
@@ -2920,13 +2961,14 @@ describe('virtualRemoteEntry', () => {
     expect(versionMap['18.3.1']).toBeUndefined();
   });
 
-  it('clears a rejected pinned runtime load so it can retry', async () => {
+  it('restores a rejected pinned runtime load so it can retry', async () => {
     const get = vi
       .fn<() => Promise<() => unknown>>()
       .mockRejectedValueOnce(new Error('broken runtime provider'))
       .mockResolvedValueOnce(() => ({ marker: 'host-react' }));
+    const currentProvider = { from: 'host', get };
     const versionMap: Record<string, RuntimeBridgeProvider> = {
-      '18.3.1': { from: 'host', get },
+      '18.3.1': currentProvider,
     };
     const loadPinnedShare = await getRuntimeBridgeLoader({
       loadShare: createRuntimeShareLoader(versionMap) as (
@@ -2945,7 +2987,7 @@ describe('virtualRemoteEntry', () => {
         versionMap['18.3.1']
       )
     ).rejects.toThrow('broken runtime provider');
-    expect(versionMap['18.3.1'].loading).toBeUndefined();
+    expect(versionMap['18.3.1']).toBe(currentProvider);
 
     await expect(
       loadPinnedShare(
@@ -2961,6 +3003,63 @@ describe('virtualRemoteEntry', () => {
       resolved: { marker: 'host-react' },
     });
     expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('removes an absent pinned provider when the runtime returns false', async () => {
+    const provider: RuntimeBridgeProvider = {
+      from: 'plugin-host',
+      version: '18.3.1',
+      get: async () => () => ({ marker: 'plugin-react' }),
+    };
+    const versionMap: Record<string, RuntimeBridgeProvider> = {};
+    const loadPinnedShare = await getRuntimeBridgeLoader({
+      loadShare: async () => false,
+    });
+
+    await expect(
+      loadPinnedShare(
+        'react',
+        { requiredVersion: '^18.0.0' },
+        versionMap,
+        '18.3.1',
+        undefined,
+        provider,
+        false
+      )
+    ).resolves.toBeUndefined();
+    expect(versionMap['18.3.1']).toBeUndefined();
+  });
+
+  it('preserves a provider that replaces a pin before a rejected runtime load settles', async () => {
+    const currentProvider: RuntimeBridgeProvider = {
+      from: 'host',
+      get: async () => () => ({ marker: 'host-react' }),
+    };
+    const replacement: RuntimeBridgeProvider = {
+      from: 'later-host',
+      lib: () => ({ marker: 'later-react' }),
+    };
+    const versionMap: Record<string, RuntimeBridgeProvider> = {
+      '18.3.1': currentProvider,
+    };
+    const loadPinnedShare = await getRuntimeBridgeLoader({
+      loadShare: async () => {
+        versionMap['18.3.1'] = replacement;
+        throw new Error('broken runtime provider');
+      },
+    });
+
+    await expect(
+      loadPinnedShare(
+        'react',
+        { requiredVersion: '^18.0.0' },
+        versionMap,
+        '18.3.1',
+        currentProvider,
+        currentProvider
+      )
+    ).rejects.toThrow('broken runtime provider');
+    expect(versionMap['18.3.1']).toBe(replacement);
   });
 
   it('does not resolve a provider replaced during an awaited runtime load', async () => {
@@ -3102,7 +3201,7 @@ describe('virtualRemoteEntry', () => {
     );
   });
 
-  it('selects the runtime provider for import:false singleton shares with version-first', async () => {
+  it('preserves loaded singleton precedence for version-first provider selection', async () => {
     const selectProvider = await getSharedProviderSelector();
     const react18 = { from: 'host-react-18', lib: () => ({ marker: 'react-18' }), loaded: true };
     const react19 = { from: 'host-react-19', lib: () => ({ marker: 'react-19' }) };
@@ -3122,7 +3221,7 @@ describe('virtualRemoteEntry', () => {
         },
         'version-first'
       )
-    ).toBe(react19);
+    ).toBe(react18);
   });
 
   it('prefers an already loaded provider for import:false shares with loaded-first', async () => {
@@ -3191,6 +3290,34 @@ describe('virtualRemoteEntry', () => {
     ).toBeUndefined();
     expect(hostGet).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])(
+    'keeps a loaded host singleton ahead of a newer local fallback with version-first (local loaded: %s)',
+    async (localLoaded) => {
+      const selectExternalProvider = await getExternalSharedProviderSelector();
+      const hostReact18 = {
+        from: 'host-react-18',
+        lib: () => ({ marker: 'host-react' }),
+        loaded: true,
+      };
+      const localReact19 = {
+        version: '19.2.0',
+        from: 'remote-react-19',
+        scope: ['default'],
+        loaded: localLoaded,
+        ...(localLoaded ? { lib: () => ({ marker: 'local-react' }) } : {}),
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '^19.0.0',
+          strictVersion: false,
+        },
+      };
+
+      expect(
+        selectExternalProvider({ '18.3.1': hostReact18 }, 'react', localReact19, 'version-first')
+      ).toBe(hostReact18);
+    }
+  );
 
   it('selects only active external providers with loaded-first', async () => {
     const selectExternalProvider = await getExternalSharedProviderSelector();
