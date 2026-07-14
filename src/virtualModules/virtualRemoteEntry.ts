@@ -1042,7 +1042,11 @@ export function generateRemoteEntry(
             ? undefined
             : __mfRuntimeShareLifecycles.get(loadId);
           if (!lifecycle) return args;
-          lifecycle.defaultResolver = args.resolver;
+          const defaultResolver = args.resolver;
+          args.resolver = (...resolverArgs) => {
+            lifecycle.pinned.reapply();
+            return defaultResolver(...resolverArgs);
+          };
           lifecycle.pinned.reveal();
           return args;
         }
@@ -1052,12 +1056,6 @@ export function generateRemoteEntry(
     const __mfRuntimeProviderOrigins = new WeakMap();
     runtimeResolveShareHook.on((args) => {
       const loadId = args.shareInfo?.[__mfRuntimeShareLoadIdKey];
-      const lifecycle = loadId === undefined
-        ? undefined
-        : __mfRuntimeShareLifecycles.get(loadId);
-      if (lifecycle && args.resolver === lifecycle.defaultResolver) {
-        lifecycle.pinned.reapply();
-      }
       const resolver = args.resolver;
       if (typeof resolver !== "function") return args;
       const instrumentedResolver = (...resolverArgs) => {
@@ -1153,8 +1151,7 @@ export function generateRemoteEntry(
     const __mfLoadRuntimeShare = async (pkg, shareConfig, pinned) => {
       const loadId = ++__mfRuntimeShareLoadId;
       __mfRuntimeShareLifecycles.set(loadId, {
-        pinned,
-        defaultResolver: undefined
+        pinned
       });
       try {
         const factory = await initRes.loadShare(pkg, {

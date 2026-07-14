@@ -2725,7 +2725,7 @@ describe('virtualRemoteEntry', () => {
     ).toBeUndefined();
   });
 
-  it('exposes the pre-pin provider without changing the default runtime selection', async () => {
+  it('preserves the default provider through a passthrough resolveShare wrapper', async () => {
     const rootFactory = () => ({ marker: 'root-react' });
     const laterFactory = () => ({ marker: 'later-react' });
     const rootProvider: RuntimeBridgeProvider = {
@@ -2747,7 +2747,11 @@ describe('virtualRemoteEntry', () => {
     const inspectResolveShare = vi.fn((args: RuntimeResolveShareArgs) => {
       lifecycle.push('resolveShare');
       expect(args.shareScopeMap?.default.react['18.3.1']).toBe(laterProvider);
-      return args;
+      const defaultResolver = args.resolver;
+      return {
+        ...args,
+        resolver: (...resolverArgs: unknown[]) => defaultResolver(...resolverArgs),
+      };
     });
     let recordSelection!: (
       provider: RuntimeBridgeProvider,
