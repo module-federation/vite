@@ -27,6 +27,7 @@ import {
   getLocalProviderImportPath,
   getProjectResolvedImportPath,
   getSharedImportSource,
+  getSharedNamedExports,
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
 } from './virtualShared_preBuild';
@@ -130,28 +131,39 @@ export function generateLocalSharedImportMap() {
         .map((key) => {
           const shareItem = getNormalizeShareItem(key);
           if (!shareItem) return null;
-          const treeShakingUsage = getTreeShakingExportUsage(key, shareItem, shareItem.name);
+          const detectedNamedExports = getSharedNamedExports(key, shareItem);
+          const canLiveRebind =
+            shareItem.shareConfig.import === false || detectedNamedExports !== undefined;
+          // A partial runtime provider cannot back an ESM proxy whose complete
+          // export surface is unknown. Keep that share on its coherent local
+          // namespace instead of selecting a different tree provider.
+          const treeShakingConfig = canLiveRebind ? shareItem.shareConfig.treeShaking : undefined;
+          const treeShakingUsage = treeShakingConfig
+            ? getTreeShakingExportUsage(key, shareItem, shareItem.name)
+            : undefined;
           const treeShakingProviderExports =
             treeShakingUsage?.kind === 'exports' ? treeShakingUsage.usedExports : [];
           const treeShakingUsedExports =
             options.injectTreeShakingUsedExports === false
-              ? shareItem.shareConfig.treeShaking?.usedExports || []
+              ? treeShakingConfig?.usedExports || []
               : treeShakingProviderExports;
           // Runtime inference is only sound when the consumer publishes the
           // exports discovered by this build. If injection is disabled, keep
           // the complete provider as the safe fallback instead of advertising
           // a partial provider with incomplete coverage metadata.
           const disableRuntimeInference =
-            shareItem.shareConfig.treeShaking?.mode === 'runtime-infer' &&
+            treeShakingConfig?.mode === 'runtime-infer' &&
             options.injectTreeShakingUsedExports === false;
           const treeShakingProviderImportId =
-            !disableRuntimeInference && hasTreeShakingSharedProvider(key, shareItem)
+            treeShakingConfig &&
+            !disableRuntimeInference &&
+            hasTreeShakingSharedProvider(key, shareItem)
               ? getTreeShakingSharedProviderImportId(key)
               : undefined;
           const treeShakingStatus =
             treeShakingUsage?.kind === 'full' ||
             disableRuntimeInference ||
-            (shareItem.shareConfig.treeShaking?.mode === 'runtime-infer' &&
+            (treeShakingConfig?.mode === 'runtime-infer' &&
               !treeShakingProviderImportId &&
               shareItem.shareConfig.import !== false)
               ? 0
@@ -164,6 +176,7 @@ export function generateLocalSharedImportMap() {
             loaded: false,
             eager: ${Boolean(shareItem.shareConfig.eager)},
             from: ${JSON.stringify(options.name)},
+            canLiveRebind: ${canLiveRebind},
             async get () {
               if (${shareItem.shareConfig.import === false}) {
                 throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(key)}}' must be provided by host\`);
@@ -191,9 +204,9 @@ export function generateLocalSharedImportMap() {
               ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
             },
             ${
-              shareItem.shareConfig.treeShaking
+              treeShakingConfig
                 ? `treeShaking: {
-              mode: ${JSON.stringify(shareItem.shareConfig.treeShaking.mode)},
+              mode: ${JSON.stringify(treeShakingConfig.mode)},
               usedExports: ${JSON.stringify(treeShakingUsedExports)},
               providedExports: ${JSON.stringify(treeShakingProviderExports)},
               status: ${treeShakingStatus},
@@ -323,6 +336,7 @@ function getShareItemForPreload(pkg: string) {
 
 function generateSharedCacheSeedItem(pkg: string, shareItem: ShareItem, importPath: string) {
   const cacheDescriptor = getSharedCacheDescriptor(pkg, shareItem);
+  const cacheOwner = getNormalizeModuleFederationOptions().name;
   return `if (__mfReadSharedCache(__mfModuleCache.share, ${JSON.stringify(cacheDescriptor)}) === undefined) {
         const mod = await import(${JSON.stringify(importPath)});
         ${normalizeRuntimeShareCode}
@@ -332,7 +346,7 @@ function generateSharedCacheSeedItem(pkg: string, shareItem: ShareItem, importPa
           value: true,
           enumerable: false
         });
-        __mfWriteSharedCache(__mfModuleCache.share, ${JSON.stringify(cacheDescriptor)}, exportModule);
+        __mfWriteSharedCache(__mfModuleCache.share, ${JSON.stringify(cacheDescriptor)}, exportModule, ${JSON.stringify(cacheOwner)});
       }`;
 }
 
@@ -348,8 +362,9 @@ const normalizeRuntimeShareCode = `const __mfNormalizeRuntimeShare = (mod) => {
             return current;
           };`;
 
-// Emitted into remoteEntry for import:false shared provider selection.
+// Emitted into remoteEntry for shared provider selection.
 export const sharedProviderSelectionHelperCode = `const __mfOriginalProviderKey = Symbol("mf.originalSharedProvider");
+          const __mfTransparentResolverKey = Symbol.for("module-federation.vite.transparent-resolver");
           const __mfResolveShareHook = { emit: (params) => params };
           const __mfCreateProviderSelectionVersions = (versions, strategy) => {
             if (strategy !== "version-first") return versions;
@@ -364,28 +379,162 @@ export const sharedProviderSelectionHelperCode = `const __mfOriginalProviderKey 
             }
             return selectionVersions;
           };
-          const __mfSelectSharedProvider = (versions, pkg, share, strategy) => {
+          const __mfFindSharedProviderEntry = (versions, provider) => {
+            if (!provider) return undefined;
+            const entries = Object.entries(versions || {});
+            const registeredEntry = entries.find(([, candidate]) => candidate === provider);
+            if (registeredEntry) {
+              return { version: registeredEntry[0], provider, registered: true };
+            }
+            if (typeof provider.version === "string" && provider.version) {
+              return { version: provider.version, provider, registered: false };
+            }
+            const provenanceEntries = entries.filter(([, candidate]) =>
+              candidate === provider || Boolean(provider.from && candidate?.from === provider.from)
+            );
+            if (provenanceEntries.length !== 1) return undefined;
+            return { version: provenanceEntries[0][0], provider, registered: false };
+          };
+          const __mfSelectSharedProvider = (
+            versions,
+            pkg,
+            share,
+            strategy,
+            resolveShareHook = __mfResolveShareHook,
+            selectionState
+          ) => {
             if (!versions || !share) return undefined;
+            if (selectionState) selectionState.resolveShareHookUsed = false;
             const scopes = Array.isArray(share.scope) ? share.scope : [share.scope || "default"];
             const selectionVersions = __mfCreateProviderSelectionVersions(versions, strategy);
             const shareScopeMap = {};
             for (const scope of scopes) {
               shareScopeMap[scope || "default"] = { [pkg]: selectionVersions };
             }
+            const observedResolveShareHook = selectionState ? {
+              emit(params) {
+                const defaultResolver = params.resolver;
+                const resolvedParams = resolveShareHook.emit(params) || params;
+                let observedResolver = resolvedParams.resolver;
+                while (observedResolver?.[__mfTransparentResolverKey]) {
+                  observedResolver = observedResolver[__mfTransparentResolverKey];
+                }
+                selectionState.resolveShareHookUsed = observedResolver !== defaultResolver;
+                return resolvedParams;
+              }
+            } : resolveShareHook;
             const selected = runtimeShare.getRegisteredShare(
               shareScopeMap,
               pkg,
               { ...share, scope: scopes, strategy },
-              __mfResolveShareHook
+              observedResolveShareHook
             )?.shared;
             return selected?.[__mfOriginalProviderKey] || selected;
           };`;
 
-function hasImportFalseShared(options: NormalizedModuleFederationOptions): boolean {
-  return Object.values(options.shared ?? {}).some((share) => share?.shareConfig?.import === false);
-}
+export const externalSharedProviderSelectionHelperCode = `const __mfSelectExternalSharedProvider = (
+            versions,
+            pkg,
+            localShare,
+            strategy,
+            resolveShareHook = __mfResolveShareHook,
+            selectionState
+          ) => {
+            const isLocalProvider = (provider) => __mfMatchesSharedProvider(provider, localShare);
+            const candidates = Object.fromEntries(
+              Object.entries(versions || {}).filter(([, provider]) => !isLocalProvider(provider))
+            );
+            if (localShare?.version) {
+              const sameVersionProvider = candidates[localShare.version];
+              // Runtime registration keeps an existing same-version record,
+              // even when it has only a getter and is not loaded yet. Model
+              // that retained provider here so pre-init seeding cannot choose
+              // the local module while loadShare() later chooses the parent.
+              if (!sameVersionProvider) {
+                candidates[localShare.version] = localShare;
+              }
+            }
+            const provider = __mfSelectSharedProvider(
+              candidates,
+              pkg,
+              localShare,
+              strategy,
+              resolveShareHook,
+              selectionState
+            );
+            return isLocalProvider(provider) ? undefined : provider;
+          };
+          const __mfMatchesSharedProvider = (provider, expected) => provider === expected || Boolean(
+            expected?.from && provider?.from === expected.from
+          );
+          const __mfGetScopeRootProvider = (
+            instances,
+            scopeRoot,
+            shared,
+            scopeName,
+            pkg,
+            version,
+            provider,
+            passedProvider,
+            strategy,
+            resolveShareHookUsed = false
+          ) => {
+            if (resolveShareHookUsed || strategy !== "version-first" || !passedProvider) return undefined;
+            const scopeRootProviders = scopeRoot?.options?.shared?.[pkg];
+            const configuredScopeRootProvider = Array.isArray(scopeRootProviders)
+              ? scopeRootProviders.find((candidate) => candidate?.version === version)
+              : undefined;
+            const registeredScopeRootProvider = passedProvider?.from === scopeRoot?.options?.name
+              ? passedProvider
+              : undefined;
+            const scopeRootProvider = registeredScopeRootProvider || (
+              __mfMatchesSharedProvider(configuredScopeRootProvider, passedProvider)
+                ? configuredScopeRootProvider
+                : undefined
+            );
+            if (!scopeRootProvider) return undefined;
+            const selectedFromLaterInstance = instances.some((instance) =>
+              instance !== scopeRoot &&
+              instance?.options?.name === provider?.from &&
+              instance?.shareScopeMap?.[scopeName] === shared
+            );
+            return selectedFromLaterInstance ? scopeRootProvider : undefined;
+          };
+          const __mfResolveExternalSharedProvider = (
+            instances,
+            scopeRoot,
+            shared,
+            scopeName,
+            pkg,
+            providerEntry,
+            selectedExternalProvider,
+            passedProvider,
+            strategy,
+            resolveShareHookUsed
+          ) => {
+            const scopeRootProvider = providerEntry.registered ? __mfGetScopeRootProvider(
+              instances,
+              scopeRoot,
+              shared,
+              scopeName,
+              pkg,
+              providerEntry.version,
+              providerEntry.provider,
+              passedProvider,
+              strategy,
+              resolveShareHookUsed
+            ) : undefined;
+            const provider = scopeRootProvider || selectedExternalProvider;
+            if (!provider) return undefined;
+            if (
+              providerEntry.registered &&
+              !resolveShareHookUsed &&
+              !__mfMatchesSharedProvider(provider, passedProvider)
+            ) return undefined;
+            return { provider, scopeRootProvider };
+          };`;
 
-function generateRuntimeSharedCacheSeedCode() {
+function generateRuntimeSharedCacheSeedCode(shareStrategy: string) {
   // Seeding a share evaluates its module graph, and every share proxy hit
   // during that evaluation must already be cached — the proxies defer their
   // local fallback until after init, so an unseeded proxy leaves its named
@@ -416,34 +565,100 @@ function generateRuntimeSharedCacheSeedCode() {
       }
       __mfSeedKeys.splice(insertIndex, 0, pkg);
     }
-    for (const pkg of __mfSeedKeys) {
+    var __mfSeedLocalShared = async (seedKeys) => {
+      for (const pkg of seedKeys) {
+        const share = usedShared[pkg];
+        const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+        if (
+          share.shareConfig?.import === false ||
+          Boolean(share.treeShaking) ||
+          __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined
+        ) {
+          continue;
+        }
+        const singletonCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, true, share.version, share.scope);
+        const singletonModule = __mfReadSharedCache(__mfModuleCache.share, singletonCacheDescriptor);
+        if (singletonModule !== undefined) {
+          __mfWriteSharedCache(
+            __mfModuleCache.share,
+            cacheDescriptor,
+            singletonModule,
+            __mfReadSharedCacheOwner(__mfModuleCache.share, singletonCacheDescriptor)
+          );
+          continue;
+        }
+        const factory = await share.get();
+        const mod = typeof factory === "function" ? factory() : factory;
+        const resolved = await Promise.resolve(mod);
+        ${normalizeRuntimeShareCode}
+        const normalizedModule = __mfNormalizeRuntimeShare(resolved);
+        const exportModule = normalizedModule === resolved ? {...resolved} : normalizedModule;
+        Object.defineProperty(exportModule, "__esModule", {
+          value: true,
+          enumerable: false
+        });
+        __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, exportModule, mfName);
+      }
+    };
+    const __mfIsRuntimeOnlySharePending = (pkg) => {
       const share = usedShared[pkg];
-      const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
-      if (
-        share.shareConfig?.import === false ||
-        Boolean(share.treeShaking) ||
-        __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined
-      ) {
-        continue;
-      }
-      const singletonCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, true, share.version, share.scope);
-      const singletonModule = __mfReadSharedCache(__mfModuleCache.share, singletonCacheDescriptor);
-      if (singletonModule !== undefined) {
-        __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, singletonModule);
-        continue;
-      }
-      const factory = await share.get();
-      const mod = typeof factory === "function" ? factory() : factory;
-      const resolved = await Promise.resolve(mod);
-      ${normalizeRuntimeShareCode}
-      const normalizedModule = __mfNormalizeRuntimeShare(resolved);
-      const exportModule = normalizedModule === resolved ? {...resolved} : normalizedModule;
-      Object.defineProperty(exportModule, "__esModule", {
-        value: true,
-        enumerable: false
-      });
-      __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, exportModule);
-    }`;
+      if (!share.treeShaking && share.shareConfig?.import !== false) return false;
+      const cacheDescriptor = __mfGetSharedCacheDescriptor(
+        pkg,
+        share.shareConfig?.singleton,
+        share.version,
+        share.scope
+      );
+      return share.treeShaking
+        ? (
+            __mfReadTreeShakingSharedSelection(
+              __mfModuleCache.share,
+              cacheDescriptor,
+              mfName
+            ) === undefined &&
+            __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) === undefined
+          )
+        : __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) === undefined;
+    };
+    const __mfNeedsPreInitSeedBarrier = (pkg) => {
+      const share = usedShared[pkg];
+      const cacheDescriptor = __mfGetSharedCacheDescriptor(
+        pkg,
+        share.shareConfig?.singleton,
+        share.version,
+        share.scope
+      );
+      const cachedShare = share.treeShaking
+        ? (
+            __mfReadTreeShakingSharedSelection(
+              __mfModuleCache.share,
+              cacheDescriptor,
+              mfName
+            ) ?? __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor)
+          )
+        : __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
+      if (cachedShare !== undefined) return false;
+      if (share.treeShaking || share.shareConfig?.import === false) return true;
+      if (!share.shareConfig?.singleton) return false;
+      if (typeof __mfSelectExternalSharedProvider !== 'function') return false;
+      return Boolean(__mfSelectExternalSharedProvider(
+        initialShared[pkg],
+        pkg,
+        share,
+        ${JSON.stringify(shareStrategy)},
+        runtimeResolveShareHook
+      ));
+    };
+    const __mfFirstRuntimeSeedBarrierIndex = __mfSeedKeys.findIndex(
+      __mfNeedsPreInitSeedBarrier
+    );
+    const __mfImmediateSeedKeys = __mfFirstRuntimeSeedBarrierIndex === -1
+      ? __mfSeedKeys
+      : __mfSeedKeys.slice(0, __mfFirstRuntimeSeedBarrierIndex);
+    var __mfDeferredSeedKeys = __mfFirstRuntimeSeedBarrierIndex === -1
+      ? []
+      : __mfSeedKeys.slice(__mfFirstRuntimeSeedBarrierIndex);
+    await __mfSeedLocalShared(__mfImmediateSeedKeys);`;
 }
 
 function getBrowserImportPath(importPath: string) {
@@ -504,15 +719,15 @@ const getSsrOnlyPluginSpecifier = (importStatement: string): string | undefined 
   [...SSR_ONLY_PLUGIN_SPECIFIERS].find((s) => importStatement.includes(s));
 
 function generateTreeShakingSharedResolutionCode(enabled: boolean): string {
-  if (!enabled) return '';
+  if (!enabled) return 'const __mfResolveTreeShakingShared = async () => {};';
   return `
     // Resolve tree-enabled shares through the Runtime after all providers have
     // registered. Partial providers are stored with their export coverage and
     // never occupy generic/legacy cache keys, which are reserved for complete
     // modules only.
-    for (const [pkg, share] of Object.entries(usedShared)) {
+    const __mfResolveTreeShakingShared = async (pkg, share) => {
       const treeShaking = share.treeShaking;
-      if (!treeShaking) continue;
+      if (!treeShaking) return;
       try {
         const factory = await initRes.loadShare(pkg, {
           customShareInfo: {
@@ -524,22 +739,21 @@ function generateTreeShakingSharedResolutionCode(enabled: boolean): string {
             },
           },
         });
-        if (factory === false) continue;
+        if (factory === false) return;
         const mod = typeof factory === "function" ? factory() : factory;
         const resolved = await Promise.resolve(mod);
         ${normalizeRuntimeShareCode}
         const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
         const normalizedShared = __mfNormalizeRuntimeShare(resolved);
+        const providedExports = treeShaking.providedExports ?? treeShaking.usedExports ?? [];
         const hasPartialProvider =
-          Array.isArray(treeShaking.providedExports) &&
-          treeShaking.providedExports.length > 0 &&
           ((treeShaking.mode === "runtime-infer" && treeShaking.status !== 0) ||
             treeShaking.status === 2);
         if (hasPartialProvider) {
           __mfWriteTreeShakingSharedCache(
             __mfModuleCache.share,
             cacheDescriptor,
-            treeShaking.providedExports,
+            providedExports,
             normalizedShared
           );
           __mfWriteTreeShakingSharedSelection(
@@ -554,18 +768,18 @@ function generateTreeShakingSharedResolutionCode(enabled: boolean): string {
       } catch (e) {
         console.warn('[Module Federation] Failed to load tree-shaken shared module', pkg, e);
       }
-    }`;
+    };`;
 }
 
-export const treeShakingResolveShareBodyCode = `const originalResolver = args.resolver;
+export const treeShakingResolveShareBodyCode = `const consumerTreeShaking = args.shareInfo?.treeShaking;
+      if (consumerTreeShaking?.mode !== "runtime-infer") return args;
+      const requiredExports = consumerTreeShaking.usedExports;
+      if (!Array.isArray(requiredExports)) return args;
+
+      const originalResolver = args.resolver;
       args.resolver = () => {
         const resolved = originalResolver();
         if (!resolved?.useTreesShaking) return resolved;
-
-        const consumerTreeShaking = args.shareInfo?.treeShaking;
-        if (consumerTreeShaking?.mode !== "runtime-infer") return resolved;
-        const requiredExports = consumerTreeShaking.usedExports;
-        if (!Array.isArray(requiredExports)) return resolved;
 
         const selectedExports = resolved.shared?.treeShaking?.usedExports;
         const selectedMatches = Array.isArray(selectedExports) &&
@@ -671,7 +885,7 @@ export function generateRemoteEntry(
   virtualExposesId = getVirtualExposesId(options),
   command = 'build'
 ): string {
-  const needsSharedProviderSelectionHelper = hasImportFalseShared(options);
+  const needsSharedProviderSelectionHelper = Object.keys(options.shared ?? {}).length > 0;
   const hasTreeShakingShared = Object.values(options.shared ?? {}).some(
     (share) => !!share?.shareConfig.treeShaking
   );
@@ -698,6 +912,17 @@ export function generateRemoteEntry(
       ];
     }
   });
+  const initializeSharingCode = `try {
+      await retrySharedInit(async () => {
+        await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
+          strategy: '${options.shareStrategy}',
+          from: "build",
+          initScope
+        }));
+      });
+    } catch (e) {
+      console.error('[Module Federation]', e)
+    }`;
 
   return `
   // Shim Vue HMR runtime for dev-compiled components loaded by a non-Vite host.
@@ -755,6 +980,7 @@ export function generateRemoteEntry(
   }
   ${generateTreeShakingSnapshotPluginCode(hasTreeShakingShared)}
   ${needsSharedProviderSelectionHelper ? sharedProviderSelectionHelperCode : ''}
+  ${needsSharedProviderSelectionHelper ? externalSharedProviderSelectionHelperCode : ''}
 
   async function getLocalSharedImportMap() {
     ${hasEagerShared ? 'return __mfLocalSharedImportMap;' : ''}
@@ -780,53 +1006,32 @@ export function generateRemoteEntry(
 
   async function init(shared = {}, initScope = []) {
     ${sharedCacheHelperCode}
+    const federationInstances = globalThis.__FEDERATION__?.__INSTANCES__ || [];
+    const initRootName = initScope.find((token) => token?.from)?.from;
+    const scopeRoot = federationInstances.find((instance) =>
+      instance?.options?.name === initRootName &&
+      instance?.shareScopeMap?.['${options.shareScope}'] === shared
+    ) || federationInstances.find((instance) =>
+      instance?.options?.name !== mfName &&
+      instance?.shareScopeMap?.['${options.shareScope}'] === shared
+    );
+    const initialShared = Object.create(null);
+    for (const [pkg, versions] of Object.entries(shared)) {
+      const initialVersions = initialShared[pkg] = Object.create(null);
+      for (const [version, provider] of Object.entries(versions)) {
+        // Runtime registration mutates provider records in-place, notably their origin.
+        // Preserve the parent-visible provider and its original provenance.
+        initialVersions[version] = Object.assign({}, provider);
+      }
+    }
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
-    try {
-      const allInstances = globalThis.__FEDERATION__?.__SHARE__;
-      if (allInstances) {
-        ${normalizeRuntimeShareCode}
-        for (const [, scopes] of Object.entries(allInstances)) {
-          const scopeShare = scopes?.['${options.shareScope}'];
-          if (!scopeShare) continue;
-          for (const [pkg, versionMap] of Object.entries(scopeShare)) {
-            const usedShare = usedShared?.[pkg];
-            const selectedProvider = usedShare?.shareConfig?.import === false
-              ? __mfSelectSharedProvider(versionMap, pkg, usedShare, '${options.shareStrategy}')
-              : undefined;
-            const providerEntries = usedShare?.shareConfig?.import === false
-              ? Object.entries(versionMap).filter(([, provider]) => provider === selectedProvider)
-              : Object.entries(versionMap);
-            for (const [version, provider] of providerEntries) {
-              if (!provider.lib) continue;
-              const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, provider.shareConfig?.singleton, version, ${JSON.stringify(options.shareScope)});
-              if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) continue;
-              const mod = typeof provider.lib === "function" ? provider.lib() : provider.lib;
-              const resolved = await Promise.resolve(mod);
-              const normalized = __mfNormalizeRuntimeShare(resolved);
-              __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, normalized);
-              if (provider.shareConfig?.singleton && usedShare) {
-                const usedCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, usedShare.shareConfig?.singleton, usedShare.version, usedShare.scope);
-                if (__mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor) === undefined) {
-                  __mfWriteSharedCache(__mfModuleCache.share, usedCacheDescriptor, normalized);
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error('[Module Federation] Failed to bridge external shared modules', e)
-    }
-    for (const [pkg, share] of Object.entries(usedShared)) {
-      const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
-      if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) continue;
-      const singletonCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, true, share.version, share.scope);
-      const singletonModule = __mfReadSharedCache(__mfModuleCache.share, singletonCacheDescriptor);
-      if (singletonModule !== undefined) {
-        __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, singletonModule);
-      }
-    }
-    ${generateRuntimeSharedCacheSeedCode()}
+    // handling circular init calls before an external provider can re-enter this container
+    var initToken = initTokens[shareScopeName];
+    if (!initToken)
+      initToken = initTokens[shareScopeName] = { from: mfName };
+    if (initScope.indexOf(initToken) >= 0) return;
+    initScope.push(initToken);
+    ${normalizeRuntimeShareCode}
     const __browserPlugins = [${pluginImportNames
       .filter((item) => !isSsrOnlyPlugin(item[1]))
       .map((item) => `${item[0]}(${item[2]})`)
@@ -848,39 +1053,543 @@ export function generateRemoteEntry(
       plugins: [${hasTreeShakingShared ? '__mfTreeShakingSnapshotPlugin(),' : ''} ...__browserPlugins, ...__ssrPlugins],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
-    // handling circular init calls
-    var initToken = initTokens[shareScopeName];
-    if (!initToken)
-      initToken = initTokens[shareScopeName] = { from: mfName };
-    if (initScope.indexOf(initToken) >= 0) return;
-    initScope.push(initToken);
     initRes.initShareScopeMap('${options.shareScope}', shared);
-    try {
-      await retrySharedInit(async () => {
-        await Promise.all(await initRes.initializeSharing('${options.shareScope}', {
-          strategy: '${options.shareStrategy}',
-          from: "build",
-          initScope
-        }));
+    const runtimeResolveShareHook = initRes.sharedHandler.hooks.lifecycle.resolveShare;
+    const __mfRuntimeProviderOrigins = new WeakMap();
+    const __mfRuntimeShareLoadIdKey = "__mf_vite_runtime_share_load_id__";
+    let __mfRuntimeShareLoadId = 0;
+    const __mfRuntimeShareSelections = new Map();
+    runtimeResolveShareHook.on((args) => {
+      const resolver = args.resolver;
+      if (typeof resolver !== "function") return args;
+      const instrumentedResolver = (...resolverArgs) => {
+        const resolved = resolver(...resolverArgs);
+        const selectedProvider = resolved?.shared;
+        if (
+          selectedProvider &&
+          (typeof selectedProvider === "object" || typeof selectedProvider === "function") &&
+          !__mfRuntimeProviderOrigins.has(selectedProvider)
+        ) {
+          __mfRuntimeProviderOrigins.set(selectedProvider, { from: selectedProvider.from });
+        }
+        const loadId = args.shareInfo?.[__mfRuntimeShareLoadIdKey];
+        if (loadId !== undefined && selectedProvider) {
+          __mfRuntimeShareSelections.set(loadId, selectedProvider);
+        }
+        return resolved;
+      };
+      instrumentedResolver[__mfTransparentResolverKey] = resolver;
+      args.resolver = instrumentedResolver;
+      return args;
+    });
+    const __mfPinSharedProvider = (versionMap, version, currentProvider, provider) => {
+      if (!versionMap || versionMap[version] !== currentProvider) return undefined;
+      const pinnedProvider = Object.assign({}, provider, {
+        version: provider.version ?? version,
+        scope: provider.scope ?? currentProvider?.scope ?? ['${options.shareScope}'],
+        strategy: 'loaded-first'
       });
+      const providerFrom = provider.from;
+      versionMap[version] = pinnedProvider;
+      return {
+        provider: pinnedProvider,
+        release(loaded, selected = true) {
+          provider.from = providerFrom;
+          if (versionMap[version] !== pinnedProvider) return false;
+          if (!selected) {
+            if (currentProvider === undefined) delete versionMap[version];
+            else versionMap[version] = currentProvider;
+            return true;
+          }
+          if (!loaded) {
+            if (typeof pinnedProvider.get !== 'function') {
+              if (currentProvider === undefined) delete versionMap[version];
+              else versionMap[version] = currentProvider;
+              return false;
+            }
+            delete pinnedProvider.loading;
+            if (provider.lib === undefined) delete pinnedProvider.lib;
+            else pinnedProvider.lib = provider.lib;
+            pinnedProvider.loaded = Boolean(provider.lib);
+          }
+          pinnedProvider.from = providerFrom;
+          if (loaded && pinnedProvider.lib) pinnedProvider.loaded = true;
+          if (provider.strategy === undefined) delete pinnedProvider.strategy;
+          else pinnedProvider.strategy = provider.strategy;
+          return true;
+        }
+      };
+    };
+    const __mfSnapshotSharedProviders = (versionMap) => (
+      Object.entries(versionMap || {}).map(([version, provider]) => ({
+        provider,
+        version,
+        from: provider.from,
+        registered: true
+      }))
+    );
+    const __mfMatchLoadedSharedProvider = (providerSelections, factory) => {
+      if (factory === undefined) return undefined;
+      let match;
+      for (const selection of providerSelections) {
+        const provider = selection.provider;
+        const directProvider = provider.treeShaking || provider;
+        if (
+          selection.loadedFactory !== factory &&
+          provider.lib !== factory &&
+          directProvider.lib !== factory
+        ) continue;
+        if (match) return undefined;
+        match = selection;
+      }
+      return match;
+    };
+    const __mfLoadRuntimeShare = async (pkg, shareConfig) => {
+      const loadId = ++__mfRuntimeShareLoadId;
+      try {
+        const factory = await initRes.loadShare(pkg, {
+          customShareInfo: {
+            shareConfig,
+            [__mfRuntimeShareLoadIdKey]: loadId
+          }
+        });
+        return {
+          factory: factory === false ? undefined : factory,
+          selectedProvider: __mfRuntimeShareSelections.get(loadId)
+        };
+      } finally {
+        __mfRuntimeShareSelections.delete(loadId);
+      }
+    };
+    const __mfLoadPinnedRuntimeShare = async (
+      pkg,
+      shareConfig,
+      versionMap,
+      version,
+      currentProvider,
+      provider,
+      providerRegistered = true
+    ) => {
+      const providerFrom = provider.from;
+      const pinned = __mfPinSharedProvider(
+        versionMap,
+        version,
+        currentProvider,
+        provider
+      );
+      if (!pinned) return undefined;
+      let runtimeLoad;
+      try {
+        runtimeLoad = await __mfLoadRuntimeShare(pkg, shareConfig);
+      } catch (error) {
+        pinned.release(false);
+        throw error;
+      }
+      const factory = runtimeLoad?.factory;
+      if (factory === undefined) {
+        pinned.release(false);
+        return undefined;
+      }
+      const providerSelections = __mfSnapshotSharedProviders(versionMap);
+      const directPinnedProvider = pinned.provider.treeShaking || pinned.provider;
+      const pinnedMatchesFactory =
+        pinned.provider.lib === factory || directPinnedProvider.lib === factory;
+      if (!providerRegistered && pinnedMatchesFactory) {
+        const pinnedSelectionIndex = providerSelections.findIndex(
+          (selection) => selection.provider === pinned.provider
+        );
+        if (pinnedSelectionIndex !== -1) providerSelections.splice(pinnedSelectionIndex, 1);
+      }
+      if (!providerRegistered && !providerSelections.some((selection) => selection.provider === provider)) {
+        providerSelections.push({
+          provider,
+          version,
+          from: providerFrom,
+          registered: false,
+          loadedFactory: pinnedMatchesFactory ? factory : undefined
+        });
+      }
+      const runtimeSelectedProvider =
+        !providerRegistered &&
+        runtimeLoad.selectedProvider === pinned.provider &&
+        pinnedMatchesFactory
+          ? provider
+          : runtimeLoad.selectedProvider;
+      const selection = providerSelections.find(
+        (candidate) => candidate.provider === runtimeSelectedProvider
+      ) ?? __mfMatchLoadedSharedProvider(providerSelections, factory);
+      const providerStayedActive = pinned.release(
+        true,
+        selection?.provider === pinned.provider
+      );
+      if (!providerStayedActive || !selection) return undefined;
+      const runtimeProviderOrigin = __mfRuntimeProviderOrigins.get(selection.provider);
+      selection.from = selection.provider === provider
+        ? providerFrom
+        : runtimeProviderOrigin
+          ? runtimeProviderOrigin.from
+          : selection.provider.from;
+      if (runtimeProviderOrigin) selection.provider.from = runtimeProviderOrigin.from;
+      const mod = typeof factory === "function" ? factory() : factory;
+      const resolved = await Promise.resolve(mod);
+      if (selection.registered && versionMap?.[selection.version] !== selection.provider) return undefined;
+      return { provider: selection.provider, selection, resolved };
+    };
+    const bridgedProviders = new Set();
+    const bridgeSelections = new Map();
+    const __mfBridgeMaterializedProvider = async (pkg, usedShare, versionMap) => {
+      const singleton = Boolean(usedShare.shareConfig?.singleton);
+      if (singleton && '${options.shareStrategy}' !== 'loaded-first') return;
+      if (usedShare.canLiveRebind === false) return;
+      try {
+        const provider = __mfSelectExternalSharedProvider(
+          versionMap,
+          pkg,
+          usedShare,
+          '${options.shareStrategy}',
+          runtimeResolveShareHook
+        );
+        const providerEntry = __mfFindSharedProviderEntry(versionMap, provider);
+        if (!providerEntry) return;
+        const { version } = providerEntry;
+        if (!singleton && version !== usedShare.version) return;
+        if (
+          !provider.lib &&
+          !provider.loading &&
+          !(provider.loaded && typeof provider.get === 'function')
+        ) return;
+        const usedCacheDescriptor = __mfGetSharedCacheDescriptor(
+          pkg,
+          singleton,
+          usedShare.version,
+          usedShare.scope
+        );
+        if (__mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor) !== undefined) return;
+        const liveVersionMap = shared[pkg];
+        const liveProvider = liveVersionMap?.[version];
+        if (providerEntry.registered && !__mfMatchesSharedProvider(liveProvider, provider)) return;
+        let loadedShare;
+        ${
+          options.shareStrategy === 'loaded-first'
+            ? `loadedShare = await __mfLoadPinnedRuntimeShare(
+            pkg,
+            usedShare.shareConfig,
+            liveVersionMap,
+            version,
+            liveProvider,
+            provider,
+            providerEntry.registered
+          );`
+            : `// Runtime loadShare() implicitly initializes version-first remotes without
+          // this container's outer initScope. Materialized providers are already active,
+          // so resolve them directly and keep remote initialization on the guarded path.
+          let directFactory = provider.lib;
+          if (!directFactory && provider.loading) directFactory = await provider.loading;
+          if (!directFactory && provider.loaded && typeof provider.get === 'function') {
+            directFactory = await provider.get();
+          }
+          if (!directFactory) return;
+          const directModule = typeof directFactory === "function" ? directFactory() : directFactory;
+          const directResolved = await Promise.resolve(directModule);
+          const directProvider = providerEntry.registered ? liveProvider : provider;
+          loadedShare = {
+            provider: directProvider,
+            selection: {
+              provider: directProvider,
+              version,
+              from: provider.from,
+              registered: providerEntry.registered
+            },
+            resolved: directResolved
+          };`
+        }
+        const actualProvider = loadedShare?.provider;
+        const actualSelection = loadedShare?.selection;
+        if (!actualSelection) return;
+        const resolved = loadedShare?.resolved;
+        if (resolved === undefined) return;
+        if (__mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor) !== undefined) return;
+        ${
+          options.shareStrategy === 'loaded-first'
+            ? `if (
+          actualSelection.registered &&
+          liveVersionMap?.[actualSelection.version] !== actualProvider
+        ) return;`
+            : `if (
+          actualSelection.registered &&
+          liveVersionMap?.[actualSelection.version] !== actualProvider
+        ) return;`
+        }
+        __mfWriteSharedCache(
+          __mfModuleCache.share,
+          usedCacheDescriptor,
+          __mfNormalizeRuntimeShare(resolved),
+          actualSelection.from
+        );
+        bridgedProviders.add(actualProvider);
+      } catch (e) {
+        console.error('[Module Federation] Failed to bridge materialized shared module "' + pkg + '"', e)
+      }
+    };
+    const __mfBridgeExternalSharedProvider = async (
+      pkg,
+      usedShare,
+      versionMap,
+      passedVersionMap,
+      expectedSelection
+    ) => {
+      try {
+        const usedCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, usedShare.shareConfig?.singleton, usedShare.version, usedShare.scope);
+        const cachedShare = __mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor);
+        const cachedShareOwner = __mfReadSharedCacheOwner(__mfModuleCache.share, usedCacheDescriptor);
+        const externalProviderSelection = {};
+        const selectedExternalProvider = __mfSelectExternalSharedProvider(
+          versionMap,
+          pkg,
+          usedShare,
+          '${options.shareStrategy}',
+          runtimeResolveShareHook,
+          externalProviderSelection
+        );
+        const selectedRuntimeProvider = selectedExternalProvider ||
+          __mfSelectSharedProvider(versionMap, pkg, usedShare, '${options.shareStrategy}', runtimeResolveShareHook);
+        const providerEntry = __mfFindSharedProviderEntry(versionMap, selectedRuntimeProvider);
+        if (!providerEntry) return;
+        const { version } = providerEntry;
+        const passedProvider = passedVersionMap?.[version];
+        const resolvedExternalProvider = __mfResolveExternalSharedProvider(
+          federationInstances,
+          scopeRoot,
+          shared,
+          '${options.shareScope}',
+          pkg,
+          providerEntry,
+          selectedExternalProvider,
+          passedProvider,
+          '${options.shareStrategy}',
+          externalProviderSelection.resolveShareHookUsed
+        );
+        if (!resolvedExternalProvider) return;
+        const { provider, scopeRootProvider } = resolvedExternalProvider;
+        // Non-singleton proxies may have already snapshotted their local exports while
+        // seeding shared dependencies. Late cache replacement is safe only for the
+        // live-bound singleton proxies.
+        if (!usedShare.shareConfig?.singleton) return;
+        if (usedShare.canLiveRebind === false) return;
+        // Preserve a singleton already selected by another container. The bridge may
+        // only replace the provisional local fallback seeded by this container.
+        if (cachedShare !== undefined && cachedShareOwner !== mfName) return;
+        // Registration can replace an unloaded same-version root provider in-place.
+        // Pin the chosen provider while loadShare() runs its implicit registration.
+        const liveVersionMap = shared[pkg];
+        const liveProvider = liveVersionMap?.[version];
+        if (
+          providerEntry.registered &&
+          !scopeRootProvider &&
+          !__mfMatchesSharedProvider(liveProvider, provider)
+        ) return;
+        const loadedShare = await __mfLoadPinnedRuntimeShare(
+          pkg,
+          usedShare.shareConfig,
+          liveVersionMap,
+          version,
+          liveProvider,
+          provider,
+          providerEntry.registered
+        );
+        const actualProvider = loadedShare?.provider;
+        const actualSelection = loadedShare?.selection;
+        if (!actualSelection) return;
+        if (expectedSelection) {
+          if (
+            expectedSelection.version !== actualSelection.version ||
+            !__mfMatchesSharedProvider({ from: actualSelection.from }, expectedSelection.provider)
+          ) return;
+        }
+        if (bridgedProviders.has(actualProvider)) return;
+        const resolved = loadedShare?.resolved;
+        if (resolved === undefined) return;
+        const latestCachedShare = __mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor);
+        const latestCachedShareOwner = __mfReadSharedCacheOwner(__mfModuleCache.share, usedCacheDescriptor);
+        if (latestCachedShare !== undefined && latestCachedShareOwner !== mfName) return;
+        if (
+          actualSelection.registered &&
+          liveVersionMap?.[actualSelection.version] !== actualProvider
+        ) return;
+        if (!expectedSelection) {
+          bridgeSelections.set(pkg, {
+            version: actualSelection.version,
+            provider: { from: actualSelection.from }
+          });
+        }
+        bridgedProviders.add(actualProvider);
+        const normalized = __mfNormalizeRuntimeShare(resolved);
+        __mfWriteSharedCache(
+          __mfModuleCache.share,
+          usedCacheDescriptor,
+          normalized,
+          actualSelection.from
+        );
+      } catch (e) {
+        console.error('[Module Federation] Failed to bridge external shared module "' + pkg + '"', e)
+      }
+    };
+    for (const [pkg, usedShare] of Object.entries(usedShared)) {
+      if (usedShare.treeShaking) continue;
+      await __mfBridgeMaterializedProvider(pkg, usedShare, initialShared[pkg]);
+    }
+    for (const [pkg, share] of Object.entries(usedShared)) {
+      if (share.treeShaking) continue;
+      const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+      if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) continue;
+      const singletonCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, true, share.version, share.scope);
+      const singletonModule = __mfReadSharedCache(__mfModuleCache.share, singletonCacheDescriptor);
+      if (singletonModule !== undefined) {
+        __mfWriteSharedCache(
+          __mfModuleCache.share,
+          cacheDescriptor,
+          singletonModule,
+          __mfReadSharedCacheOwner(__mfModuleCache.share, singletonCacheDescriptor)
+        );
+      }
+    }
+    ${generateRuntimeSharedCacheSeedCode(options.shareStrategy)}
+    ${initializeSharingCode}
+    // Calling provider.get() marks a provider as loaded. Wait until the Runtime has
+    // finalized normal same-version precedence before materializing an external share.
+    for (const [pkg, usedShare] of Object.entries(usedShared)) {
+      if (usedShare.treeShaking) continue;
+      await __mfBridgeExternalSharedProvider(
+        pkg,
+        usedShare,
+        shared[pkg],
+        initialShared[pkg],
+        undefined
+      );
+    }
+    try {
+      const allInstances = globalThis.__FEDERATION__?.__SHARE__;
+      const globalVersionsByPackage = Object.create(null);
+      if (allInstances) {
+        for (const [, scopes] of Object.entries(allInstances)) {
+          const scopeShare = scopes?.['${options.shareScope}'];
+          if (!scopeShare) continue;
+          for (const [pkg, versionMap] of Object.entries(scopeShare)) {
+            const usedShare = usedShared?.[pkg];
+            const passedVersions = initialShared[pkg];
+            const bridgeSelection = bridgeSelections.get(pkg);
+            if (!usedShare) continue;
+            if (!passedVersions) continue;
+            if (!bridgeSelection) continue;
+            if (usedShare.treeShaking) continue;
+            const globalVersions = globalVersionsByPackage[pkg] || (globalVersionsByPackage[pkg] = Object.create(null));
+            for (const [version, provider] of Object.entries(versionMap)) {
+              if (!provider.lib) continue;
+              if (bridgeSelection.version !== version) continue;
+              if (!__mfMatchesSharedProvider(provider, bridgeSelection.provider)) continue;
+              const passedProvider = passedVersions[version];
+              const matchesPassedProvider = provider === passedProvider || (
+                passedProvider?.from && provider.from === passedProvider.from
+              );
+              if (!matchesPassedProvider) continue;
+              if (provider === usedShare || (usedShare.from && provider.from === usedShare.from)) continue;
+              if (globalVersions[version] === undefined) globalVersions[version] = provider;
+            }
+          }
+        }
+      }
+      for (const [pkg, versionMap] of Object.entries(globalVersionsByPackage)) {
+        await __mfBridgeExternalSharedProvider(
+          pkg,
+          usedShared[pkg],
+          versionMap,
+          initialShared[pkg],
+          bridgeSelections.get(pkg)
+        );
+      }
     } catch (e) {
-      console.error('[Module Federation]', e)
+      console.error('[Module Federation] Failed to bridge external shared modules', e)
     }
     ${generateTreeShakingSharedResolutionCode(hasTreeShakingShared)}
-    for (const [pkg, share] of Object.entries(usedShared)) {
+    const __mfResolveImportFalseShared = async (pkg, share) => {
       const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
       const cachedShare = share.treeShaking
         ? __mfReadTreeShakingSharedSelection(__mfModuleCache.share, cacheDescriptor, mfName)
         : __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
-      if (share.shareConfig?.import !== false || cachedShare !== undefined) continue;
+      if (share.shareConfig?.import !== false || cachedShare !== undefined) return;
       ${normalizeRuntimeShareCode}
-      const versions = shared?.[pkg];
-      const provider = __mfSelectSharedProvider(versions, pkg, share, '${options.shareStrategy}');
-      if (!provider) continue;
-      const factory = provider.lib || (provider.loading ? await provider.loading : await provider.get?.());
-      const mod = typeof factory === "function" ? factory() : factory;
-      const resolved = await Promise.resolve(mod);
-      __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, __mfNormalizeRuntimeShare(resolved));
+      const versionMap = shared?.[pkg];
+      const provider = __mfSelectSharedProvider(
+        versionMap,
+        pkg,
+        share,
+        '${options.shareStrategy}',
+        runtimeResolveShareHook
+      );
+      const providerEntry = __mfFindSharedProviderEntry(versionMap, provider);
+      if (!providerEntry) return;
+      const { version } = providerEntry;
+      const currentProvider = versionMap?.[version];
+      const loadedShare = await __mfLoadPinnedRuntimeShare(
+        pkg,
+        share.shareConfig,
+        versionMap,
+        version,
+        currentProvider,
+        provider,
+        providerEntry.registered
+      );
+      const providerSelection = loadedShare?.selection;
+      const actualProvider = loadedShare?.provider;
+      const resolved = loadedShare?.resolved;
+      if (!providerSelection) return;
+      if (resolved === undefined) return;
+      const latestCachedShare = share.treeShaking
+        ? __mfReadTreeShakingSharedSelection(__mfModuleCache.share, cacheDescriptor, mfName)
+        : __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
+      if (latestCachedShare !== undefined) return;
+      if (
+        providerSelection.registered &&
+        versionMap?.[providerSelection.version] !== actualProvider
+      ) return;
+      const normalizedShared = __mfNormalizeRuntimeShare(resolved);
+      if (share.treeShaking) {
+        const providedExports = share.treeShaking.providedExports ?? share.treeShaking.usedExports ?? [];
+        __mfWriteTreeShakingSharedCache(
+          __mfModuleCache.share,
+          cacheDescriptor,
+          providedExports,
+          normalizedShared
+        );
+        __mfWriteTreeShakingSharedSelection(
+          __mfModuleCache.share,
+          cacheDescriptor,
+          mfName,
+          normalizedShared
+        );
+      } else {
+        __mfWriteSharedCache(
+          __mfModuleCache.share,
+          cacheDescriptor,
+          normalizedShared,
+          providerSelection.from
+        );
+      }
+    };
+    // Resolve runtime-only dependencies and seed local fallbacks in dependency
+    // order. Stop at an unresolved provider so its consumers cannot capture an
+    // undefined or provisional singleton.
+    for (const pkg of __mfDeferredSeedKeys) {
+      const share = usedShared[pkg];
+      if (__mfIsRuntimeOnlySharePending(pkg)) {
+        if (share.treeShaking) {
+          await __mfResolveTreeShakingShared(pkg, share);
+        } else if (share.shareConfig?.import === false) {
+          await __mfResolveImportFalseShared(pkg, share);
+        }
+      }
+      if (__mfIsRuntimeOnlySharePending(pkg)) break;
+      await __mfSeedLocalShared([pkg]);
     }
     initResolve(initRes)
     return initRes
@@ -913,6 +1622,7 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
   const shouldPreloadShares =
     getNormalizeModuleFederationOptions().shareStrategy !== 'loaded-first';
   const hostInitShareOrder = JSON.stringify(getOrderedUsedShares());
+  const cacheOwner = JSON.stringify(getNormalizeModuleFederationOptions().name);
   return `
     ${getRuntimeModuleCacheBootstrapCode()}
     let hostInitPromise;
@@ -946,7 +1656,12 @@ export function generateHostAutoInitCode(remoteEntryImport: string, _command = '
             }).then((factory) => {
               const mod = typeof factory === "function" ? factory() : factory;
               return Promise.resolve(mod).then((resolved) => {
-                __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, __mfNormalizeRuntimeShare(resolved));
+                __mfWriteSharedCache(
+                  __mfModuleCache.share,
+                  cacheDescriptor,
+                  __mfNormalizeRuntimeShare(resolved),
+                  ${cacheOwner}
+                );
               });
             });
           }

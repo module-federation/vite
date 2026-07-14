@@ -5,7 +5,7 @@ Pure runtime host + Vite remote.
 What it shows:
 
 - host creates a Module Federation runtime instance
-- host registers React shared deps at runtime
+- host registers lazy, get-only React shared deps at runtime
 - host registers a remote with `registerRemotes()`
 - host loads exposed modules with `loadRemote()`
 

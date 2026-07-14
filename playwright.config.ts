@@ -20,6 +20,18 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
+    {
+      command: 'pnpm --filter examples-vite-runtime-register-host run preview',
+      url: 'http://localhost:4175',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: 'pnpm --filter examples-vite-runtime-register-remote run preview',
+      url: 'http://localhost:4176',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
   ],
   use: {
     trace: 'retain-on-failure',
@@ -50,6 +62,14 @@ export default defineConfig({
       testMatch: 'remote-preview.spec.ts',
       use: {
         baseURL: 'http://localhost:5176',
+        browserName: 'chromium',
+      },
+    },
+    {
+      name: 'vite-runtime-register',
+      testDir: 'e2e/vite-runtime-register',
+      use: {
+        baseURL: 'http://localhost:4175',
         browserName: 'chromium',
       },
     },
