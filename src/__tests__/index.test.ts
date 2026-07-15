@@ -1414,6 +1414,57 @@ describe('vite:module-federation-early-init', () => {
     expect(virtualModule?.code).toContain('jsx');
   });
 
+  it('pre-seeds transitive shared dependencies for the dev optimizer', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          '@vite-vite/shared-lib': { singleton: true },
+        },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = {
+      // Use the real vite-vite host fixture so this covers pnpm's isolated
+      // workspace dependency layout rather than a synthetic package graph.
+      root: REACT_EXAMPLE_ROOT,
+      optimizeDeps: { include: [], exclude: [], entries: ['custom-entry.ts'] },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    // The linked shared library must be part of Vite's initial optimizer
+    // inputs, so its transitive imports are discovered before browser startup.
+    expect(config.optimizeDeps.entries).toContain(
+      path.join(REACT_EXAMPLE_ROOT, '..', 'shared-lib', 'src', 'index.tsx')
+    );
+    expect(config.optimizeDeps.entries).toContain('custom-entry.ts');
+  });
+
+  it('does not create optimizer entries for missing exposes', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        exposes: { './missing': './does-not-exist.ts' },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = { root: REACT_EXAMPLE_ROOT };
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps?.entries).toBeUndefined();
+  });
+
   it('registers zustand shared subpath loadShare modules during early init', () => {
     const plugin = (
       federation({

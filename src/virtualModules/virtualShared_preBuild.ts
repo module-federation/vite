@@ -1251,7 +1251,16 @@ const WORKSPACE_SINGLETON_SSR_LOCAL_SHARE = '__mfNormalizeShareModule(__mfLocalS
 export function prependWorkspaceSingletonSsrImport(code: string): string {
   if (!code.includes('if (import.meta.env.SSR)')) return code;
   if (!code.includes(WORKSPACE_SINGLETON_SSR_LOCAL_SHARE)) return code;
-  if (code.includes('import * as __mfLocalShare')) return code;
+
+  const localShareImport =
+    /^[ \t]*import\s+\*\s+as\s+__mfLocalShare\s+from\s+(['"])(.+?)\1\s*;?[ \t]*\r?\n?/gm;
+  let hasLocalShareImport = false;
+  code = code.replace(localShareImport, (statement) => {
+    if (hasLocalShareImport) return '';
+    hasLocalShareImport = true;
+    return statement;
+  });
+  if (hasLocalShareImport) return code;
 
   const importMatch =
     code.match(
@@ -1566,14 +1575,16 @@ export function writeLoadShareModule(
         ? devImportSource
         : sharedImportSource;
   const prebuildImportLine =
-    usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
-      ? servesRemoteSingletonFallback ||
-        (usesDeferredSingletonFallback &&
-          command !== 'build' &&
-          (isWorkspaceSingleton || isWorkspacePackage))
-        ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(lazyLocalFallbackSource)};`
-        : ''
-      : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
+    usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback
+      ? ''
+      : usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
+        ? servesRemoteSingletonFallback ||
+          (usesDeferredSingletonFallback &&
+            command !== 'build' &&
+            (isWorkspaceSingleton || isWorkspacePackage))
+          ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(lazyLocalFallbackSource)};`
+          : ''
+        : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
   const devDynamicImportLine = isWorkspacePackage
     ? ''
     : usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
