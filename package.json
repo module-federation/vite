@@ -70,9 +70,9 @@
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "dependencies": {
-    "@module-federation/dts-plugin": "2.7.0",
-    "@module-federation/runtime": "2.7.0",
-    "@module-federation/sdk": "2.7.0"
+    "@module-federation/dts-plugin": "2.8.0",
+    "@module-federation/runtime": "2.8.0",
+    "@module-federation/sdk": "2.8.0"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",
