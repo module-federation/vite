@@ -31,6 +31,7 @@ Examples live in [`gioboa/module-federation-vite-examples`](https://github.com/g
 | ---------------------------------------------------------------------------------------- | --------------- | ----------------- | --------------------------- |
 | [Alpine](https://github.com/gioboa/module-federation-vite-examples/tree/main/alpine)     | `alpine-host`   | `alpine-remote`   | Alpine.js                   |
 | [Angular](https://github.com/gioboa/module-federation-vite-examples/tree/main/angular)   | `angular-host`  | `angular-remote`  | Angular                     |
+| [Ember](https://github.com/gioboa/module-federation-vite-examples/tree/main/ember)       | `ember-host`    | `ember-remote`    | Ember 7                     |
 | [Lit](https://github.com/gioboa/module-federation-vite-examples/tree/main/lit)           | `lit-host`      | `lit-remote`      | Lit                         |
 | [Nuxt](https://github.com/gioboa/module-federation-vite-examples/tree/main/nuxt)         | `nuxt-host`     | `nuxt-remote`     | Nuxt 4                      |
 | [Nx](https://github.com/gioboa/react-nx-microfrontend-demo)                              | `host`          | `remote`          | React + Nx                  |

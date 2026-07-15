@@ -1061,6 +1061,40 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).toContain('file:///abs/node_modules/react/index.js');
     expect(written).not.toMatch(/from\s*["']react["']/);
   });
+
+  it('partitions transformed temp-file cache entries by host shares and scope', async () => {
+    const written: string[] = [];
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (_p: unknown, code: unknown) => {
+        written.push(code as string);
+      }
+    );
+    const entryUrl = 'http://localhost:5001/remoteEntry.ssr.js';
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      [entryUrl]: {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'import { v } from "shared-lib"; export const value = v;',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory({
+      resolvedShared: { 'shared-lib': '/host-a/shared.mjs' },
+      shareScopeName: 'scope-a',
+    }).loadEntry!({ remoteInfo: { name: 'a', entry: 'http://localhost:5001/remoteEntry.js' } });
+    await factory({
+      resolvedShared: { 'shared-lib': '/host-b/shared.mjs' },
+      shareScopeName: 'scope-b',
+    }).loadEntry!({ remoteInfo: { name: 'b', entry: 'http://localhost:5001/remoteEntry.js' } });
+
+    expect(written).toHaveLength(2);
+    expect(written[0]).toContain('file:///host-a/shared.mjs');
+    expect(written[1]).toContain('file:///host-b/shared.mjs');
+  });
 });
 
 // ---------------------------------------------------------------------------

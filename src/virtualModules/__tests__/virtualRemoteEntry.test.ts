@@ -845,6 +845,43 @@ describe('virtualRemoteEntry', () => {
     expect(hostInit).toContain('const __mfHostInitShareOrder = ["react","@repro/react-consumer"]');
   });
 
+  it('orders React package roots before their subpath shares', async () => {
+    const share = (name: string) => ({
+      name,
+      version: '18.3.1',
+      scope: 'default',
+      shareConfig: { singleton: true, strictVersion: false },
+    });
+    normalizedSharedMock.mockReturnValue({
+      'react/jsx-runtime': share('react/jsx-runtime'),
+      react: share('react'),
+      'react-dom/client': share('react-dom/client'),
+      'react-dom': share('react-dom'),
+    });
+
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react/jsx-runtime');
+    mod.addUsedShares('react');
+    mod.addUsedShares('react-dom/client');
+    mod.addUsedShares('react-dom');
+
+    const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+    const orderMarker = 'const __mfHostInitShareOrder = ';
+    const orderStart = hostInit.indexOf(orderMarker);
+    const orderLineEnd = hostInit.indexOf('\n', orderStart);
+    const orderSource =
+      orderStart === -1 || orderLineEnd === -1
+        ? '[]'
+        : hostInit.slice(orderStart + orderMarker.length, orderLineEnd).trim();
+    const order = JSON.parse(
+      orderSource.endsWith(';') ? orderSource.slice(0, -1) : orderSource
+    ) as string[];
+
+    expect(order.indexOf('react')).toBeLessThan(order.indexOf('react/jsx-runtime'));
+    expect(order.indexOf('react-dom')).toBeLessThan(order.indexOf('react-dom/client'));
+  });
+
   it('uses auto-detected workspace import path in localSharedImportMap', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 

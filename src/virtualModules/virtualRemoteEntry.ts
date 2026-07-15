@@ -345,11 +345,23 @@ function orderSharedDependenciesFirst(sharedPackages: string[]) {
       const sharedDependency = sharedKeyByPackageName.get(dependency);
       if (sharedDependency) visit(sharedDependency);
     });
-    // A package's modules can consume its own shared subpath exports through
+    // Most packages can consume their own shared subpath exports through
     // self-referencing bare specifiers at module-evaluation time, so subpath
     // share keys must come before their package root (see #767, #805).
+    // React's subpath implementations have the opposite dependency: React 18
+    // evaluates react/jsx-runtime against ReactSharedInternals from the root
+    // package. Initializing the subpath first crashes in dev (see #924).
     if (pkg === packageName) {
-      (subpathKeysByPackageName.get(packageName) || []).forEach(visit);
+      const subpaths = subpathKeysByPackageName.get(packageName) || [];
+      const rootMustBeInitializedFirst = packageName === 'react' || packageName === 'react-dom';
+      if (rootMustBeInitializedFirst) {
+        visiting.delete(pkg);
+        visited.add(pkg);
+        ordered.push(pkg);
+        subpaths.forEach(visit);
+        return;
+      }
+      subpaths.forEach(visit);
     }
     visiting.delete(pkg);
     visited.add(pkg);

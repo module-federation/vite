@@ -106,7 +106,8 @@ async function invokeRunnerMiddleware(
   payload: unknown,
   env: { fetchModule?: unknown; hot?: { handleInvoke?: (payload: unknown) => Promise<unknown> } },
   rawPayload?: string,
-  serverConfig: Record<string, unknown> = { root: '/mock/cwd' }
+  serverConfig: Record<string, unknown> = { root: '/mock/cwd' },
+  method = 'POST'
 ) {
   const plugins = pluginSSRRemoteEntry(makeOptions());
   const mainPlugin = plugins[1];
@@ -142,7 +143,7 @@ async function invokeRunnerMiddleware(
   const runner = handlers.find((entry) => entry.path === '/__mf_runner__')?.handler;
   expect(runner).toBeDefined();
 
-  const req = createMockRequest('POST', payload, rawPayload);
+  const req = createMockRequest(method, payload, rawPayload);
   const res = createMockResponse();
   await runner!(req, res);
   return res;
@@ -440,7 +441,73 @@ describe('pluginSSRRemoteEntry', () => {
       expect(handleInvoke).toHaveBeenCalledWith(payload);
       expect(res.statusCode).toBe(200);
       expect(res.headers['Content-Type']).toBe('application/json');
+      expect(res.headers['Access-Control-Allow-Origin']).toBeUndefined();
       expect(JSON.parse(res.body)).toEqual({ result: { code: 'export default 1' } });
+    });
+
+    it('leaves CORS and preflight policy to Vite middleware', async () => {
+      const handleInvoke = vi.fn();
+      const res = await invokeRunnerMiddleware(
+        undefined,
+        { fetchModule: vi.fn(), hot: { handleInvoke } },
+        undefined,
+        { root: '/mock/cwd' },
+        'OPTIONS'
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(405);
+      expect(res.headers['Access-Control-Allow-Origin']).toBeUndefined();
+      expect(res.headers['Access-Control-Allow-Methods']).toBeUndefined();
+    });
+
+    it.each([
+      { startOffset: -1 },
+      { startOffset: 1.5 },
+      { startOffset: Number.MAX_SAFE_INTEGER },
+      { startOffset: '10' },
+      { cached: 'yes' },
+      { inlineSourceMap: 1 },
+      { unknown: true },
+    ])('rejects unsafe fetchModule options: %j', async (opts) => {
+      const handleInvoke = vi.fn();
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: { id: 'send', name: 'fetchModule', data: ['virtual:safe', null, opts] },
+        },
+        { fetchModule: vi.fn(), hot: { handleInvoke } }
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('accepts bounded supported fetchModule options', async () => {
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'export default 1' } });
+      const payload = {
+        type: 'custom',
+        event: 'vite:invoke',
+        data: {
+          id: 'send',
+          name: 'fetchModule',
+          data: [
+            'virtual:safe',
+            null,
+            { cached: false, inlineSourceMap: true, startOffset: 1024 * 1024 },
+          ],
+        },
+      };
+
+      const res = await invokeRunnerMiddleware(payload, {
+        fetchModule: vi.fn(),
+        hot: { handleInvoke },
+      });
+
+      expect(handleInvoke).toHaveBeenCalledWith(payload);
+      expect(res.statusCode).toBe(200);
     });
 
     it('rejects malformed or unsupported runner invokes before calling Vite', async () => {
@@ -581,6 +648,55 @@ describe('pluginSSRRemoteEntry', () => {
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
       expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it.each([
+      '/@id/__x00__/../../etc/passwd',
+      '/@id/__x00__../../etc/passwd',
+      '/@id/__x00__..%2F..%2Fetc%2Fpasswd',
+    ])('rejects traversal hidden behind a Vite-encoded null prefix: %s', async (unsafeId) => {
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'escaped' } });
+
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: {
+            id: 'send',
+            name: 'fetchModule',
+            data: [unsafeId],
+          },
+        },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('preserves legitimate Vite-encoded internal module ids', async () => {
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'export default 1' } });
+      const payload = {
+        type: 'custom',
+        event: 'vite:invoke',
+        data: {
+          id: 'send',
+          name: 'fetchModule',
+          data: ['/@id/__x00__vite/internal-helper'],
+        },
+      };
+
+      const res = await invokeRunnerMiddleware(payload, {
+        fetchModule: vi.fn(),
+        hot: { handleInvoke },
+      });
+
+      expect(handleInvoke).toHaveBeenCalledWith(payload);
+      expect(res.statusCode).toBe(200);
     });
 
     it('returns 400 for malformed encoded /@fs/ ids before calling Vite', async () => {
