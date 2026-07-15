@@ -2523,6 +2523,10 @@ describe('writeLoadShareModule', () => {
       'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
     );
     expect(prependWorkspaceSingletonSsrImport(ssrCode)).toBe(ssrCode);
+
+    const duplicateImport = `${ssrCode}\nimport * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";`;
+    const deduped = prependWorkspaceSingletonSsrImport(duplicateImport);
+    expect(deduped.match(/import \* as __mfLocalShare/g)).toHaveLength(1);
   });
 
   it('detects symlinked ESM-only workspace singleton fallbacks without eager prebuild imports', () => {
@@ -2630,6 +2634,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'import * as __mfLocalShare from "/repo/packages/workspace-producer/src/index.ts";'
     );
+    expect(generatedCode.match(/import \* as __mfLocalShare/g)).toHaveLength(1);
     expect(generatedCode).toContain('export { __mf_default as default };');
     expect(generatedCode).toContain('let __mf_default;');
     expect(generatedCode).toContain('let __mf_0;');
