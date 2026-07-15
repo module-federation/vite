@@ -47,7 +47,7 @@ describe('remote dependency pending', () => {
 
     expect(allCode).toMatch(/\b(?:const|var)\s+\{\s*View\s*\}\s*=\s*exportModule/);
     expect(allCode).not.toContain('const pendingPrototype = {};');
-    expect(allCode).toContain('__loadRemote__ckeditor5__loadRemote__');
+    expect(allCode).toMatch(/__loadRemote__ckeditor5__mf_owner__\d+__loadRemote__/);
     expect(allCode).toContain('const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;');
     expect(allCode).toContain('await dependencyPending;');
     expect(allCode).toMatch(
@@ -66,10 +66,12 @@ describe('remote dependency pending', () => {
 
     const allCode = getAllChunkCode(output);
 
-    expect(allCode).toContain('__loadRemote__remoteA_mf_1_shared_mf_1_helpers__loadRemote__');
+    expect(allCode).toMatch(
+      /__loadRemote__remoteA_mf_1_shared_mf_1_helpers__mf_owner__\d+__loadRemote__/
+    );
     expect(allCode).toContain('loadRemote("remoteA/shared/helpers")');
     expect(allCode).toMatch(
-      /await Promise\.all\(\[.*remoteA_mf_1_shared_mf_1_helpers__loadRemote__.*__mf_remote_pending/
+      /await Promise\.all\(\[.*remoteA_mf_1_shared_mf_1_helpers__mf_owner__\d+__loadRemote__.*__mf_remote_pending/
     );
     expect(allCode).toMatch(/\b(?:const|var)\s+\{\s*helper(?:\s*:\s*helper)?\s*\}\s*=/);
     expect(allCode).toContain('Promise.all([__mf_remote_pending]);');
