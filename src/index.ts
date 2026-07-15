@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
@@ -40,6 +40,8 @@ import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederat
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import {
   getIsRolldown,
+  getInstalledPackageEntry,
+  getInstalledPackageJson,
   hasPackageDependency,
   resolveImportPath,
   setPackageDetectionCwd,
@@ -257,6 +259,61 @@ function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean 
   } catch {
     return false;
   }
+}
+
+/**
+ * Vite's dependency scanner cannot see through the virtual loadShare modules
+ * generated for shared packages. As a result, dependencies of a linked/shared
+ * package may be discovered one request at a time and each discovery starts a
+ * new optimizer pass. Seed the optimizer with the complete dependency graph
+ * before the first request instead.
+ *
+ * Vite then resolves the package's own dependency graph using its normal
+ * scanner, preserving package and peer-dependency resolution semantics.
+ */
+function includeLinkedSharedEntries(
+  optimizeDeps: NonNullable<UserConfig['optimizeDeps']>,
+  shared: NormalizedModuleFederationOptions['shared'],
+  projectRoot: string,
+  exposes: NormalizedModuleFederationOptions['exposes'],
+  outDir: string
+): void {
+  const additions = new Set<string>();
+
+  const entries = new Set(
+    Array.isArray(optimizeDeps.entries)
+      ? optimizeDeps.entries
+      : optimizeDeps.entries
+        ? [optimizeDeps.entries]
+        : [
+            '**/*.html',
+            '!**/node_modules/**',
+            `!**/${outDir.replace(/\\/g, '/')}/**`,
+            '!**/__tests__/**',
+            '!**/coverage/**',
+          ]
+  );
+
+  for (const [packageName, share] of Object.entries(shared ?? {})) {
+    if (share?.shareConfig?.import === false) continue;
+    const installed = getInstalledPackageJson(packageName, { cwd: projectRoot });
+    if (!installed || installed.dir.replaceAll('\\', '/').includes('/node_modules/')) continue;
+    const entry = getInstalledPackageEntry(packageName, { cwd: projectRoot });
+    if (entry && existsSync(entry)) additions.add(entry);
+  }
+
+  for (const expose of Object.values(exposes ?? {})) {
+    const source = expose.import;
+    if (source.startsWith('.') || path.isAbsolute(source)) {
+      const entry = path.resolve(projectRoot, source);
+      if (existsSync(entry)) additions.add(entry);
+    }
+  }
+
+  if (additions.size === 0) return;
+
+  for (const entry of additions) entries.add(entry);
+  optimizeDeps.entries = [...entries];
 }
 
 /**
@@ -479,6 +536,16 @@ export default __mfShared.default ?? __mfShared;`,
           }
         }
         writeLocalSharedImportMap(options);
+      }
+      if (_command === 'serve') {
+        config.optimizeDeps ??= {};
+        includeLinkedSharedEntries(
+          config.optimizeDeps,
+          shared,
+          root,
+          options.exposes,
+          config.build?.outDir ?? 'dist'
+        );
       }
     },
 
