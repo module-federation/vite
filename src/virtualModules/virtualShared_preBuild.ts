@@ -17,6 +17,7 @@ import { mfWarn } from '../utils/logger';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import {
   getNormalizeModuleFederationOptions,
+  type NormalizedModuleFederationOptions,
   type NormalizedShared,
   type ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
@@ -34,6 +35,7 @@ import VirtualModule, { normalizeVirtualModuleId, toViteEncodedId } from '../uti
 import { normalizeNodeModulePath } from '../utils/pathNormalization';
 import {
   getRuntimeInitPromiseBootstrapCode,
+  getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
@@ -710,8 +712,10 @@ function getDependencyNames(packageJson: Record<string, unknown> | undefined) {
   return Array.from(names);
 }
 
-function isSharedSingletonConsumedByPeer(pkg: string) {
-  const options = getNormalizeModuleFederationOptions();
+function isSharedSingletonConsumedByPeer(
+  pkg: string,
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
   const shared = options?.shared || {};
   // Subpath shares (for example `preact/hooks`) execute against their package
   // root during module evaluation. Keep the root singleton eager so that the
@@ -760,8 +764,9 @@ function isSharedSingletonConsumedByPeer(pkg: string) {
   );
 }
 
-function isRemoteOnlyContainer() {
-  const options = getNormalizeModuleFederationOptions();
+function isRemoteOnlyContainer(
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
   return (
     Object.keys(options.exposes || {}).length > 0 && Object.keys(options.remotes || {}).length === 0
   );
@@ -799,14 +804,64 @@ export function getConcreteSharedImportSource(
 }
 
 // *** __prebuild__
-const preBuildCacheMap: Record<string, VirtualModule> = {};
-const preBuildShareItemMap: Record<string, ShareItem | undefined> = {};
 export const PREBUILD_TAG = '__prebuild__';
 
-const treeShakingProviderCacheMap: Record<string, VirtualModule> = {};
-const materializedTreeShakingProviders = new Set<string>();
 export const TREE_SHAKING_PROVIDER_TAG = '__treeShakingProvider__';
 export const TREE_SHAKING_GRAPH_QUERY = '__mf_tree_shaking_graph__';
+
+interface SharedVirtualModuleState {
+  preBuildCacheMap: Record<string, VirtualModule>;
+  preBuildShareItemMap: Record<string, ShareItem | undefined>;
+  treeShakingProviderCacheMap: Record<string, VirtualModule>;
+  materializedTreeShakingProviders: Set<string>;
+  loadShareCacheMap: Record<string, VirtualModule>;
+  ownerKey?: string;
+}
+
+const legacySharedVirtualModuleState: SharedVirtualModuleState = {
+  preBuildCacheMap: {},
+  preBuildShareItemMap: {},
+  treeShakingProviderCacheMap: {},
+  materializedTreeShakingProviders: new Set(),
+  loadShareCacheMap: {},
+};
+const sharedVirtualModuleStates = new WeakMap<
+  NormalizedModuleFederationOptions,
+  SharedVirtualModuleState
+>();
+let nextSharedVirtualModuleOwnerId = 1;
+
+function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions) {
+  if (!options) {
+    try {
+      const currentOptions = getNormalizeModuleFederationOptions();
+      return sharedVirtualModuleStates.get(currentOptions) ?? legacySharedVirtualModuleState;
+    } catch {
+      return legacySharedVirtualModuleState;
+    }
+  }
+  let state = sharedVirtualModuleStates.get(options);
+  if (!state) {
+    state = {
+      preBuildCacheMap: {},
+      preBuildShareItemMap: {},
+      treeShakingProviderCacheMap: {},
+      materializedTreeShakingProviders: new Set(),
+      loadShareCacheMap: {},
+      ownerKey: `${options.internalName}__mf_owner__${nextSharedVirtualModuleOwnerId++}`,
+    };
+    sharedVirtualModuleStates.set(options, state);
+  }
+  return state;
+}
+
+function createScopedSharedVirtualModule(
+  pkg: string,
+  tag: string,
+  options?: NormalizedModuleFederationOptions
+) {
+  return new VirtualModule(pkg, tag, '.js', getSharedVirtualModuleState(options).ownerKey);
+}
 
 export function getTreeShakingGraphToken(id: string | undefined): string | undefined {
   if (!id) return undefined;
@@ -847,24 +902,45 @@ export function addTreeShakingGraphQuery(id: string, token: string): string {
   return `${base}${separator}${TREE_SHAKING_GRAPH_QUERY}=${encodeURIComponent(token)}${hash}`;
 }
 
-function getConcreteTreeShakingExportUsage(pkg: string, shareItem?: ShareItem) {
-  return getTreeShakingExportUsage(pkg, shareItem, shareItem?.name);
+function getConcreteTreeShakingExportUsage(
+  pkg: string,
+  shareItem?: ShareItem,
+  options?: NormalizedModuleFederationOptions
+) {
+  return getTreeShakingExportUsage(pkg, shareItem, shareItem?.name, options);
 }
 
-export function getTreeShakingSharedProviderName(pkg: string): string {
-  const { internalName, name } = getNormalizeModuleFederationOptions();
-  return `${internalName || name}__tree_shaking__${packageNameEncode(pkg)}`;
+export function getTreeShakingSharedProviderName(
+  pkg: string,
+  options?: NormalizedModuleFederationOptions
+): string {
+  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
+  const ownerName = getSharedVirtualModuleState(options).ownerKey;
+  return `${ownerName ?? resolvedOptions.internalName ?? resolvedOptions.name}__tree_shaking__${packageNameEncode(pkg)}`;
 }
 
-export function getTreeShakingSharedProviderImportId(pkg: string): string {
+export function getTreeShakingSharedProviderImportId(
+  pkg: string,
+  options?: NormalizedModuleFederationOptions
+): string {
+  const { treeShakingProviderCacheMap } = getSharedVirtualModuleState(options);
   if (!treeShakingProviderCacheMap[pkg]) {
-    treeShakingProviderCacheMap[pkg] = new VirtualModule(pkg, TREE_SHAKING_PROVIDER_TAG, '.js');
+    treeShakingProviderCacheMap[pkg] = createScopedSharedVirtualModule(
+      pkg,
+      TREE_SHAKING_PROVIDER_TAG,
+      options
+    );
   }
   return treeShakingProviderCacheMap[pkg].getImportId();
 }
 
-export function hasTreeShakingSharedProvider(pkg: string, shareItem?: ShareItem): boolean {
-  const usage = getConcreteTreeShakingExportUsage(pkg, shareItem);
+export function hasTreeShakingSharedProvider(
+  pkg: string,
+  shareItem?: ShareItem,
+  options?: NormalizedModuleFederationOptions
+): boolean {
+  const { materializedTreeShakingProviders } = getSharedVirtualModuleState(options);
+  const usage = getConcreteTreeShakingExportUsage(pkg, shareItem, options);
   return materializedTreeShakingProviders.has(pkg) && usage?.kind === 'exports';
 }
 
@@ -877,8 +953,14 @@ export function hasTreeShakingSharedProvider(pkg: string, shareItem?: ShareItem)
  * perform its normal usedExports compatibility check and safely choose the full
  * provider when the optimized one is insufficient.
  */
-export function writeTreeShakingSharedProvider(pkg: string, shareItem?: ShareItem): void {
-  const usage = getConcreteTreeShakingExportUsage(pkg, shareItem);
+export function writeTreeShakingSharedProvider(
+  pkg: string,
+  shareItem?: ShareItem,
+  options?: NormalizedModuleFederationOptions
+): void {
+  const { materializedTreeShakingProviders, treeShakingProviderCacheMap } =
+    getSharedVirtualModuleState(options);
+  const usage = getConcreteTreeShakingExportUsage(pkg, shareItem, options);
   if (
     usage?.kind !== 'exports' ||
     !usage.usedExports.length ||
@@ -903,7 +985,11 @@ export function writeTreeShakingSharedProvider(pkg: string, shareItem?: ShareIte
 
   const provider =
     treeShakingProviderCacheMap[pkg] ||
-    (treeShakingProviderCacheMap[pkg] = new VirtualModule(pkg, TREE_SHAKING_PROVIDER_TAG, '.js'));
+    (treeShakingProviderCacheMap[pkg] = createScopedSharedVirtualModule(
+      pkg,
+      TREE_SHAKING_PROVIDER_TAG,
+      options
+    ));
   // Give the optimized provider a distinct module-graph namespace. Otherwise
   // Rollup sees the same package modules in both the complete fallback and the
   // optimized entry, hoists them into one shared chunk, and the "optimized"
@@ -957,11 +1043,18 @@ export default { get, init };
   materializedTreeShakingProviders.add(pkg);
 }
 
-export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
+export function writePreBuildLibPath(
+  pkg: string,
+  shareItem?: ShareItem,
+  options?: NormalizedModuleFederationOptions
+) {
+  const { preBuildCacheMap, preBuildShareItemMap } = getSharedVirtualModuleState(options);
+  if (!preBuildCacheMap[pkg]) {
+    preBuildCacheMap[pkg] = createScopedSharedVirtualModule(pkg, PREBUILD_TAG, options);
+  }
   preBuildShareItemMap[pkg] = shareItem;
   const importSource = getConcreteSharedImportSource(pkg, shareItem) || pkg;
-  writeTreeShakingSharedProvider(pkg, shareItem);
+  writeTreeShakingSharedProvider(pkg, shareItem, options);
   if (pkg === 'react/compiler-runtime') {
     const reactShareItem =
       shareItem ??
@@ -1055,42 +1148,71 @@ export function writePreBuildLibPath(pkg: string, shareItem?: ShareItem) {
 }
 
 /** Re-render already materialized wrappers after import analysis discovers exports. */
-export function refreshTreeShakingModules() {
+export function refreshTreeShakingModules(options?: NormalizedModuleFederationOptions) {
+  const { preBuildShareItemMap } = getSharedVirtualModuleState(options);
   for (const [pkg, shareItem] of Object.entries(preBuildShareItemMap)) {
     if (!shareItem?.shareConfig.treeShaking) continue;
-    writePreBuildLibPath(pkg, shareItem);
-    writeLoadShareModule(pkg, shareItem, 'build', false);
+    writePreBuildLibPath(pkg, shareItem, options);
+    writeLoadShareModule(pkg, shareItem, 'build', false, options);
   }
 }
-export function getPreBuildLibImportId(pkg: string): string {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
+export function getPreBuildLibImportId(
+  pkg: string,
+  options?: NormalizedModuleFederationOptions
+): string {
+  const { preBuildCacheMap } = getSharedVirtualModuleState(options);
+  if (!preBuildCacheMap[pkg]) {
+    preBuildCacheMap[pkg] = createScopedSharedVirtualModule(pkg, PREBUILD_TAG, options);
+  }
   const importId = preBuildCacheMap[pkg].getImportId();
   return importId;
 }
-export function getPreBuildLibPath(pkg: string): string {
-  if (!preBuildCacheMap[pkg]) preBuildCacheMap[pkg] = new VirtualModule(pkg, PREBUILD_TAG, '.js');
+export function getPreBuildLibPath(
+  pkg: string,
+  options?: NormalizedModuleFederationOptions
+): string {
+  const { preBuildCacheMap } = getSharedVirtualModuleState(options);
+  if (!preBuildCacheMap[pkg]) {
+    preBuildCacheMap[pkg] = createScopedSharedVirtualModule(pkg, PREBUILD_TAG, options);
+  }
   return preBuildCacheMap[pkg].getImportId();
 }
-export function getPreBuildShareItem(pkg: string): ShareItem | undefined {
-  return preBuildShareItemMap[pkg];
+export function getPreBuildShareItem(
+  pkg: string,
+  options?: NormalizedModuleFederationOptions
+): ShareItem | undefined {
+  return getSharedVirtualModuleState(options).preBuildShareItemMap[pkg];
 }
 
-export function getSharedImportSource(pkg: string, shareItem?: ShareItem): string {
-  return getConcreteSharedImportSource(pkg, shareItem) || getPreBuildLibImportId(pkg);
+export function getSharedImportSource(
+  pkg: string,
+  shareItem?: ShareItem,
+  options?: NormalizedModuleFederationOptions
+): string {
+  return getConcreteSharedImportSource(pkg, shareItem) || getPreBuildLibImportId(pkg, options);
 }
 
 // *** __loadShare__
 export const LOAD_SHARE_TAG = '__loadShare__';
 
-const loadShareCacheMap: Record<string, VirtualModule> = {};
-export function getLoadShareImportId(pkg: string, _isRolldown: boolean): string {
+export function getLoadShareImportId(
+  pkg: string,
+  _isRolldown: boolean,
+  options?: NormalizedModuleFederationOptions
+): string {
+  const { loadShareCacheMap } = getSharedVirtualModuleState(options);
   if (!loadShareCacheMap[pkg]) {
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
+    loadShareCacheMap[pkg] = createScopedSharedVirtualModule(pkg, LOAD_SHARE_TAG, options);
   }
   return loadShareCacheMap[pkg].getImportId();
 }
-export function getLoadShareModulePath(pkg: string, isRolldown: boolean): string {
-  if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown);
+export function getLoadShareModulePath(
+  pkg: string,
+  isRolldown: boolean,
+  options?: NormalizedModuleFederationOptions
+): string {
+  const { loadShareCacheMap } = getSharedVirtualModuleState(options);
+  if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown, options);
   const filepath = loadShareCacheMap[pkg].getImportId();
   return filepath;
 }
@@ -1124,6 +1246,7 @@ export function materializeCachedLoadShareModule(options: {
   findSharedKey: (source: string, shared: NormalizedShared) => string | undefined;
   addUsedShares: (pkg: string) => void;
   writeLocalSharedImportMap: () => void;
+  federationOptions?: NormalizedModuleFederationOptions;
 }): void {
   const pkg = getCachedLoadSharePkg(options.id);
   if (!pkg) return;
@@ -1131,9 +1254,15 @@ export function materializeCachedLoadShareModule(options: {
   if (!key) return;
 
   const shareItem = options.shared[key];
-  writeLoadShareModule(pkg, shareItem, options.command, options.isRolldown);
+  writeLoadShareModule(
+    pkg,
+    shareItem,
+    options.command,
+    options.isRolldown,
+    options.federationOptions
+  );
   if (shareItem.shareConfig?.import !== false) {
-    writePreBuildLibPath(pkg, shareItem);
+    writePreBuildLibPath(pkg, shareItem, options.federationOptions);
   }
   options.addUsedShares(pkg);
   options.writeLocalSharedImportMap();
@@ -1348,18 +1477,20 @@ export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
   command: string,
-  _isRolldown: boolean
+  _isRolldown: boolean,
+  options?: NormalizedModuleFederationOptions
 ) {
+  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
+  const { loadShareCacheMap } = getSharedVirtualModuleState(options);
   if (!loadShareCacheMap[pkg]) {
-    loadShareCacheMap[pkg] = new VirtualModule(pkg, LOAD_SHARE_TAG, '.js');
+    loadShareCacheMap[pkg] = createScopedSharedVirtualModule(pkg, LOAD_SHARE_TAG, options);
   }
   let importLine = getRuntimeModuleCacheBootstrapCode();
   const cacheDescriptor = getSharedCacheDescriptorLiteral(pkg, shareItem);
-  const cacheOwner = JSON.stringify(getNormalizeModuleFederationOptions().name);
+  const cacheOwner = JSON.stringify(resolvedOptions.name);
+  const runtimeInitOwnerImportId = options ? getRuntimeInitStatusImportId(options) : undefined;
   const treeShakingConsumer =
-    command === 'build' && shareItem.shareConfig.treeShaking
-      ? getNormalizeModuleFederationOptions().name
-      : undefined;
+    command === 'build' && shareItem.shareConfig.treeShaking ? resolvedOptions.name : undefined;
 
   // import: false means the host must provide this module — the remote has no local copy.
   // Generate a minimal loadShare module that just delegates to the runtime.
@@ -1395,7 +1526,7 @@ export function writeLoadShareModule(
     }
     loadShareCacheMap[pkg].writeSync(
       `
-    ${getRuntimeInitPromiseBootstrapCode()}
+    ${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}
     ${importLine}
     ${sharedCacheHelperCode}
     ${exportLine}
@@ -1407,7 +1538,7 @@ export function writeLoadShareModule(
 
   // Normal path: package is installed locally, create full loadShare with prebuild fallback.
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
-  const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg);
+  const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg, options);
   const devImportSource = concreteSharedImportSource || pkg;
   const localProviderPath = getLocalProviderImportPath(pkg);
   const coherentLocalSource = concreteSharedImportSource || localProviderPath || devImportSource;
@@ -1431,22 +1562,24 @@ export function writeLoadShareModule(
     hasCompleteExportCoverage &&
     (isWorkspaceSingleton ||
       (command !== 'build' &&
-        isRemoteOnlyContainer() &&
+        isRemoteOnlyContainer(resolvedOptions) &&
         shareItem.shareConfig.singleton === true) ||
       (command === 'build' &&
-        isRemoteOnlyContainer() &&
+        isRemoteOnlyContainer(resolvedOptions) &&
         shareItem.shareConfig.singleton === true &&
         !isDefaultShareScope));
   const servesRemoteSingletonFallback =
-    command !== 'build' && isRemoteOnlyContainer() && shareItem.shareConfig.singleton === true;
-  const isConsumedByPeerSingleton = isSharedSingletonConsumedByPeer(pkg);
+    command !== 'build' &&
+    isRemoteOnlyContainer(resolvedOptions) &&
+    shareItem.shareConfig.singleton === true;
+  const isConsumedByPeerSingleton = isSharedSingletonConsumedByPeer(pkg, resolvedOptions);
   const usesEntryInjectedRemoteFallback =
     hasCompleteExportCoverage &&
     command !== 'build' &&
     !isWorkspaceSingleton &&
-    isRemoteOnlyContainer() &&
+    isRemoteOnlyContainer(resolvedOptions) &&
     shareItem.shareConfig.singleton === true &&
-    getNormalizeModuleFederationOptions().hostInitInjectLocation === 'entry' &&
+    resolvedOptions.hostInitInjectLocation === 'entry' &&
     isConsumedByPeerSingleton;
   const usesEagerWorkspaceFallback =
     hasCompleteExportCoverage && isWorkspaceSingleton && isConsumedByPeerSingleton;
@@ -1454,7 +1587,7 @@ export function writeLoadShareModule(
   let exportLine: string;
   let initBlock = '';
   if (usesDeferredTreeShakingFallback) {
-    importLine = `${getRuntimeInitPromiseBootstrapCode()}\n    ${importLine}`;
+    importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
     exportLine = generateLazyWorkspaceSingletonExports(
       namedExports,
       lazyLocalFallbackSource,
@@ -1473,7 +1606,7 @@ export function writeLoadShareModule(
       treeShakingConsumer
     );
   } else if (usesDeferredSingletonFallback) {
-    importLine = `${getRuntimeInitPromiseBootstrapCode()}\n    ${importLine}`;
+    importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
     exportLine = generateLazyWorkspaceSingletonExports(
       namedExports,
       lazyLocalFallbackSource,

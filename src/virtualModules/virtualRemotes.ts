@@ -9,6 +9,7 @@ import VirtualModule from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
   getRuntimeInitBootstrapCode,
+  getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
 
@@ -336,7 +337,12 @@ export function generateRemotes(
   const browserHostInitCode = `import(${JSON.stringify(hostAutoInitPath)})
         .then((mod) => mod.hostInitPromise)
         .then(initResolve, initReject);`;
-  const devRuntimeBootstrap = `${getRuntimeInitBootstrapCode(enableSsrInit, hostAutoInitPath, ssrRemotes)}
+  const devRuntimeBootstrap = `${getRuntimeInitBootstrapCode(
+    enableSsrInit,
+    getRuntimeInitStatusImportId(options),
+    ssrRemotes,
+    hostAutoInitPath
+  )}
     const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
   const devHostInitLine = command === 'serve' && consumer !== 'server' ? browserHostInitCode : '';
   const importLine =

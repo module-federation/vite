@@ -20,6 +20,7 @@ import { getUsedRemotesMap } from './virtualRemotes';
 import {
   getRuntimeInitBootstrapCode,
   getRuntimeInitResolveBootstrapCode,
+  getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
 import {
@@ -109,14 +110,18 @@ function shouldUseDirectReactImport() {
   return isVinext || isAstro;
 }
 
-function getLocalSharedPackagePath(pkg: string, shareItem: ShareItem) {
+function getLocalSharedPackagePath(
+  pkg: string,
+  shareItem: ShareItem,
+  options?: NormalizedModuleFederationOptions
+) {
   const useDirectReactImport = shouldUseDirectReactImport();
   if (useDirectReactImport && pkg === 'react') return 'react';
 
   return (
     getConcreteSharedImportSource(pkg, shareItem) ||
     getLocalProviderImportPath(pkg) ||
-    getSharedImportSource(pkg, shareItem)
+    getSharedImportSource(pkg, shareItem, options)
   );
 }
 
@@ -138,7 +143,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
       const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
       if (!shareItem?.shareConfig.eager || shareItem.shareConfig.import === false) return '';
       return `import * as __mfEagerShare_${index} from ${JSON.stringify(
-        getLocalSharedPackagePath(pkg, shareItem)
+        getLocalSharedPackagePath(pkg, shareItem, options)
       )};`;
     })
     .filter(Boolean)
@@ -159,7 +164,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
               : shareItem?.shareConfig.eager
                 ? `let pkg = __mfEagerShare_${index};
             return pkg;`
-                : `let pkg = await import(${JSON.stringify(getLocalSharedPackagePath(pkg, shareItem))});
+                : `let pkg = await import(${JSON.stringify(getLocalSharedPackagePath(pkg, shareItem, options))});
             return pkg;`
           }
         }
@@ -180,7 +185,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           // namespace instead of selecting a different tree provider.
           const treeShakingConfig = canLiveRebind ? shareItem.shareConfig.treeShaking : undefined;
           const treeShakingUsage = treeShakingConfig
-            ? getTreeShakingExportUsage(key, shareItem, shareItem.name)
+            ? getTreeShakingExportUsage(key, shareItem, shareItem.name, options)
             : undefined;
           const treeShakingProviderExports =
             treeShakingUsage?.kind === 'exports' ? treeShakingUsage.usedExports : [];
@@ -198,8 +203,8 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           const treeShakingProviderImportId =
             treeShakingConfig &&
             !disableRuntimeInference &&
-            hasTreeShakingSharedProvider(key, shareItem)
-              ? getTreeShakingSharedProviderImportId(key)
+            hasTreeShakingSharedProvider(key, shareItem, options)
+              ? getTreeShakingSharedProviderImportId(key, options)
               : undefined;
           const treeShakingStatus =
             treeShakingUsage?.kind === 'full' ||
@@ -1002,8 +1007,14 @@ export function generateRemoteEntry(
     .join('\n')}
   ${
     command === 'build'
-      ? getRuntimeInitResolveBootstrapCode()
-      : getRuntimeInitBootstrapCode() + '\n  const { initResolve } = globalThis[globalKey];'
+      ? getRuntimeInitResolveBootstrapCode(
+          false,
+          options ? getRuntimeInitStatusImportId(options) : undefined
+        )
+      : getRuntimeInitBootstrapCode(
+          false,
+          options ? getRuntimeInitStatusImportId(options) : undefined
+        ) + '\n  const { initResolve } = globalThis[globalKey];'
   }
   ${getRuntimeModuleCacheBootstrapCode()}
   const initTokens = {}

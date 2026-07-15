@@ -53,7 +53,7 @@ export function decodeViteId(id: string): string {
 }
 
 export function assertModuleFound(tag: string, str: string = ''): VirtualModule {
-  const module = VirtualModule.findModule(tag, str);
+  const module = VirtualModule.findById(str) ?? VirtualModule.findModule(tag, str);
   if (!module) {
     throw createModuleFederationError(
       `Module Federation shared module '${str}' not found. Please ensure it's installed as a dependency in your package.json.`

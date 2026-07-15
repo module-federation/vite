@@ -356,7 +356,8 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
           // Process shared modules
           const fileToShareKey = await buildFileToShareKeyMap(
             getUsedShares(mfOptions),
-            this.resolve.bind(this)
+            this.resolve.bind(this),
+            mfOptions
           );
           // Secondary tree-shaken providers are loaded only after runtime
           // compatibility selection. Advertising them as normal shared assets
@@ -465,7 +466,12 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
           ? createRemoteEntryAssetMap(resolvedRemoteEntryFile)
           : createEmptyAssetMap());
 
-      const treeShakingUsage = getTreeShakingExportUsage(shareKey, shareItem, shareItem.name);
+      const treeShakingUsage = getTreeShakingExportUsage(
+        shareKey,
+        shareItem,
+        shareItem.name,
+        options
+      );
       const treeShakingUsedExports =
         treeShakingUsage?.kind === 'exports' ? treeShakingUsage.usedExports : [];
       const treeShakingStatus = treeShakingUsage?.kind === 'full' ? 0 : 1;

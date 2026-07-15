@@ -73,5 +73,17 @@ export function initVirtualModules(
 ) {
   writeLocalSharedImportMap(options);
   writeHostAutoInit(remoteEntryId, command, options);
-  writeRuntimeInitStatus(command, enableSsrInit, getHostAutoInitPath(options));
+  writeRuntimeInitStatus(
+    command,
+    enableSsrInit,
+    getHostAutoInitPath(options),
+    options,
+    options
+      ? Object.entries(options.remotes).map(([name, item]) => ({
+          name,
+          entry: item.entry,
+          type: item.type ?? 'module',
+        }))
+      : undefined
+  );
 }
