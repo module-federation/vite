@@ -650,6 +650,55 @@ describe('pluginSSRRemoteEntry', () => {
       expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
     });
 
+    it.each([
+      '/@id/__x00__/../../etc/passwd',
+      '/@id/__x00__../../etc/passwd',
+      '/@id/__x00__..%2F..%2Fetc%2Fpasswd',
+    ])('rejects traversal hidden behind a Vite-encoded null prefix: %s', async (unsafeId) => {
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'escaped' } });
+
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: {
+            id: 'send',
+            name: 'fetchModule',
+            data: [unsafeId],
+          },
+        },
+        {
+          fetchModule: vi.fn(),
+          hot: { handleInvoke },
+        }
+      );
+
+      expect(handleInvoke).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+    });
+
+    it('preserves legitimate Vite-encoded internal module ids', async () => {
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'export default 1' } });
+      const payload = {
+        type: 'custom',
+        event: 'vite:invoke',
+        data: {
+          id: 'send',
+          name: 'fetchModule',
+          data: ['/@id/__x00__vite/internal-helper'],
+        },
+      };
+
+      const res = await invokeRunnerMiddleware(payload, {
+        fetchModule: vi.fn(),
+        hot: { handleInvoke },
+      });
+
+      expect(handleInvoke).toHaveBeenCalledWith(payload);
+      expect(res.statusCode).toBe(200);
+    });
+
     it('returns 400 for malformed encoded /@fs/ ids before calling Vite', async () => {
       const handleInvoke = vi.fn();
 

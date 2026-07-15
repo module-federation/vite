@@ -108,7 +108,7 @@ function isSafeRunnerFetchModuleId(id: unknown, config: RunnerValidationConfig):
 
   const rawDecoded = decodeViteId(id);
   const decoded = rawDecoded.replace(/^\0+/, '');
-  if (!decoded || rawDecoded.startsWith('\0') || decoded.startsWith('virtual:')) return !!decoded;
+  if (!decoded || decoded.startsWith('virtual:')) return !!decoded;
   if (decoded.startsWith('file://')) {
     try {
       const filePath = decodeURIComponent(new URL(decoded).pathname);
