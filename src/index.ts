@@ -71,7 +71,6 @@ import {
   getLoadShareModulePath,
   materializeCachedLoadShareModule,
   prependWorkspaceSingletonSsrImport,
-  toViteOptimizedDepVirtualId,
   writeLoadShareModule,
   writePreBuildLibPath,
 } from './virtualModules/virtualShared_preBuild';
@@ -464,7 +463,6 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (!key) return;
                   const shareItem = shared[key];
                   const loadSharePath = getLoadShareModulePath(args.path, isRolldown);
-                  const optimizedLoadSharePath = toViteOptimizedDepVirtualId(loadSharePath);
                   writeLoadShareModule(args.path, shareItem, _command, isRolldown);
                   if (shareItem.shareConfig?.import !== false) {
                     writePreBuildLibPath(args.path, shareItem);
@@ -473,8 +471,8 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   return {
                     loader: 'js',
                     resolveDir: root,
-                    contents: `import * as __mfShared from ${JSON.stringify(optimizedLoadSharePath)};
-export * from ${JSON.stringify(optimizedLoadSharePath)};
+                    contents: `import * as __mfShared from ${JSON.stringify(loadSharePath)};
+export * from ${JSON.stringify(loadSharePath)};
 export default __mfShared.default ?? __mfShared;`,
                   };
                 });
