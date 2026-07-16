@@ -30,7 +30,7 @@ import {
   getSharedCacheDescriptor,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
-import VirtualModule, { normalizeVirtualModuleId, toViteEncodedId } from '../utils/VirtualModule';
+import VirtualModule, { normalizeVirtualModuleId } from '../utils/VirtualModule';
 import { normalizeNodeModulePath } from '../utils/pathNormalization';
 import {
   getRuntimeInitPromiseBootstrapCode,
@@ -1093,10 +1093,6 @@ export function getLoadShareModulePath(pkg: string, isRolldown: boolean): string
   if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown);
   const filepath = loadShareCacheMap[pkg].getImportId();
   return filepath;
-}
-
-export function toViteOptimizedDepVirtualId(id: string): string {
-  return toViteEncodedId(id);
 }
 
 export function getCachedLoadSharePkg(id: string): string | undefined {

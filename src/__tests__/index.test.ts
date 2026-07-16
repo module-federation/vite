@@ -12,10 +12,10 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parsePromise } from '../plugins/pluginModuleParseEnd';
 import { callHook } from '../utils/__tests__/viteHookHelpers';
 import type { PluginManifestOptions } from '../utils/normalizeModuleFederationOptions';
+import { toViteEncodedId } from '../utils/VirtualModule';
 import {
   getLoadShareImportId,
   getLoadShareModulePath,
-  toViteOptimizedDepVirtualId,
 } from '../virtualModules/virtualShared_preBuild';
 
 const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
@@ -1025,14 +1025,14 @@ describe('vite:module-federation-early-init', () => {
 
     const result = onLoadHandlers[0]({ path: 'pkg-foo/a' });
     const loadSharePath = getLoadShareModulePath('pkg-foo/a', false);
-    const optimizedLoadSharePath = toViteOptimizedDepVirtualId(loadSharePath);
+    const encodedLoadSharePath = toViteEncodedId(loadSharePath);
 
-    expect(onResolveHandlers[0]({ path: optimizedLoadSharePath })).toEqual({
-      path: optimizedLoadSharePath,
+    expect(onResolveHandlers[0]({ path: encodedLoadSharePath })).toEqual({
+      path: encodedLoadSharePath,
       external: true,
     });
-    expect(result.contents).toContain(JSON.stringify(optimizedLoadSharePath));
-    expect(result.contents).not.toContain(`from ${JSON.stringify(loadSharePath)}`);
+    expect(result.contents).toContain(JSON.stringify(loadSharePath));
+    expect(result.contents).not.toContain(JSON.stringify(encodedLoadSharePath));
   });
 
   it('does not proxy shared deps when esbuild resolves optimizeDeps entry points', () => {
@@ -1380,10 +1380,8 @@ describe('vite:module-federation-early-init', () => {
     const optimizedRequireReact = resolver.load('module-federation:optimized-require-react');
     expect(optimizedRequireReact).toContain(JSON.stringify(getLoadShareModulePath('react', true)));
     expect(optimizedRequireReact).not.toContain('/@id/__x00__');
-    expect(
-      resolver.resolveId(toViteOptimizedDepVirtualId(getLoadShareModulePath('react', true)))
-    ).toEqual({
-      id: toViteOptimizedDepVirtualId(getLoadShareModulePath('react', true)),
+    expect(resolver.resolveId(toViteEncodedId(getLoadShareModulePath('react', true)))).toEqual({
+      id: toViteEncodedId(getLoadShareModulePath('react', true)),
       external: true,
     });
     expect(resolver.resolveId('react/jsx-runtime', '/repo/src/App.tsx')).toEqual({
