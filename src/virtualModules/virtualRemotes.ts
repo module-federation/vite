@@ -9,6 +9,8 @@ import VirtualModule from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
   getRuntimeInitBootstrapCode,
+  getRuntimeRemoteAlias,
+  getRuntimeRemoteCachePrefix,
   getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
@@ -104,6 +106,16 @@ export function getRemoteFromId(id: string, remotes: Record<string, RemoteObject
   return remoteAlias ? remotes[remoteAlias] : undefined;
 }
 
+export function getRuntimeRemoteId(
+  id: string,
+  remotes: Record<string, RemoteObjectConfig>,
+  options?: NormalizedModuleFederationOptions
+) {
+  const alias = getRemoteAliasFromId(id, remotes);
+  if (!alias) return id;
+  return `${getRuntimeRemoteAlias(alias, options)}${id.slice(alias.length)}`;
+}
+
 /**
  * How a generated remote wrapper loads at module evaluation time.
  *
@@ -192,7 +204,7 @@ function getRemoteModuleRuntimeHelpers() {
     }`;
 }
 
-function getDeferredProxyHelper(remoteId: string) {
+function getDeferredProxyHelper(remoteCacheKey: string) {
   return `
     function __mfCreateDeferredRemoteProxy() {
       let pendingPromise;
@@ -200,7 +212,7 @@ function getDeferredProxyHelper(remoteId: string) {
         pendingPromise ||= __mfStartRemoteLoad();
         return pendingPromise;
       };
-      const getModule = () => __mfModuleCache.remote[${JSON.stringify(remoteId)}];
+      const getModule = () => __mfModuleCache.remote[${JSON.stringify(remoteCacheKey)}];
       const proxyTarget = function (...args) {
         pendingPromise ||= __mfStartRemoteLoad();
         const mod = getModule();
@@ -310,27 +322,30 @@ export function generateRemotes(
   command: string,
   enableSsrInit = false,
   consumer: RemoteConsumer = 'unified',
-  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+  options?: NormalizedModuleFederationOptions
 ) {
-  const isLoadedFirst = options.shareStrategy === 'loaded-first';
-  const initMode = resolveRemoteInitMode(options.shareStrategy, consumer);
+  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
+  const isLoadedFirst = resolvedOptions.shareStrategy === 'loaded-first';
+  const initMode = resolveRemoteInitMode(resolvedOptions.shareStrategy, consumer);
   const deferRemoteLoad = shouldDeferRemoteLoad(initMode);
-  const remoteAlias = getRemoteAliasFromId(id, options.remotes);
-  const remote = remoteAlias ? options.remotes[remoteAlias] : undefined;
+  const remoteAlias = getRemoteAliasFromId(id, resolvedOptions.remotes);
+  const remote = remoteAlias ? resolvedOptions.remotes[remoteAlias] : undefined;
+  const runtimeRemoteAlias = remoteAlias ? getRuntimeRemoteAlias(remoteAlias, options) : undefined;
+  const runtimeRemoteId = getRuntimeRemoteId(id, resolvedOptions.remotes, options);
   const registerRemoteCode =
     isLoadedFirst && remote
       ? `runtime.registerRemotes([${JSON.stringify({
           entryGlobalName: remote.entryGlobalName,
-          name: remote.name,
-          alias: remoteAlias,
+          name: options ? runtimeRemoteAlias : remote.name,
+          alias: runtimeRemoteAlias,
           type: remote.type,
           entry: remote.entry,
           shareScope: remote.shareScope ?? 'default',
         })}]);`
       : '';
   const hostAutoInitPath = getHostAutoInitPath(options);
-  const ssrRemotes = Object.entries(options.remotes).map(([name, item]) => ({
-    name,
+  const ssrRemotes = Object.entries(resolvedOptions.remotes).map(([name, item]) => ({
+    name: getRuntimeRemoteAlias(name, options),
     entry: item.entry,
     type: item.type ?? 'module',
   }));
@@ -352,6 +367,7 @@ export function generateRemotes(
       : `${devRuntimeBootstrap}
     ${devHostInitLine}`;
   const remoteLoadRuntimePromise = command === 'build' ? '__mfHostInitPromise' : 'initPromise';
+  const remoteCacheKey = `${getRuntimeRemoteCachePrefix(options)}${id}`;
   const remoteLoadFailureHandler =
     command === 'build'
       ? `.catch((error) => {
@@ -363,16 +379,17 @@ export function generateRemotes(
             throw error;
           })`;
   const startRemoteLoadCode = `
-      const pendingKey = ${JSON.stringify(`__mf_pending__${id}`)};
+      const remoteCacheKey = ${JSON.stringify(remoteCacheKey)};
+      const pendingKey = "__mf_pending__" + remoteCacheKey;
       if (!__mfModuleCache.remote[pendingKey]) {
         __mfModuleCache.remote[pendingKey] = ${remoteLoadRuntimePromise}
           .then((runtime) => {
             ${registerRemoteCode}
-            return runtime.loadRemote(${JSON.stringify(id)});
+            return runtime.loadRemote(${JSON.stringify(runtimeRemoteId)});
           })
           .then((mod) => Promise.resolve(mod?.__mf_remote_dependency_pending).then(() => mod))
           .then((mod) => {
-            __mfModuleCache.remote[${JSON.stringify(id)}] = mod;
+            __mfModuleCache.remote[remoteCacheKey] = mod;
             delete __mfModuleCache.remote[pendingKey];
             return mod;
           })
@@ -413,7 +430,7 @@ export function generateRemotes(
     deferRemoteLoad
   );
 
-  const deferredProxyCode = getDeferredProxyHelper(id);
+  const deferredProxyCode = getDeferredProxyHelper(remoteCacheKey);
 
   return `
     ${importLine}
@@ -421,7 +438,7 @@ export function generateRemotes(
     ${includeProxyHelper ? deferredProxyCode : ''}
     ${getRemoteModuleRuntimeHelpers()}
     let __mfRemotePending;
-    let exportModule = __mfModuleCache.remote[${JSON.stringify(id)}]
+    let exportModule = __mfModuleCache.remote[${JSON.stringify(remoteCacheKey)}]
     if (exportModule === undefined) {
       ${initExportModule}
     }

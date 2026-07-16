@@ -20,3 +20,18 @@ test.describe('vite-vite remote preview', () => {
     await expect(button).toHaveText('count: 3');
   });
 });
+
+test('generates var entries from both captured federation configs', async ({ page }) => {
+  await page.goto('/');
+  await page.addScriptTag({ url: '/testbase/varRemoteEntry.js' });
+  await page.addScriptTag({ url: '/testbase/secondaryVarRemoteEntry.js' });
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        primary: typeof globalThis['@namespace/viteViteRemote'],
+        secondary: typeof globalThis['@namespace/viteViteRemoteSecondary'],
+      }))
+    )
+    .toEqual({ primary: 'object', secondary: 'object' });
+});

@@ -73,7 +73,11 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
 
 function runGeneratedRemoteModule(
   code: string,
-  runtime: { loadRemote: ReturnType<typeof vi.fn>; registerRemotes?: ReturnType<typeof vi.fn> }
+  runtime: { loadRemote: ReturnType<typeof vi.fn>; registerRemotes?: ReturnType<typeof vi.fn> },
+  moduleCache: { remote: Record<string, unknown>; share: Record<string, unknown> } = {
+    remote: {},
+    share: {},
+  }
 ) {
   const start = code.indexOf('function __mfStartRemoteLoad()');
   expect(start).toBeGreaterThanOrEqual(0);
@@ -97,9 +101,9 @@ function runGeneratedRemoteModule(
 
   return Function(
     'runtime',
+    '__mfModuleCache',
     `
       const __exports = {};
-      const __mfModuleCache = { remote: {}, share: {} };
       const initPromise = Promise.resolve(runtime);
       const __mfHostInitPromise = initPromise;
       ${moduleCode}
@@ -109,7 +113,7 @@ function runGeneratedRemoteModule(
       });
       return __exports;
     `
-  )(runtime) as {
+  )(runtime, moduleCache) as {
     default: unknown;
     __moduleExports: Record<string, unknown>;
     __mf_remote_pending: Promise<unknown> | { then: Promise<unknown>['then'] };
@@ -501,14 +505,77 @@ describe('generateRemotes', () => {
     expect(wrapperA.code).not.toContain(
       '/virtual/hostInit-https%3A%2F%2Ftenant-b.invalid%2FremoteEntry.js.js'
     );
-    expect(wrapperA.code).toContain(
-      'remotes: [{"name":"remote","entry":"https://tenant-a.invalid/remoteEntry.js","type":"module"}]'
+    expect(wrapperA.code).toMatch(
+      /remotes: \[{"name":"shared_host_name__mf_owner__\d+__remote","entry":"https:\/\/tenant-a\.invalid\/remoteEntry\.js","type":"module"}\]/
     );
 
     addUsedRemote('remote', 'remote/CardA', optionsA);
     addUsedRemote('remote', 'remote/CardB', optionsB);
     expect([...getUsedRemotesMap(optionsA).remote]).toEqual(['remote/CardA']);
     expect([...getUsedRemotesMap(optionsB).remote]).toEqual(['remote/CardB']);
+  });
+
+  it('does not reuse pending or loaded remotes across federation instances', async () => {
+    const makeOptions = (entry: string) =>
+      ({
+        internalName: 'shared_host_name',
+        shareStrategy: 'version-first',
+        remotes: {
+          remote: {
+            entryGlobalName: 'remote',
+            name: 'remote',
+            type: 'module',
+            entry,
+            shareScope: 'default',
+          },
+        },
+      }) as never;
+    const optionsA = makeOptions('https://tenant-a.invalid/remoteEntry.js');
+    const optionsB = makeOptions('https://tenant-b.invalid/remoteEntry.js');
+    const moduleCache = { remote: {}, share: {} };
+    let resolveA: (value: { default: string }) => void = () => {};
+    const runtimeA = {
+      loadRemote: vi.fn(
+        () =>
+          new Promise<{ default: string }>((resolve) => {
+            resolveA = resolve;
+          })
+      ),
+    };
+    const runtimeB = {
+      loadRemote: vi.fn(() => Promise.resolve({ default: 'tenant-b' })),
+    };
+
+    const exportsA = runGeneratedRemoteModule(
+      generateRemotes('remote/App', 'serve', false, 'server', optionsA),
+      runtimeA,
+      moduleCache
+    );
+    const exportsB = runGeneratedRemoteModule(
+      generateRemotes('remote/App', 'serve', false, 'server', optionsB),
+      runtimeB,
+      moduleCache
+    );
+
+    await expect(exportsB.__mf_remote_pending).resolves.toEqual({ default: 'tenant-b' });
+    const runtimeIdA = (runtimeA.loadRemote.mock.calls[0] as unknown as [string])[0];
+    const runtimeIdB = (runtimeB.loadRemote.mock.calls[0] as unknown as [string])[0];
+    expect(runtimeIdA).toMatch(/^shared_host_name__mf_owner__\d+__remote\/App$/);
+    expect(runtimeIdB).toMatch(/^shared_host_name__mf_owner__\d+__remote\/App$/);
+    expect(runtimeIdA).not.toBe(runtimeIdB);
+    expect(
+      Object.keys(moduleCache.remote).filter(
+        (key) => !key.startsWith('__mf_pending__') && key.endsWith('::remote/App')
+      )
+    ).toHaveLength(1);
+
+    resolveA({ default: 'tenant-a' });
+    await expect(exportsA.__mf_remote_pending).resolves.toEqual({ default: 'tenant-a' });
+    expect(
+      Object.keys(moduleCache.remote).filter(
+        (key) => !key.startsWith('__mf_pending__') && key.endsWith('::remote/App')
+      )
+    ).toHaveLength(2);
   });
 
   it('uses ESM remote wrappers in Rollup build mode', () => {

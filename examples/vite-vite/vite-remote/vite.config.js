@@ -15,6 +15,29 @@ const antdShared = {
     ? { treeShaking: { mode: treeShakingMode, usedExports: ['Button', 'Input'] } }
     : {}),
 };
+const shared = {
+  vue: {},
+  'react/': {
+    singleton: true,
+    requiredVersion: '^19.2.4',
+  },
+  react: {
+    singleton: true,
+    requiredVersion: '^19.2.4',
+  },
+  'react-dom/': {
+    singleton: true,
+    requiredVersion: '^19.2.4',
+  },
+  'react-dom': {
+    singleton: true,
+    requiredVersion: '^19.2.4',
+  },
+  '@vite-vite/shared-lib': { singleton: true },
+  antd: {
+    ...antdShared,
+  },
+};
 
 export default defineConfig({
   server: {
@@ -45,10 +68,11 @@ export default defineConfig({
         './MuiDemo': './src/MuiDemo.jsx',
         './StyledDemo': './src/StyledDemo.jsx',
         './EmotionDemo': './src/EmotionDemo.jsx',
+        './InstanceMarker': './src/InstanceMarkerPrimary.js',
         '.': './src/App.jsx',
       },
       dts: false,
-      filename: 'remoteEntry-[hash].js',
+      filename: 'remoteEntry.js',
       varFilename: 'varRemoteEntry.js', // in cases when host's config requires remote's "type": "var"
       manifest: {
         additionalData({ stats }) {
@@ -59,29 +83,21 @@ export default defineConfig({
           };
         },
       },
-      shared: {
-        vue: {},
-        'react/': {
-          singleton: true,
-          requiredVersion: '^19.2.4',
-        },
-        react: {
-          singleton: true,
-          requiredVersion: '^19.2.4',
-        },
-        'react-dom/': {
-          singleton: true,
-          requiredVersion: '^19.2.4',
-        },
-        'react-dom': {
-          singleton: true,
-          requiredVersion: '^19.2.4',
-        },
-        '@vite-vite/shared-lib': { singleton: true },
-        antd: {
-          ...antdShared,
-        },
+      shared,
+    }),
+    federation({
+      name: '@namespace/viteViteRemoteSecondary',
+      hostInitInjectLocation: 'entry',
+      exposes: {
+        './InstanceMarker': './src/InstanceMarkerSecondary.js',
       },
+      dts: false,
+      filename: 'secondaryRemoteEntry.js',
+      varFilename: 'secondaryVarRemoteEntry.js',
+      manifest: {
+        fileName: 'secondary-mf-manifest.json',
+      },
+      shared,
     }),
   ].filter(Boolean),
   build: {

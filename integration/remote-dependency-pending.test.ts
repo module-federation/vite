@@ -69,7 +69,9 @@ describe('remote dependency pending', () => {
     expect(allCode).toMatch(
       /__loadRemote__remoteA_mf_1_shared_mf_1_helpers__mf_owner__\d+__loadRemote__/
     );
-    expect(allCode).toContain('loadRemote("remoteA/shared/helpers")');
+    expect(allCode).toMatch(
+      /loadRemote\("__mfe_internal__transitiveRemote__mf_owner__\d+__remoteA\/shared\/helpers"\)/
+    );
     expect(allCode).toMatch(
       /await Promise\.all\(\[.*remoteA_mf_1_shared_mf_1_helpers__mf_owner__\d+__loadRemote__.*__mf_remote_pending/
     );

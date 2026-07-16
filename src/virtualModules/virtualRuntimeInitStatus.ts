@@ -8,15 +8,20 @@ const runtimeInitOwnerIds = new WeakMap<NormalizedModuleFederationOptions, numbe
 let nextRuntimeInitOwnerId = 1;
 const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
 
+function getRuntimeInitOwnerId(options: NormalizedModuleFederationOptions) {
+  let ownerId = runtimeInitOwnerIds.get(options);
+  if (!ownerId) {
+    ownerId = nextRuntimeInitOwnerId++;
+    runtimeInitOwnerIds.set(options, ownerId);
+  }
+  return ownerId;
+}
+
 function getRuntimeInitModule(options?: NormalizedModuleFederationOptions) {
   if (!options) return virtualRuntimeInitStatus;
   let runtimeInitModule = runtimeInitModules.get(options);
   if (!runtimeInitModule) {
-    let ownerId = runtimeInitOwnerIds.get(options);
-    if (!ownerId) {
-      ownerId = nextRuntimeInitOwnerId++;
-      runtimeInitOwnerIds.set(options, ownerId);
-    }
+    const ownerId = getRuntimeInitOwnerId(options);
     runtimeInitModule = new VirtualModule(
       'runtimeInit',
       '__mf_v__',
@@ -30,6 +35,15 @@ function getRuntimeInitModule(options?: NormalizedModuleFederationOptions) {
 
 export function getRuntimeInitStatusImportId(options?: NormalizedModuleFederationOptions) {
   return getRuntimeInitModule(options).getImportId();
+}
+
+export function getRuntimeRemoteCachePrefix(options?: NormalizedModuleFederationOptions) {
+  return options ? `${getRuntimeInitStatusImportId(options)}::` : '';
+}
+
+export function getRuntimeRemoteAlias(alias: string, options?: NormalizedModuleFederationOptions) {
+  if (!options) return alias;
+  return `${options.internalName}__mf_owner__${getRuntimeInitOwnerId(options)}__${alias}`;
 }
 
 export function getRuntimeInitGlobalKey(ownerImportId?: string) {

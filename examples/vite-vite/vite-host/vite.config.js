@@ -13,6 +13,78 @@ const antdShared = {
     ? { treeShaking: { mode: treeShakingMode, usedExports: ['Button', 'Input'] } }
     : {}),
 };
+const shared = {
+  vue: {},
+  'react/': {
+    singleton: true,
+    requiredVersion: '^19.2.4',
+  },
+  'react-dom': {
+    singleton: true,
+    requiredVersion: '^19.2.4',
+  },
+  react: {
+    singleton: true,
+    requiredVersion: '^19.2.4',
+  },
+  'react-dom/': {
+    singleton: true,
+    requiredVersion: '^19.2.4',
+  },
+  '@vite-vite/shared-consumer': { singleton: true },
+  '@vite-vite/shared-lib': { singleton: true },
+  '@vite-vite/shared-lib/helpers': { singleton: true },
+  antd: {
+    ...antdShared,
+  },
+};
+const instanceMarkerId = '@namespace/viteViteRemote/InstanceMarker';
+
+function routeInstanceMarker(plugins, acceptsImporter) {
+  const proxyRemotes = plugins.find((plugin) => plugin.name === 'proxyRemotes');
+  const resolveId = proxyRemotes?.resolveId;
+  if (typeof resolveId !== 'function') return plugins;
+
+  proxyRemotes.resolveId = function (source, importer, ...args) {
+    if (source === instanceMarkerId && !acceptsImporter(importer)) return;
+    return resolveId.call(this, source, importer, ...args);
+  };
+  return plugins;
+}
+
+const primaryFederation = routeInstanceMarker(
+  federation({
+    name: 'viteViteHost',
+    remotes: {
+      '@namespace/viteViteRemote': 'http://localhost:5176/testbase/mf-manifest.json',
+    },
+    dts: false,
+    filename: 'hostRemoteEntry.js',
+    varFilename: 'hostVarRemoteEntry.js',
+    manifest: true,
+    shared,
+    runtimePlugins: ['./src/mfPlugins'],
+  }),
+  (importer) => !importer?.endsWith('/SecondaryFederationMarker.jsx')
+);
+
+const secondaryFederation = routeInstanceMarker(
+  federation({
+    name: 'viteViteHostSecondary',
+    remotes: {
+      '@namespace/viteViteRemote':
+        'http://localhost:5176/testbase/secondary-mf-manifest.json',
+    },
+    dts: false,
+    filename: 'secondaryHostRemoteEntry.js',
+    varFilename: 'secondaryHostVarRemoteEntry.js',
+    manifest: {
+      fileName: 'secondary-host-mf-manifest.json',
+    },
+    shared,
+  }),
+  (importer) => importer?.endsWith('/SecondaryFederationMarker.jsx')
+);
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -26,42 +98,8 @@ export default defineConfig({
   // base: 'http://localhost:5175',
   plugins: [
     react(),
-    federation({
-      name: 'viteViteHost',
-      remotes: {
-        '@namespace/viteViteRemote': 'http://localhost:5176/testbase/mf-manifest.json',
-      },
-      dts: false,
-      filename: 'remoteEntry-[hash].js',
-      varFilename: 'varRemoteEntry.js',
-      manifest: true,
-      shared: {
-        vue: {},
-        'react/': {
-          singleton: true,
-          requiredVersion: '^19.2.4',
-        },
-        'react-dom': {
-          singleton: true,
-          requiredVersion: '^19.2.4',
-        },
-        react: {
-          singleton: true,
-          requiredVersion: '^19.2.4',
-        },
-        'react-dom/': {
-          singleton: true,
-          requiredVersion: '^19.2.4',
-        },
-        '@vite-vite/shared-consumer': { singleton: true },
-        '@vite-vite/shared-lib': { singleton: true },
-        '@vite-vite/shared-lib/helpers': { singleton: true },
-        antd: {
-          ...antdShared,
-        },
-      },
-      runtimePlugins: ['./src/mfPlugins'],
-    }),
+    primaryFederation,
+    secondaryFederation,
   ],
   build: {
     target: 'chrome89',

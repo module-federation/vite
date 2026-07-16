@@ -88,4 +88,52 @@ describe('pluginVarRemoteEntry', () => {
     );
     expect(emitted['remoteEntry.var.js']).not.toContain('assets/remoteEntry-abc123.js');
   });
+
+  it('keeps var entries bound to each federation instance options', async () => {
+    const optionsA = {
+      name: 'tenantA',
+      filename: 'remote-a.js',
+      varFilename: 'remote-a.var.js',
+    } as never;
+    const optionsB = {
+      name: 'tenantB',
+      filename: 'remote-b.js',
+      varFilename: 'remote-b.var.js',
+    } as never;
+    const [, buildPluginA] = pluginVarRemoteEntry(optionsA);
+    const [, buildPluginB] = pluginVarRemoteEntry(optionsB);
+    getNormalizeModuleFederationOptions.mockReturnValue({
+      name: 'wrongGlobal',
+      filename: 'wrong.js',
+      varFilename: 'wrong.var.js',
+    });
+    const emitted: Record<string, string> = {};
+    const emitFile: EmitFile = (asset) => {
+      if ('fileName' in asset && typeof asset.fileName === 'string' && 'source' in asset) {
+        emitted[asset.fileName] = String(asset.source);
+      }
+      return 'id';
+    };
+    const bundle = {
+      'remote-a.js': chunk('remote-a.js', 'remoteEntry'),
+      'remote-b.js': chunk('remote-b.js', 'remoteEntry'),
+    } as OutputBundle;
+
+    for (const plugin of [buildPluginA, buildPluginB]) {
+      await callHook(
+        plugin.generateBundle as unknown as GenerateBundleHook | { handler: GenerateBundleHook },
+        { emitFile } as TestPluginContext as PluginContext,
+        {} as NormalizedOutputOptions,
+        bundle,
+        false
+      );
+    }
+
+    expect(emitted['remote-a.var.js']).toContain('var tenantA;');
+    expect(emitted['remote-a.var.js']).toContain("getScriptUrl() + 'remote-a.js'");
+    expect(emitted['remote-a.var.js']).not.toContain('wrongGlobal');
+    expect(emitted['remote-b.var.js']).toContain('var tenantB;');
+    expect(emitted['remote-b.var.js']).toContain("getScriptUrl() + 'remote-b.js'");
+    expect(emitted['remote-b.var.js']).not.toContain('wrongGlobal');
+  });
 });

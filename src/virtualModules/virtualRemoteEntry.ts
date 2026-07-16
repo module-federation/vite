@@ -20,6 +20,7 @@ import { getUsedRemotesMap } from './virtualRemotes';
 import {
   getRuntimeInitBootstrapCode,
   getRuntimeInitResolveBootstrapCode,
+  getRuntimeRemoteAlias,
   getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
@@ -282,9 +283,11 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           if (!remote) return null;
           return `
                 {
-                  alias: ${JSON.stringify(key)},
+                  alias: ${JSON.stringify(getRuntimeRemoteAlias(key, options))},
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
-                  name: ${JSON.stringify(remote.name)},
+                  name: ${JSON.stringify(
+                    options ? getRuntimeRemoteAlias(key, options) : remote.name
+                  )},
                   type: ${JSON.stringify(remote.type)},
                   entry: ${JSON.stringify(remote.entry)},
                   shareScope: ${JSON.stringify(remote.shareScope ?? 'default')},

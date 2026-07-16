@@ -75,4 +75,35 @@ test.describe('vite-vite host preview', () => {
 
     expect(consoleLogs).toHaveLength(1);
   });
+
+  test('isolates identical remote ids across two federation configs', async ({ page }) => {
+    await page.goto('/');
+
+    await expect(page.getByTestId('primary-federation-marker')).toHaveText(
+      'primary federation instance'
+    );
+    await page.waitForFunction(() => {
+      const cache = (globalThis as any).__mf_module_cache__?.remote ?? {};
+      return Object.keys(cache).filter(
+        (key) => !key.startsWith('__mf_pending__') && key.endsWith('::@namespace/viteViteRemote/InstanceMarker')
+      ).length === 2;
+    });
+    const cachedMarkers = await page.evaluate(() => {
+      const cache = (globalThis as any).__mf_module_cache__.remote;
+      return Object.entries(cache)
+        .filter(
+          ([key]) =>
+            !key.startsWith('__mf_pending__') &&
+            key.endsWith('::@namespace/viteViteRemote/InstanceMarker')
+        )
+        .map(([key, value]: [string, any]) => ({ key, marker: value.default }));
+    });
+
+    expect(cachedMarkers).toHaveLength(2);
+    expect(new Set(cachedMarkers.map(({ key }) => key)).size).toBe(2);
+    expect(cachedMarkers.map(({ marker }) => marker).sort()).toEqual([
+      'primary federation instance',
+      'secondary federation instance',
+    ]);
+  });
 });

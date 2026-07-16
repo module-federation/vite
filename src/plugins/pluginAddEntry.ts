@@ -15,8 +15,11 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { decodeViteId, toViteEncodedId, VITE_ID_PREFIX } from '../utils/VirtualModule';
-import { getUsedRemotesMap } from '../virtualModules/virtualRemotes';
-import { getRuntimeModuleCacheBootstrapCode } from '../virtualModules/virtualRuntimeInitStatus';
+import { getRuntimeRemoteId, getUsedRemotesMap } from '../virtualModules/virtualRemotes';
+import {
+  getRuntimeModuleCacheBootstrapCode,
+  getRuntimeRemoteCachePrefix,
+} from '../virtualModules/virtualRuntimeInitStatus';
 
 interface AddEntryOptions {
   entryName: string;
@@ -291,19 +294,30 @@ const __mfCurrentScript = document.currentScript;
             Array.from(remotes).filter((remote) => remote !== remoteKey)
           )
           .sort()
-          .map((remote) => `__mfPreloadRemote(${JSON.stringify(remote)})`)
+          .map(
+            (remote) =>
+              `__mfPreloadRemote(${JSON.stringify(
+                getRuntimeRemoteId(
+                  remote,
+                  (federationOptions ?? getNormalizeModuleFederationOptions()).remotes,
+                  federationOptions
+                )
+              )}, ${JSON.stringify(remote)})`
+          )
           .join(',')
       : '';
+    const remoteCachePrefix = getRuntimeRemoteCachePrefix(federationOptions);
 
     const preloadBlock = remotePreloads
       ? `
   const runtime = await initHost();
-  const __mfPreloadRemote = (remote) => {
-    const pendingKey = "__mf_pending__" + remote;
+  const __mfPreloadRemote = (runtimeRemote, remote) => {
+    const remoteCacheKey = ${JSON.stringify(remoteCachePrefix)} + remote;
+    const pendingKey = "__mf_pending__" + remoteCacheKey;
     if (!__mfModuleCache.remote[pendingKey]) {
-      __mfModuleCache.remote[pendingKey] = runtime.loadRemote(remote)
+      __mfModuleCache.remote[pendingKey] = runtime.loadRemote(runtimeRemote)
         .then((mod) => {
-          __mfModuleCache.remote[remote] = mod;
+          __mfModuleCache.remote[remoteCacheKey] = mod;
           delete __mfModuleCache.remote[pendingKey];
           return mod;
         })

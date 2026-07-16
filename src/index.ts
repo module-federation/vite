@@ -1326,7 +1326,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     },
     ...pluginManifest(options),
     ...pluginSSRRemoteEntry(options),
-    ...pluginVarRemoteEntry(),
+    ...pluginVarRemoteEntry(options),
     {
       name: 'module-federation-vinext-fix-rsc-preload-as',
       enforce: 'post' as const,
