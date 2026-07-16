@@ -458,6 +458,8 @@ function getNamedExportsViaRegex(
       const name = asMatch[1];
       if (isValidEsmExportName(name)) {
         names.add(name);
+      } else if (name === 'default' || name === '__esModule') {
+        // recognized default/__esModule re-export — not named, but scan stays complete
       } else {
         scanState.complete = false;
       }
