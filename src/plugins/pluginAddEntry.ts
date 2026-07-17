@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import * as fs from 'fs';
+import { createHash } from 'node:crypto';
 import * as path from 'node:path';
-import type { Plugin, Rollup } from 'vite';
+import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { normalizePathForImport, rebaseImport } from '../utils/buildPaths';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
@@ -145,7 +145,7 @@ const addEntry = ({
   let htmlFilePath: string | undefined;
   let _command: string;
   let emitFileId: string;
-  let viteConfig: any;
+  let viteConfig: ResolvedConfig;
   // Producer remotes are consumed via federation entry URLs, not their index.html.
   // Skip only the broad dev HTML fallback — not isHydrationEntryFallback, which
   // SSR producer apps without index.html still need when hostInitInjectLocation is 'entry'.
@@ -708,7 +708,7 @@ const __mfCurrentScript = document.currentScript;
               htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
             }
           }
-          if (waitsForInit) {
+          if (waitsForInit && viteConfig.build.modulePreload !== false) {
             htmlContent = injectHostInitPreloads(htmlContent, bundle, (builtFileName) =>
               resolvePath(builtFileName, fileName)
             );
