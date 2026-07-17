@@ -1,3 +1,6 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import type {
   ConfigEnv,
   ConfigPluginContext,
@@ -10,9 +13,6 @@ import type {
   ViteDevServer,
 } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import { toViteEncodedId, VITE_ID_PREFIX } from '../../utils/VirtualModule';
 
 vi.mock('../../utils/packageUtils', () => ({
@@ -39,9 +39,9 @@ vi.mock('../../utils/normalizeModuleFederationOptions', async () => {
   };
 });
 
-import addEntry from '../pluginAddEntry';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { addUsedRemote, getUsedRemotesMap } from '../../virtualModules/virtualRemotes';
+import addEntry from '../pluginAddEntry';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
 
@@ -1609,6 +1609,86 @@ describe('pluginAddEntry', () => {
     expect(html).not.toContain('chunk-_virtual_mf___app__prebuild__antd__prebuild__.js');
     expect(html.match(/chunk-index\.B_\.js/g)?.length).toBe(1);
     expect(html).not.toContain('index.AA.css');
+  });
+
+  it('skips modulepreloads when disabled', () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+    const buildPlugin = plugins[1];
+    const emitted: Rollup.EmittedFile[] = [];
+    const bundle: any = {
+      'index.html': {
+        type: 'asset',
+        source:
+          '<html><head><script type="module" src="/app/src/main.tsx"></script></head><body></body></html>',
+      },
+      'assets/chunk-hostInit.D8.js': {
+        type: 'chunk',
+        name: 'hostInit',
+        fileName: 'assets/chunk-hostInit.D8.js',
+      },
+      'assets/chunk-remoteEntry.u3.js': {
+        type: 'chunk',
+        name: 'remoteEntry',
+        fileName: 'assets/chunk-remoteEntry.u3.js',
+      },
+      'assets/chunk-_virtual_mf-localSharedImportMap___app.Bl.js': {
+        type: 'chunk',
+        name: '_virtual_mf-localSharedImportMap___app',
+        fileName: 'assets/chunk-_virtual_mf-localSharedImportMap___app.Bl.js',
+      },
+      'assets/chunk-_virtual_mf___app__prebuild__antd__prebuild__.js': {
+        type: 'chunk',
+        name: '_virtual_mf___app__prebuild__antd__prebuild__',
+        fileName: 'assets/chunk-_virtual_mf___app__prebuild__antd__prebuild__.js',
+      },
+      'assets/chunk-index.B_.js': {
+        type: 'chunk',
+        name: 'index',
+        fileName: 'assets/chunk-index.B_.js',
+      },
+      'assets/index.AA.css': {
+        type: 'asset',
+        name: 'index',
+        fileName: 'assets/index.AA.css',
+      },
+    };
+
+    runConfigResolved(buildPlugin, {
+      root: '/repo/host',
+      base: '/app/',
+      command: 'build',
+      build: { rollupOptions: {}, modulePreload: false },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'host-init-ref';
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'assets/hostInit.js',
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'bootstrap-ref-' + emitted.length;
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+
+    const html = String(bundle['index.html'].source);
+    expect(html).not.toContain('rel="modulepreload"');
   });
 
   it('wraps SvelteKit static inline startup behind host init during build', () => {
