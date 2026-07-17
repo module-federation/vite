@@ -9,10 +9,30 @@ import { describe, expect, it } from 'vitest';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
-import { getHostAutoInitPath } from '../../virtualModules';
+import { addUsedShares, generateHostAutoInitCode, getHostAutoInitPath } from '../../virtualModules';
 import pluginProxyRemoteEntry from '../pluginProxyRemoteEntry';
 
 describe('pluginProxyRemoteEntry', () => {
+  it('keeps dev host-init shared seeds bound to their owning options', () => {
+    const optionsA = normalizeModuleFederationOptions({
+      name: 'tenant-a',
+      shared: { react: { import: false } },
+    });
+    addUsedShares('react', optionsA);
+    const optionsB = normalizeModuleFederationOptions({
+      name: 'tenant-b',
+      shared: { vue: { import: false } },
+    });
+    addUsedShares('vue', optionsB);
+
+    const codeA = generateHostAutoInitCode('remoteEntryImport', 'serve', optionsA);
+
+    expect(codeA).toContain('"tenant-a"');
+    expect(codeA).toMatch(/await import\("[^"]*\/react\/index\.js"\)/);
+    expect(codeA).not.toContain('"tenant-b"');
+    expect(codeA).not.toContain('import("vue")');
+  });
+
   it('refreshes nested remote dependencies before generating virtual exposes', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const expose = resolve('integration/fixtures/nested-remote-transitive/exposed-widget.js');
@@ -52,7 +72,9 @@ describe('pluginProxyRemoteEntry', () => {
     );
     const generated = await callHook(plugin.load, context, 'virtual:mf-exposes');
 
-    expect(generated).toContain('__loadRemote__remoteA_mf_1_shared_mf_1_helpers__loadRemote__');
+    expect(generated).toMatch(
+      /__loadRemote__remoteA_mf_1_shared_mf_1_helpers__mf_owner__\d+__loadRemote__/
+    );
     await callHook(plugin.load, context, 'virtual:mf-exposes');
     expect(exposeResolveCalls).toBe(1);
 

@@ -1,11 +1,53 @@
 import VirtualModule from '../utils/VirtualModule';
+import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
 
 export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
+const runtimeInitModules = new WeakMap<NormalizedModuleFederationOptions, VirtualModule>();
+const runtimeInitOwnerIds = new WeakMap<NormalizedModuleFederationOptions, number>();
+let nextRuntimeInitOwnerId = 1;
 const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
 
-export function getRuntimeInitGlobalKey() {
-  return `__mf_init__${virtualRuntimeInitStatus.getImportId()}__`;
+function getRuntimeInitOwnerId(options: NormalizedModuleFederationOptions) {
+  let ownerId = runtimeInitOwnerIds.get(options);
+  if (!ownerId) {
+    ownerId = nextRuntimeInitOwnerId++;
+    runtimeInitOwnerIds.set(options, ownerId);
+  }
+  return ownerId;
+}
+
+function getRuntimeInitModule(options?: NormalizedModuleFederationOptions) {
+  if (!options) return virtualRuntimeInitStatus;
+  let runtimeInitModule = runtimeInitModules.get(options);
+  if (!runtimeInitModule) {
+    const ownerId = getRuntimeInitOwnerId(options);
+    runtimeInitModule = new VirtualModule(
+      'runtimeInit',
+      '__mf_v__',
+      '',
+      `${options.internalName}__mf_owner__${ownerId}`
+    );
+    runtimeInitModules.set(options, runtimeInitModule);
+  }
+  return runtimeInitModule;
+}
+
+export function getRuntimeInitStatusImportId(options?: NormalizedModuleFederationOptions) {
+  return getRuntimeInitModule(options).getImportId();
+}
+
+export function getRuntimeRemoteCachePrefix(options?: NormalizedModuleFederationOptions) {
+  return options ? `${getRuntimeInitStatusImportId(options)}::` : '';
+}
+
+export function getRuntimeRemoteAlias(alias: string, options?: NormalizedModuleFederationOptions) {
+  if (!options) return alias;
+  return `${options.internalName}__mf_owner__${getRuntimeInitOwnerId(options)}__${alias}`;
+}
+
+export function getRuntimeInitGlobalKey(ownerImportId?: string) {
+  return `__mf_init__${ownerImportId ?? virtualRuntimeInitStatus.getImportId()}__`;
 }
 
 function getDeferredInitPromiseCode() {
@@ -30,7 +72,8 @@ export function setSsrRemotes(remotes: Array<{ name: string; entry: string; type
 function getSsrNoopResolveCode(
   enableSsrInit: boolean,
   hostInitImportId?: string,
-  initResolveExpression = 'initResolve'
+  initResolveExpression = 'initResolve',
+  ssrRemotes = _ssrRemotes
 ) {
   if (!enableSsrInit) return '';
 
@@ -55,7 +98,7 @@ function getSsrNoopResolveCode(
   // dep optimization or client-bundle inclusion — they only run server-side.
   //
   // Falls back to noops if the runtime is unavailable.
-  const remotesJson = JSON.stringify(_ssrRemotes);
+  const remotesJson = JSON.stringify(ssrRemotes);
   return `if (${SERVER_ENV_GUARD}) {
     var _noop = { loadRemote: function() { return Promise.resolve(undefined); }, loadShare: function() { return Promise.resolve(undefined); } };
     ${hostInitResolveCode}.then(function(resolved) {
@@ -81,9 +124,12 @@ function getRuntimeInitStateBootstrapCode(options: {
   exposedConst: string;
   exposedProperty: 'initPromise' | 'initResolve';
   enableSsrInit: boolean;
+  ownerImportId?: string;
+  hostInitImportId?: string;
+  ssrRemotes?: Array<{ name: string; entry: string; type: string }>;
 }) {
   return `
-const ${options.globalKeyVar} = ${JSON.stringify(getRuntimeInitGlobalKey())};
+const ${options.globalKeyVar} = ${JSON.stringify(getRuntimeInitGlobalKey(options.ownerImportId))};
 let ${options.stateVar} = globalThis[${options.globalKeyVar}];
 if (!${options.stateVar}) {
   ${getDeferredInitPromiseCode()}
@@ -92,15 +138,25 @@ if (!${options.stateVar}) {
     initResolve,
     initReject,
   };
-  ${getSsrNoopResolveCode(options.enableSsrInit)}
+  ${getSsrNoopResolveCode(
+    options.enableSsrInit,
+    options.hostInitImportId,
+    'initResolve',
+    options.ssrRemotes
+  )}
 }
 const ${options.exposedConst} = ${options.stateVar}.${options.exposedProperty};
 `;
 }
 
-export function getRuntimeInitBootstrapCode(enableSsrInit = false, hostInitImportId?: string) {
+export function getRuntimeInitBootstrapCode(
+  enableSsrInit = false,
+  ownerImportId?: string,
+  ssrRemotes?: Array<{ name: string; entry: string; type: string }>,
+  hostInitImportId = ownerImportId
+) {
   return `
-const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey())};
+const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey(ownerImportId))};
 const moduleCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
 globalThis[moduleCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[moduleCacheGlobalKey].share ||= {};
@@ -119,7 +175,7 @@ ${
     ? `
 if (${SERVER_ENV_GUARD} && !globalThis[globalKey].ssrInitStarted) {
   globalThis[globalKey].ssrInitStarted = true;
-  ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId, 'globalThis[globalKey].initResolve')}
+  ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId, 'globalThis[globalKey].initResolve', ssrRemotes)}
 }`
     : ''
 }
@@ -155,33 +211,51 @@ for (const __mfShareKey of Object.keys(__mfModuleCache.share)) {
 // Build-time shared/remotes shims only need initPromise.
 // Keep this bootstrap text distinct from remoteEntry's initResolve bootstrap,
 // otherwise Rolldown can dedupe them and recreate the loadShare deadlock.
-export function getRuntimeInitPromiseBootstrapCode(enableSsrInit = false) {
+export function getRuntimeInitPromiseBootstrapCode(
+  enableSsrInit = false,
+  ownerImportId?: string,
+  ssrRemotes?: Array<{ name: string; entry: string; type: string }>,
+  hostInitImportId = ownerImportId
+) {
   return getRuntimeInitStateBootstrapCode({
     globalKeyVar: '__mfPromiseGlobalKey',
     stateVar: '__mfPromiseState',
     exposedConst: 'initPromise',
     exposedProperty: 'initPromise',
     enableSsrInit,
+    ownerImportId,
+    hostInitImportId,
+    ssrRemotes,
   });
 }
 
 // Build-time remoteEntry only needs initResolve.
 // It intentionally differs from the initPromise bootstrap so bundlers don't
 // merge remoteEntry and loadShare onto the same shared runtime snippet.
-export function getRuntimeInitResolveBootstrapCode(enableSsrInit = false) {
+export function getRuntimeInitResolveBootstrapCode(
+  enableSsrInit = false,
+  ownerImportId?: string,
+  ssrRemotes?: Array<{ name: string; entry: string; type: string }>,
+  hostInitImportId = ownerImportId
+) {
   return getRuntimeInitStateBootstrapCode({
     globalKeyVar: '__mfResolveGlobalKey',
     stateVar: '__mfResolveState',
     exposedConst: 'initResolve',
     exposedProperty: 'initResolve',
     enableSsrInit,
+    ownerImportId,
+    hostInitImportId,
+    ssrRemotes,
   });
 }
 
 export function writeRuntimeInitStatus(
   command: string,
   enableSsrInit = false,
-  hostInitImportId?: string
+  hostInitImportId?: string,
+  options?: NormalizedModuleFederationOptions,
+  ssrRemotes = _ssrRemotes
 ) {
   const exportStatement =
     command === 'build'
@@ -189,8 +263,9 @@ export function writeRuntimeInitStatus(
 export { initPromise, initResolve, initReject, moduleCache };`
       : `module.exports = globalThis[globalKey];`;
 
-  virtualRuntimeInitStatus.writeSync(`
-${getRuntimeInitBootstrapCode(enableSsrInit, hostInitImportId)}
+  const ownerImportId = options ? getRuntimeInitStatusImportId(options) : hostInitImportId;
+  getRuntimeInitModule(options).writeSync(`
+${getRuntimeInitBootstrapCode(enableSsrInit, ownerImportId, ssrRemotes, hostInitImportId)}
 ${exportStatement}
 `);
 }

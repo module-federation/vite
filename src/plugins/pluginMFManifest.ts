@@ -3,6 +3,7 @@ import { Plugin } from 'vite';
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  type NormalizedModuleFederationOptions,
   type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
@@ -123,8 +124,8 @@ function getRemoteContainerName(remoteKey: string, remote: RemoteObjectConfig) {
   return remote.name;
 }
 
-const Manifest = (): Plugin[] => {
-  const mfOptions = getNormalizeModuleFederationOptions();
+const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[] => {
+  const mfOptions = providedOptions ?? getNormalizeModuleFederationOptions();
   const { name, filename, getPublicPath, manifest: manifestOptions, varFilename } = mfOptions;
 
   let mfManifestName =
@@ -354,8 +355,9 @@ const Manifest = (): Plugin[] => {
 
           // Process shared modules
           const fileToShareKey = await buildFileToShareKeyMap(
-            getUsedShares(),
-            this.resolve.bind(this)
+            getUsedShares(mfOptions),
+            this.resolve.bind(this),
+            mfOptions
           );
           // Secondary tree-shaken providers are loaded only after runtime
           // compatibility selection. Advertising them as normal shared assets
@@ -410,7 +412,7 @@ const Manifest = (): Plugin[] => {
    * @returns Complete manifest object
    */
   function generateMFManifest(preloadMap: PreloadMap, disableAssetsAnalyze = false) {
-    const options = getNormalizeModuleFederationOptions();
+    const options = mfOptions;
     const { name, varFilename } = options;
     const resolvedRemoteEntryFile =
       _command === 'serve'
@@ -440,7 +442,7 @@ const Manifest = (): Plugin[] => {
       : undefined;
 
     // Process remotes
-    const remotes = Array.from(Object.entries(getUsedRemotesMap())).flatMap(
+    const remotes = Array.from(Object.entries(getUsedRemotesMap(options))).flatMap(
       ([remoteKey, modules]) => {
         const remote = options.remotes[remoteKey];
         return Array.from(modules).map((moduleKey) => ({
@@ -453,8 +455,8 @@ const Manifest = (): Plugin[] => {
     );
 
     // Process shared dependencies
-    const shared = Array.from(getUsedShares()).flatMap((shareKey) => {
-      const shareItem = getNormalizeShareItem(shareKey);
+    const shared = Array.from(getUsedShares(options)).flatMap((shareKey) => {
+      const shareItem = getNormalizeShareItem(shareKey, options);
       // shareItem can be undefined when a key was added to usedShares before
       // excludeSharedSubDependencies removed it from options.shared in dev mode.
       if (!shareItem) return [];
@@ -464,7 +466,12 @@ const Manifest = (): Plugin[] => {
           ? createRemoteEntryAssetMap(resolvedRemoteEntryFile)
           : createEmptyAssetMap());
 
-      const treeShakingUsage = getTreeShakingExportUsage(shareKey, shareItem, shareItem.name);
+      const treeShakingUsage = getTreeShakingExportUsage(
+        shareKey,
+        shareItem,
+        shareItem.name,
+        options
+      );
       const treeShakingUsedExports =
         treeShakingUsage?.kind === 'exports' ? treeShakingUsage.usedExports : [];
       const treeShakingStatus = treeShakingUsage?.kind === 'full' ? 0 : 1;

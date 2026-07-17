@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { getPreBuildLibImportId } from '../virtualModules';
+import type { NormalizedModuleFederationOptions } from './normalizeModuleFederationOptions';
 
 export type ViteChunkMetadata = {
   importedCss?: Set<string>;
@@ -248,13 +249,14 @@ export const deduplicateAssets = (filesMap: PreloadMap): PreloadMap => {
  */
 export const buildFileToShareKeyMap = async (
   shareKeys: Set<string>,
-  resolveFn: (id: string) => Promise<{ id: string } | null>
+  resolveFn: (id: string) => Promise<{ id: string } | null>,
+  options?: NormalizedModuleFederationOptions
 ): Promise<Map<string, string>> => {
   const fileToShareKey = new Map<string, string>();
 
   const resolutions = await Promise.all(
     Array.from(shareKeys).map((shareKey) =>
-      resolveFn(getPreBuildLibImportId(shareKey))
+      resolveFn(getPreBuildLibImportId(shareKey, options))
         .then((resolution) => ({
           shareKey,
           file: resolution?.id?.split('?')[0],

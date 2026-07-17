@@ -11,6 +11,8 @@ import App2 from "@namespace/viteViteRemote/App2";
 import EmotionDemo from "@namespace/viteViteRemote/EmotionDemo";
 import MuiDemo from "@namespace/viteViteRemote/MuiDemo";
 import StyledDemo from "@namespace/viteViteRemote/StyledDemo";
+import PrimaryFederationMarker from "./PrimaryFederationMarker";
+import SecondaryFederationMarker from "./SecondaryFederationMarker";
 
 console.log("Share React", R, RD);
 
@@ -35,6 +37,8 @@ export default function HostApp() {
       <h2>{capitalize("shared library")}</h2>
       <p data-testid="shared-consumer-event">{getCurrentRowChangedEventName()}</p>
       <SharedCounter label={formatLabel("Host")} />
+      <PrimaryFederationMarker />
+      <SecondaryFederationMarker />
       <p>
         <code>createFilter</code> result for "an":{" "}
         {JSON.stringify(filterByName("an"))}

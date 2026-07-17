@@ -556,6 +556,18 @@ describe('virtualRemoteEntry', () => {
     vi.resetModules();
   });
 
+  it('partitions used shares by normalized plugin options', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const optionsA = { internalName: 'shared-name' } as never;
+    const optionsB = { internalName: 'shared-name' } as never;
+
+    mod.addUsedShares('share-a', optionsA);
+    mod.addUsedShares('share-b', optionsB);
+
+    expect([...mod.getUsedShares(optionsA)]).toEqual(['share-a']);
+    expect([...mod.getUsedShares(optionsB)]).toEqual(['share-b']);
+  });
+
   for (const testCase of [
     {
       name: 'keeps react as a direct import in localSharedImportMap when vinext is enabled',
@@ -1088,8 +1100,8 @@ describe('virtualRemoteEntry', () => {
       'build'
     );
 
-    expect(code).toContain(
-      'localSharedImportMapPromise = retrySharedInit(() => import("virtual:mf-localSharedImportMap:__mfe_internal__host"))'
+    expect(code).toMatch(
+      /localSharedImportMapPromise = retrySharedInit\(\(\) => import\("virtual:mf-localSharedImportMap:__mfe_internal__host__mf_owner__\d+"\)\)/
     );
     expect(code).toContain('exposesMapPromise = retrySharedInit(() => import("virtual:exposes"))');
     expect(code).toContain('.then((mod) => mod.default ?? mod)');
@@ -1132,8 +1144,8 @@ describe('virtualRemoteEntry', () => {
       'build'
     );
 
-    expect(code).toContain(
-      'import * as __mfLocalSharedImportMap from "virtual:mf-localSharedImportMap:__mfe_internal__host";'
+    expect(code).toMatch(
+      /import \* as __mfLocalSharedImportMap from "virtual:mf-localSharedImportMap:__mfe_internal__host__mf_owner__\d+";/
     );
     expect(code).toContain('return __mfLocalSharedImportMap;');
     expect(code).not.toContain('retrySharedInit(() => import("virtual:mf-localSharedImportMap');

@@ -1,5 +1,9 @@
 import { parseAst } from 'vite';
-import type { NormalizedShared, ShareItem } from './normalizeModuleFederationOptions';
+import type {
+  NormalizedModuleFederationOptions,
+  NormalizedShared,
+  ShareItem,
+} from './normalizeModuleFederationOptions';
 import { normalizePathForImport } from './buildPaths';
 
 type SharedSourceMatcher = (source: string, shared: NormalizedShared) => string | undefined;
@@ -29,22 +33,48 @@ type MarkTreeShakingPackageUnsafe = (sharedKey: string, request?: string) => voi
  * for `lodash/get` and `lodash/debounce`; combining those export sets would
  * generate invalid wrappers and defeat per-subpath tree shaking.
  */
-const inferredTreeShakingUsage = new Map<string, Map<string, TreeShakingExportRecord>>();
-let treeShakingBuildMode = false;
-
-export function setTreeShakingBuildMode(enabled: boolean) {
-  treeShakingBuildMode = enabled;
+interface TreeShakingState {
+  inferredUsage: Map<string, Map<string, TreeShakingExportRecord>>;
+  buildMode: boolean;
 }
 
-export function resetTreeShakingExports() {
-  inferredTreeShakingUsage.clear();
+const legacyTreeShakingState: TreeShakingState = {
+  inferredUsage: new Map(),
+  buildMode: false,
+};
+const treeShakingStates = new WeakMap<NormalizedModuleFederationOptions, TreeShakingState>();
+
+function getTreeShakingState(options?: NormalizedModuleFederationOptions) {
+  if (!options) return legacyTreeShakingState;
+  let state = treeShakingStates.get(options);
+  if (!state) {
+    state = { inferredUsage: new Map(), buildMode: false };
+    treeShakingStates.set(options, state);
+  }
+  return state;
 }
 
-function getOrCreateExportRecord(sharedKey: string, request: string): TreeShakingExportRecord {
-  let byRequest = inferredTreeShakingUsage.get(sharedKey);
+export function setTreeShakingBuildMode(
+  enabled: boolean,
+  options?: NormalizedModuleFederationOptions
+) {
+  getTreeShakingState(options).buildMode = enabled;
+}
+
+export function resetTreeShakingExports(options?: NormalizedModuleFederationOptions) {
+  getTreeShakingState(options).inferredUsage.clear();
+}
+
+function getOrCreateExportRecord(
+  sharedKey: string,
+  request: string,
+  options?: NormalizedModuleFederationOptions
+): TreeShakingExportRecord {
+  const inferredUsage = getTreeShakingState(options).inferredUsage;
+  let byRequest = inferredUsage.get(sharedKey);
   if (!byRequest) {
     byRequest = new Map();
-    inferredTreeShakingUsage.set(sharedKey, byRequest);
+    inferredUsage.set(sharedKey, byRequest);
   }
 
   let record = byRequest.get(request);
@@ -58,19 +88,29 @@ function getOrCreateExportRecord(sharedKey: string, request: string): TreeShakin
 export function recordTreeShakingExports(
   sharedKey: string,
   exports: string[],
-  request = sharedKey
+  request = sharedKey,
+  options?: NormalizedModuleFederationOptions
 ) {
-  const record = getOrCreateExportRecord(sharedKey, request);
+  const record = getOrCreateExportRecord(sharedKey, request, options);
   exports.forEach((name) => record.usedExports.add(name));
 }
 
-export function markTreeShakingPackageUnsafe(sharedKey: string, request = sharedKey) {
-  getOrCreateExportRecord(sharedKey, request).requiresFullBundle = true;
+export function markTreeShakingPackageUnsafe(
+  sharedKey: string,
+  request = sharedKey,
+  options?: NormalizedModuleFederationOptions
+) {
+  getOrCreateExportRecord(sharedKey, request, options).requiresFullBundle = true;
 }
 
-function getExportRecords(sharedKey: string | undefined, request: string) {
+function getExportRecords(
+  sharedKey: string | undefined,
+  request: string,
+  options?: NormalizedModuleFederationOptions
+) {
+  const inferredUsage = getTreeShakingState(options).inferredUsage;
   if (sharedKey) {
-    const records = inferredTreeShakingUsage.get(sharedKey);
+    const records = inferredUsage.get(sharedKey);
     const wildcard = records?.get('*');
     const exact = records?.get(request);
     return [wildcard, exact === wildcard ? undefined : exact].filter(
@@ -79,7 +119,7 @@ function getExportRecords(sharedKey: string | undefined, request: string) {
   }
 
   const records: TreeShakingExportRecord[] = [];
-  inferredTreeShakingUsage.forEach((byRequest, configuredKey) => {
+  inferredUsage.forEach((byRequest, configuredKey) => {
     const wildcard = byRequest.get('*');
     const exact = byRequest.get(request);
     const keyBase = configuredKey.endsWith('/') ? configuredKey.slice(0, -1) : configuredKey;
@@ -100,12 +140,13 @@ function getExportRecords(sharedKey: string | undefined, request: string) {
 export function getTreeShakingExportUsage(
   request: string,
   shareItem?: ShareItem,
-  sharedKey?: string
+  sharedKey?: string,
+  options?: NormalizedModuleFederationOptions
 ): TreeShakingExportUsage | undefined {
   const treeShaking = shareItem?.shareConfig.treeShaking;
-  if (!treeShaking || !treeShakingBuildMode) return undefined;
+  if (!treeShaking || !getTreeShakingState(options).buildMode) return undefined;
 
-  const records = getExportRecords(sharedKey, request);
+  const records = getExportRecords(sharedKey, request, options);
   if (records.some((record) => record.requiresFullBundle)) return { kind: 'full' };
 
   const configured = treeShaking.usedExports ?? [];
@@ -125,9 +166,10 @@ export function getTreeShakingExportUsage(
 export function getTreeShakingUsedExports(
   request: string,
   shareItem?: ShareItem,
-  sharedKey?: string
+  sharedKey?: string,
+  options?: NormalizedModuleFederationOptions
 ): string[] | undefined {
-  const usage = getTreeShakingExportUsage(request, shareItem, sharedKey);
+  const usage = getTreeShakingExportUsage(request, shareItem, sharedKey, options);
   return usage?.kind === 'exports' && usage.usedExports.length > 0 ? usage.usedExports : undefined;
 }
 

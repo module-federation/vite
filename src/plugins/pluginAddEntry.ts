@@ -15,8 +15,11 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { decodeViteId, toViteEncodedId, VITE_ID_PREFIX } from '../utils/VirtualModule';
-import { getUsedRemotesMap } from '../virtualModules/virtualRemotes';
-import { getRuntimeModuleCacheBootstrapCode } from '../virtualModules/virtualRuntimeInitStatus';
+import { getRuntimeRemoteId, getUsedRemotesMap } from '../virtualModules/virtualRemotes';
+import {
+  getRuntimeModuleCacheBootstrapCode,
+  getRuntimeRemoteCachePrefix,
+} from '../virtualModules/virtualRuntimeInitStatus';
 
 interface AddEntryOptions {
   entryName: string;
@@ -26,6 +29,7 @@ interface AddEntryOptions {
   /** When true, skip the dev HTML-entry fallback (used for MF remotes whose index.html is never browser-requested). */
   forceClientInjected?: boolean;
   skipTransformFor?: string[];
+  federationOptions?: NormalizedModuleFederationOptions;
 }
 
 const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
@@ -134,6 +138,7 @@ const addEntry = ({
   inject = 'entry',
   forceClientInjected,
   skipTransformFor = [],
+  federationOptions,
 }: AddEntryOptions): Plugin[] => {
   const DEV_HTML_PROXY_PREFIX = 'virtual:mf-html-entry-proxy?';
   const ENTRY_BOOTSTRAP_PARAM = 'mf-entry-bootstrap';
@@ -276,31 +281,43 @@ const __mfCurrentScript = document.currentScript;
     // though the user explicitly opted into the on-demand strategy.
     const shouldPreloadRemotes =
       !options?.skipRemotePreload &&
-      getNormalizeModuleFederationOptions()?.shareStrategy !== 'loaded-first';
+      (federationOptions ?? getNormalizeModuleFederationOptions())?.shareStrategy !==
+        'loaded-first';
 
     // Keep only sub-path entries (e.g. "remote/App"); skip bare remote keys
     // ("remote" or scoped "@scope/remote") since they refer to the container
     // itself, not an exposed module. The previous `includes('/')` check
     // incorrectly matched scoped names like "@scope/remote".
     const remotePreloads = shouldPreloadRemotes
-      ? Object.entries(getUsedRemotesMap())
+      ? Object.entries(getUsedRemotesMap(federationOptions))
           .flatMap(([remoteKey, remotes]) =>
             Array.from(remotes).filter((remote) => remote !== remoteKey)
           )
           .sort()
-          .map((remote) => `__mfPreloadRemote(${JSON.stringify(remote)})`)
+          .map(
+            (remote) =>
+              `__mfPreloadRemote(${JSON.stringify(
+                getRuntimeRemoteId(
+                  remote,
+                  (federationOptions ?? getNormalizeModuleFederationOptions()).remotes,
+                  federationOptions
+                )
+              )}, ${JSON.stringify(remote)})`
+          )
           .join(',')
       : '';
+    const remoteCachePrefix = getRuntimeRemoteCachePrefix(federationOptions);
 
     const preloadBlock = remotePreloads
       ? `
   const runtime = await initHost();
-  const __mfPreloadRemote = (remote) => {
-    const pendingKey = "__mf_pending__" + remote;
+  const __mfPreloadRemote = (runtimeRemote, remote) => {
+    const remoteCacheKey = ${JSON.stringify(remoteCachePrefix)} + remote;
+    const pendingKey = "__mf_pending__" + remoteCacheKey;
     if (!__mfModuleCache.remote[pendingKey]) {
-      __mfModuleCache.remote[pendingKey] = runtime.loadRemote(remote)
+      __mfModuleCache.remote[pendingKey] = runtime.loadRemote(runtimeRemote)
         .then((mod) => {
-          __mfModuleCache.remote[remote] = mod;
+          __mfModuleCache.remote[remoteCacheKey] = mod;
           delete __mfModuleCache.remote[pendingKey];
           return mod;
         })

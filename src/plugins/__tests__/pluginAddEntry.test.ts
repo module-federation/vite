@@ -797,9 +797,11 @@ describe('pluginAddEntry', () => {
       | { code: string }
       | undefined;
 
-    expect(result?.code).toContain('__mfPreloadRemote("@scope/remote/Button")');
-    expect(result?.code).not.toContain('__mfPreloadRemote("@scope/remote")');
-    expect(result?.code).toContain('runtime.loadRemote(remote)');
+    expect(result?.code).toContain(
+      '__mfPreloadRemote("@scope/remote/Button", "@scope/remote/Button")'
+    );
+    expect(result?.code).not.toContain('__mfPreloadRemote("@scope/remote",');
+    expect(result?.code).toContain('runtime.loadRemote(runtimeRemote)');
     // A preload failure must not abort host bootstrap.
     expect(result?.code).toContain('await Promise.allSettled(__mfRemotePreloads);');
     expect(result?.code).not.toContain('Promise.all(__mfRemotePreloads)');

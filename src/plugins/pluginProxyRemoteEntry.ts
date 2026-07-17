@@ -48,6 +48,9 @@ export default function ({
   let refreshPromise: Promise<void> | undefined;
   let dependencyInvalidationVersion = 0;
 
+  const isHostAutoInitId = (id: string) =>
+    id.includes(getHostAutoInitPath(options)) || id.includes(getHostAutoInitPath());
+
   function isRemoteImport(source: string): boolean {
     return Object.keys(options.remotes).some(
       (name) => source === name || source.startsWith(name + '/')
@@ -171,7 +174,7 @@ export default function ({
       if (id === virtualExposesId) {
         return virtualExposesId;
       }
-      if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
+      if (_command === 'serve' && isHostAutoInitId(id)) {
         return id;
       }
       // When the virtual remote entry imports a bare specifier (e.g. a runtime
@@ -200,7 +203,7 @@ export default function ({
         await refreshExposeRemoteDependencies(this);
         return generateExposes(options, exposeRemoteDependencies, _command);
       }
-      if (_command === 'serve' && id.includes(getHostAutoInitPath())) {
+      if (_command === 'serve' && isHostAutoInitId(id)) {
         return id;
       }
     },
@@ -214,7 +217,7 @@ export default function ({
           await refreshExposeRemoteDependencies(this);
           return generateExposes(options, exposeRemoteDependencies, _command);
         }
-        if (id.includes(getHostAutoInitPath())) {
+        if (isHostAutoInitId(id)) {
           if (_command === 'serve') {
             const host =
               typeof viteConfig.server?.host === 'string' && viteConfig.server.host !== '0.0.0.0'
@@ -234,7 +237,7 @@ export default function ({
             return `
           const origin = typeof window !== 'undefined' && (${!options.ignoreOrigin}) ? window.origin : ${JSON.stringify(fallbackOrigin)};
           const remoteEntryImport = typeof window !== 'undefined' ? origin + ${publicPath} : ${JSON.stringify(ssrRemoteEntry)};
-          ${generateHostAutoInitCode('remoteEntryImport', 'serve')}
+          ${generateHostAutoInitCode('remoteEntryImport', 'serve', options)}
         `;
           }
           return code;

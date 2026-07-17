@@ -53,7 +53,7 @@ export function decodeViteId(id: string): string {
 }
 
 export function assertModuleFound(tag: string, str: string = ''): VirtualModule {
-  const module = VirtualModule.findModule(tag, str);
+  const module = VirtualModule.findById(str) ?? VirtualModule.findModule(tag, str);
   if (!module) {
     throw createModuleFederationError(
       `Module Federation shared module '${str}' not found. Please ensure it's installed as a dependency in your package.json.`
@@ -79,6 +79,7 @@ export default class VirtualModule {
   code: string | undefined;
   private importId: string | undefined;
   private importIdKey: string | undefined;
+  private scopeName: string | undefined;
 
   static findName(tag: string, str: string = ''): string | undefined {
     if (!patternMap[tag])
@@ -97,16 +98,17 @@ export default class VirtualModule {
     return normalized.startsWith('virtual:mf:') ? idCacheMap[normalized] : undefined;
   }
 
-  constructor(name: string, tag: string = '__mf_v__', suffix = '') {
+  constructor(name: string, tag: string = '__mf_v__', suffix = '', scopeName?: string) {
     this.name = name;
     this.tag = tag;
     this.suffix = suffix || getSuffix(name);
+    this.scopeName = scopeName;
     if (!cacheMap[this.tag]) cacheMap[this.tag] = {};
     cacheMap[this.tag][this.name] = this;
   }
 
   getImportId() {
-    const { internalName: mfName } = getNormalizeModuleFederationOptions();
+    const mfName = this.scopeName ?? getNormalizeModuleFederationOptions().internalName;
     const importIdKey = `${mfName}${this.tag}${this.name}${this.tag}`;
     if (this.importId && this.importIdKey === importIdKey) return this.importId;
 

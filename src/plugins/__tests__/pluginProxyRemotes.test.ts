@@ -154,7 +154,11 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'catalog/Product', '/repo/src/App.tsx');
 
     expect(result).toBe(remoteModuleId);
-    expect(addUsedRemoteMock).toHaveBeenCalledWith('catalog', 'catalog/Product');
+    expect(addUsedRemoteMock).toHaveBeenCalledWith(
+      'catalog',
+      'catalog/Product',
+      expect.objectContaining({ name: 'host' })
+    );
   });
 
   it('escapes remote aliases when constructing Vite aliases', () => {
@@ -190,9 +194,14 @@ describe('pluginProxyRemotes', () => {
       'scheduler/SchedulePanel',
       'serve',
       true,
-      'unified'
+      'unified',
+      expect.objectContaining({ name: 'host' })
     );
-    expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
+    expect(addUsedRemoteMock).toHaveBeenCalledWith(
+      'scheduler',
+      'scheduler/SchedulePanel',
+      expect.objectContaining({ name: 'host' })
+    );
   });
 
   it('still proxies bare remote ids from app importers via resolveId', () => {
@@ -214,8 +223,18 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'scheduler', '/repo/src/App.tsx');
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true, 'unified');
-    expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
+      'scheduler',
+      'serve',
+      true,
+      'unified',
+      expect.objectContaining({ name: 'host' })
+    );
+    expect(addUsedRemoteMock).toHaveBeenCalledWith(
+      'scheduler',
+      'scheduler',
+      expect.objectContaining({ name: 'host' })
+    );
   });
 
   it('still proxies bare remote ids from node_modules importers when no package collides', () => {
@@ -224,8 +243,18 @@ describe('pluginProxyRemotes', () => {
     const result = runResolveId(plugin, 'scheduler', '/repo/node_modules/.vite/deps/react-dom.js');
 
     expect(result).toBe(remoteModuleId);
-    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith('scheduler', 'serve', true, 'unified');
-    expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler');
+    expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
+      'scheduler',
+      'serve',
+      true,
+      'unified',
+      expect.objectContaining({ name: 'host' })
+    );
+    expect(addUsedRemoteMock).toHaveBeenCalledWith(
+      'scheduler',
+      'scheduler',
+      expect.objectContaining({ name: 'host' })
+    );
   });
 
   it('resolves colliding installed packages for bare ids in node_modules importers', () => {
@@ -252,9 +281,14 @@ describe('pluginProxyRemotes', () => {
       'scheduler/SchedulePanel',
       'serve',
       true,
-      'unified'
+      'unified',
+      expect.objectContaining({ name: 'host' })
     );
-    expect(addUsedRemoteMock).toHaveBeenCalledWith('scheduler', 'scheduler/SchedulePanel');
+    expect(addUsedRemoteMock).toHaveBeenCalledWith(
+      'scheduler',
+      'scheduler/SchedulePanel',
+      expect.objectContaining({ name: 'host' })
+    );
   });
 
   it('resolves client and server wrappers separately when environments.ssr is configured', () => {
@@ -273,14 +307,16 @@ describe('pluginProxyRemotes', () => {
       'scheduler/Button',
       'serve',
       true,
-      'client'
+      'client',
+      expect.objectContaining({ name: 'host' })
     );
     expect(getRemoteVirtualModuleMock).toHaveBeenNthCalledWith(
       2,
       'scheduler/Button',
       'serve',
       true,
-      'server'
+      'server',
+      expect.objectContaining({ name: 'host' })
     );
   });
 });

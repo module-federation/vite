@@ -6,6 +6,7 @@ import { normalizePathForImport } from '../utils/buildPaths';
 import { mfWarn } from '../utils/logger';
 import {
   getNormalizeModuleFederationOptions,
+  type NormalizedModuleFederationOptions,
   type NormalizedShared,
   type ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
@@ -254,8 +255,9 @@ export function proxySharedModule(options: {
   shared?: NormalizedShared;
   include?: string | string[];
   exclude?: string | string[];
+  federationOptions?: NormalizedModuleFederationOptions;
 }): Plugin[] {
-  const { shared = {} } = options;
+  const { shared = {}, federationOptions } = options;
   let _config: ResolvedConfig | undefined;
   let _command = 'serve';
   let useDirectReactImport = false;
@@ -292,13 +294,13 @@ export function proxySharedModule(options: {
     const treeShaking = shareItem.shareConfig.treeShaking;
     if (!treeShaking) return undefined;
 
-    const normalizedOptions = getNormalizeModuleFederationOptions();
+    const normalizedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
     const outputDir = normalizedOptions.treeShakingDir
       ? normalizeTreeShakingOutputPath(normalizedOptions.treeShakingDir)
       : undefined;
 
     const fileName = outputDir
-      ? path.posix.join(outputDir, `${getTreeShakingSharedProviderName(pkg)}.js`)
+      ? path.posix.join(outputDir, `${getTreeShakingSharedProviderName(pkg, federationOptions)}.js`)
       : undefined;
 
     if (!fileName) return undefined;
@@ -311,13 +313,13 @@ export function proxySharedModule(options: {
     shareItem: ShareItem
   ) => {
     if (_command !== 'build' || emittedTreeShakingProviders.has(pkg)) return;
-    if (!hasTreeShakingSharedProvider(pkg, shareItem)) return;
+    if (!hasTreeShakingSharedProvider(pkg, shareItem, federationOptions)) return;
 
     const fileName = getTreeShakingProviderFileName(pkg, shareItem);
     context.emitFile({
       type: 'chunk',
-      id: getTreeShakingSharedProviderImportId(pkg),
-      name: getTreeShakingSharedProviderName(pkg),
+      id: getTreeShakingSharedProviderImportId(pkg, federationOptions),
+      name: getTreeShakingSharedProviderName(pkg, federationOptions),
       ...(fileName ? { fileName } : {}),
     });
     emittedTreeShakingProviders.add(pkg);
@@ -330,38 +332,40 @@ export function proxySharedModule(options: {
       configureServer(server) {
         devServer = server;
         setLocalSharedImportMapInvalidator(() => {
-          const module = server.moduleGraph.getModuleById(getResolvedLocalSharedImportMapId());
+          const module = server.moduleGraph.getModuleById(
+            getResolvedLocalSharedImportMapId(federationOptions)
+          );
           if (module) server.moduleGraph.invalidateModule(module);
-        });
+        }, federationOptions);
       },
       resolveId(source) {
-        if (source === getLocalSharedImportMapPath()) {
-          return getResolvedLocalSharedImportMapId();
+        if (source === getLocalSharedImportMapPath(federationOptions)) {
+          return getResolvedLocalSharedImportMapId(federationOptions);
         }
       },
       load(id) {
-        if (id === getResolvedLocalSharedImportMapId()) {
+        if (id === getResolvedLocalSharedImportMapId(federationOptions)) {
           return parsePromise.then((_) => {
             // Export analysis is additive across the module graph. Materialize
             // and emit optimized providers only when the shared map itself is
             // finalized, immediately before Rollup discovers their imports.
-            refreshTreeShakingModules();
+            refreshTreeShakingModules(federationOptions);
             const providerPackages = new Set([
               ...Object.keys(shared).filter((pkg) => !pkg.endsWith('/')),
-              ...getUsedShares(),
+              ...getUsedShares(federationOptions),
             ]);
             for (const pkg of providerPackages) {
               const sharedKey = findSharedKeyForSource(pkg, shared);
               const shareItem = shared[pkg] || (sharedKey ? shared[sharedKey] : undefined);
               if (shareItem) emitTreeShakingProvider(this, pkg, shareItem);
             }
-            return generateLocalSharedImportMap();
+            return generateLocalSharedImportMap(federationOptions);
           });
         }
       },
       closeBundle() {
         if (devServer) return;
-        setLocalSharedImportMapInvalidator(undefined);
+        setLocalSharedImportMapInvalidator(undefined, federationOptions);
       },
     },
     {
@@ -370,8 +374,8 @@ export function proxySharedModule(options: {
       config(config: UserConfig, { command }) {
         const root = config.root || process.cwd();
         setPackageDetectionCwd(root);
-        setTreeShakingBuildMode(command === 'build');
-        resetTreeShakingExports();
+        setTreeShakingBuildMode(command === 'build', federationOptions);
+        resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
         const isVinext = hasPackageDependency('vinext');
         const isAstro = hasPackageDependency('astro');
@@ -397,25 +401,25 @@ export function proxySharedModule(options: {
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/')) return;
           if (useDirectReactImport && key === 'react') {
-            addUsedShares(key);
+            addUsedShares(key, federationOptions);
             return;
           }
-          writeLoadShareModule(key, shared[key], _command, isRolldown);
+          writeLoadShareModule(key, shared[key], _command, isRolldown, federationOptions);
           // Skip prebuild for shared deps with import: false — the host must
           // provide them, so no local fallback source is needed.
           if (shared[key].shareConfig.import !== false) {
-            writePreBuildLibPath(key, shared[key]);
+            writePreBuildLibPath(key, shared[key], federationOptions);
           }
-          addUsedShares(key);
+          addUsedShares(key, federationOptions);
         });
-        writeLocalSharedImportMap();
-        refreshHostAutoInit();
+        writeLocalSharedImportMap(federationOptions);
+        refreshHostAutoInit(federationOptions);
       },
       buildStart() {
         if (_command !== 'build') return;
-        resetTreeShakingExports();
+        resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
-        refreshTreeShakingModules();
+        refreshTreeShakingModules(federationOptions);
       },
       shouldTransformCachedModule() {
         // Watch builds must revisit cached importers after the per-build usage
@@ -437,10 +441,12 @@ export function proxySharedModule(options: {
           id,
           shared,
           findSharedKeyForSource,
-          recordTreeShakingExports,
-          markTreeShakingPackageUnsafe
+          (sharedKey, exports, request) =>
+            recordTreeShakingExports(sharedKey, exports, request, federationOptions),
+          (sharedKey, request) =>
+            markTreeShakingPackageUnsafe(sharedKey, request, federationOptions)
         );
-        refreshTreeShakingModules();
+        refreshTreeShakingModules(federationOptions);
       },
     },
     {
@@ -538,16 +544,16 @@ export function proxySharedModule(options: {
             : isNodeModulePath(source)
               ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
               : source;
-        const loadSharePath = getLoadShareModulePath(shareSource, useRolldown);
+        const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {
           materializedLoadShareSources.add(shareSource);
-          writeLoadShareModule(shareSource, shared[key], _command, useRolldown);
+          writeLoadShareModule(shareSource, shared[key], _command, useRolldown, federationOptions);
           if (shared[key].shareConfig.import !== false) {
-            writePreBuildLibPath(shareSource, shared[key]);
+            writePreBuildLibPath(shareSource, shared[key], federationOptions);
           }
-          addUsedShares(shareSource);
-          writeLocalSharedImportMap();
-          refreshHostAutoInit();
+          addUsedShares(shareSource, federationOptions);
+          writeLocalSharedImportMap(federationOptions);
+          refreshHostAutoInit(federationOptions);
         }
         return this.resolve(loadSharePath, importer, { skipSelf: true });
       },
@@ -561,7 +567,10 @@ export function proxySharedModule(options: {
 
         const module = assertModuleFound(PREBUILD_TAG, source) as VirtualModule;
         const pkgName = module.name;
-        const importSource = getPrebuildResolutionSource(pkgName, getPreBuildShareItem(pkgName));
+        const importSource = getPrebuildResolutionSource(
+          pkgName,
+          getPreBuildShareItem(pkgName, federationOptions)
+        );
 
         if (_command === 'build') {
           return this.resolve(importSource, importer, { skipSelf: true });

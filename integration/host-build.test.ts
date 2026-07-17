@@ -43,7 +43,9 @@ describe('host build', () => {
     expect(allCode).toContain('remote1/Module');
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
     expect(localSharedImportMap).toBeDefined();
-    expect(localSharedImportMap!.code).toContain('name: "remote1"');
+    expect(localSharedImportMap!.code).toMatch(
+      /name: "__mfe_internal__hostApp__mf_owner__\d+__remote1"/
+    );
     expect(localSharedImportMap!.code).toContain('entry: "http://localhost:3001/remoteEntry.js"');
   });
 
@@ -62,8 +64,10 @@ describe('host build', () => {
     expect(bootstrapAsset?.source).toContain('await __mfHostInit.__tla;');
     expect(bootstrapAsset?.source).toContain('const { initHost } = __mfHostInit;');
     expect(bootstrapAsset?.source).toContain('const runtime = await initHost();');
-    expect(bootstrapAsset?.source).toContain('__mfPreloadRemote("remote1/Module")');
-    expect(bootstrapAsset?.source).toContain('runtime.loadRemote(remote)');
+    expect(bootstrapAsset?.source).toMatch(
+      /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1\/Module", "remote1\/Module"\)/
+    );
+    expect(bootstrapAsset?.source).toContain('runtime.loadRemote(runtimeRemote)');
     expect(bootstrapAsset?.source).toContain('})().then(() => __mfImport(');
     expect(bootstrapAsset?.source).toContain('globalThis.System.import(src)');
     expect(bootstrapAsset?.source).toContain('hostInit');
