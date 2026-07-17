@@ -31,7 +31,7 @@ import {
   getSharedCacheDescriptor,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
-import VirtualModule, { normalizeVirtualModuleId, toViteEncodedId } from '../utils/VirtualModule';
+import VirtualModule, { normalizeVirtualModuleId } from '../utils/VirtualModule';
 import { normalizeNodeModulePath } from '../utils/pathNormalization';
 import {
   getRuntimeInitPromiseBootstrapCode,
@@ -460,6 +460,8 @@ function getNamedExportsViaRegex(
       const name = asMatch[1];
       if (isValidEsmExportName(name)) {
         names.add(name);
+      } else if (name === 'default' || name === '__esModule') {
+        // recognized default/__esModule re-export — not named, but scan stays complete
       } else {
         scanState.complete = false;
       }
@@ -1215,10 +1217,6 @@ export function getLoadShareModulePath(
   if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown, options);
   const filepath = loadShareCacheMap[pkg].getImportId();
   return filepath;
-}
-
-export function toViteOptimizedDepVirtualId(id: string): string {
-  return toViteEncodedId(id);
 }
 
 export function getCachedLoadSharePkg(id: string): string | undefined {

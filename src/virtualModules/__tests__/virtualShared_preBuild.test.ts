@@ -441,6 +441,7 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/multi-declarator.js') ||
       filePath.endsWith('/repo/packages/postfix-multi-declarator.js') ||
       filePath.endsWith('/repo/packages/string-export-list.js') ||
+      filePath.endsWith('/repo/packages/default-reexport-list.js') ||
       filePath.endsWith('/repo/packages/string-namespace-export.js') ||
       filePath.endsWith('/repo/packages/nested-destructuring.js') ||
       filePath.endsWith('/repo/packages/defaulted-destructuring.js') ||
@@ -529,6 +530,13 @@ Object.keys(dependency).forEach(function (key) {
     }
     if (filePath.endsWith('/repo/packages/string-export-list.js')) {
       return 'const foo = 1; export { foo as "a-b", foo as valid };';
+    }
+    if (filePath.endsWith('/repo/packages/default-reexport-list.js')) {
+      // MUI's per-component barrel shape: a bare `export { default }` re-export
+      // sitting next to real named exports.
+      return `export { default } from './Button.mjs';
+export { default as buttonClasses } from './buttonClasses.mjs';
+export const buttonBase = 1;`;
     }
     if (filePath.endsWith('/repo/packages/string-namespace-export.js')) {
       return `export const visible = 1; export * as "a-b" from './dependency.js';`;
@@ -1673,6 +1681,33 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('export * from "/repo/packages/string-export-list.js"');
     expect(generatedCode).not.toContain('__mfApplySharedExports');
     expect(generatedCode).not.toContain('__mf_0 as valid');
+  });
+
+  it('keeps named exports alongside a bare default re-export as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const importPath = '/repo/packages/default-reexport-list.js';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // Regression (#918): `export { default } from './x'` must not abort the scan.
+    // buttonBase (declaration) + buttonClasses (`as` alias) are detected; the bare
+    // `default` is skipped rather than marking the scan incomplete.
+    expectLiveSingletonProxy(generatedCode, pkg, ['buttonBase', 'buttonClasses']);
+    expect(generatedCode).not.toContain(`export * from ${JSON.stringify(importPath)}`);
   });
 
   it('does not treat string-named namespace exports as complete', () => {
