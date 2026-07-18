@@ -280,7 +280,7 @@ describe(`singleton React dev fallback (Vite ${viteVersion})`, () => {
     const requestFailures = new Set<string>();
     const errorResponses = new Set<string>();
     const requests = new Set<string>();
-    page.on('pageerror', (error) => pageErrors.add(error.message));
+    page.on('pageerror', (error) => pageErrors.add(error.stack || error.message));
     page.on('console', (message) => {
       if (message.type() === 'error') consoleErrors.add(message.text());
     });
@@ -318,6 +318,7 @@ describe(`singleton React dev fallback (Vite ${viteVersion})`, () => {
     await expect(
       page.evaluate(() => window.__issue913HostReact === window.__issue913RemoteReact)
     ).resolves.toBe(true);
+    expect([...requests].some((url) => url.includes('/react/compiler-runtime.js'))).toBe(false);
     expect([...pageErrors]).toEqual([]);
     expect(
       [...consoleErrors].filter((error) => /invalid hook call|module is not defined/i.test(error))
