@@ -125,6 +125,53 @@ const chunkContainsCssModules = (modules: Record<string, unknown>): boolean => {
   return false;
 };
 
+type ChunkAssetAnalysis = {
+  importedCss: string[];
+  containsCssModules: boolean;
+  dynamicAssets: Array<{ fileName: string; type: AssetType }>;
+};
+
+/**
+ * Analyzes assets associated with a chunk without mutating the output map.
+ * The static-import traversal is cycle-safe and ignores missing bundle entries.
+ */
+const analyzeChunkAssets = (
+  bundle: Record<string, OutputBundleItem>,
+  fileName: string,
+  chunk: OutputChunkWithViteMetadata
+): ChunkAssetAnalysis => {
+  const dynamicAssets: ChunkAssetAnalysis['dynamicAssets'] = [];
+  const visited = new Set<string>();
+  const queue: string[] = [fileName];
+
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
+    const currentFileName = queue[queueIndex];
+    if (visited.has(currentFileName)) continue;
+    visited.add(currentFileName);
+
+    const currentChunk = bundle[currentFileName];
+    if (!currentChunk || currentChunk.type !== 'chunk') continue;
+
+    for (const dynamicImport of currentChunk.dynamicImports ?? []) {
+      if (!bundle[dynamicImport]) continue;
+      dynamicAssets.push({
+        fileName: dynamicImport,
+        type: isCSSFile(dynamicImport) ? 'css' : 'js',
+      });
+    }
+
+    for (const staticImport of currentChunk.imports ?? []) {
+      queue.push(staticImport);
+    }
+  }
+
+  return {
+    importedCss: Array.from(chunk.viteMetadata?.importedCss ?? []),
+    containsCssModules: chunkContainsCssModules(chunk.modules),
+    dynamicAssets,
+  };
+};
+
 /**
  * Processes module assets and tracks them in the files map
  * @param bundle - The Rollup output bundle
@@ -139,6 +186,9 @@ export const processModuleAssets = (
 ) => {
   // Pre-collect all CSS assets in the bundle for fallback matching
   const bundleCssAssets = collectCssAssets(bundle);
+  // Memoize per starting chunk within one invocation. Multiple matched modules
+  // in the same chunk otherwise repeat an identical static-graph walk.
+  const chunkAnalysisCache = new Map<string, ChunkAssetAnalysis>();
 
   for (const [fileName, fileData] of Object.entries(bundle)) {
     if (fileData.type !== 'chunk') continue;
@@ -162,49 +212,35 @@ export const processModuleAssets = (
       const matchKey = comparableModulePaths.map(moduleMatcher).find(Boolean);
       if (!matchKey) continue;
 
+      let analysis = chunkAnalysisCache.get(fileName);
+      if (!analysis) {
+        analysis = analyzeChunkAssets(bundle, fileName, fileData);
+        chunkAnalysisCache.set(fileName, analysis);
+      }
+
       // Track main JS chunk
       trackAsset(filesMap, matchKey, fileName, false, 'js');
 
       // Track CSS extracted by Vite's CSS pipeline (e.g. vanilla-extract, CSS modules).
       // Vite stores statically imported CSS on chunk.viteMetadata.importedCss
       let foundCssViaMetadata = false;
-      if (fileData.viteMetadata?.importedCss?.size) {
-        for (const cssFile of Array.from(fileData.viteMetadata.importedCss)) {
-          trackAsset(filesMap, matchKey, cssFile, false, 'css');
-          foundCssViaMetadata = true;
-        }
+      for (const cssFile of analysis.importedCss) {
+        trackAsset(filesMap, matchKey, cssFile, false, 'css');
+        foundCssViaMetadata = true;
       }
 
       // Fallback: In Vite environment builds, viteMetadata.importedCss may not be
       // populated even when the chunk contains CSS modules (e.g. vanilla-extract
       // .vanilla.css virtual modules). In this case, detect CSS modules in the
       // chunk's module list and associate corresponding CSS assets from the bundle.
-      if (!foundCssViaMetadata && chunkContainsCssModules(fileData.modules)) {
+      if (!foundCssViaMetadata && analysis.containsCssModules) {
         for (const cssAsset of Array.from(bundleCssAssets)) {
           trackAsset(filesMap, matchKey, cssAsset, false, 'css');
         }
       }
 
-      // Handle dynamic imports from static chunks reachable from the matched expose chunk
-      const visited = new Set<string>();
-      const queue: string[] = [fileName];
-      for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
-        const cur = queue[queueIndex];
-        if (visited.has(cur)) continue;
-        visited.add(cur);
-        const chunk = bundle[cur];
-        if (!chunk || chunk.type !== 'chunk') continue;
-
-        if (chunk.dynamicImports) {
-          for (const dynamicImport of chunk.dynamicImports) {
-            if (!bundle[dynamicImport]) continue;
-            const isCss = isCSSFile(dynamicImport);
-            trackAsset(filesMap, matchKey, dynamicImport, true, isCss ? 'css' : 'js');
-          }
-        }
-        if (chunk.imports) {
-          for (const imp of chunk.imports) queue.push(imp);
-        }
+      for (const asset of analysis.dynamicAssets) {
+        trackAsset(filesMap, matchKey, asset.fileName, true, asset.type);
       }
     }
   }
