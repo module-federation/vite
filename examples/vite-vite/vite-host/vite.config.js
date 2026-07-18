@@ -84,7 +84,6 @@ const secondaryFederation = routeInstanceMarker(
       fileName: 'secondary-host-mf-manifest.json',
     },
     shared,
-    ...(externalRuntime ? { experiments: { provideExternalRuntime: true } } : {}),
   }),
   (importer) => importer?.endsWith('/SecondaryFederationMarker.jsx')
 );

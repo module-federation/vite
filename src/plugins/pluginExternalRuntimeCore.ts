@@ -10,6 +10,16 @@ function isRuntimeCoreId(id: string): boolean {
   return id === RUNTIME_CORE_PACKAGE || id === `${RUNTIME_CORE_PACKAGE}/`;
 }
 
+/** True when the importer is part of an SSR remote graph (skip browser shim). */
+export function isSsrRemoteRuntimeImporter(importer: string | undefined): boolean {
+  if (!importer) return false;
+  return (
+    importer.includes('virtual:mf-REMOTE_ENTRY_SSR_ID') ||
+    importer.includes('virtual:mf-exposes-ssr:') ||
+    importer.includes('/__mf_ssr__/')
+  );
+}
+
 /**
  * Collects runtime-core export names in Node so the virtual shim can emit
  * explicit named re-exports. Rolldown (Vite 8+) does not support
@@ -103,8 +113,9 @@ export default function pluginExternalRuntimeCore(): Plugin {
         );
       }
     },
-    resolveId(source) {
+    resolveId(source, importer) {
       if (!isRuntimeCoreId(source)) return;
+      if (isSsrRemoteRuntimeImporter(importer)) return;
       return EXTERNAL_RUNTIME_CORE_VIRTUAL_ID;
     },
     async load(id) {

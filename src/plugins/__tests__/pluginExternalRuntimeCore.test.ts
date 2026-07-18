@@ -5,6 +5,7 @@ import pluginExternalRuntimeCore, {
   RUNTIME_CORE_PACKAGE,
   buildExternalRuntimeCoreShimCode,
   collectRuntimeCoreExportNames,
+  isSsrRemoteRuntimeImporter,
 } from '../pluginExternalRuntimeCore';
 
 function getHookFn<T>(hook: T | { handler: T } | undefined): T {
@@ -42,7 +43,38 @@ describe('pluginExternalRuntimeCore', () => {
     expect(
       (resolve as Function).call({}, `${RUNTIME_CORE_PACKAGE}/`, undefined, { isEntry: false })
     ).toBe(EXTERNAL_RUNTIME_CORE_VIRTUAL_ID);
+    expect(
+      (resolve as Function).call({}, RUNTIME_CORE_PACKAGE, '/app/src/App.tsx', { isEntry: false })
+    ).toBe(EXTERNAL_RUNTIME_CORE_VIRTUAL_ID);
     expect((resolve as Function).call({}, 'react', undefined, { isEntry: false })).toBeUndefined();
+  });
+
+  it('skips the browser shim for SSR remote importers', () => {
+    const plugin = pluginExternalRuntimeCore();
+    const resolve = getHookFn(plugin.resolveId);
+    expect(isSsrRemoteRuntimeImporter('virtual:mf-REMOTE_ENTRY_SSR_ID:some_key')).toBe(true);
+    expect(isSsrRemoteRuntimeImporter('virtual:mf-exposes-ssr:some_key')).toBe(true);
+    expect(isSsrRemoteRuntimeImporter('/app/__mf_ssr__/entry.js')).toBe(true);
+    expect(isSsrRemoteRuntimeImporter('/app/src/App.tsx')).toBe(false);
+    expect(isSsrRemoteRuntimeImporter(undefined)).toBe(false);
+    expect(
+      (resolve as Function).call(
+        {},
+        RUNTIME_CORE_PACKAGE,
+        'virtual:mf-REMOTE_ENTRY_SSR_ID:some_key',
+        { isEntry: false }
+      )
+    ).toBeUndefined();
+    expect(
+      (resolve as Function).call({}, RUNTIME_CORE_PACKAGE, 'virtual:mf-exposes-ssr:some_key', {
+        isEntry: false,
+      })
+    ).toBeUndefined();
+    expect(
+      (resolve as Function).call({}, RUNTIME_CORE_PACKAGE, '/app/__mf_ssr__/entry.js', {
+        isEntry: false,
+      })
+    ).toBeUndefined();
   });
 
   it('excludes runtime-core from optimizeDeps', () => {

@@ -307,6 +307,7 @@ federation({
 ```
 
 `provideExternalRuntime` injects `@module-federation/inject-external-runtime-core-plugin`, which publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`. `externalRuntime` rewrites imports of `@module-federation/runtime-core` to read that global. Using `provideExternalRuntime` together with `exposes` throws — only pure consumers may provide the runtime.
+The `externalRuntime` rewrite applies to the browser remote graph; SSR remote entries continue to resolve `@module-federation/runtime-core` from Node so they do not depend on the browser global.
 
 ## ⚠️ `codeSplitting` settings are controlled by the plugin
 
