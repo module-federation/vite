@@ -59,6 +59,10 @@ export function applyRuntimeCapabilityDefines(
       );
     }
   }
+
+  if (!('FEDERATION_HAS_EXPOSES' in define)) {
+    define['FEDERATION_HAS_EXPOSES'] = JSON.stringify(Object.keys(options.exposes).length > 0);
+  }
 }
 
 export function getRuntimeCapabilityConfigurationWarnings(

@@ -30,6 +30,7 @@ describe('runtime capability optimization', () => {
       FEDERATION_OPTIMIZE_NO_REMOTE: 'true',
       FEDERATION_OPTIMIZE_NO_SHARED: 'false',
       FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN: 'true',
+      FEDERATION_HAS_EXPOSES: 'false',
     });
   });
 
@@ -42,6 +43,7 @@ describe('runtime capability optimization', () => {
 
     expect(define).toEqual({
       FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN: 'true',
+      FEDERATION_HAS_EXPOSES: 'false',
     });
   });
 
@@ -54,6 +56,33 @@ describe('runtime capability optimization', () => {
 
     expect(define).toEqual({
       FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN: 'false',
+      FEDERATION_HAS_EXPOSES: 'false',
+    });
+  });
+
+  it('sets FEDERATION_HAS_EXPOSES to true when exposes are configured', () => {
+    const define = {};
+
+    applyRuntimeCapabilityDefines(
+      define,
+      normalizeOptions({ exposes: { './App': './src/App.vue' } })
+    );
+
+    expect(define).toMatchObject({
+      FEDERATION_HAS_EXPOSES: 'true',
+    });
+  });
+
+  it('does not override an explicitly configured FEDERATION_HAS_EXPOSES define', () => {
+    const define = { FEDERATION_HAS_EXPOSES: 'false' };
+
+    applyRuntimeCapabilityDefines(
+      define,
+      normalizeOptions({ exposes: { './App': './src/App.vue' } })
+    );
+
+    expect(define).toEqual({
+      FEDERATION_HAS_EXPOSES: 'false',
     });
   });
 
@@ -81,6 +110,7 @@ describe('runtime capability optimization', () => {
       FEDERATION_OPTIMIZE_NO_REMOTE: 'false',
       FEDERATION_OPTIMIZE_NO_SHARED: true,
       FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN: 'false',
+      FEDERATION_HAS_EXPOSES: 'false',
     });
     expect(onConflict).toHaveBeenCalledTimes(1);
     expect(onConflict).toHaveBeenCalledWith(
