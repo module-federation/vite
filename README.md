@@ -221,6 +221,28 @@ You can specify the place the host initialization file is injected with the **ho
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
 
+## Runtime capability optimization
+
+Runtime features that a build never uses can be removed at build time:
+
+```ts
+federation({
+  name: "remote",
+  exposes: {
+    "./remote-app": "./src/App.vue",
+  },
+  disableRemote: true,
+  disableShared: true,
+  disableSnapshot: true,
+});
+```
+
+- `disableRemote` removes remote-consumption support. Do not enable it when `remotes` are configured.
+- `disableShared` removes shared-dependency support. Do not enable it when `shared` dependencies are configured.
+- `disableSnapshot` removes snapshot support, including manifest-based remotes, preload, dynamic type hints, HMR, and devtools integration.
+
+All three options default to `false`, except `disableSnapshot`, which defaults to `true` for Node/SSR builds. An explicitly configured Vite `define` value takes precedence over the corresponding option.
+
 ## Load the Remote App
 
 In your host app, you can now import and use the remote app with **defineAsyncComponent**

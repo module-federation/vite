@@ -27,9 +27,11 @@ function makeFetchMock(responses: Record<string, FetchEntry>) {
       ok: entry.ok,
       status: entry.status ?? (entry.ok ? 200 : 404),
       statusText: entry.statusText ?? (entry.ok ? 'OK' : 'Not Found'),
-      text: async () => entry.text ?? '',
+      text: async () => entry.text ?? (entry.json !== undefined ? JSON.stringify(entry.json) : ''),
       json: async () => entry.json ?? {},
-      headers: { get: (h: string) => entry.headers?.[h] ?? null },
+      headers: {
+        get: (h: string) => entry.headers?.[h.toLowerCase()] ?? entry.headers?.[h] ?? null,
+      },
     };
   });
 }
@@ -514,7 +516,12 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
                 ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
               },
             }),
-            text: async () => '',
+            text: async () =>
+              JSON.stringify({
+                metaData: {
+                  ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
+                },
+              }),
             headers: { get: (_header: string): string | null => 'application/json' },
           };
         }
@@ -569,7 +576,12 @@ describe('ssrEntryLoaderPlugin — manifest-as-entry', () => {
                 ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
               },
             }),
-            text: async () => '',
+            text: async () =>
+              JSON.stringify({
+                metaData: {
+                  ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
+                },
+              }),
             headers: { get: (_header: string): string | null => 'application/json' },
           };
         }
@@ -948,6 +960,88 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expectFetchCalled(fetch, 'http://localhost:5001/remoteEntry.ssr.js');
     expectFetchCalled(fetch, 'http://localhost:5001/assets/cycle.js');
     expect(fsMock.writeFileSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects oversized SSR module bodies before writing temp files', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const entryUrl = 'http://localhost:5001/remoteEntry.ssr.js';
+    const fetch = makeFetchMock({
+      [entryUrl]: {
+        ok: true,
+        headers: {
+          'content-type': 'application/javascript',
+          'content-length': '2048',
+        },
+        text: 'export async function init() {}',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await expect(
+      factory({ fetchMaxBytes: 1024 }).loadEntry!({
+        remoteInfo: { name: 'r', entry: entryUrl },
+      })
+    ).rejects.toThrow(/exceeds the 1024-byte limit/);
+    expect(fsMock.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized SSR manifest bodies instead of falling through', async () => {
+    const fetch = makeFetchMock({
+      // Server-build probe runs before the manifest fetch; keep it unavailable.
+      'http://localhost:5001/__mf_server__/remoteEntry.ssr.js': { ok: false },
+      'http://localhost:5001/mf-manifest.json': {
+        ok: true,
+        headers: { 'content-length': '2048' },
+        json: { metaData: { name: 'r' } },
+      },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export async function init() {} export async function get() {}',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await expect(
+      factory({ fetchMaxBytes: 1024 }).loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+      })
+    ).rejects.toThrow(/exceeds the 1024-byte limit/);
+    expectFetchNotCalled(fetch, 'http://localhost:5001/remoteEntry.ssr.js');
+  });
+
+  it('does not reuse SSR caches across different fetchMaxBytes limits', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const entryUrl = 'http://localhost:5001/remoteEntry.ssr.js';
+    const fetch = makeFetchMock({
+      [entryUrl]: {
+        ok: true,
+        headers: {
+          'content-type': 'application/javascript',
+          'content-length': '2048',
+        },
+        text: 'export async function init() {} export async function get() {}',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    // One module instance so process-level caches are shared across options.
+    const factory = await freshLoader();
+
+    await factory({ fetchMaxBytes: 0 }).loadEntry!({
+      remoteInfo: { name: 'r', entry: entryUrl },
+    });
+
+    await expect(
+      factory({ fetchMaxBytes: 1024 }).loadEntry!({
+        remoteInfo: { name: 'r', entry: entryUrl },
+      })
+    ).rejects.toThrow(/exceeds the 1024-byte limit/);
   });
 
   it('fetches loader-wrapped template literal dynamic imports', async () => {

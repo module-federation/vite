@@ -539,6 +539,27 @@ export type ModuleFederationOptions = {
    */
   target?: 'web' | 'node';
   /**
+   * Removes remote-consumption support from the federation runtime.
+   * Only enable this for builds that never load remotes.
+   *
+   * @default false
+   */
+  disableRemote?: boolean;
+  /**
+   * Removes shared-dependency support from the federation runtime.
+   * Only enable this when the build has no shared dependencies.
+   *
+   * @default false
+   */
+  disableShared?: boolean;
+  /**
+   * Removes snapshot support, including manifest-based remotes, preload,
+   * dynamic type hints, HMR, and devtools integration.
+   *
+   * @default false (true for Node/SSR builds)
+   */
+  disableSnapshot?: boolean;
+  /**
    * Additional packages to mark as external in the SSR remote entry build.
    * Shared packages and MF runtime packages are always external. Use this to
    * add any other Node-only packages that should not be bundled into the SSR entry.
@@ -780,6 +801,9 @@ export function normalizeModuleFederationOptions(
     moduleParseIdleTimeout: options.moduleParseIdleTimeout,
     varFilename: options.varFilename,
     target: options.target,
+    disableRemote: options.disableRemote,
+    disableShared: options.disableShared,
+    disableSnapshot: options.disableSnapshot,
     experiments: normalizeExperiments(options.experiments),
   };
   explicitSharedKeysByOptions.set(normalized, new Set(explicitSharedKeys));

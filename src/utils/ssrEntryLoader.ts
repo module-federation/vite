@@ -26,7 +26,13 @@
  * generated runtimePlugins list in virtualRemotes.ts.
  */
 
-import { DEFAULT_SSR_FETCH_TIMEOUT_MS, fetchWithTimeout } from './fetchWithTimeout';
+import {
+  DEFAULT_SSR_FETCH_MAX_BYTES,
+  DEFAULT_SSR_FETCH_TIMEOUT_MS,
+  fetchWithTimeout,
+  isSsrFetchBodyTooLargeError,
+  readResponseTextBounded,
+} from './fetchWithTimeout';
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
@@ -93,8 +99,12 @@ async function getModuleRunnerModule(): Promise<{
  * This is Vite 8+ only — older versions don't expose `vite/module-runner` or
  * the `/__mf_runner__` proxy endpoint.
  */
-async function getOrCreateRunner(remoteOrigin: string, fetchTimeoutMs: number): Promise<unknown> {
-  const cacheKey = `${fetchTimeoutMs}::${remoteOrigin}`;
+async function getOrCreateRunner(
+  remoteOrigin: string,
+  fetchTimeoutMs: number,
+  fetchMaxBytes: number
+): Promise<unknown> {
+  const cacheKey = `${fetchTimeoutMs}::${fetchMaxBytes}::${remoteOrigin}`;
   if (runnerCache.has(cacheKey)) return runnerCache.get(cacheKey)!;
   const promise = (async () => {
     const viteRunner = await getModuleRunnerModule();
@@ -118,7 +128,8 @@ async function getOrCreateRunner(remoteOrigin: string, fetchTimeoutMs: number): 
                 },
                 fetchTimeoutMs
               );
-              return (await res.json()) as { result: unknown } | { error: { message: string } };
+              const text = await readResponseTextBounded(res, fetchMaxBytes, runnerEndpoint);
+              return JSON.parse(text) as { result: unknown } | { error: { message: string } };
             },
           },
         },
@@ -196,8 +207,8 @@ const ssrEntryCache = new Map<string, SsrEntryCacheRecord>();
 // Dedupe manifest fetches when multiple entry URLs resolve to the same manifest.
 const manifestFetchCache = new Map<string, Promise<Manifest | null>>();
 
-function makeUrlCacheKey(url: string, fetchTimeoutMs: number): string {
-  return `${fetchTimeoutMs}::${url}`;
+function makeUrlCacheKey(url: string, fetchTimeoutMs: number, fetchMaxBytes: number): string {
+  return `${fetchTimeoutMs}::${fetchMaxBytes}::${url}`;
 }
 
 interface EntryContext {
@@ -240,30 +251,42 @@ function isSsrEntryHttpError(error: unknown): error is SsrEntryHttpError {
 
 async function fetchManifest(
   manifestUrl: string,
-  fetchTimeoutMs: number
+  fetchTimeoutMs: number,
+  fetchMaxBytes: number
 ): Promise<Manifest | null> {
   try {
     const res = await fetchWithTimeout(manifestUrl, {}, fetchTimeoutMs);
     if (!res.ok) return null;
-    return (await res.json()) as Manifest;
-  } catch {
+    const text = await readResponseTextBounded(res, fetchMaxBytes, manifestUrl);
+    return JSON.parse(text) as Manifest;
+  } catch (error) {
+    // Size-limit failures must fail closed; other discovery errors stay soft.
+    if (isSsrFetchBodyTooLargeError(error)) throw error;
     return null;
   }
 }
 
 async function fetchManifestCached(
   manifestUrl: string,
-  fetchTimeoutMs: number
+  fetchTimeoutMs: number,
+  fetchMaxBytes: number
 ): Promise<Manifest | null> {
-  const cacheKey = makeUrlCacheKey(manifestUrl, fetchTimeoutMs);
+  const cacheKey = makeUrlCacheKey(manifestUrl, fetchTimeoutMs, fetchMaxBytes);
   if (!manifestFetchCache.has(cacheKey)) {
-    const promise = fetchManifest(manifestUrl, fetchTimeoutMs);
+    const promise = fetchManifest(manifestUrl, fetchTimeoutMs, fetchMaxBytes);
     manifestFetchCache.set(cacheKey, promise);
-    void promise.then((manifest) => {
-      if (!manifest && manifestFetchCache.get(cacheKey) === promise) {
-        manifestFetchCache.delete(cacheKey);
+    void promise.then(
+      (manifest) => {
+        if (!manifest && manifestFetchCache.get(cacheKey) === promise) {
+          manifestFetchCache.delete(cacheKey);
+        }
+      },
+      () => {
+        if (manifestFetchCache.get(cacheKey) === promise) {
+          manifestFetchCache.delete(cacheKey);
+        }
       }
-    });
+    );
   }
   return manifestFetchCache.get(cacheKey)!;
 }
@@ -348,9 +371,13 @@ function resolveAssetBaseUrl(
   return new URL('remoteEntry.js', manifestUrl.replace(/\/[^/]+$/, '/')).href;
 }
 
-async function buildEntryContext(entryUrl: string, fetchTimeoutMs: number): Promise<EntryContext> {
+async function buildEntryContext(
+  entryUrl: string,
+  fetchTimeoutMs: number,
+  fetchMaxBytes: number
+): Promise<EntryContext> {
   const manifestUrl = getManifestUrl(entryUrl);
-  const manifest = await fetchManifestCached(manifestUrl, fetchTimeoutMs);
+  const manifest = await fetchManifestCached(manifestUrl, fetchTimeoutMs, fetchMaxBytes);
   const assetBaseUrl = resolveAssetBaseUrl(entryUrl, manifest, manifestUrl);
   const filename = getEntryFilename(assetBaseUrl);
   const remoteOrigin = assetBaseUrl.replace(/\/[^/]+$/, '');
@@ -399,7 +426,8 @@ async function resolveFirstReachableCandidate(
 
 async function resolveSSREntryImpl(
   remoteEntryUrl: string,
-  fetchTimeoutMs: number
+  fetchTimeoutMs: number,
+  fetchMaxBytes: number
 ): Promise<SsrEntryCandidate | null> {
   if (isSsrEntry(remoteEntryUrl)) {
     return { url: remoteEntryUrl, type: 'module', versionKey: UNVERSIONED };
@@ -420,7 +448,7 @@ async function resolveSSREntryImpl(
     if (fromServerBuild) return fromServerBuild;
   }
 
-  const ctx = await buildEntryContext(remoteEntryUrl, fetchTimeoutMs);
+  const ctx = await buildEntryContext(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes);
   if (ctx.manifest) {
     const fromManifest = resolveSSREntryUrl(ctx.manifest, ctx.manifestUrl);
     if (fromManifest) return fromManifest;
@@ -431,27 +459,37 @@ async function resolveSSREntryImpl(
   );
 }
 
-function setSsrEntryCache(remoteEntryUrl: string, fetchTimeoutMs: number): SsrEntryCacheRecord {
-  const cacheKey = makeUrlCacheKey(remoteEntryUrl, fetchTimeoutMs);
+function setSsrEntryCache(
+  remoteEntryUrl: string,
+  fetchTimeoutMs: number,
+  fetchMaxBytes: number
+): SsrEntryCacheRecord {
+  const cacheKey = makeUrlCacheKey(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes);
   const record: SsrEntryCacheRecord = {
-    promise: resolveSSREntryImpl(remoteEntryUrl, fetchTimeoutMs),
+    promise: resolveSSREntryImpl(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes),
     resolvedAt: Date.now(),
   };
   ssrEntryCache.set(cacheKey, record);
-  void record.promise.then((entry) => {
-    if (!entry && ssrEntryCache.get(cacheKey) === record) ssrEntryCache.delete(cacheKey);
-  });
+  void record.promise.then(
+    (entry) => {
+      if (!entry && ssrEntryCache.get(cacheKey) === record) ssrEntryCache.delete(cacheKey);
+    },
+    () => {
+      if (ssrEntryCache.get(cacheKey) === record) ssrEntryCache.delete(cacheKey);
+    }
+  );
   return record;
 }
 
 async function getSSREntry(
   remoteEntryUrl: string,
   maxAgeMs: number | undefined,
-  fetchTimeoutMs: number
+  fetchTimeoutMs: number,
+  fetchMaxBytes: number
 ): Promise<SsrEntryCandidate | null> {
-  const cacheKey = makeUrlCacheKey(remoteEntryUrl, fetchTimeoutMs);
+  const cacheKey = makeUrlCacheKey(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes);
   const cached = ssrEntryCache.get(cacheKey);
-  if (!cached) return setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs).promise;
+  if (!cached) return setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes).promise;
 
   const isStale =
     typeof maxAgeMs === 'number' && maxAgeMs >= 0 && Date.now() - cached.resolvedAt >= maxAgeMs;
@@ -461,8 +499,10 @@ async function getSSREntry(
   // (remote redeployed at the same URL), the new key flows into temp-file
   // names, so the fresh entry is imported instead of Node's cached module.
   const previous = await cached.promise.catch(() => null);
-  manifestFetchCache.delete(makeUrlCacheKey(getManifestUrl(remoteEntryUrl), fetchTimeoutMs));
-  const record = setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs);
+  manifestFetchCache.delete(
+    makeUrlCacheKey(getManifestUrl(remoteEntryUrl), fetchTimeoutMs, fetchMaxBytes)
+  );
+  const record = setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes);
   const next = await record.promise.catch(() => null);
 
   if (previous && next && previous.versionKey !== next.versionKey) {
@@ -484,8 +524,11 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
     return;
   }
   for (const [key] of tempFileCache) {
-    const url = JSON.parse(key)[2] as string;
-    if (url.startsWith(origin)) {
+    const parts = JSON.parse(key) as unknown[];
+    const url = parts.find(
+      (part): part is string => typeof part === 'string' && /^https?:\/\//.test(part)
+    );
+    if (url?.startsWith(origin)) {
       tempFileCache.delete(key);
       tempFilePathCache.delete(key);
     }
@@ -660,14 +703,19 @@ async function fetchEsmToTempFile(
   sharedPkgMap?: Map<string, string>,
   versionKey: string = UNVERSIONED,
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
-  contextKey = 'default'
+  contextKey = 'default',
+  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES
 ): Promise<string> {
-  const cacheKey = JSON.stringify([fetchTimeoutMs, versionKey, url, contextKey]);
+  const cacheKey = JSON.stringify([fetchTimeoutMs, fetchMaxBytes, versionKey, url, contextKey]);
   if (visited.has(url)) return visited.get(url)!;
   const cached = tempFileCache.get(cacheKey);
   if (cached) {
     pending.add(cached);
-    const tmpFile = await tempFilePathCache.get(cacheKey)!;
+    // Prefer the reserved destination so cyclic/concurrent walkers can continue
+    // without awaiting the writer. If the reservation is missing, fall back to
+    // the writer promise itself instead of recording an undefined path.
+    const reserved = tempFilePathCache.get(cacheKey);
+    const tmpFile = reserved ? await reserved : await cached;
     visited.set(url, tmpFile);
     return tmpFile;
   }
@@ -688,7 +736,7 @@ async function fetchEsmToTempFile(
     visited.set(url, tmpFile);
 
     const res = await fetchWithTimeout(url, {}, fetchTimeoutMs);
-    let code = await res.text();
+    let code = await readResponseTextBounded(res, fetchMaxBytes, url);
     if (!res.ok) {
       throw new SsrEntryHttpError(url, res.status, res.statusText, getBodyPreview(code));
     }
@@ -723,7 +771,8 @@ async function fetchEsmToTempFile(
             sharedPkgMap,
             versionKey,
             fetchTimeoutMs,
-            contextKey
+            contextKey,
+            fetchMaxBytes
           );
           subMap.set(u, `file://${tmpPath}`);
         })
@@ -756,7 +805,8 @@ async function fetchEsmGraphToTempFile(
   sharedPkgMap?: Map<string, string>,
   versionKey: string = UNVERSIONED,
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
-  contextKey = 'default'
+  contextKey = 'default',
+  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES
 ): Promise<string> {
   const pending = new Set<Promise<string>>();
   const rootFile = await fetchEsmToTempFile(
@@ -767,7 +817,8 @@ async function fetchEsmGraphToTempFile(
     sharedPkgMap,
     versionKey,
     fetchTimeoutMs,
-    contextKey
+    contextKey,
+    fetchMaxBytes
   );
   // Circular edges return their reserved path immediately. Wait for every
   // discovered writer before importing the root so all referenced files exist.
@@ -811,6 +862,7 @@ async function tryVmStrategy(
     shareScopeName: options.shareScopeName,
     versionKey: ssrEntry.versionKey,
     fetchTimeoutMs: options.fetchTimeoutMs,
+    fetchMaxBytes: options.fetchMaxBytes,
     cacheContext: options.cacheContext,
     federationInstance: options.federationInstance,
   })) as { init: unknown; get: unknown } | null;
@@ -850,7 +902,11 @@ async function loadSSRRemoteEntry(
       // virtual SSR entry ID, so `runner.import()` traverses the full Vite
       // plugin pipeline and returns real, fully-transformed module source.
       const remoteOrigin = urlObj.origin;
-      const runner = await getOrCreateRunner(remoteOrigin, options.fetchTimeoutMs);
+      const runner = await getOrCreateRunner(
+        remoteOrigin,
+        options.fetchTimeoutMs,
+        options.fetchMaxBytes
+      );
       if (!runner) {
         if (process.env.NODE_ENV !== 'production') return null;
       } else {
@@ -862,7 +918,8 @@ async function loadSSRRemoteEntry(
             return mod as { init: unknown; get: unknown };
           }
           if (process.env.NODE_ENV !== 'production') return null;
-        } catch {
+        } catch (error) {
+          if (isSsrFetchBodyTooLargeError(error)) throw error;
           if (process.env.NODE_ENV !== 'production') return null;
         }
       }
@@ -878,7 +935,7 @@ async function loadSSRRemoteEntry(
         const fromVm = await tryVmStrategy(ssrEntry, options);
         if (fromVm) return fromVm;
       } catch (error) {
-        if (isSsrEntryHttpError(error)) throw error;
+        if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
         // fall through to the temp-file strategy
       }
     }
@@ -904,11 +961,12 @@ async function loadSSRRemoteEntry(
         sharedPkgMap,
         versionKey,
         options.fetchTimeoutMs,
-        getSsrTransformContextKey(resolvedShared, options.shareScopeName)
+        getSsrTransformContextKey(resolvedShared, options.shareScopeName),
+        options.fetchMaxBytes
       );
       return await importTempModule(tmpFile, versionKey);
     } catch (error) {
-      if (isSsrEntryHttpError(error)) throw error;
+      if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
       return null;
     }
   }
@@ -970,6 +1028,11 @@ interface SsrEntryLoaderOptions {
    * 10 seconds. Set to `0` to disable the timeout.
    */
   fetchTimeoutMs?: number;
+  /**
+   * Maximum response body size in bytes for each SSR network request. Defaults
+   * to 10 MiB. Set to `0` to disable the limit.
+   */
+  fetchMaxBytes?: number;
 }
 
 interface ResolvedLoaderOptions {
@@ -978,6 +1041,7 @@ interface ResolvedLoaderOptions {
   shareScopeName: string;
   maxAgeMs?: number;
   fetchTimeoutMs: number;
+  fetchMaxBytes: number;
   cacheContext: object;
   federationInstance?: object;
 }
@@ -990,6 +1054,7 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
     shareScopeName: options.shareScopeName ?? 'default',
     maxAgeMs: options.maxAgeMs,
     fetchTimeoutMs: options.fetchTimeoutMs ?? DEFAULT_SSR_FETCH_TIMEOUT_MS,
+    fetchMaxBytes: options.fetchMaxBytes ?? DEFAULT_SSR_FETCH_MAX_BYTES,
     cacheContext: {},
   };
   return {
@@ -1008,7 +1073,8 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
       const ssrEntry = await getSSREntry(
         remoteInfo.entry,
         loadOptions.maxAgeMs,
-        loadOptions.fetchTimeoutMs
+        loadOptions.fetchTimeoutMs,
+        loadOptions.fetchMaxBytes
       );
       if (!ssrEntry) return;
 

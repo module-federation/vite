@@ -209,6 +209,57 @@ describe('cssModuleHelpers', () => {
       });
     });
 
+    it('reuses chunk-graph analysis for multiple matched modules in one chunk', () => {
+      const readDynamicImports = vi.fn(() => ['async.js', 'async.css']);
+      const sharedChunk = createChunk('shared.js', {
+        imports: ['nested.js'],
+      });
+      Object.defineProperty(sharedChunk, 'dynamicImports', {
+        configurable: true,
+        enumerable: true,
+        get: readDynamicImports,
+      });
+
+      const bundle = {
+        'entry.js': {
+          ...createChunk('entry.js'),
+          modules: {
+            module1: createRenderedModule(),
+            module2: createRenderedModule(),
+          },
+          imports: ['shared.js'],
+          viteMetadata: {
+            importedCss: new Set(['entry.css']),
+          },
+        },
+        'shared.js': sharedChunk,
+        'nested.js': {
+          ...createChunk('nested.js'),
+          imports: ['entry.js'],
+          dynamicImports: ['nested-async.js'],
+        },
+        'async.js': createChunk('async.js'),
+        'async.css': createAsset('async.css'),
+        'nested-async.js': createChunk('nested-async.js'),
+        'entry.css': createAsset('entry.css'),
+      } satisfies Record<string, OutputBundleItem>;
+
+      const filesMap = {};
+      processModuleAssets(bundle, filesMap, (modulePath) => modulePath);
+
+      expect(filesMap).toEqual({
+        module1: {
+          js: { sync: ['entry.js'], async: ['async.js', 'nested-async.js'] },
+          css: { sync: ['entry.css'], async: ['async.css'] },
+        },
+        module2: {
+          js: { sync: ['entry.js'], async: ['async.js', 'nested-async.js'] },
+          css: { sync: ['entry.css'], async: ['async.css'] },
+        },
+      });
+      expect(readDynamicImports).toHaveBeenCalledTimes(1);
+    });
+
     it('tracks CSS assets from viteMetadata.importedCss', () => {
       const bundle = {
         'App-abc123.js': {

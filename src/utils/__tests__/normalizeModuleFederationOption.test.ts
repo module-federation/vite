@@ -55,6 +55,9 @@ describe('normalizeModuleFederationOption', () => {
       moduleParseTimeout: 10,
       moduleParseIdleTimeout: undefined,
       target: undefined,
+      disableRemote: undefined,
+      disableShared: undefined,
+      disableSnapshot: undefined,
       varFilename: undefined,
       experiments: {
         externalRuntime: false,
@@ -82,6 +85,21 @@ describe('normalizeModuleFederationOption', () => {
     expect(normalizeModuleFederationOptions(minimalOptions).experiments).toEqual({
       externalRuntime: false,
       provideExternalRuntime: false,
+    });
+  });
+
+  it('preserves runtime capability optimization options', () => {
+    const normalized = normalizeModuleFederationOptions({
+      ...minimalOptions,
+      disableRemote: true,
+      disableShared: true,
+      disableSnapshot: true,
+    });
+
+    expect(normalized).toMatchObject({
+      disableRemote: true,
+      disableShared: true,
+      disableSnapshot: true,
     });
   });
 
