@@ -49,4 +49,37 @@ describe('fetchWithTimeout', () => {
       redirect: 'error',
     });
   });
+
+  it('retries localhost connection failures over IPv6 loopback', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(new Response('ok'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await fetchWithTimeout('http://localhost:5001/remoteEntry.js', {}, 0);
+
+    expect(await response.text()).toBe('ok');
+    expect(fetchMock).toHaveBeenNthCalledWith(1, 'http://localhost:5001/remoteEntry.js', {
+      redirect: 'error',
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'http://[::1]:5001/remoteEntry.js', {
+      redirect: 'error',
+    });
+  });
+
+  it('does not retry aborted localhost requests over IPv6', async () => {
+    const abortError = new DOMException('The operation was aborted.', 'AbortError');
+    const fetchMock = vi.fn().mockRejectedValue(abortError);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchWithTimeout('http://localhost:5001/remoteEntry.js', {}, 5)).rejects.toBe(
+      abortError
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:5001/remoteEntry.js',
+      expect.objectContaining({ redirect: 'error' })
+    );
+  });
 });

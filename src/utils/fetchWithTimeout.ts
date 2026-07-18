@@ -15,6 +15,12 @@ function getSecureFetchUrl(input: Parameters<typeof fetch>[0]): URL {
   return url;
 }
 
+function isAbortLikeError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const name = (error as { name?: unknown }).name;
+  return name === 'AbortError' || name === 'TimeoutError';
+}
+
 /** Fetch with a bounded wait. Set timeoutMs to 0 to disable the timeout. */
 export async function fetchWithTimeout(
   input: Parameters<typeof fetch>[0],
@@ -33,7 +39,9 @@ export async function fetchWithTimeout(
   try {
     return await request(inputUrl);
   } catch (error) {
-    if (inputUrl.hostname !== 'localhost') throw error;
+    // Only fall back to IPv6 loopback for connection failures. Retrying aborts
+    // would double the configured timeout and hide intentional cancellations.
+    if (inputUrl.hostname !== 'localhost' || isAbortLikeError(error)) throw error;
     inputUrl.hostname = '[::1]';
     return request(inputUrl);
   }

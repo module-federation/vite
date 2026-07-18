@@ -667,7 +667,11 @@ async function fetchEsmToTempFile(
   const cached = tempFileCache.get(cacheKey);
   if (cached) {
     pending.add(cached);
-    const tmpFile = await tempFilePathCache.get(cacheKey)!;
+    // Prefer the reserved destination so cyclic/concurrent walkers can continue
+    // without awaiting the writer. If the reservation is missing, fall back to
+    // the writer promise itself instead of recording an undefined path.
+    const reserved = tempFilePathCache.get(cacheKey);
+    const tmpFile = reserved ? await reserved : await cached;
     visited.set(url, tmpFile);
     return tmpFile;
   }
