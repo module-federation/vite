@@ -12,6 +12,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parsePromise } from '../plugins/pluginModuleParseEnd';
 import { callHook } from '../utils/__tests__/viteHookHelpers';
 import type {
+  ModuleFederationOptions,
   NormalizedModuleFederationOptions,
   PluginManifestOptions,
 } from '../utils/normalizeModuleFederationOptions';
@@ -183,10 +184,17 @@ function getNormalizeOptimizeDepsPlugin(): FederationPlugin {
 }
 
 function getModuleFederationVitePlugin(): FederationPlugin {
+  return getModuleFederationVitePluginWithOptions({});
+}
+
+function getModuleFederationVitePluginWithOptions(
+  overrides: Partial<ModuleFederationOptions>
+): FederationPlugin {
   const plugin = (
     federation({
       name: 'host',
       filename: 'remoteEntry.js',
+      ...overrides,
     }) as Plugin[]
   ).find((entry) => entry.name === 'module-federation-vite');
 
@@ -1698,6 +1706,93 @@ describe('vite:module-federation-early-init', () => {
     expect(config.define.FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN).toBe('true');
   });
 
+  it('maps runtime capability options to build-time defines', () => {
+    const plugin = getModuleFederationVitePluginWithOptions({
+      disableRemote: true,
+      disableShared: true,
+      disableSnapshot: true,
+    });
+    const config: any = {
+      root: process.cwd(),
+      define: {},
+      resolve: { alias: [] },
+      build: {},
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'build',
+      mode: 'test',
+    });
+
+    expect(config.define).toMatchObject({
+      FEDERATION_OPTIMIZE_NO_REMOTE: 'true',
+      FEDERATION_OPTIMIZE_NO_SHARED: 'true',
+      FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN: 'true',
+    });
+  });
+
+  it('warns once when disabled capabilities are configured for use', () => {
+    const plugin = getModuleFederationVitePluginWithOptions({
+      disableRemote: true,
+      disableShared: true,
+      remotes: {
+        remoteApp: {
+          name: 'remoteApp',
+          entry: 'https://example.com/remoteEntry.js',
+        },
+      },
+      shared: {
+        react: {},
+      },
+    });
+    const config: any = {
+      root: process.cwd(),
+      resolve: { alias: [] },
+      build: {},
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'build',
+      mode: 'test',
+    });
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'build',
+      mode: 'test',
+    });
+
+    const warningMessages = vi.mocked(mfWarn).mock.calls.map(([message]) => message);
+    expect(
+      warningMessages.filter((message) =>
+        message.includes('disableRemote is true, but remotes are configured')
+      )
+    ).toHaveLength(1);
+    expect(
+      warningMessages.filter((message) =>
+        message.includes('disableShared is true, but shared dependencies are configured')
+      )
+    ).toHaveLength(1);
+  });
+
+  it('allows explicitly keeping snapshots in SSR builds', () => {
+    const plugin = getModuleFederationVitePluginWithOptions({
+      disableSnapshot: false,
+    });
+    const config: any = {
+      root: process.cwd(),
+      define: {},
+      resolve: { alias: [] },
+      build: { ssr: true },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'build',
+      mode: 'test',
+    });
+
+    expect(config.define.FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN).toBe('false');
+  });
+
   it('sets ENV_TARGET node for Vite Environment API ssr builds', () => {
     hasPackageDependencyMock.mockReturnValue(false);
     const plugin = getModuleFederationVitePlugin();
@@ -1721,6 +1816,37 @@ describe('vite:module-federation-early-init', () => {
     expect(ssrConfig.define.FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN).toBe('true');
     expect(sharedDefine).not.toHaveProperty('ENV_TARGET');
     expect(sharedDefine).not.toHaveProperty('FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN');
+  });
+
+  it('sets capability defines for Vite Environment API server builds', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const plugin = getModuleFederationVitePluginWithOptions({
+      disableRemote: true,
+      disableShared: true,
+      disableSnapshot: false,
+    });
+    const sharedDefine = { __APP__: 'true' };
+    const serverConfig: any = {
+      define: sharedDefine,
+      build: { ssr: true },
+      consumer: 'server',
+    };
+
+    const env = { command: 'build', mode: 'test' } as ConfigEnv;
+    const hook = plugin.configEnvironment;
+    if (!hook) throw new Error('configEnvironment hook not found');
+    if (typeof hook === 'function') {
+      hook.call({} as ConfigPluginContext, 'ssr', serverConfig, env);
+    } else {
+      hook.handler.call({} as ConfigPluginContext, 'ssr', serverConfig, env);
+    }
+
+    expect(serverConfig.define).toMatchObject({
+      FEDERATION_OPTIMIZE_NO_REMOTE: 'true',
+      FEDERATION_OPTIMIZE_NO_SHARED: 'true',
+      FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN: 'false',
+    });
+    expect(sharedDefine).toEqual({ __APP__: 'true' });
   });
 
   it('preserves env-level ENV_TARGET in Vite Environment API ssr builds', () => {

@@ -46,6 +46,10 @@ import {
   resolveImportPath,
   setPackageDetectionCwd,
 } from './utils/packageUtils';
+import {
+  applyRuntimeCapabilityDefines,
+  getRuntimeCapabilityConfigurationWarnings,
+} from './utils/runtimeCapabilityOptimization';
 import { getSsrCapabilities } from './utils/ssrCapabilities';
 import { getCommonSharedSubpaths, isAssetLikeImport } from './utils/pathNormalization';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
@@ -614,6 +618,36 @@ export default __mfShared.default ?? __mfShared;`,
 
 const SSR_ONLY_PLUGINS = new Set(['@module-federation/vite/ssrEntryLoader']);
 
+type DefineConfig = NonNullable<UserConfig['define']>;
+
+type RuntimeDefineContext = {
+  target: 'web' | 'node';
+  isAstro: boolean;
+  defaultDisableSnapshot?: boolean;
+};
+
+function applyBuildTimeRuntimeDefines(
+  define: DefineConfig,
+  options: NormalizedModuleFederationOptions,
+  { target, isAstro, defaultDisableSnapshot }: RuntimeDefineContext
+): void {
+  const envTargetDefineValue = !options.target && isAstro ? 'undefined' : JSON.stringify(target);
+
+  if (!('ENV_TARGET' in define)) {
+    define.ENV_TARGET = envTargetDefineValue;
+  }
+  applyRuntimeCapabilityDefines(define, options, {
+    defaultDisableSnapshot,
+    onConflict: mfWarn,
+  });
+
+  if (options.target && define.ENV_TARGET !== JSON.stringify(options.target)) {
+    mfWarn(
+      `ENV_TARGET define (${define.ENV_TARGET}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
+    );
+  }
+}
+
 function loadPluginDts(options: NormalizedModuleFederationOptions): any[] {
   if (options.dts === false) {
     return [];
@@ -639,6 +673,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   let command: string;
   let desiredRolldownOutput: OutputNameOptions[] | undefined;
   let isSsrBuild = false;
+  const emittedRuntimeCapabilityWarnings = new Set<string>();
 
   return [
     {
@@ -1263,29 +1298,18 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         // Resolve target: explicit option > SSR detection > 'web'
         // (Environment API server/ssr targets are set in configEnvironment.)
         const resolvedTarget = options.target ?? (config.build?.ssr ? 'node' : 'web');
-        const envTargetDefineValue =
-          !options.target && isAstro ? 'undefined' : JSON.stringify(resolvedTarget);
 
-        // Set ENV_TARGET define for tree-shaking Node.js code from the federation runtime
         if (!config.define) config.define = {};
-        if (!('ENV_TARGET' in config.define)) {
-          config.define['ENV_TARGET'] = envTargetDefineValue;
-        }
-        if (
-          resolvedTarget === 'node' &&
-          !('FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN' in config.define)
-        ) {
-          config.define['FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN'] = 'true';
-        }
+        applyBuildTimeRuntimeDefines(config.define, options, {
+          target: resolvedTarget,
+          isAstro,
+          defaultDisableSnapshot: resolvedTarget === 'node' ? true : undefined,
+        });
 
-        if (
-          options.target &&
-          'ENV_TARGET' in config.define &&
-          config.define['ENV_TARGET'] !== JSON.stringify(options.target)
-        ) {
-          mfWarn(
-            `ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
-          );
+        for (const warning of getRuntimeCapabilityConfigurationWarnings(options)) {
+          if (emittedRuntimeCapabilityWarnings.has(warning)) continue;
+          emittedRuntimeCapabilityWarnings.add(warning);
+          mfWarn(warning);
         }
       },
       configResolved(config: ResolvedConfig) {
@@ -1313,22 +1337,13 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         if (!isServerEnvironment) return;
 
         const isAstro = hasPackageDependency('astro');
-        const envTargetDefineValue =
-          !options.target && isAstro ? 'undefined' : JSON.stringify(options.target ?? 'node');
         // Copy define per environment — Vite may reuse the same object across envs.
         config.define = { ...(config.define ?? {}) };
-        if (!('ENV_TARGET' in config.define)) {
-          config.define['ENV_TARGET'] = envTargetDefineValue;
-        }
-        if (!('FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN' in config.define)) {
-          config.define['FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN'] = 'true';
-        }
-
-        if (options.target && config.define['ENV_TARGET'] !== JSON.stringify(options.target)) {
-          mfWarn(
-            `ENV_TARGET define (${config.define['ENV_TARGET']}) differs from target option ("${options.target}"). ENV_TARGET will not be overridden.`
-          );
-        }
+        applyBuildTimeRuntimeDefines(config.define, options, {
+          target: options.target ?? 'node',
+          isAstro,
+          defaultDisableSnapshot: true,
+        });
       },
     },
     ...pluginManifest(options),
