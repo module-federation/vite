@@ -13,6 +13,7 @@ import { parsePromise } from '../plugins/pluginModuleParseEnd';
 import { callHook } from '../utils/__tests__/viteHookHelpers';
 import type {
   ModuleFederationOptions,
+  NormalizedModuleFederationOptions,
   PluginManifestOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import { toViteEncodedId } from '../utils/VirtualModule';
@@ -47,6 +48,7 @@ vi.mock('../utils/logger', async () => {
 import { federation } from '../index';
 import VirtualModule from '../utils/VirtualModule';
 import { getPreBuildLibImportId, LOAD_SHARE_TAG, PREBUILD_TAG } from '../virtualModules';
+import { getUsedShares } from '../virtualModules/virtualRemoteEntry';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
 const REACT_EXAMPLE_ROOT = path.join(process.cwd(), 'examples/vite-vite/vite-host');
@@ -1420,6 +1422,42 @@ describe('vite:module-federation-early-init', () => {
 
     expect(config.optimizeDeps.include).toContain('react/jsx-runtime');
     expect(virtualModule?.code).toContain('jsx');
+  });
+
+  it('does not register react/compiler-runtime when the project React version does not export it', () => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      shared: {
+        react: {
+          singleton: true,
+        },
+      },
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (entry) => entry.name === 'vite:module-federation-early-init'
+    );
+    const federationPlugin = plugins.find((entry) => entry.name === 'module-federation-vite') as
+      | (Plugin & { _options?: NormalizedModuleFederationOptions })
+      | undefined;
+    if (!earlyInitPlugin || !federationPlugin?._options) {
+      throw new Error('module federation plugins not found');
+    }
+    const config: any = {
+      root: path.join(process.cwd(), 'examples/vite-webpack-rspack/remote'),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.exclude).toContain('react/compiler-runtime');
+    expect(getUsedShares(federationPlugin._options)).not.toContain('react/compiler-runtime');
   });
 
   it('pre-seeds transitive shared dependencies for the dev optimizer', () => {
