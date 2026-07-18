@@ -560,8 +560,7 @@ export interface PluginExperimentsOptions {
    */
   externalRuntime?: boolean;
   /**
-   * Pure-consumer only (no `exposes`). Injects
-   * `@module-federation/inject-external-runtime-core-plugin` so the host
+   * Pure-consumer only (no `exposes`). Injects a local runtime plugin that
    * publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`.
    */
   provideExternalRuntime?: boolean;

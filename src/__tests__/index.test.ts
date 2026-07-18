@@ -2344,7 +2344,7 @@ describe('experiments.externalRuntime / provideExternalRuntime', () => {
     );
   });
 
-  it('appends inject-external-runtime-core-plugin for pure consumers', () => {
+  it('appends injectExternalRuntimeCorePlugin for pure consumers', () => {
     const plugins = federation({
       name: 'host',
       filename: 'remoteEntry.js',
@@ -2363,7 +2363,10 @@ describe('experiments.externalRuntime / provideExternalRuntime', () => {
     expect(
       options.runtimePlugins.some((plugin) => {
         const specifier = typeof plugin === 'string' ? plugin : plugin[0];
-        return specifier.includes('inject-external-runtime-core-plugin');
+        return (
+          specifier.includes('injectExternalRuntimeCorePlugin') ||
+          specifier.includes('inject-external-runtime-core-plugin')
+        );
       })
     ).toBe(true);
   });
@@ -2379,7 +2382,10 @@ describe('experiments.externalRuntime / provideExternalRuntime', () => {
     expect(
       options.runtimePlugins.some((plugin) => {
         const specifier = typeof plugin === 'string' ? plugin : plugin[0];
-        return specifier.includes('inject-external-runtime-core-plugin');
+        return (
+          specifier.includes('injectExternalRuntimeCorePlugin') ||
+          specifier.includes('inject-external-runtime-core-plugin')
+        );
       })
     ).toBe(false);
   });

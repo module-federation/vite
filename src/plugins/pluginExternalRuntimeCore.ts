@@ -4,7 +4,13 @@ import { createModuleFederationError } from '../utils/logger';
 import { resolveImportPath } from '../utils/packageUtils';
 
 export const EXTERNAL_RUNTIME_CORE_VIRTUAL_ID = '\0virtual:mf-external-runtime-core';
+/** Package remotes import — rewritten to the host global shim. */
 export const RUNTIME_CORE_PACKAGE = '@module-federation/runtime-core';
+/**
+ * Already depended on via `@module-federation/runtime`. Prefer this for Node
+ * introspection so we do not need a direct `runtime-core` dependency.
+ */
+export const RUNTIME_CORE_INTROSPECT_PACKAGE = '@module-federation/runtime/core';
 
 function isRuntimeCoreId(id: string): boolean {
   return id === RUNTIME_CORE_PACKAGE || id === `${RUNTIME_CORE_PACKAGE}/`;
@@ -58,15 +64,26 @@ export function resetRuntimeCoreExportNamesCache(): void {
   cachedExportNames = undefined;
 }
 
+async function importRuntimeCoreForIntrospection(
+  packageName: string
+): Promise<Record<string, unknown>> {
+  try {
+    const resolved = resolveImportPath(packageName);
+    return (await import(pathToFileURL(resolved).href)) as Record<string, unknown>;
+  } catch {
+    return (await import(packageName)) as Record<string, unknown>;
+  }
+}
+
 export async function resolveRuntimeCoreExportNames(): Promise<string[]> {
   if (cachedExportNames) return cachedExportNames;
   try {
-    const resolved = resolveImportPath(RUNTIME_CORE_PACKAGE);
-    const runtimeCore = (await import(pathToFileURL(resolved).href)) as Record<string, unknown>;
+    const runtimeCore = await importRuntimeCoreForIntrospection(RUNTIME_CORE_INTROSPECT_PACKAGE);
     cachedExportNames = collectRuntimeCoreExportNames(runtimeCore);
   } catch {
     try {
-      const runtimeCore = (await import(RUNTIME_CORE_PACKAGE)) as Record<string, unknown>;
+      // Fallback for older runtime packages without the `/core` export.
+      const runtimeCore = await importRuntimeCoreForIntrospection(RUNTIME_CORE_PACKAGE);
       cachedExportNames = collectRuntimeCoreExportNames(runtimeCore);
     } catch {
       cachedExportNames = [];
@@ -87,7 +104,7 @@ export default function pluginExternalRuntimeCore(): Plugin {
       shimCodePromise = resolveRuntimeCoreExportNames().then((names) => {
         if (names.length === 0) {
           throw createModuleFederationError(
-            `Unable to introspect exports from ${RUNTIME_CORE_PACKAGE} for experiments.externalRuntime.`
+            `Unable to introspect exports from ${RUNTIME_CORE_INTROSPECT_PACKAGE} for experiments.externalRuntime.`
           );
         }
         return buildExternalRuntimeCoreShimCode(names);

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
 import type { ConfigEnv, EnvironmentOptions, Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
@@ -616,16 +616,40 @@ function loadPluginDts(options: NormalizedModuleFederationOptions): any[] {
 }
 
 const INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN =
-  '@module-federation/inject-external-runtime-core-plugin';
+  '@module-federation/vite/injectExternalRuntimeCorePlugin';
 
-function hasRuntimePlugin(
-  runtimePlugins: Array<string | [string, Record<string, unknown>]>,
-  pluginId: string
+function isInjectExternalRuntimeCorePlugin(specifier: string): boolean {
+  return (
+    specifier === INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN ||
+    specifier.includes('injectExternalRuntimeCorePlugin') ||
+    // Still recognize the official package if a consumer adds it manually.
+    specifier.includes('inject-external-runtime-core-plugin')
+  );
+}
+
+function hasInjectExternalRuntimeCorePlugin(
+  runtimePlugins: Array<string | [string, Record<string, unknown>]>
 ): boolean {
   return runtimePlugins.some((plugin) => {
     const specifier = typeof plugin === 'string' ? plugin : plugin[0];
-    return specifier === pluginId || specifier.includes('inject-external-runtime-core-plugin');
+    return isInjectExternalRuntimeCorePlugin(specifier);
   });
+}
+
+function resolveInjectExternalRuntimeCorePlugin(): string {
+  try {
+    return normalizePathForImport(resolveImportPath(INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN));
+  } catch {
+    // Dev/test before `lib/` exists: resolve the source/companion file beside this module.
+    for (const rel of [
+      './utils/injectExternalRuntimeCorePlugin.js',
+      './utils/injectExternalRuntimeCorePlugin.ts',
+    ]) {
+      const candidate = fileURLToPath(new URL(rel, import.meta.url));
+      if (existsSync(candidate)) return normalizePathForImport(candidate);
+    }
+    return INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN;
+  }
 }
 
 function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOptions): void {
@@ -636,14 +660,10 @@ function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOpti
         'You can only set provideExternalRuntime: true in pure consumer which not expose modules.'
       );
     }
-    if (!hasRuntimePlugin(options.runtimePlugins, INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN)) {
-      try {
-        options.runtimePlugins = options.runtimePlugins.concat(
-          normalizePathForImport(resolveImportPath(INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN))
-        );
-      } catch {
-        options.runtimePlugins = options.runtimePlugins.concat(INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN);
-      }
+    if (!hasInjectExternalRuntimeCorePlugin(options.runtimePlugins)) {
+      options.runtimePlugins = options.runtimePlugins.concat(
+        resolveInjectExternalRuntimeCorePlugin()
+      );
     }
   }
 }
