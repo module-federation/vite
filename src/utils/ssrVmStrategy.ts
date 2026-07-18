@@ -19,13 +19,19 @@
  * API is missing.
  */
 import { neutralizeBrowserPreloadHelpers, SsrEntryHttpError } from './ssrEntryLoader';
-import { DEFAULT_SSR_FETCH_TIMEOUT_MS, fetchWithTimeout } from './fetchWithTimeout';
+import {
+  DEFAULT_SSR_FETCH_MAX_BYTES,
+  DEFAULT_SSR_FETCH_TIMEOUT_MS,
+  fetchWithTimeout,
+  readResponseTextBounded,
+} from './fetchWithTimeout';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
   shareScopeName: string;
   versionKey: string;
   fetchTimeoutMs?: number;
+  fetchMaxBytes?: number;
   cacheContext: object;
   federationInstance?: object;
 }
@@ -196,9 +202,17 @@ function getBodyPreview(body: string): string {
   return body.slice(0, 240).replace(/\s+/g, ' ').trim();
 }
 
-async function fetchModuleSource(url: string, fetchTimeoutMs?: number): Promise<string> {
+async function fetchModuleSource(
+  url: string,
+  fetchTimeoutMs?: number,
+  fetchMaxBytes?: number
+): Promise<string> {
   const res = await fetchWithTimeout(url, {}, fetchTimeoutMs);
-  const text = await res.text();
+  const text = await readResponseTextBounded(
+    res,
+    fetchMaxBytes ?? DEFAULT_SSR_FETCH_MAX_BYTES,
+    url
+  );
   if (!res.ok) {
     throw new SsrEntryHttpError(url, res.status, res.statusText, getBodyPreview(text));
   }
@@ -229,7 +243,7 @@ function getHttpModule(vm: VmApi, url: string, options: VmStrategyOptions): Prom
     httpModuleCache.set(
       cacheKey,
       (async () => {
-        const code = await fetchModuleSource(url, options.fetchTimeoutMs);
+        const code = await fetchModuleSource(url, options.fetchTimeoutMs, options.fetchMaxBytes);
         return new vm.SourceTextModule(code, {
           identifier: url,
           initializeImportMeta(meta) {
