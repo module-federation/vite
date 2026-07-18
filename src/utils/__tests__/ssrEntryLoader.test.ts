@@ -988,6 +988,62 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(fsMock.writeFileSync).not.toHaveBeenCalled();
   });
 
+  it('rejects oversized SSR manifest bodies instead of falling through', async () => {
+    const fetch = makeFetchMock({
+      // Server-build probe runs before the manifest fetch; keep it unavailable.
+      'http://localhost:5001/__mf_server__/remoteEntry.ssr.js': { ok: false },
+      'http://localhost:5001/mf-manifest.json': {
+        ok: true,
+        headers: { 'content-length': '2048' },
+        json: { metaData: { name: 'r' } },
+      },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export async function init() {} export async function get() {}',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await expect(
+      factory({ fetchMaxBytes: 1024 }).loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+      })
+    ).rejects.toThrow(/exceeds the 1024-byte limit/);
+    expectFetchNotCalled(fetch, 'http://localhost:5001/remoteEntry.ssr.js');
+  });
+
+  it('does not reuse SSR caches across different fetchMaxBytes limits', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const entryUrl = 'http://localhost:5001/remoteEntry.ssr.js';
+    const fetch = makeFetchMock({
+      [entryUrl]: {
+        ok: true,
+        headers: {
+          'content-type': 'application/javascript',
+          'content-length': '2048',
+        },
+        text: 'export async function init() {} export async function get() {}',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    // One module instance so process-level caches are shared across options.
+    const factory = await freshLoader();
+
+    await factory({ fetchMaxBytes: 0 }).loadEntry!({
+      remoteInfo: { name: 'r', entry: entryUrl },
+    });
+
+    await expect(
+      factory({ fetchMaxBytes: 1024 }).loadEntry!({
+        remoteInfo: { name: 'r', entry: entryUrl },
+      })
+    ).rejects.toThrow(/exceeds the 1024-byte limit/);
+  });
+
   it('fetches loader-wrapped template literal dynamic imports', async () => {
     let written = '';
     const fsMock = await import('fs');

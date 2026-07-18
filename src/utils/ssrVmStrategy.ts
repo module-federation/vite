@@ -236,6 +236,7 @@ function getHttpModule(vm: VmApi, url: string, options: VmStrategyOptions): Prom
   const cacheKey = JSON.stringify([
     getVmCacheContextKey(options),
     options.fetchTimeoutMs ?? DEFAULT_SSR_FETCH_TIMEOUT_MS,
+    options.fetchMaxBytes ?? DEFAULT_SSR_FETCH_MAX_BYTES,
     options.versionKey,
     url,
   ]);
