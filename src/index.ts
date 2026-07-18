@@ -521,11 +521,20 @@ export default __mfShared.default ?? __mfShared;`,
               optimizeDeps.include.push(key);
             }
             for (const subpath of getCommonSharedSubpaths(key)) {
+              const canResolveSubpath = canResolveSharedSubpath(subpath, root);
+              if (subpath === 'react/compiler-runtime' && !canResolveSubpath) {
+                // react/compiler-runtime is only exported by newer React
+                // versions. Registering it for React 18 can make a bare import
+                // resolve to an unrelated React version elsewhere in a pnpm
+                // workspace and serve its CommonJS entry directly.
+                optimizeDeps.exclude.push(subpath);
+                continue;
+              }
               getLoadShareModulePath(subpath, isRolldown, options);
               writeLoadShareModule(subpath, shareItem, _command, isRolldown, options);
               writePreBuildLibPath(subpath, shareItem, options);
               addUsedShares(subpath, options);
-              if (canResolveSharedSubpath(subpath, root)) {
+              if (canResolveSubpath) {
                 optimizeDeps.include.push(subpath);
               } else {
                 optimizeDeps.exclude.push(subpath);
