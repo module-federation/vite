@@ -99,8 +99,12 @@ async function getModuleRunnerModule(): Promise<{
  * This is Vite 8+ only — older versions don't expose `vite/module-runner` or
  * the `/__mf_runner__` proxy endpoint.
  */
-async function getOrCreateRunner(remoteOrigin: string, fetchTimeoutMs: number): Promise<unknown> {
-  const cacheKey = `${fetchTimeoutMs}::${remoteOrigin}`;
+async function getOrCreateRunner(
+  remoteOrigin: string,
+  fetchTimeoutMs: number,
+  fetchMaxBytes: number
+): Promise<unknown> {
+  const cacheKey = `${fetchTimeoutMs}::${fetchMaxBytes}::${remoteOrigin}`;
   if (runnerCache.has(cacheKey)) return runnerCache.get(cacheKey)!;
   const promise = (async () => {
     const viteRunner = await getModuleRunnerModule();
@@ -124,7 +128,8 @@ async function getOrCreateRunner(remoteOrigin: string, fetchTimeoutMs: number): 
                 },
                 fetchTimeoutMs
               );
-              return (await res.json()) as { result: unknown } | { error: { message: string } };
+              const text = await readResponseTextBounded(res, fetchMaxBytes, runnerEndpoint);
+              return JSON.parse(text) as { result: unknown } | { error: { message: string } };
             },
           },
         },
@@ -897,7 +902,11 @@ async function loadSSRRemoteEntry(
       // virtual SSR entry ID, so `runner.import()` traverses the full Vite
       // plugin pipeline and returns real, fully-transformed module source.
       const remoteOrigin = urlObj.origin;
-      const runner = await getOrCreateRunner(remoteOrigin, options.fetchTimeoutMs);
+      const runner = await getOrCreateRunner(
+        remoteOrigin,
+        options.fetchTimeoutMs,
+        options.fetchMaxBytes
+      );
       if (!runner) {
         if (process.env.NODE_ENV !== 'production') return null;
       } else {
@@ -909,7 +918,8 @@ async function loadSSRRemoteEntry(
             return mod as { init: unknown; get: unknown };
           }
           if (process.env.NODE_ENV !== 'production') return null;
-        } catch {
+        } catch (error) {
+          if (isSsrFetchBodyTooLargeError(error)) throw error;
           if (process.env.NODE_ENV !== 'production') return null;
         }
       }
