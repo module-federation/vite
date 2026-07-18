@@ -506,7 +506,7 @@ describe('generateRemotes', () => {
       '/virtual/hostInit-https%3A%2F%2Ftenant-b.invalid%2FremoteEntry.js.js'
     );
     expect(wrapperA.code).toMatch(
-      /remotes: \[{"name":"remote","entry":"https:\/\/tenant-a\.invalid\/remoteEntry\.js","type":"module"}\]/
+      /remotes: \[{"name":"shared_host_name__mf_owner__\d+__remote","entry":"https:\/\/tenant-a\.invalid\/remoteEntry\.js","type":"module"}\]/
     );
 
     addUsedRemote('remote', 'remote/CardA', optionsA);
@@ -560,10 +560,9 @@ describe('generateRemotes', () => {
     await expect(exportsB.__mf_remote_pending).resolves.toEqual({ default: 'tenant-b' });
     const runtimeIdA = (runtimeA.loadRemote.mock.calls[0] as unknown as [string])[0];
     const runtimeIdB = (runtimeB.loadRemote.mock.calls[0] as unknown as [string])[0];
-    // loadRemote keeps the configured remote key; isolation comes from the
-    // owner-prefixed module-cache keys and scoped remote `name` registration.
-    expect(runtimeIdA).toBe('remote/App');
-    expect(runtimeIdB).toBe('remote/App');
+    expect(runtimeIdA).toMatch(/^shared_host_name__mf_owner__\d+__remote\/App$/);
+    expect(runtimeIdB).toMatch(/^shared_host_name__mf_owner__\d+__remote\/App$/);
+    expect(runtimeIdA).not.toBe(runtimeIdB);
     expect(
       Object.keys(moduleCache.remote).filter(
         (key) => !key.startsWith('__mf_pending__') && key.endsWith('::remote/App')
