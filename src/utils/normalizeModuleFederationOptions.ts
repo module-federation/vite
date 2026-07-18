@@ -452,6 +452,15 @@ function normalizeManifest(manifest: ModuleFederationOptions['manifest']) {
   };
 }
 
+function normalizeExperiments(
+  experiments: ModuleFederationOptions['experiments']
+): NormalizedExperimentsOptions {
+  return {
+    externalRuntime: experiments?.externalRuntime === true,
+    provideExternalRuntime: experiments?.provideExternalRuntime === true,
+  };
+}
+
 export type ModuleFederationOptions = {
   exposes?: Record<string, string | { import: string }> | undefined;
   filename?: string;
@@ -535,11 +544,37 @@ export type ModuleFederationOptions = {
    * add any other Node-only packages that should not be bundled into the SSR entry.
    */
   ssrExternals?: string[];
+  /**
+   * Experimental Module Federation capabilities.
+   *
+   * @see https://module-federation.io/configure/experiments
+   */
+  experiments?: PluginExperimentsOptions;
 };
+
+export interface PluginExperimentsOptions {
+  /**
+   * Treat `@module-federation/runtime-core` as an external that reads
+   * `globalThis._FEDERATION_RUNTIME_CORE` at runtime. Pair with a host that
+   * sets `provideExternalRuntime: true`.
+   */
+  externalRuntime?: boolean;
+  /**
+   * Pure-consumer only (no `exposes`). Injects
+   * `@module-federation/inject-external-runtime-core-plugin` so the host
+   * publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`.
+   */
+  provideExternalRuntime?: boolean;
+}
+
+export interface NormalizedExperimentsOptions {
+  externalRuntime: boolean;
+  provideExternalRuntime: boolean;
+}
 
 export interface NormalizedModuleFederationOptions extends Omit<
   ModuleFederationOptions,
-  'exposes' | 'remotes' | 'shared'
+  'exposes' | 'remotes' | 'shared' | 'experiments'
 > {
   exposes: Record<string, ExposesItem>;
   filename: string;
@@ -558,6 +593,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
   bundleAllCSS: boolean;
   moduleParseTimeout: number;
   moduleParseIdleTimeout?: number;
+  experiments: NormalizedExperimentsOptions;
 }
 
 type HostInitInjectLocationOptions = 'entry' | 'html';
@@ -745,6 +781,7 @@ export function normalizeModuleFederationOptions(
     moduleParseIdleTimeout: options.moduleParseIdleTimeout,
     varFilename: options.varFilename,
     target: options.target,
+    experiments: normalizeExperiments(options.experiments),
   };
   explicitSharedKeysByOptions.set(normalized, new Set(explicitSharedKeys));
   return (config = normalized);

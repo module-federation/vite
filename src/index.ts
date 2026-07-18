@@ -7,6 +7,7 @@ import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
+import pluginExternalRuntimeCore from './plugins/pluginExternalRuntimeCore';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
@@ -32,6 +33,7 @@ import { createModuleFederationError, mfWarn } from './utils/logger';
 import type {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
+  PluginExperimentsOptions,
   PluginManifestOptions,
   ShareItem,
   TreeShakingConfig,
@@ -613,9 +615,43 @@ function loadPluginDts(options: NormalizedModuleFederationOptions): any[] {
   return [import('./plugins/pluginDts').then(({ default: pluginDts }) => pluginDts(options))];
 }
 
+const INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN =
+  '@module-federation/inject-external-runtime-core-plugin';
+
+function hasRuntimePlugin(
+  runtimePlugins: Array<string | [string, Record<string, unknown>]>,
+  pluginId: string
+): boolean {
+  return runtimePlugins.some((plugin) => {
+    const specifier = typeof plugin === 'string' ? plugin : plugin[0];
+    return specifier === pluginId || specifier.includes('inject-external-runtime-core-plugin');
+  });
+}
+
+function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOptions): void {
+  const { experiments } = options;
+  if (experiments.provideExternalRuntime) {
+    if (Object.keys(options.exposes).length > 0) {
+      throw createModuleFederationError(
+        'You can only set provideExternalRuntime: true in pure consumer which not expose modules.'
+      );
+    }
+    if (!hasRuntimePlugin(options.runtimePlugins, INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN)) {
+      try {
+        options.runtimePlugins = options.runtimePlugins.concat(
+          normalizePathForImport(resolveImportPath(INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN))
+        );
+      } catch {
+        options.runtimePlugins = options.runtimePlugins.concat(INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN);
+      }
+    }
+  }
+}
+
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
+  applyExternalRuntimeExperiments(options);
 
   const isVinext = hasPackageDependency('vinext');
   const { name, shared, filename, hostInitInjectLocation } = options;
@@ -662,6 +698,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         return virtualModule.code;
       },
     },
+    ...(options.experiments.externalRuntime ? [pluginExternalRuntimeCore()] : []),
     // This plugin runs FIRST to register virtual modules before optimization
     createEarlyVirtualModulesPlugin(options),
     ...(isVinext
@@ -1466,6 +1503,7 @@ export {
   createModuleFederationConfig,
   federation,
   type ModuleFederationOptions,
+  type PluginExperimentsOptions,
   type PluginManifestOptions,
   type TreeShakingConfig,
 };

@@ -269,6 +269,45 @@ After creating the secondary artifact, the deployment service must publish it to
 
 This deployment step is separate from the local Vite build; the plugin only emits the metadata and runtime support needed by the service. If the Snapshot is not updated, the artifact cannot be fetched, the versions do not match, or the artifact does not provide all required exports, the runtime ignores the optimized artifact and safely loads the complete shared dependency instead.
 
+## External runtime (`experiments`)
+
+Share one `@module-federation/runtime-core` instance from a pure consumer host so remotes do not bundle their own copy. Pair the flags — remotes with `externalRuntime` require a host that provides the global.
+
+**Host (pure consumer, no `exposes`):**
+
+```ts
+federation({
+  name: "host",
+  remotes: {
+    remote: {
+      type: "module",
+      name: "remote",
+      entry: "http://localhost:5176/remoteEntry.js",
+    },
+  },
+  experiments: {
+    provideExternalRuntime: true,
+  },
+});
+```
+
+**Remote:**
+
+```ts
+federation({
+  name: "remote",
+  filename: "remoteEntry.js",
+  exposes: {
+    "./App": "./src/App.tsx",
+  },
+  experiments: {
+    externalRuntime: true,
+  },
+});
+```
+
+`provideExternalRuntime` injects `@module-federation/inject-external-runtime-core-plugin`, which publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`. `externalRuntime` rewrites imports of `@module-federation/runtime-core` to read that global. Using `provideExternalRuntime` together with `exposes` throws — only pure consumers may provide the runtime.
+
 ## ⚠️ `codeSplitting` settings are controlled by the plugin
 
 Do not set either `build.rollupOptions.output.codeSplitting` or

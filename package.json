@@ -35,6 +35,9 @@
     "dev-vv": "pnpm clean && pnpm -filter 'examples-vite-vite*' run dev",
     "preview-vv": "pnpm clean && pnpm run build:shared-lib && pnpm -filter 'examples-vite-vite*' --parallel run preview",
     "preview-vv:ci": "pnpm run build:shared-lib && pnpm -filter 'examples-vite-vite*' --parallel run preview",
+    "preview-vv:external": "pnpm clean && pnpm run build:shared-lib && EXTERNAL_RUNTIME=1 pnpm -filter 'examples-vite-vite*' --parallel run preview",
+    "preview-vv:external:ci": "pnpm run build:shared-lib && EXTERNAL_RUNTIME=1 pnpm -filter 'examples-vite-vite*' --parallel run preview",
+    "e2e:external": "playwright test --config=playwright.external-runtime.config.ts",
     "build:shared-lib": "pnpm --filter @vite-vite/shared-lib run build",
     "typecheck": "tsc -p tsconfig.json",
     "multi-example:ci": "pnpm -filter 'multi-example-*' --parallel run start",
@@ -71,7 +74,10 @@
   },
   "dependencies": {
     "@module-federation/dts-plugin": "2.8.0",
+    "@module-federation/inject-external-runtime-core-plugin": "2.8.0",
     "@module-federation/runtime": "2.8.0",
+    "@module-federation/runtime-core": "2.8.0",
+    "@module-federation/runtime-tools": "2.8.0",
     "@module-federation/sdk": "2.8.0"
   },
   "devDependencies": {

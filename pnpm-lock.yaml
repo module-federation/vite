@@ -11,7 +11,16 @@ importers:
       '@module-federation/dts-plugin':
         specifier: 2.8.0
         version: 2.8.0(typescript@5.9.3)
+      '@module-federation/inject-external-runtime-core-plugin':
+        specifier: 2.8.0
+        version: 2.8.0(@module-federation/runtime-tools@2.8.0)
       '@module-federation/runtime':
+        specifier: 2.8.0
+        version: 2.8.0
+      '@module-federation/runtime-core':
+        specifier: 2.8.0
+        version: 2.8.0
+      '@module-federation/runtime-tools':
         specifier: 2.8.0
         version: 2.8.0
       '@module-federation/sdk':
@@ -2241,6 +2250,11 @@ packages:
     peerDependencies:
       '@module-federation/runtime-tools': 2.5.0
 
+  '@module-federation/inject-external-runtime-core-plugin@2.8.0':
+    resolution: {integrity: sha512-fW3jD1ZVds6r/Ul8TtUA42RsB0LfT1yjo5KjqgirH9QrmEMH21x44e3e6BC6IN820XKawRDSmz2kFA5YHIQp7Q==}
+    peerDependencies:
+      '@module-federation/runtime-tools': 2.8.0
+
   '@module-federation/managers@2.3.3':
     resolution: {integrity: sha512-sYL0t2guakJ+nDSQANH54uz5q1YxaNCn5C3lr+7BoRD49dX7Z6k7094yqOPEy8trzqdIoQVFpgewVA6IC/FeyQ==}
 
@@ -2300,6 +2314,9 @@ packages:
 
   '@module-federation/runtime-tools@2.5.0':
     resolution: {integrity: sha512-fR3Na6V78ov3/O17Mev+1vydfmqlYWP4ZNxD/bBkmqKhCO7jMdthNTT02yDljlCyhYl6+X90UJlFhwFle6rIsw==}
+
+  '@module-federation/runtime-tools@2.8.0':
+    resolution: {integrity: sha512-3yOqjdSHXxX4HA3GhlXg3hghGAXW2RJUsnwXCcik2/lTxOHizKI8f3RM+GGCKPxDVqtw43IShe3tA12jNL5A/A==}
 
   '@module-federation/runtime@0.1.6':
     resolution: {integrity: sha512-nj6a+yJ+QxmcE89qmrTl4lphBIoAds0PFPVGnqLRWflwAP88jrCcrrTqRhARegkFDL+wE9AE04+h6jzlbIfMKg==}
@@ -2361,6 +2378,9 @@ packages:
 
   '@module-federation/webpack-bundler-runtime@2.5.0':
     resolution: {integrity: sha512-UxVad+tNZYkBnZzqJQsZa0pB5gO5cJoCjMumOo3bhzXBJVqHsFupfeHa8Nk7WrRVbJE6zRT9ZHK0s0NDWBMyJw==}
+
+  '@module-federation/webpack-bundler-runtime@2.8.0':
+    resolution: {integrity: sha512-82fDy9v+7qV5fiN8TKVhOdrxhmAZnUIX/IKivYX5ulCt8aoOzVFTiwm/P1GQUDD8z6dqR48xgJdZdf0548Mc9w==}
 
   '@mui/core-downloads-tracker@7.3.9':
     resolution: {integrity: sha512-MOkOCTfbMJwLshlBCKJ59V2F/uaLYfmKnN76kksj6jlGUVdI25A9Hzs08m+zjBRdLv+sK7Rqdsefe8X7h/6PCw==}
@@ -9208,6 +9228,10 @@ snapshots:
     dependencies:
       '@module-federation/runtime-tools': 2.5.0
 
+  '@module-federation/inject-external-runtime-core-plugin@2.8.0(@module-federation/runtime-tools@2.8.0)':
+    dependencies:
+      '@module-federation/runtime-tools': 2.8.0
+
   '@module-federation/managers@2.3.3':
     dependencies:
       '@module-federation/sdk': 2.3.3
@@ -9329,6 +9353,11 @@ snapshots:
     transitivePeerDependencies:
       - node-fetch
 
+  '@module-federation/runtime-tools@2.8.0':
+    dependencies:
+      '@module-federation/runtime': 2.8.0
+      '@module-federation/webpack-bundler-runtime': 2.8.0
+
   '@module-federation/runtime@0.1.6':
     dependencies:
       '@module-federation/sdk': 0.1.6
@@ -9406,6 +9435,12 @@ snapshots:
       '@module-federation/sdk': 2.5.0
     transitivePeerDependencies:
       - node-fetch
+
+  '@module-federation/webpack-bundler-runtime@2.8.0':
+    dependencies:
+      '@module-federation/error-codes': 2.8.0
+      '@module-federation/runtime': 2.8.0
+      '@module-federation/sdk': 2.8.0
 
   '@mui/core-downloads-tracker@7.3.9': {}
 

@@ -6,6 +6,7 @@ const treeShakingMode = ['server-calc', 'runtime-infer'].includes(process.env.TR
   ? process.env.TREE_SHAKING_MODE
   : undefined;
 const eagerShared = process.env.EAGER_SHARED === 'true';
+const externalRuntime = process.env.EXTERNAL_RUNTIME === '1';
 const antdShared = {
   singleton: true,
   ...(eagerShared && !treeShakingMode ? { eager: true } : {}),
@@ -64,6 +65,7 @@ const primaryFederation = routeInstanceMarker(
     manifest: true,
     shared,
     runtimePlugins: ['./src/mfPlugins'],
+    ...(externalRuntime ? { experiments: { provideExternalRuntime: true } } : {}),
   }),
   (importer) => !importer?.endsWith('/SecondaryFederationMarker.jsx')
 );
@@ -82,6 +84,7 @@ const secondaryFederation = routeInstanceMarker(
       fileName: 'secondary-host-mf-manifest.json',
     },
     shared,
+    ...(externalRuntime ? { experiments: { provideExternalRuntime: true } } : {}),
   }),
   (importer) => importer?.endsWith('/SecondaryFederationMarker.jsx')
 );
