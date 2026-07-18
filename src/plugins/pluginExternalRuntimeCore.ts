@@ -40,17 +40,96 @@ export function collectRuntimeCoreExportNames(
     .sort();
 }
 
+/**
+ * Builds a shim that defers reading `globalThis._FEDERATION_RUNTIME_CORE` until
+ * an export is accessed. Vite dev does not guarantee host `beforeInit` runs
+ * before remote graph modules evaluate, so an eager throw at import time can
+ * fail even when `provideExternalRuntime` is correctly configured.
+ */
 export function buildExternalRuntimeCoreShimCode(exportNames: string[]): string {
   const namedExports = exportNames
-    .map((name) => `export const ${name} = mod[${JSON.stringify(name)}];`)
+    .map(
+      (name) =>
+        `export const ${name} = /*#__PURE__*/ __mfCreateLazyRuntimeCoreExport(${JSON.stringify(name)});`
+    )
     .join('\n');
 
   return `${[
-    'const mod = globalThis._FEDERATION_RUNTIME_CORE;',
-    'if (!mod) {',
-    '  throw new Error("[Module Federation] experiments.externalRuntime is enabled, but globalThis._FEDERATION_RUNTIME_CORE is missing. Enable experiments.provideExternalRuntime on the host consumer.");',
+    'function __mfGetExternalRuntimeCore() {',
+    '  const mod = globalThis._FEDERATION_RUNTIME_CORE;',
+    '  if (!mod) {',
+    '    throw new Error("[Module Federation] experiments.externalRuntime is enabled, but globalThis._FEDERATION_RUNTIME_CORE is missing. Enable experiments.provideExternalRuntime on the host consumer.");',
+    '  }',
+    '  return mod;',
     '}',
-    'export default mod.default ?? mod;',
+    'function __mfCreateLazyRuntimeCoreExport(exportName) {',
+    '  const target = function (...args) {',
+    '    return Reflect.apply(__mfGetExternalRuntimeCore()[exportName], this, args);',
+    '  };',
+    '  return new Proxy(target, {',
+    '    get(_target, prop) {',
+    '      if (prop === "__mf_is_external_runtime_core_export") return true;',
+    '      // Avoid thenable detection / introspection throwing before host init.',
+    '      if (prop === "then") return undefined;',
+    '      const value = __mfGetExternalRuntimeCore()[exportName];',
+    '      if (prop === "prototype") return value?.prototype;',
+    '      if (prop === Symbol.hasInstance) {',
+    '        return (instance) => instance instanceof value;',
+    '      }',
+    '      if (value == null) return value;',
+    '      const inner = Reflect.get(value, prop, value);',
+    '      return typeof inner === "function" ? inner.bind(value) : inner;',
+    '    },',
+    '    set(_target, prop, nextValue) {',
+    '      __mfGetExternalRuntimeCore()[exportName][prop] = nextValue;',
+    '      return true;',
+    '    },',
+    '    has(_target, prop) {',
+    '      if (prop === "then" || prop === "__mf_is_external_runtime_core_export") {',
+    '        return prop === "__mf_is_external_runtime_core_export";',
+    '      }',
+    '      const mod = globalThis._FEDERATION_RUNTIME_CORE;',
+    '      if (!mod) return false;',
+    '      return prop in Object(mod[exportName]);',
+    '    },',
+    '    ownKeys() {',
+    '      const mod = globalThis._FEDERATION_RUNTIME_CORE;',
+    '      if (!mod) return [];',
+    '      return Reflect.ownKeys(Object(mod[exportName]));',
+    '    },',
+    '    getOwnPropertyDescriptor(_target, prop) {',
+    '      if (prop === "then") return undefined;',
+    '      const mod = globalThis._FEDERATION_RUNTIME_CORE;',
+    '      if (!mod) return undefined;',
+    '      return Object.getOwnPropertyDescriptor(Object(mod[exportName]), prop);',
+    '    },',
+    '    apply(_target, thisArg, args) {',
+    '      return Reflect.apply(__mfGetExternalRuntimeCore()[exportName], thisArg, args);',
+    '    },',
+    '    construct(_target, args) {',
+    '      const Ctor = __mfGetExternalRuntimeCore()[exportName];',
+    '      return new Ctor(...args);',
+    '    },',
+    '  });',
+    '}',
+    'export default /*#__PURE__*/ new Proxy(Object.create(null), {',
+    '  get(_target, prop) {',
+    '    if (prop === "__esModule") return true;',
+    '    if (prop === "then") return undefined;',
+    '    const mod = __mfGetExternalRuntimeCore();',
+    '    const resolved = mod.default ?? mod;',
+    '    const value = resolved[prop];',
+    '    return typeof value === "function" ? value.bind(resolved) : value;',
+    '  },',
+    '  has(_target, prop) {',
+    '    if (prop === "then") return false;',
+    '    if (prop === "__esModule") return true;',
+    '    const mod = globalThis._FEDERATION_RUNTIME_CORE;',
+    '    if (!mod) return false;',
+    '    const resolved = mod.default ?? mod;',
+    '    return prop in Object(resolved);',
+    '  },',
+    '});',
     namedExports,
   ]
     .filter(Boolean)

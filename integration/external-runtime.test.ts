@@ -37,6 +37,7 @@ describe('experiments.externalRuntime', () => {
 
     expect(externalizedCode).toContain('globalThis._FEDERATION_RUNTIME_CORE');
     expect(externalizedCode).toContain('experiments.externalRuntime is enabled');
+    expect(externalizedCode).toContain('__mfCreateLazyRuntimeCoreExport');
     // Baseline still inlines runtime-core (no global shim).
     expect(baselineCode).not.toContain('globalThis._FEDERATION_RUNTIME_CORE');
     expect(totalJsCodeSize(externalizedCode)).toBeLessThan(totalJsCodeSize(baselineCode));

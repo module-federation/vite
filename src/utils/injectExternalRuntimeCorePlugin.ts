@@ -21,13 +21,37 @@ type FederationGlobal = Record<string, unknown> & {
 /** Keep in sync with the `@module-federation/runtime` dependency version. */
 const PLUGIN_VERSION = '2.8.0';
 
+function getFederationGlobal(): FederationGlobal | undefined {
+  const globalRef = runtimeCore.Global as FederationGlobal | undefined;
+  if (!globalRef || typeof globalRef !== 'object') return undefined;
+  return globalRef;
+}
+
+/**
+ * Publish runtime-core as soon as this module evaluates. Vite remotes can
+ * import the externalRuntime shim before `beforeInit` runs; registering here
+ * closes that race when the host has already loaded this plugin module.
+ *
+ * Leave `_FEDERATION_RUNTIME_CORE_FROM` unset until `beforeInit` so the host
+ * name/version metadata is applied without a false multi-runtime warning.
+ */
+function publishExternalRuntimeCore(): void {
+  const globalRef = getFederationGlobal();
+  if (!globalRef) return;
+  if (!globalRef._FEDERATION_RUNTIME_CORE) {
+    globalRef._FEDERATION_RUNTIME_CORE = runtimeCore;
+  }
+}
+
+publishExternalRuntimeCore();
+
 export default function injectExternalRuntimeCorePlugin() {
   return {
     name: 'inject-external-runtime-core-plugin',
     version: PLUGIN_VERSION,
     beforeInit(args: BeforeInitArgs) {
-      const globalRef = runtimeCore.Global as FederationGlobal | undefined;
-      if (!globalRef || typeof globalRef !== 'object') return args;
+      const globalRef = getFederationGlobal();
+      if (!globalRef) return args;
 
       const name = args.options.name;
       if (
