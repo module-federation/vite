@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchWithTimeout } from '../fetchWithTimeout';
+import {
+  fetchWithTimeout,
+  readResponseTextBounded,
+  SsrFetchBodyTooLargeError,
+} from '../fetchWithTimeout';
 
 describe('fetchWithTimeout', () => {
   afterEach(() => {
@@ -99,5 +103,52 @@ describe('fetchWithTimeout', () => {
       'http://localhost:5001/remoteEntry.js',
       expect.objectContaining({ redirect: 'error' })
     );
+  });
+});
+
+describe('readResponseTextBounded', () => {
+  it('returns the body when it is under the limit', async () => {
+    const res = new Response('export const ok = true;', {
+      headers: { 'content-type': 'application/javascript' },
+    });
+
+    await expect(readResponseTextBounded(res, 1024, 'https://example.com/a.js')).resolves.toBe(
+      'export const ok = true;'
+    );
+  });
+
+  it('rejects when Content-Length exceeds the limit before reading', async () => {
+    const res = new Response('too-large', {
+      headers: { 'content-length': '100' },
+    });
+
+    await expect(readResponseTextBounded(res, 50, 'https://example.com/big.js')).rejects.toThrow(
+      SsrFetchBodyTooLargeError
+    );
+  });
+
+  it('rejects when the streamed body exceeds the limit', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('abcdefghij'));
+        controller.enqueue(encoder.encode('klmnopqrst'));
+        controller.close();
+      },
+    });
+    const res = new Response(stream);
+
+    await expect(readResponseTextBounded(res, 15, 'https://example.com/stream.js')).rejects.toThrow(
+      /exceeded the 15-byte limit/
+    );
+  });
+
+  it('disables the limit when maxBytes is 0', async () => {
+    const body = 'x'.repeat(100);
+    const res = new Response(body, {
+      headers: { 'content-length': String(body.length) },
+    });
+
+    await expect(readResponseTextBounded(res, 0, 'https://example.com/x.js')).resolves.toBe(body);
   });
 });
