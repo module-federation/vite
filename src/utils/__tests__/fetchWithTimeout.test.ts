@@ -82,4 +82,22 @@ describe('fetchWithTimeout', () => {
       expect.objectContaining({ redirect: 'error' })
     );
   });
+
+  it('does not retry timed-out localhost requests over IPv6', async () => {
+    const timeoutError = new DOMException(
+      'The operation was aborted due to timeout',
+      'TimeoutError'
+    );
+    const fetchMock = vi.fn().mockRejectedValue(timeoutError);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchWithTimeout('http://localhost:5001/remoteEntry.js', {}, 5)).rejects.toBe(
+      timeoutError
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:5001/remoteEntry.js',
+      expect.objectContaining({ redirect: 'error' })
+    );
+  });
 });
