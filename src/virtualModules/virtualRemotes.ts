@@ -109,16 +109,11 @@ export function getRemoteFromId(id: string, remotes: Record<string, RemoteObject
 export function getRuntimeRemoteId(
   id: string,
   remotes: Record<string, RemoteObjectConfig>,
-  _options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions
 ) {
-  // Keep the configured remote key (e.g. "remote/App") for loadRemote.
-  // Instance isolation uses scoped remote `name` in usedRemotes / registerRemotes
-  // and getRuntimeRemoteCachePrefix in the module cache — not a scoped request id.
-  // Scoping the request id breaks consumers like @module-federation/astro that
-  // resolve localRemotes / createInstance remotes by the configured alias.
-  void remotes;
-  void _options;
-  return id;
+  const alias = getRemoteAliasFromId(id, remotes);
+  if (!alias) return id;
+  return `${getRuntimeRemoteAlias(alias, options)}${id.slice(alias.length)}`;
 }
 
 /**
@@ -335,20 +330,14 @@ export function generateRemotes(
   const deferRemoteLoad = shouldDeferRemoteLoad(initMode);
   const remoteAlias = getRemoteAliasFromId(id, resolvedOptions.remotes);
   const remote = remoteAlias ? resolvedOptions.remotes[remoteAlias] : undefined;
-  const runtimeRemoteName = remoteAlias
-    ? options
-      ? getRuntimeRemoteAlias(remoteAlias, options)
-      : remote?.name
-    : undefined;
+  const runtimeRemoteAlias = remoteAlias ? getRuntimeRemoteAlias(remoteAlias, options) : undefined;
   const runtimeRemoteId = getRuntimeRemoteId(id, resolvedOptions.remotes, options);
   const registerRemoteCode =
-    isLoadedFirst && remote && remoteAlias
+    isLoadedFirst && remote
       ? `runtime.registerRemotes([${JSON.stringify({
           entryGlobalName: remote.entryGlobalName,
-          name: runtimeRemoteName ?? remote.name,
-          // Keep the configured alias so loadRemote("remote/...") still matches
-          // after #926 scoped the unique remote name for instance isolation.
-          alias: remoteAlias,
+          name: options ? runtimeRemoteAlias : remote.name,
+          alias: runtimeRemoteAlias,
           type: remote.type,
           entry: remote.entry,
           shareScope: remote.shareScope ?? 'default',
@@ -356,9 +345,7 @@ export function generateRemotes(
       : '';
   const hostAutoInitPath = getHostAutoInitPath(options);
   const ssrRemotes = Object.entries(resolvedOptions.remotes).map(([name, item]) => ({
-    // SSR bootstrap instance is dedicated (`__mf_ssr_host__`); use the configured
-    // remote key so loadRemote ids stay compatible with localRemotes consumers.
-    name,
+    name: getRuntimeRemoteAlias(name, options),
     entry: item.entry,
     type: item.type ?? 'module',
   }));
