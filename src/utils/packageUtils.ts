@@ -19,6 +19,13 @@ function getDependencyCacheKey(cwd: string, dependencyName: string) {
   return `${cwd}:${dependencyName}`;
 }
 
+// getInstalledPackageJson's fallback path can scan every entry in
+// node_modules/.pnpm (thousands in a real monorepo) with synchronous fs
+// calls. It's invoked repeatedly for the same specifier from resolveId
+// hooks during dev serving, so cache results for the process lifetime the
+// same way hasPackageDependency already does above.
+const installedPackageJsonCache = new Map<string, InstalledPackageJson | undefined>();
+
 export function setPackageDetectionCwd(cwd: string) {
   packageDetectionCwd = cwd;
 }
@@ -392,6 +399,21 @@ export function getInstalledPackageJson(
 ): InstalledPackageJson | undefined {
   const cwd = opts?.cwd || getPackageDetectionCwd();
   const packageName = opts?.packageName || getPackageName(pkg);
+  const cacheKey = `${cwd}\0${pkg}\0${packageName}\0${opts?.fromResolvedEntry ?? ''}`;
+  if (installedPackageJsonCache.has(cacheKey)) {
+    return installedPackageJsonCache.get(cacheKey);
+  }
+  const result = resolveInstalledPackageJson(pkg, cwd, packageName, opts);
+  installedPackageJsonCache.set(cacheKey, result);
+  return result;
+}
+
+function resolveInstalledPackageJson(
+  pkg: string,
+  cwd: string,
+  packageName: string,
+  opts?: PackageEntryConditions
+): InstalledPackageJson | undefined {
   const tryReadPackageJson = (packageJsonPath: string): InstalledPackageJson | undefined => {
     if (!existsSync(packageJsonPath)) return undefined;
     try {
