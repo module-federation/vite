@@ -53,6 +53,14 @@ export function isAssetLikeImport(source: string): boolean {
   return ASSET_LIKE_IMPORT_RE.test(source);
 }
 
+// Mirrors Vite's own OPTIMIZABLE_ENTRY_RE: its dependency optimizer only
+// bundles .js/.cjs/.mjs/.ts/.cts/.mts entries — notably not .jsx/.tsx.
+const VITE_OPTIMIZABLE_ENTRY_RE = /\.[cm]?[jt]s$/;
+
+export function isViteOptimizableEntry(resolvedPath: string): boolean {
+  return VITE_OPTIMIZABLE_ENTRY_RE.test(resolvedPath);
+}
+
 export function removeTrailingSlash(value: string): string {
   return value.endsWith('/') ? value.slice(0, -1) : value;
 }
