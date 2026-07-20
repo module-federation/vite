@@ -51,7 +51,11 @@ import {
   getRuntimeCapabilityConfigurationWarnings,
 } from './utils/runtimeCapabilityOptimization';
 import { getSsrCapabilities } from './utils/ssrCapabilities';
-import { getCommonSharedSubpaths, isAssetLikeImport } from './utils/pathNormalization';
+import {
+  getCommonSharedSubpaths,
+  isAssetLikeImport,
+  isViteOptimizableEntry,
+} from './utils/pathNormalization';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
 import {
   getHostAutoInitImportId,
@@ -251,14 +255,15 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
   );
 }
 
-// Returns false for subpaths not exported by the installed package (e.g.
-// react/compiler-runtime on React 18) so we can exclude them from Vite's dep
-// optimizer instead of letting Vite's resolver error on the missing export.
+// Returns false for subpaths that either aren't exported by the installed
+// package (e.g. react/compiler-runtime on React 18) or resolve to a file
+// Vite's optimizer refuses to bundle (e.g. raw .tsx source), so callers can
+// exclude them from Vite's dep optimizer instead of letting Vite silently
+// drop them with a "Cannot optimize dependency" warning every dev start.
 function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean {
   try {
     const req = createRequire(pathToFileURL(path.join(projectRoot, 'package.json')));
-    req.resolve(subpath);
-    return true;
+    return isViteOptimizableEntry(req.resolve(subpath));
   } catch {
     return false;
   }
@@ -516,7 +521,9 @@ export default __mfShared.default ?? __mfShared;`,
             // local prebuild fallbacks receive Vite's CJS-to-ESM interop.
             // Singleton identity is enforced by the federation share cache
             // and loadShare proxy, independently from dependency optimization.
-            const shouldBypassOptimizeDep = isLitShare(key);
+            // Shares resolving to raw .jsx/.tsx source can't be optimized by
+            // Vite at all, so route them to exclude the same way.
+            const shouldBypassOptimizeDep = isLitShare(key) || !canResolveSharedSubpath(key, root);
             if (optimizeDeps.include.includes(key)) {
               optimizeDeps.exclude = optimizeDeps.exclude.filter((dep) => dep !== key);
             } else if (shouldBypassOptimizeDep) {

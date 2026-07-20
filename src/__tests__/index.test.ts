@@ -1460,6 +1460,43 @@ describe('vite:module-federation-early-init', () => {
     expect(getUsedShares(federationPlugin._options)).not.toContain('react/compiler-runtime');
   });
 
+  it('excludes a workspace-linked shared subpath resolving to raw .tsx source from dev optimizeDeps', () => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      shared: {
+        '@test-issue/theme/provider': {
+          singleton: true,
+        },
+      },
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (entry) => entry.name === 'vite:module-federation-early-init'
+    );
+    if (!earlyInitPlugin) {
+      throw new Error('module federation plugins not found');
+    }
+    const config: any = {
+      root: path.join(process.cwd(), 'test-issue/host'),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    // Vite's optimizer only ever bundles .js/.cjs/.mjs/.ts/.cts/.mts entries
+    // (not .jsx/.tsx). Forcing a raw .tsx workspace source into `include`
+    // makes Vite warn "Cannot optimize dependency" on every dev start and
+    // leaves it permanently unresolved from the optimizer's perspective.
+    expect(config.optimizeDeps.include).not.toContain('@test-issue/theme/provider');
+    expect(config.optimizeDeps.exclude).toContain('@test-issue/theme/provider');
+  });
+
   it('pre-seeds transitive shared dependencies for the dev optimizer', () => {
     const plugin = (
       federation({
