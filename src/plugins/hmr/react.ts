@@ -41,8 +41,8 @@ function resolveReactRefreshRuntime(root: string): string {
  * falls back to this remote's local runtime when the remote is opened directly.
  */
 const REACT_REFRESH_PROXY_MODULE = [
-  `const __remoteOrigin = new URL(import.meta.url).origin;`,
-  `const __target = window.location.origin === __remoteOrigin ? '${LOCAL_REACT_REFRESH_PATH}' : window.location.origin + '${REACT_REFRESH_PATH}';`,
+  `const __remoteUrl = new URL(import.meta.url);`,
+  `const __target = window.location.origin === __remoteUrl.origin ? new URL('.${LOCAL_REACT_REFRESH_PATH}', __remoteUrl).href : window.location.origin + '${REACT_REFRESH_PATH}';`,
   `const __rt = await import(__target);`,
   `export const injectIntoGlobalHook = __rt.injectIntoGlobalHook;`,
   `export const register = __rt.register;`,
@@ -65,7 +65,7 @@ export const reactAdapter: HmrAdapter = {
 
       server.middlewares.use((req, res, next) => {
         const url = stripQuery(req.url);
-        if (url === LOCAL_REACT_REFRESH_PATH) {
+        if (url?.endsWith(LOCAL_REACT_REFRESH_PATH)) {
           reactRefreshRuntime ??= resolveReactRefreshRuntime(server.config.root);
           res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
           res.setHeader('Access-Control-Allow-Origin', '*');
@@ -73,7 +73,7 @@ export const reactAdapter: HmrAdapter = {
           return;
         }
 
-        if (url !== REACT_REFRESH_PATH) return next();
+        if (!url?.endsWith(REACT_REFRESH_PATH)) return next();
 
         res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
         res.setHeader('Access-Control-Allow-Origin', '*');
