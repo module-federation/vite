@@ -11,10 +11,11 @@ type Middleware = (
   next: () => void
 ) => void;
 
-function createCtx(): { ctx: AdapterContext; middlewares: Middleware[] } {
+function createCtx(base = '/'): { ctx: AdapterContext; middlewares: Middleware[] } {
   const middlewares: Middleware[] = [];
   const ctx: AdapterContext = {
     server: {
+      config: { base, root: process.cwd() },
       middlewares: {
         use: (handler: Middleware) => {
           middlewares.push(handler);
@@ -58,6 +59,41 @@ describe('reactAdapter', () => {
     );
     expect(res.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', '*');
     expect(res.end).toHaveBeenCalledWith(expect.stringContaining('window.location.origin'));
+  });
+
+  it('serves the React refresh proxy under the configured base path', () => {
+    const { ctx, middlewares } = createCtx('/aaa/');
+    reactAdapter.remote?.configureServer?.(ctx);
+
+    const res = { setHeader: vi.fn(), end: vi.fn() };
+    const next = vi.fn();
+    middlewares[0](
+      { url: '/aaa/@react-refresh?v=abc' } as IncomingMessage,
+      res as unknown as ServerResponse<IncomingMessage>,
+      next
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.end).toHaveBeenCalledWith(expect.stringContaining('window.location.origin'));
+    expect(res.end).toHaveBeenCalledWith(
+      expect.stringContaining("new URL('./@mf-react-refresh-local', __remoteUrl).href")
+    );
+  });
+
+  it('serves the local React refresh runtime under the configured base path', () => {
+    const { ctx, middlewares } = createCtx('/aaa/');
+    reactAdapter.remote?.configureServer?.(ctx);
+
+    const res = { setHeader: vi.fn(), end: vi.fn() };
+    const next = vi.fn();
+    middlewares[0](
+      { url: '/aaa/@mf-react-refresh-local' } as IncomingMessage,
+      res as unknown as ServerResponse<IncomingMessage>,
+      next
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.end).toHaveBeenCalledWith(expect.stringContaining('injectIntoGlobalHook'));
   });
 
   it('passes other requests through', () => {
