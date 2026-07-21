@@ -42,6 +42,8 @@ import {
   getIsRolldown,
   getInstalledPackageEntry,
   getInstalledPackageJson,
+  getPackageName,
+  getPackageNameFromNodeModulePath,
   hasPackageDependency,
   resolveImportPath,
   setPackageDetectionCwd,
@@ -457,6 +459,8 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (isSharedResolverInternalImporter(args.importer)) return;
                   const key = findSharedKey(args.path, shared);
                   if (!key || isAssetLikeImport(args.path)) return;
+                  if (getPackageNameFromNodeModulePath(args.importer) === getPackageName(args.path))
+                    return;
                   return { path: args.path, namespace: 'mf-shared' };
                 });
                 build.onLoad({ filter: /.*/, namespace: 'mf-shared' }, (args: any) => {
