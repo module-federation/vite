@@ -1091,6 +1091,39 @@ describe('vite:module-federation-early-init', () => {
     ).toBeUndefined();
   });
 
+  it('does not proxy a shared package self-referencing its own subpath', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        shared: { zustand: { singleton: true } },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const optimizeSharedProxy = config.optimizeDeps.esbuildOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-proxy'
+    );
+    const onResolveHandlers: any[] = [];
+    optimizeSharedProxy.setup({
+      onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
+      onLoad: () => undefined,
+    });
+
+    expect(
+      onResolveHandlers[1]({
+        path: 'zustand/react',
+        importer: '/repo/node_modules/zustand/esm/index.mjs',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+  });
+
   it('excludes asset imports from esbuild optimizeDeps shared proxy', () => {
     const plugin = (
       federation({
