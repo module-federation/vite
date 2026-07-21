@@ -3575,6 +3575,31 @@ describe('virtualRemoteEntry', () => {
     expect(hostGet).not.toHaveBeenCalled();
   });
 
+  it('selects a runtime-only host provider for import:false regardless of its sentinel version', async () => {
+    const selectExternalProvider = await getExternalSharedProviderSelector();
+    const hostProvider = {
+      from: 'runtime-host',
+      lib: () => ({ marker: 'host' }),
+      loaded: true,
+    };
+    const localStub = {
+      version: '1.2.3',
+      from: 'remote',
+      scope: ['default'],
+      loaded: false,
+      shareConfig: {
+        singleton: true,
+        import: false,
+        requiredVersion: '*',
+        strictVersion: false,
+      },
+    };
+
+    expect(
+      selectExternalProvider({ '0': hostProvider }, 'host-only-package', localStub, 'version-first')
+    ).toBe(hostProvider);
+  });
+
   it.each([false, true])(
     'keeps a loaded host singleton ahead of a newer local fallback with version-first (local loaded: %s)',
     async (localLoaded) => {
