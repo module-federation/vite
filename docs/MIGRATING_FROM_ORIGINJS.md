@@ -13,6 +13,32 @@ Both plugins expose modules through `remoteEntry` files, but their host-remote c
 
 Keep the host remote alias and expose keys stable during the first migration. That keeps existing imports such as `import('catalog/Product')` unchanged.
 
+For example, the host's remote configuration changes, but the alias and expose key that form the consumer import path stay the same:
+
+```ts
+// OriginJS host
+remotes: {
+  catalog: "https://cdn.example.com/catalog/remoteEntry.js",
+}
+
+// `@module-federation/vite` host
+remotes: {
+  catalog: {
+    name: "catalog",
+    entry: "https://cdn.example.com/catalog/remoteEntry.js",
+    type: "module",
+  },
+}
+
+// Remote expose key (unchanged)
+exposes: {
+  "./Product": "./src/Product.tsx",
+}
+
+// Consumer code (unchanged)
+const Product = await import("catalog/Product");
+```
+
 ## Requirements
 
 Before replacing the plugin, verify that each application being migrated uses a version supported by `@module-federation/vite`:
