@@ -176,6 +176,9 @@ vi.mock('../../utils/packageUtils', () => ({
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
   getInstalledPackageEntry: vi.fn((pkg: string, opts?: { cwd?: string }) => {
+    if (pkg === 'react/jsx-runtime') {
+      return '/repo/apps/remote/node_modules/react/jsx-runtime.js';
+    }
     if (pkg === 'mock-package-star-dependency') {
       return '/repo/apps/remote/node_modules/mock-package-star-dependency/index.js';
     }
@@ -414,6 +417,7 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('node_modules/mock-package-cjs-comment/index.js') ||
       filePath.endsWith('/mock-package-cjs-comment/index.js') ||
+      filePath.endsWith('node_modules/react/jsx-runtime.js') ||
       filePath.endsWith('/repo/packages/workspace-shared-lib/package.json') ||
       filePath.endsWith('/repo/packages/workspace-unknown-exports/package.json') ||
       filePath.endsWith('/repo/packages/workspace-unknown-exports/src/index.ts') ||
@@ -723,6 +727,9 @@ export const [firstItem, ...restItems] = tuple;`;
     if (filePath.endsWith('node_modules/mock-package-cjs-comment/index.js')) {
       return "// export const phantom = 1;\nmodule['exports'] = { real: 1 };";
     }
+    if (filePath.endsWith('node_modules/react/jsx-runtime.js')) {
+      return "module.exports = require('./cjs/react-jsx-runtime.production.min.js');";
+    }
     if (filePath.endsWith('/repo/packages/workspace-shared-lib/package.json')) {
       return JSON.stringify({ name: 'workspace-shared-lib' });
     }
@@ -839,6 +846,13 @@ vi.mock('module', async (importOriginal) => {
             real: 1,
             default: {},
             __esModule: true,
+          };
+        }
+        if (pkg.endsWith('/react/jsx-runtime.js')) {
+          return {
+            Fragment: Symbol.for('react.fragment'),
+            jsx: () => undefined,
+            jsxs: () => undefined,
           };
         }
         if (pkg.endsWith('/typescript-cjs-barrel.js')) {
@@ -2017,6 +2031,29 @@ describe('writeLoadShareModule', () => {
     );
     expect(generatedCode).not.toContain('providerModulePromise');
     expect(generatedCode).not.toContain('await ');
+  });
+
+  it('generates React 17 JSX runtime exports from the legacy subpath entry', () => {
+    const pkg = 'react/jsx-runtime';
+    const mockShareItem: ShareItem = {
+      name: 'react',
+      from: '',
+      version: '17.0.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^17.0.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', true);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expectLiveSingletonProxy(generatedCode, pkg, ['Fragment', 'jsx', 'jsxs']);
+    expect(generatedCode).not.toContain('createElement');
+    expect(generatedCode).not.toContain('useState');
   });
 
   it('reads React compiler runtime internals from the compatible React cache key', () => {
