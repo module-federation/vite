@@ -70,6 +70,10 @@ With **@module-federation/vite**, the process becomes delightfully simple, you w
 > This example is with [Vue.js](https://vuejs.org/)</br>
 > The @module-federation/vite configuration remains the same for different frameworks.
 
+## Migrating from OriginJS
+
+Migrating from `@originjs/vite-plugin-federation` requires an explicit remote-entry format and runtime review, particularly for dynamic remotes, shared dependencies, and mixed bundlers. See the [OriginJS migration guide](./docs/MIGRATING_FROM_ORIGINJS.md) for step-by-step migration and incremental deployment guidance.
+
 ## Dedicated configuration file
 
 You can keep Module Federation options in `module-federation.config.ts`.
