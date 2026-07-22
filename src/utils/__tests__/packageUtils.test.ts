@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { pathToFileURL } from 'url';
@@ -55,6 +55,33 @@ describe('getInstalledPackageJson', () => {
     );
   });
 
+  it('caches lookups per (cwd, pkg) instead of re-reading the filesystem every call', () => {
+    const packageName = 'mf-test-cache-pkg';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-cache-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: packageName, version: '1.0.0', main: './index.js' })
+    );
+    writeFileSync(path.join(packageDir, 'index.js'), 'module.exports = {};');
+
+    const first = getInstalledPackageJson(packageName, { cwd: hostDir });
+    expect(first?.packageJson.name).toBe(packageName);
+
+    // A fresh (uncached) lookup would now fail — the package is gone from
+    // disk. If getInstalledPackageJson still returns the earlier result,
+    // it served it from the cache instead of re-reading the filesystem.
+    rmSync(packageDir, { recursive: true, force: true });
+
+    const second = getInstalledPackageJson(packageName, { cwd: hostDir });
+    expect(second).toBe(first);
+  });
+
   it('prefers browser conditional exports for installed package entries', () => {
     const packageName = 'mf-test-browser-conditional';
     const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-browser-'));
@@ -87,6 +114,34 @@ describe('getInstalledPackageJson', () => {
     const entry = getInstalledPackageEntry(packageName, { cwd: hostDir });
 
     expect(entry).toBe(path.join(packageDir, 'dist/browser.js'));
+  });
+
+  it('preserves legacy package subpaths when ESM condition resolution is requested', () => {
+    const packageName = 'mf-test-legacy-subpath';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-legacy-subpath-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: packageName, main: './index.js' })
+    );
+    writeFileSync(path.join(packageDir, 'index.js'), 'module.exports = { root: true };');
+    writeFileSync(
+      path.join(packageDir, 'jsx-runtime.js'),
+      'module.exports = { Fragment: Symbol.for("fragment"), jsx() {}, jsxs() {} };'
+    );
+
+    const entry = getInstalledPackageEntry(`${packageName}/jsx-runtime`, {
+      cwd: hostDir,
+      conditions: ['browser', 'import', 'module', 'default'],
+      resolveSubpathWithRequire: false,
+    });
+
+    expect(entry).toBe(realpathSync(path.join(packageDir, 'jsx-runtime.js')));
   });
 
   it('resolves wildcard subpath exports (e.g. "./components/*")', () => {

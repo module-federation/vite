@@ -1091,6 +1091,39 @@ describe('vite:module-federation-early-init', () => {
     ).toBeUndefined();
   });
 
+  it('does not proxy a shared package self-referencing its own subpath', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        shared: { zustand: { singleton: true } },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const optimizeSharedProxy = config.optimizeDeps.esbuildOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-proxy'
+    );
+    const onResolveHandlers: any[] = [];
+    optimizeSharedProxy.setup({
+      onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
+      onLoad: () => undefined,
+    });
+
+    expect(
+      onResolveHandlers[1]({
+        path: 'zustand/react',
+        importer: '/repo/node_modules/zustand/esm/index.mjs',
+        kind: 'import-statement',
+      })
+    ).toBeUndefined();
+  });
+
   it('excludes asset imports from esbuild optimizeDeps shared proxy', () => {
     const plugin = (
       federation({
@@ -1458,6 +1491,43 @@ describe('vite:module-federation-early-init', () => {
 
     expect(config.optimizeDeps.exclude).toContain('react/compiler-runtime');
     expect(getUsedShares(federationPlugin._options)).not.toContain('react/compiler-runtime');
+  });
+
+  it('excludes a workspace-linked shared subpath resolving to raw .tsx source from dev optimizeDeps', () => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      shared: {
+        '@test-issue/theme/provider': {
+          singleton: true,
+        },
+      },
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (entry) => entry.name === 'vite:module-federation-early-init'
+    );
+    if (!earlyInitPlugin) {
+      throw new Error('module federation plugins not found');
+    }
+    const config: any = {
+      root: path.join(process.cwd(), 'test-issue/host'),
+      optimizeDeps: {
+        include: [],
+        exclude: [],
+      },
+    };
+
+    runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    // Vite's optimizer only ever bundles .js/.cjs/.mjs/.ts/.cts/.mts entries
+    // (not .jsx/.tsx). Forcing a raw .tsx workspace source into `include`
+    // makes Vite warn "Cannot optimize dependency" on every dev start and
+    // leaves it permanently unresolved from the optimizer's perspective.
+    expect(config.optimizeDeps.include).not.toContain('@test-issue/theme/provider');
+    expect(config.optimizeDeps.exclude).toContain('@test-issue/theme/provider');
   });
 
   it('pre-seeds transitive shared dependencies for the dev optimizer', () => {

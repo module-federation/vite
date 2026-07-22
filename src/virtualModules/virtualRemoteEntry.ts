@@ -488,7 +488,7 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
             const candidates = Object.fromEntries(
               Object.entries(versions || {}).filter(([, provider]) => !isLocalProvider(provider))
             );
-            if (localShare?.version) {
+            if (localShare?.version && localShare.shareConfig?.import !== false) {
               const sameVersionProvider = candidates[localShare.version];
               // Runtime registration keeps an existing same-version record,
               // even when it has only a getter and is not loaded yet. Model
