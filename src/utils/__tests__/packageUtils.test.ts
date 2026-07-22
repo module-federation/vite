@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { pathToFileURL } from 'url';
@@ -114,6 +114,34 @@ describe('getInstalledPackageJson', () => {
     const entry = getInstalledPackageEntry(packageName, { cwd: hostDir });
 
     expect(entry).toBe(path.join(packageDir, 'dist/browser.js'));
+  });
+
+  it('preserves legacy package subpaths when ESM condition resolution is requested', () => {
+    const packageName = 'mf-test-legacy-subpath';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-legacy-subpath-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: packageName, main: './index.js' })
+    );
+    writeFileSync(path.join(packageDir, 'index.js'), 'module.exports = { root: true };');
+    writeFileSync(
+      path.join(packageDir, 'jsx-runtime.js'),
+      'module.exports = { Fragment: Symbol.for("fragment"), jsx() {}, jsxs() {} };'
+    );
+
+    const entry = getInstalledPackageEntry(`${packageName}/jsx-runtime`, {
+      cwd: hostDir,
+      conditions: ['browser', 'import', 'module', 'default'],
+      resolveSubpathWithRequire: false,
+    });
+
+    expect(entry).toBe(realpathSync(path.join(packageDir, 'jsx-runtime.js')));
   });
 
   it('resolves wildcard subpath exports (e.g. "./components/*")', () => {

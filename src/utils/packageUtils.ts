@@ -511,7 +511,11 @@ export function getInstalledPackageEntry(
   if (!installed) return undefined;
   const cwd = opts?.cwd || getPackageDetectionCwd();
   const packageName = opts?.packageName || getPackageName(pkg);
-  if (pkg !== packageName && opts?.resolveSubpathWithRequire !== false) {
+  const packageJson = installed.packageJson;
+  if (
+    pkg !== packageName &&
+    (opts?.resolveSubpathWithRequire !== false || packageJson.exports === undefined)
+  ) {
     try {
       const projectRequire = createRequire(pathToFileURL(path.join(cwd, 'package.json')));
       return projectRequire.resolve(pkg);
@@ -519,7 +523,6 @@ export function getInstalledPackageEntry(
       // Fall back to root package entry resolution below.
     }
   }
-  const packageJson = installed.packageJson;
   const exportsEntry = resolveExportsEntry(
     getPackageExportsTarget(pkg, packageName, packageJson.exports),
     opts?.conditions
