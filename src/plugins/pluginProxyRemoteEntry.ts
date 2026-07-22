@@ -42,14 +42,18 @@ export default function ({
   remoteEntryId,
   virtualExposesId,
 }: ProxyRemoteEntryParams): Plugin {
-  let viteConfig: any, _command: string, root: string;
+  let viteConfig: any, _command: string, root: string, originalConfigBase: string | undefined;
   let exposeRemoteDependencies: Record<string, string[]> = {};
   let exposeRemoteDependenciesDirty = true;
   let refreshPromise: Promise<void> | undefined;
   let dependencyInvalidationVersion = 0;
 
-  const isHostAutoInitId = (id: string) =>
-    id.includes(getHostAutoInitPath(options)) || id.includes(getHostAutoInitPath());
+  const isHostAutoInitId = (id: string) => {
+    const cleanId = id.split('?')[0];
+    return (
+      cleanId.includes(getHostAutoInitPath(options)) || cleanId.includes(getHostAutoInitPath())
+    );
+  };
 
   function isRemoteImport(source: string): boolean {
     return Object.keys(options.remotes).some(
@@ -141,8 +145,9 @@ export default function ({
       viteConfig = config;
       root = config.root;
     },
-    config(_config, { command }) {
+    config(config, { command }) {
       _command = command;
+      originalConfigBase = config.base;
     },
     async buildStart() {
       await refreshExposeRemoteDependencies(this);
@@ -223,7 +228,11 @@ export default function ({
               typeof viteConfig.server?.host === 'string' && viteConfig.server.host !== '0.0.0.0'
                 ? viteConfig.server.host
                 : 'localhost';
-            const resolvedPublicPath = resolvePublicPath(options, viteConfig.base);
+            const resolvedPublicPath = resolvePublicPath(
+              options,
+              viteConfig.base,
+              originalConfigBase
+            );
             const publicPath = JSON.stringify(
               (resolvedPublicPath === 'auto' ? '/' : resolvedPublicPath) +
                 resolveDevHashEntryFileName(options.filename)
