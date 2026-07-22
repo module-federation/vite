@@ -6,6 +6,7 @@ import type { HmrAdapter } from '../pluginDevRemoteHmr';
 
 const REACT_REFRESH_PATH = '/@react-refresh';
 const LOCAL_REACT_REFRESH_PATH = '/@mf-react-refresh-local';
+const HOST_REACT_REFRESH_URL = '__MF_REACT_REFRESH_URL__';
 
 function stripQuery(url?: string): string | undefined {
   return url?.replace(/\?.*$/, '');
@@ -42,7 +43,7 @@ function resolveReactRefreshRuntime(root: string): string {
  */
 const REACT_REFRESH_PROXY_MODULE = [
   `const __remoteUrl = new URL(import.meta.url);`,
-  `const __target = window.location.origin === __remoteUrl.origin ? new URL('.${LOCAL_REACT_REFRESH_PATH}', __remoteUrl).href : window.location.origin + '${REACT_REFRESH_PATH}';`,
+  `const __target = window.location.origin === __remoteUrl.origin ? new URL('.${LOCAL_REACT_REFRESH_PATH}', __remoteUrl).href : globalThis.${HOST_REACT_REFRESH_URL} || window.location.origin + '${REACT_REFRESH_PATH}';`,
   `const __rt = await import(__target);`,
   `export const injectIntoGlobalHook = __rt.injectIntoGlobalHook;`,
   `export const register = __rt.register;`,
@@ -59,6 +60,18 @@ export const reactAdapter: HmrAdapter = {
     'vite:react-refresh', // @vitejs/plugin-react
     'vite:react-swc', // @vitejs/plugin-react-swc
   ],
+  host: {
+    transformIndexHtml({ server }) {
+      const refreshPath = `${server.config.base.replace(/\/$/, '')}${REACT_REFRESH_PATH}`;
+      return [
+        {
+          tag: 'script',
+          children: `globalThis.${HOST_REACT_REFRESH_URL} = new URL(${JSON.stringify(refreshPath)}, window.location.origin).href;`,
+          injectTo: 'head-prepend',
+        },
+      ];
+    },
+  },
   remote: {
     configureServer({ server }) {
       let reactRefreshRuntime: string | undefined;

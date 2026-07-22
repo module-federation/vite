@@ -112,7 +112,18 @@ describe('reactAdapter', () => {
     expect(res.end).not.toHaveBeenCalled();
   });
 
-  it('does not register a host-side hook namespace', () => {
-    expect(reactAdapter.host).toBeUndefined();
+  it('injects the host React refresh URL with the configured base path', () => {
+    const { ctx } = createCtx('/bbb/');
+    const tags = reactAdapter.host?.transformIndexHtml?.(ctx);
+
+    expect(tags).toEqual([
+      expect.objectContaining({
+        tag: 'script',
+        injectTo: 'head-prepend',
+        children: expect.stringContaining(
+          'globalThis.__MF_REACT_REFRESH_URL__ = new URL("/bbb/@react-refresh"'
+        ),
+      }),
+    ]);
   });
 });

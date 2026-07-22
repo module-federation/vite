@@ -13,6 +13,29 @@ import { addUsedShares, generateHostAutoInitCode, getHostAutoInitPath } from '..
 import pluginProxyRemoteEntry from '../pluginProxyRemoteEntry';
 
 describe('pluginProxyRemoteEntry', () => {
+  it('does not treat an HTML proxy query containing host auto-init as the init module', async () => {
+    normalizeModuleFederationOptions({ name: 'test' });
+    const plugin = pluginProxyRemoteEntry({
+      options: getDefaultMockOptions(),
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+    callHook(
+      plugin.config,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+
+    const proxyId = `\0virtual:mf-html-entry-proxy?init=${encodeURIComponent(getHostAutoInitPath())}&entry=%2Fsrc%2Fmain.jsx`;
+    expect(
+      await callHook(plugin.resolveId, {} as Rollup.PluginContext, proxyId, undefined, {
+        isEntry: false,
+      })
+    ).toBeUndefined();
+    expect(await callHook(plugin.load, {} as Rollup.PluginContext, proxyId)).toBeUndefined();
+  });
+
   it('keeps dev host-init shared seeds bound to their owning options', () => {
     const optionsA = normalizeModuleFederationOptions({
       name: 'tenant-a',
@@ -159,5 +182,38 @@ describe('pluginProxyRemoteEntry', () => {
 
     expect(result.code).toContain('origin + "/remoteEntry.js"');
     expect(result.code).not.toContain('remoteEntry-[hash]');
+  });
+
+  it('uses an explicitly configured Vite base for dev host init', async () => {
+    const plugin = pluginProxyRemoteEntry({
+      options: getDefaultMockOptions({ filename: 'remoteEntry.js' }),
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+
+    callHook(
+      plugin.config,
+      {} as ConfigPluginContext,
+      { base: '/bbb/' },
+      { command: 'serve', mode: 'development' }
+    );
+    callHook(
+      plugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        root: '/repo',
+        base: '/bbb/',
+        server: { host: 'localhost', port: 4173 },
+      } as unknown as ResolvedConfig
+    );
+
+    const result = (await callHook(
+      plugin.transform,
+      {} as Rollup.TransformPluginContext,
+      '',
+      getHostAutoInitPath()
+    )) as { code: string };
+
+    expect(result.code).toContain('origin + "/bbb/remoteEntry.js"');
   });
 });
