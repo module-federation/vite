@@ -553,6 +553,8 @@ export default __mfShared.default ?? __mfShared;`,
               addUsedShares(subpath, options);
               if (canResolveSubpath) {
                 optimizeDeps.include.push(subpath);
+                // Prevent subpaths like react-dom/client from using a later, incompatible optimizer generation.
+                if (key === 'react-dom') optimizeDeps.include.push(`${key} > ${subpath}`);
               } else {
                 optimizeDeps.exclude.push(subpath);
               }
