@@ -59,6 +59,32 @@ describe('normalizeModuleFederationOption', () => {
       disableShared: undefined,
       disableSnapshot: undefined,
       varFilename: undefined,
+      experiments: {
+        externalRuntime: false,
+        provideExternalRuntime: false,
+      },
+    });
+  });
+
+  it('normalizes experiments.externalRuntime and provideExternalRuntime', () => {
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        experiments: {
+          externalRuntime: true,
+          provideExternalRuntime: true,
+        },
+      }).experiments
+    ).toEqual({
+      externalRuntime: true,
+      provideExternalRuntime: true,
+    });
+  });
+
+  it('defaults experiments flags to false when omitted', () => {
+    expect(normalizeModuleFederationOptions(minimalOptions).experiments).toEqual({
+      externalRuntime: false,
+      provideExternalRuntime: false,
     });
   });
 

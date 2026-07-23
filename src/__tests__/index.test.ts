@@ -2550,3 +2550,104 @@ describe('module-federation-esm-shims preview await insertion', () => {
     );
   });
 });
+
+describe('experiments.externalRuntime / provideExternalRuntime', () => {
+  type OptionsPlugin = Plugin & {
+    _options: {
+      experiments: { externalRuntime: boolean; provideExternalRuntime: boolean };
+      runtimePlugins: Array<string | [string, Record<string, unknown>]>;
+    };
+  };
+
+  function getOptionsPlugin(plugins: Plugin[]): OptionsPlugin {
+    const plugin = plugins.find((entry) => entry.name === 'module-federation-vite') as
+      | OptionsPlugin
+      | undefined;
+    if (!plugin) throw new Error('module-federation-vite plugin not found');
+    return plugin;
+  }
+
+  it('throws when provideExternalRuntime is set on a container with exposes', () => {
+    expect(() =>
+      federation({
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: { './App': './src/App.tsx' },
+        experiments: { provideExternalRuntime: true },
+      })
+    ).toThrow(
+      /You can only set provideExternalRuntime: true in pure consumer which not expose modules/
+    );
+  });
+
+  it('appends injectExternalRuntimeCorePlugin for pure consumers', () => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      remotes: {
+        remote: {
+          type: 'module',
+          name: 'remote',
+          entry: 'http://localhost:5176/remoteEntry.js',
+        },
+      },
+      experiments: { provideExternalRuntime: true },
+    }) as Plugin[];
+
+    const options = getOptionsPlugin(plugins)._options;
+    expect(options.experiments.provideExternalRuntime).toBe(true);
+    expect(
+      options.runtimePlugins.some((plugin) => {
+        const specifier = typeof plugin === 'string' ? plugin : plugin[0];
+        return (
+          specifier.includes('injectExternalRuntimeCorePlugin') ||
+          specifier.includes('inject-external-runtime-core-plugin')
+        );
+      })
+    ).toBe(true);
+  });
+
+  it('does not append the inject plugin when provideExternalRuntime is false', () => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      experiments: { provideExternalRuntime: false },
+    }) as Plugin[];
+
+    const options = getOptionsPlugin(plugins)._options;
+    expect(
+      options.runtimePlugins.some((plugin) => {
+        const specifier = typeof plugin === 'string' ? plugin : plugin[0];
+        return (
+          specifier.includes('injectExternalRuntimeCorePlugin') ||
+          specifier.includes('inject-external-runtime-core-plugin')
+        );
+      })
+    ).toBe(false);
+  });
+
+  it('registers the external runtime-core plugin when externalRuntime is true', () => {
+    const plugins = federation({
+      name: 'remote',
+      filename: 'remoteEntry.js',
+      exposes: { './App': './src/App.tsx' },
+      experiments: { externalRuntime: true },
+    }) as Plugin[];
+
+    expect(
+      plugins.some((plugin) => plugin.name === 'module-federation-external-runtime-core')
+    ).toBe(true);
+  });
+
+  it('does not register the external runtime-core plugin by default', () => {
+    const plugins = federation({
+      name: 'remote',
+      filename: 'remoteEntry.js',
+      exposes: { './App': './src/App.tsx' },
+    }) as Plugin[];
+
+    expect(
+      plugins.some((plugin) => plugin.name === 'module-federation-external-runtime-core')
+    ).toBe(false);
+  });
+});

@@ -1,12 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
 import type { ConfigEnv, EnvironmentOptions, Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
 import addEntry from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
+import pluginExternalRuntimeCore from './plugins/pluginExternalRuntimeCore';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
@@ -32,6 +33,7 @@ import { createModuleFederationError, mfWarn } from './utils/logger';
 import type {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
+  PluginExperimentsOptions,
   PluginManifestOptions,
   ShareItem,
   TreeShakingConfig,
@@ -667,9 +669,63 @@ function loadPluginDts(options: NormalizedModuleFederationOptions): any[] {
   return [import('./plugins/pluginDts').then(({ default: pluginDts }) => pluginDts(options))];
 }
 
+const INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN =
+  '@module-federation/vite/injectExternalRuntimeCorePlugin';
+
+function isInjectExternalRuntimeCorePlugin(specifier: string): boolean {
+  return (
+    specifier === INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN ||
+    specifier.includes('injectExternalRuntimeCorePlugin') ||
+    // Still recognize the official package if a consumer adds it manually.
+    specifier.includes('inject-external-runtime-core-plugin')
+  );
+}
+
+function hasInjectExternalRuntimeCorePlugin(
+  runtimePlugins: Array<string | [string, Record<string, unknown>]>
+): boolean {
+  return runtimePlugins.some((plugin) => {
+    const specifier = typeof plugin === 'string' ? plugin : plugin[0];
+    return isInjectExternalRuntimeCorePlugin(specifier);
+  });
+}
+
+function resolveInjectExternalRuntimeCorePlugin(): string {
+  try {
+    return normalizePathForImport(resolveImportPath(INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN));
+  } catch {
+    // Dev/test before `lib/` exists: resolve the source/companion file beside this module.
+    for (const rel of [
+      './utils/injectExternalRuntimeCorePlugin.js',
+      './utils/injectExternalRuntimeCorePlugin.ts',
+    ]) {
+      const candidate = fileURLToPath(new URL(rel, import.meta.url));
+      if (existsSync(candidate)) return normalizePathForImport(candidate);
+    }
+    return INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN;
+  }
+}
+
+function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOptions): void {
+  const { experiments } = options;
+  if (experiments.provideExternalRuntime) {
+    if (Object.keys(options.exposes).length > 0) {
+      throw createModuleFederationError(
+        'You can only set provideExternalRuntime: true in pure consumer which not expose modules.'
+      );
+    }
+    if (!hasInjectExternalRuntimeCorePlugin(options.runtimePlugins)) {
+      options.runtimePlugins = options.runtimePlugins.concat(
+        resolveInjectExternalRuntimeCorePlugin()
+      );
+    }
+  }
+}
+
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
+  applyExternalRuntimeExperiments(options);
 
   const isVinext = hasPackageDependency('vinext');
   const { name, shared, filename, hostInitInjectLocation } = options;
@@ -717,6 +773,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         return virtualModule.code;
       },
     },
+    ...(options.experiments.externalRuntime ? [pluginExternalRuntimeCore()] : []),
     // This plugin runs FIRST to register virtual modules before optimization
     createEarlyVirtualModulesPlugin(options),
     ...(isVinext
@@ -1501,6 +1558,7 @@ export {
   createModuleFederationConfig,
   federation,
   type ModuleFederationOptions,
+  type PluginExperimentsOptions,
   type PluginManifestOptions,
   type TreeShakingConfig,
 };

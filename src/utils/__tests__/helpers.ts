@@ -21,6 +21,10 @@ export function getDefaultMockOptions(
     hostInitInjectLocation: 'html',
     bundleAllCSS: false,
     moduleParseTimeout: 10,
+    experiments: {
+      externalRuntime: false,
+      provideExternalRuntime: false,
+    },
     ...overrides,
   };
 }

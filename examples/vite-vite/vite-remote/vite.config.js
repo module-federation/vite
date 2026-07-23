@@ -8,6 +8,7 @@ const treeShakingMode = ['server-calc', 'runtime-infer'].includes(process.env.TR
   ? process.env.TREE_SHAKING_MODE
   : undefined;
 const eagerShared = process.env.EAGER_SHARED === 'true';
+const externalRuntime = process.env.EXTERNAL_RUNTIME === '1';
 const antdShared = {
   singleton: true,
   ...(eagerShared && !treeShakingMode ? { eager: true } : {}),
@@ -74,6 +75,7 @@ export default defineConfig({
       dts: false,
       filename: 'remoteEntry.js',
       varFilename: 'varRemoteEntry.js', // in cases when host's config requires remote's "type": "var"
+      ...(externalRuntime ? { experiments: { externalRuntime: true } } : {}),
       manifest: {
         additionalData({ stats }) {
           stats.metaData.deployEnv = process.env.NODE_ENV;
@@ -94,6 +96,7 @@ export default defineConfig({
       dts: false,
       filename: 'secondaryRemoteEntry.js',
       varFilename: 'secondaryVarRemoteEntry.js',
+      ...(externalRuntime ? { experiments: { externalRuntime: true } } : {}),
       manifest: {
         fileName: 'secondary-mf-manifest.json',
       },
