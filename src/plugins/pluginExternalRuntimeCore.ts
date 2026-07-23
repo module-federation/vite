@@ -32,12 +32,18 @@ export function isSsrRemoteRuntimeImporter(importer: string | undefined): boolea
  * syntheticNamedExports the way Rollup does, and `@module-federation/runtime`
  * statically imports many symbols from runtime-core.
  */
-export function collectRuntimeCoreExportNames(
+export interface RuntimeCoreExportShape {
+  name: string;
+  callable: boolean;
+}
+
+export function collectRuntimeCoreExportShapes(
   runtimeCoreModule: Record<string, unknown>
-): string[] {
+): RuntimeCoreExportShape[] {
   return Object.keys(runtimeCoreModule)
     .filter((key) => key !== 'default' && key !== '__esModule')
-    .sort();
+    .sort()
+    .map((name) => ({ name, callable: typeof runtimeCoreModule[name] === 'function' }));
 }
 
 /**
@@ -46,11 +52,13 @@ export function collectRuntimeCoreExportNames(
  * before remote graph modules evaluate, so an eager throw at import time can
  * fail even when `provideExternalRuntime` is correctly configured.
  */
-export function buildExternalRuntimeCoreShimCode(exportNames: string[]): string {
-  const namedExports = exportNames
+export function buildExternalRuntimeCoreShimCode(exportShapes: RuntimeCoreExportShape[]): string {
+  const namedExports = exportShapes
     .map(
-      (name) =>
-        `export const ${name} = /*#__PURE__*/ __mfCreateLazyRuntimeCoreExport(${JSON.stringify(name)});`
+      ({ name, callable }) =>
+        `export const ${name} = /*#__PURE__*/ ${
+          callable ? '__mfCreateLazyRuntimeCoreFunction' : '__mfCreateLazyRuntimeCoreObject'
+        }(${JSON.stringify(name)});`
     )
     .join('\n');
 
@@ -62,7 +70,7 @@ export function buildExternalRuntimeCoreShimCode(exportNames: string[]): string 
     '  }',
     '  return mod;',
     '}',
-    'function __mfCreateLazyRuntimeCoreExport(exportName) {',
+    'function __mfCreateLazyRuntimeCoreFunction(exportName) {',
     '  const target = function (...args) {',
     '    return Reflect.apply(__mfGetExternalRuntimeCore()[exportName], this, args);',
     '  };',
@@ -112,6 +120,39 @@ export function buildExternalRuntimeCoreShimCode(exportNames: string[]): string 
     '    },',
     '  });',
     '}',
+    'function __mfCreateLazyRuntimeCoreObject(exportName) {',
+    '  return new Proxy(Object.create(null), {',
+    '    get(_target, prop) {',
+    '      if (prop === "__mf_is_external_runtime_core_export") return true;',
+    '      if (prop === "then") return undefined;',
+    '      const value = __mfGetExternalRuntimeCore()[exportName];',
+    '      const inner = Reflect.get(value, prop, value);',
+    '      return typeof inner === "function" ? inner.bind(value) : inner;',
+    '    },',
+    '    set(_target, prop, nextValue) {',
+    '      __mfGetExternalRuntimeCore()[exportName][prop] = nextValue;',
+    '      return true;',
+    '    },',
+    '    has(_target, prop) {',
+    '      if (prop === "then" || prop === "__mf_is_external_runtime_core_export") {',
+    '        return prop === "__mf_is_external_runtime_core_export";',
+    '      }',
+    '      const mod = globalThis._FEDERATION_RUNTIME_CORE;',
+    '      return !!mod && prop in Object(mod[exportName]);',
+    '    },',
+    '    ownKeys() {',
+    '      const mod = globalThis._FEDERATION_RUNTIME_CORE;',
+    '      return mod ? Reflect.ownKeys(Object(mod[exportName])) : [];',
+    '    },',
+    '    getOwnPropertyDescriptor(_target, prop) {',
+    '      if (prop === "then") return undefined;',
+    '      const mod = globalThis._FEDERATION_RUNTIME_CORE;',
+    '      if (!mod) return undefined;',
+    '      const descriptor = Object.getOwnPropertyDescriptor(Object(mod[exportName]), prop);',
+    '      return descriptor && { ...descriptor, configurable: true };',
+    '    },',
+    '  });',
+    '}',
     'export default /*#__PURE__*/ new Proxy(Object.create(null), {',
     '  get(_target, prop) {',
     '    if (prop === "__esModule") return true;',
@@ -136,11 +177,11 @@ export function buildExternalRuntimeCoreShimCode(exportNames: string[]): string 
     .join('\n')}\n`;
 }
 
-let cachedExportNames: string[] | undefined;
+let cachedExportShapes: RuntimeCoreExportShape[] | undefined;
 
 /** Test-only helper to clear the introspection cache between cases. */
-export function resetRuntimeCoreExportNamesCache(): void {
-  cachedExportNames = undefined;
+export function resetRuntimeCoreExportShapesCache(): void {
+  cachedExportShapes = undefined;
 }
 
 async function importRuntimeCoreForIntrospection(
@@ -154,21 +195,21 @@ async function importRuntimeCoreForIntrospection(
   }
 }
 
-export async function resolveRuntimeCoreExportNames(): Promise<string[]> {
-  if (cachedExportNames) return cachedExportNames;
+export async function resolveRuntimeCoreExportShapes(): Promise<RuntimeCoreExportShape[]> {
+  if (cachedExportShapes) return cachedExportShapes;
   try {
     const runtimeCore = await importRuntimeCoreForIntrospection(RUNTIME_CORE_INTROSPECT_PACKAGE);
-    cachedExportNames = collectRuntimeCoreExportNames(runtimeCore);
+    cachedExportShapes = collectRuntimeCoreExportShapes(runtimeCore);
   } catch {
     try {
       // Fallback for older runtime packages without the `/core` export.
       const runtimeCore = await importRuntimeCoreForIntrospection(RUNTIME_CORE_PACKAGE);
-      cachedExportNames = collectRuntimeCoreExportNames(runtimeCore);
+      cachedExportShapes = collectRuntimeCoreExportShapes(runtimeCore);
     } catch {
-      cachedExportNames = [];
+      cachedExportShapes = [];
     }
   }
-  return cachedExportNames;
+  return cachedExportShapes;
 }
 
 /**
@@ -180,13 +221,13 @@ export default function pluginExternalRuntimeCore(): Plugin {
 
   const getShimCode = () => {
     if (!shimCodePromise) {
-      shimCodePromise = resolveRuntimeCoreExportNames().then((names) => {
-        if (names.length === 0) {
+      shimCodePromise = resolveRuntimeCoreExportShapes().then((shapes) => {
+        if (shapes.length === 0) {
           throw createModuleFederationError(
             `Unable to introspect exports from ${RUNTIME_CORE_INTROSPECT_PACKAGE} for experiments.externalRuntime.`
           );
         }
-        return buildExternalRuntimeCoreShimCode(names);
+        return buildExternalRuntimeCoreShimCode(shapes);
       });
     }
     return shimCodePromise;

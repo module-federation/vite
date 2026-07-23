@@ -4,7 +4,7 @@ import pluginExternalRuntimeCore, {
   EXTERNAL_RUNTIME_CORE_VIRTUAL_ID,
   RUNTIME_CORE_PACKAGE,
   buildExternalRuntimeCoreShimCode,
-  collectRuntimeCoreExportNames,
+  collectRuntimeCoreExportShapes,
   isSsrRemoteRuntimeImporter,
 } from '../pluginExternalRuntimeCore';
 
@@ -16,25 +16,36 @@ function getHookFn<T>(hook: T | { handler: T } | undefined): T {
 describe('pluginExternalRuntimeCore', () => {
   it('collects named export keys excluding default', () => {
     expect(
-      collectRuntimeCoreExportNames({
+      collectRuntimeCoreExportShapes({
         default: {},
         ModuleFederation: class {},
         __esModule: true,
         init: () => {},
       })
-    ).toEqual(['ModuleFederation', 'init']);
+    ).toEqual([
+      { name: 'ModuleFederation', callable: true },
+      { name: 'init', callable: true },
+    ]);
   });
 
   it('builds a lazy shim that defers reading the host global until export access', () => {
-    const code = buildExternalRuntimeCoreShimCode(['ModuleFederation', 'init']);
+    const code = buildExternalRuntimeCoreShimCode([
+      { name: 'Global', callable: false },
+      { name: 'ModuleFederation', callable: true },
+      { name: 'init', callable: true },
+    ]);
     expect(code).toContain('globalThis._FEDERATION_RUNTIME_CORE');
     expect(code).toContain('experiments.externalRuntime is enabled');
-    expect(code).toContain('__mfCreateLazyRuntimeCoreExport');
+    expect(code).toContain('__mfCreateLazyRuntimeCoreFunction');
+    expect(code).toContain('__mfCreateLazyRuntimeCoreObject');
     expect(code).toContain(
-      'export const ModuleFederation = /*#__PURE__*/ __mfCreateLazyRuntimeCoreExport("ModuleFederation");'
+      'export const ModuleFederation = /*#__PURE__*/ __mfCreateLazyRuntimeCoreFunction("ModuleFederation");'
     );
     expect(code).toContain(
-      'export const init = /*#__PURE__*/ __mfCreateLazyRuntimeCoreExport("init");'
+      'export const init = /*#__PURE__*/ __mfCreateLazyRuntimeCoreFunction("init");'
+    );
+    expect(code).toContain(
+      'export const Global = /*#__PURE__*/ __mfCreateLazyRuntimeCoreObject("Global");'
     );
     // Must not eagerly read/throw at module evaluation time (Vite dev ordering).
     expect(code).not.toMatch(/^const mod = globalThis\._FEDERATION_RUNTIME_CORE;/m);
@@ -47,7 +58,11 @@ describe('pluginExternalRuntimeCore', () => {
     const { join } = await import('node:path');
     const { pathToFileURL } = await import('node:url');
 
-    const code = buildExternalRuntimeCoreShimCode(['ModuleFederation', 'satisfy']);
+    const code = buildExternalRuntimeCoreShimCode([
+      { name: 'Global', callable: false },
+      { name: 'ModuleFederation', callable: true },
+      { name: 'satisfy', callable: true },
+    ]);
     const globalRef = globalThis as typeof globalThis & {
       _FEDERATION_RUNTIME_CORE?: Record<string, unknown>;
     };
@@ -63,14 +78,18 @@ describe('pluginExternalRuntimeCore', () => {
       // Binding is created at evaluate time; property access is what requires the global.
       const binding = ns.ModuleFederation as object;
       expect(typeof binding).toBe('function');
+      expect(typeof ns.Global).toBe('object');
       expect(() => Reflect.get(binding, 'name')).toThrow(/_FEDERATION_RUNTIME_CORE is missing/);
 
       function ModuleFederation(this: { ok: boolean }) {
         this.ok = true;
       }
       const satisfy = (a: string, b: string) => a === b;
-      globalRef._FEDERATION_RUNTIME_CORE = { ModuleFederation, satisfy };
+      const Global = { marker: true };
+      globalRef._FEDERATION_RUNTIME_CORE = { Global, ModuleFederation, satisfy };
 
+      expect(ns.Global.marker).toBe(true);
+      expect(Object.keys(ns.Global)).toEqual(['marker']);
       expect((ns.satisfy as (a: string, b: string) => boolean)('1.0.0', '1.0.0')).toBe(true);
       const instance = new (ns.ModuleFederation as new () => { ok: boolean })();
       expect(instance.ok).toBe(true);
