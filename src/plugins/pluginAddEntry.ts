@@ -6,6 +6,7 @@ import { normalizePathForImport, rebaseImport } from '../utils/buildPaths';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
 import {
+  findModuleImportSources,
   injectEntryScript,
   rewriteEntryScripts,
   sanitizeDevEntryPath,
@@ -15,7 +16,11 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { decodeViteId, toViteEncodedId, VITE_ID_PREFIX } from '../utils/VirtualModule';
-import { getRuntimeRemoteId, getUsedRemotesMap } from '../virtualModules/virtualRemotes';
+import {
+  addUsedRemote,
+  getRuntimeRemoteId,
+  getUsedRemotesMap,
+} from '../virtualModules/virtualRemotes';
 import {
   getRuntimeModuleCacheBootstrapCode,
   getRuntimeRemoteCachePrefix,
@@ -284,15 +289,11 @@ const __mfCurrentScript = document.currentScript;
       (federationOptions ?? getNormalizeModuleFederationOptions())?.shareStrategy !==
         'loaded-first';
 
-    // Keep only sub-path entries (e.g. "remote/App"); skip bare remote keys
-    // ("remote" or scoped "@scope/remote") since they refer to the container
-    // itself, not an exposed module. The previous `includes('/')` check
-    // incorrectly matched scoped names like "@scope/remote".
+    // Bare ids may represent a root (`.`) expose, so preload them too. Failures
+    // remain non-blocking through Promise.allSettled below.
     const remotePreloads = shouldPreloadRemotes
       ? Object.entries(getUsedRemotesMap(federationOptions))
-          .flatMap(([remoteKey, remotes]) =>
-            Array.from(remotes).filter((remote) => remote !== remoteKey)
-          )
+          .flatMap(([, remotes]) => Array.from(remotes))
           .sort()
           .map(
             (remote) =>
@@ -421,6 +422,21 @@ const __mfCurrentScript = document.currentScript;
     }
   }
 
+  function addEntryRemoteImports(entrySrc: string) {
+    if (!federationOptions || /^(?:[a-z]+:)?\/\//i.test(entrySrc)) return;
+    const file = path.resolve(viteConfig.root, stripQueryAndHash(entrySrc).replace(/^\//, ''));
+    if (!fs.existsSync(file)) return;
+    const code = fs.readFileSync(file, 'utf-8');
+    for (const source of findModuleImportSources(code)) {
+      const remote = Object.keys(federationOptions.remotes).find(
+        (name) => source === name || source.startsWith(`${name}/`)
+      );
+      if (remote) {
+        addUsedRemote(remote, source, federationOptions);
+      }
+    }
+  }
+
   return [
     {
       name: 'add-entry',
@@ -500,6 +516,7 @@ const __mfCurrentScript = document.currentScript;
           const stripBase = (p: string) =>
             base && p.startsWith(base + '/') ? p.slice(base.length) : p;
           const html = rewriteEntryScripts(c, (originalSrc) => {
+            addEntryRemoteImports(stripBase(originalSrc));
             const query = new URLSearchParams({
               init: sanitizeDevEntryPath(stripBase(devEntryPath)),
               entry: sanitizeDevEntryPath(stripBase(originalSrc)),
