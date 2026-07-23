@@ -1,7 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { injectEntryScript, rewriteEntryScripts, sanitizeDevEntryPath } from '../htmlEntryUtils';
+import {
+  findModuleImportSources,
+  injectEntryScript,
+  rewriteEntryScripts,
+  sanitizeDevEntryPath,
+} from '../htmlEntryUtils';
 
 const INIT_SRC = '/__mf__virtual/hostAutoInit.js';
+
+describe('findModuleImportSources', () => {
+  it('finds static, dynamic, side-effect, and re-export sources', () => {
+    expect(
+      findModuleImportSources(`
+        import { app } from 'remote/App';
+        import 'setup';
+        export { value } from "remote/value";
+        const lazy = import('remote/lazy');
+      `)
+    ).toEqual(['remote/App', 'remote/value', 'remote/lazy', 'setup']);
+  });
+
+  it('ignores import-looking text in comments and strings', () => {
+    expect(
+      findModuleImportSources(`
+        // import { fake } from 'commented';
+        const text = "import('string-value')";
+        import { real } from 'remote';
+      `)
+    ).toEqual(['remote']);
+  });
+});
 
 describe('rewriteEntryScripts', () => {
   it('rewrites a module script tag to a proxy src', () => {
