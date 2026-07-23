@@ -919,6 +919,33 @@ describe('vite:module-federation-early-init', () => {
     );
   });
 
+  it('decouples Rolldown react-dom/client from the react-dom optimizer entry', () => {
+    const plugin = (
+      federation({ name: 'host', shared: { 'react-dom': { singleton: true } } }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+    const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-resolver'
+    );
+
+    expect(
+      resolver.resolveId(
+        'react-dom',
+        '/repo/node_modules/react-dom/cjs/react-dom-client.development.js',
+        { kind: 'require-call' }
+      )
+    ).toEqual({ id: 'module-federation:optimized-require-react-dom' });
+    expect(resolver.load('module-federation:optimized-require-react-dom')).toContain(
+      getLoadShareModulePath('react-dom', true)
+    );
+  });
+
   it('excludes asset imports from Rolldown optimizeDeps shared proxy', () => {
     const plugin = (
       federation({
@@ -1122,6 +1149,35 @@ describe('vite:module-federation-early-init', () => {
         kind: 'import-statement',
       })
     ).toBeUndefined();
+  });
+
+  it('decouples esbuild react-dom/client from the react-dom optimizer entry', () => {
+    const plugin = (
+      federation({ name: 'host', shared: { 'react-dom': { singleton: true } } }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+    const optimizeSharedProxy = config.optimizeDeps.esbuildOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-proxy'
+    );
+    const onResolveHandlers: any[] = [];
+    optimizeSharedProxy.setup({
+      onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
+      onLoad: () => undefined,
+    });
+
+    expect(
+      onResolveHandlers[1]({
+        path: 'react-dom',
+        importer: '/repo/node_modules/react-dom/cjs/react-dom-client.development.js',
+        kind: 'require-call',
+      })
+    ).toEqual({ path: 'react-dom', namespace: 'mf-shared' });
   });
 
   it('excludes asset imports from esbuild optimizeDeps shared proxy', () => {

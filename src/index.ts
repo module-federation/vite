@@ -150,6 +150,10 @@ function isCommonJsImporter(importer: string | undefined): boolean {
   return !!importer && (importer.endsWith('.cjs') || importer.includes('/cjs/'));
 }
 
+function isReactDomSelfReference(source: string, importer: string | undefined): boolean {
+  return source === 'react-dom' && getPackageNameFromNodeModulePath(importer ?? '') === 'react-dom';
+}
+
 type OutputNameOption = string | ((...args: unknown[]) => string);
 type ManualChunksOption =
   | Record<string, string[]>
@@ -389,8 +393,11 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             optimizeDeps.rolldownOptions.plugins.push({
               name: 'module-federation:optimize-shared-resolver',
               load(id: string) {
-                if (id !== 'module-federation:optimized-require-react') return;
-                const loadSharePath = getLoadShareModulePath('react', isRolldown, options);
+                const optimizedRequirePrefix = 'module-federation:optimized-require-';
+                if (!id.startsWith(optimizedRequirePrefix)) return;
+                const sourcePackage = id.slice(optimizedRequirePrefix.length);
+                if (sourcePackage !== 'react' && sourcePackage !== 'react-dom') return;
+                const loadSharePath = getLoadShareModulePath(sourcePackage, isRolldown, options);
                 // Keep the raw virtual id in Rolldown's generated optimized
                 // dependency. Vite runs import analysis over the emitted file;
                 // an already browser-encoded /@id/__x00__ specifier is treated
@@ -423,15 +430,23 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   shareItem.shareConfig?.singleton === true;
                 const isReactRequire =
                   resolveOptions?.kind?.startsWith('require') && isReactSingleton;
-                if (resolveOptions?.kind?.startsWith('require') && !isReactSingleton) return;
-                if (isCommonJsImporter(importer) && !isReactSingleton) return;
-                if (isReactRequire) {
+                const isReactDomRequire =
+                  resolveOptions?.kind?.startsWith('require') &&
+                  isReactDomSelfReference(source, importer);
+                if (
+                  resolveOptions?.kind?.startsWith('require') &&
+                  !isReactRequire &&
+                  !isReactDomRequire
+                )
+                  return;
+                if (isCommonJsImporter(importer) && !isReactSingleton && !isReactDomRequire) return;
+                if (isReactRequire || isReactDomRequire) {
                   writeLoadShareModule(source, shareItem, _command, isRolldown, options);
                   if (shareItem.shareConfig?.import !== false) {
                     writePreBuildLibPath(source, shareItem, options);
                   }
                   addUsedShares(source, options);
-                  return { id: 'module-federation:optimized-require-react' };
+                  return { id: `module-federation:optimized-require-${source}` };
                 }
                 const loadSharePath = getLoadShareModulePath(source, isRolldown, options);
                 writeLoadShareModule(source, shareItem, _command, isRolldown, options);
@@ -461,7 +476,10 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (isSharedResolverInternalImporter(args.importer)) return;
                   const key = findSharedKey(args.path, shared);
                   if (!key || isAssetLikeImport(args.path)) return;
-                  if (getPackageNameFromNodeModulePath(args.importer) === getPackageName(args.path))
+                  if (
+                    getPackageNameFromNodeModulePath(args.importer) === getPackageName(args.path) &&
+                    !isReactDomSelfReference(args.path, args.importer)
+                  )
                     return;
                   return { path: args.path, namespace: 'mf-shared' };
                 });
