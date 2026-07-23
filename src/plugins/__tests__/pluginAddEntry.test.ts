@@ -750,7 +750,7 @@ describe('pluginAddEntry', () => {
     expect(result).toContain('entry=%2F_nuxt%2Fentry.async.js');
   });
 
-  it('preloads scoped remote subpaths but skips the bare scoped remote key', async () => {
+  it('preloads scoped remote subpaths and the bare scoped remote key', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-scoped-'));
     const htmlFile = path.join(tempDir, 'index.html');
     fs.writeFileSync(
@@ -800,7 +800,7 @@ describe('pluginAddEntry', () => {
     expect(result?.code).toContain(
       '__mfPreloadRemote("@scope/remote/Button", "@scope/remote/Button")'
     );
-    expect(result?.code).not.toContain('__mfPreloadRemote("@scope/remote",');
+    expect(result?.code).toContain('__mfPreloadRemote("@scope/remote", "@scope/remote")');
     expect(result?.code).toContain('runtime.loadRemote(runtimeRemote)');
     // A preload failure must not abort host bootstrap.
     expect(result?.code).toContain('await Promise.allSettled(__mfRemotePreloads);');

@@ -1,3 +1,22 @@
+import { createCodePositionMap } from './codePositionMap';
+
+export function findModuleImportSources(code: string): string[] {
+  const codePositions = createCodePositionMap(code);
+  const sources = new Set<string>();
+  const patterns = [
+    /\b(?:import|export)\s+[^;]*?\bfrom\s*["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']/g,
+    /\bimport\s*["']([^"']+)["']/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of code.matchAll(pattern)) {
+      if (codePositions[match.index!]) sources.add(match[1]);
+    }
+  }
+  return Array.from(sources);
+}
+
 export function sanitizeDevEntryPath(devEntryPath: string): string {
   // devEntryPath is already root-relative at this point (built in pluginAddEntry),
   // just normalize any remaining backslashes for use in HTML/URLs.
