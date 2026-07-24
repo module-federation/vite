@@ -87,6 +87,10 @@ import {
 } from './virtualModules/virtualShared_preBuild';
 
 const patchedManualChunks = new WeakSet<Function>();
+const normalizedOptionsByInput = new WeakMap<
+  ModuleFederationOptions,
+  NormalizedModuleFederationOptions
+>();
 
 // Rolldown injects the `__vite_preload` helper as a special runtime module and,
 // left to automatic chunking, hoists it into whichever loadShare chunk first uses
@@ -744,7 +748,9 @@ function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOpti
 
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
-  const options = normalizeModuleFederationOptions(mfUserOptions);
+  const options =
+    normalizedOptionsByInput.get(mfUserOptions) ?? normalizeModuleFederationOptions(mfUserOptions);
+  normalizedOptionsByInput.set(mfUserOptions, options);
   applyExternalRuntimeExperiments(options);
 
   const isVinext = hasPackageDependency('vinext');
