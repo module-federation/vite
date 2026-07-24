@@ -15,7 +15,12 @@ import { mfWarn } from '../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
-import { decodeViteId, toViteEncodedId, VITE_ID_PREFIX } from '../utils/VirtualModule';
+import {
+  decodeViteId,
+  toViteEncodedId,
+  VITE_ENCODED_NULL_BYTE_PREFIX,
+  VITE_ID_PREFIX,
+} from '../utils/VirtualModule';
 import {
   addUsedRemote,
   getRuntimeRemoteId,
@@ -277,6 +282,18 @@ const __mfCurrentScript = document.currentScript;
       useSystemImportFallback
         ? `__mfImport(${JSON.stringify(src)})`
         : `import(${JSON.stringify(src)})`;
+    // Vite resolves literal dynamic imports during transform. An encoded virtual
+    // module URL is already browser-resolvable through Vite's dev server, but
+    // it is not resolvable relative to this in-memory proxy module. Preserve it
+    // for the browser instead of asking Vite to resolve it a second time.
+    const isEncodedVirtualEntry = entrySrc.startsWith(VITE_ENCODED_NULL_BYTE_PREFIX);
+    const entryImportDeclaration = isEncodedVirtualEntry
+      ? `const __mfEntryUrl = ${JSON.stringify(entrySrc)};
+`
+      : '';
+    const entryImportExpression = isEncodedVirtualEntry
+      ? 'import(/* @vite-ignore */ __mfEntryUrl)'
+      : importExpression(entrySrc);
 
     // Eagerly preloading remotes mirrors the federation runtime's own
     // `version-first` behaviour, where `ShareHandler.initializeSharing()` loads
@@ -360,10 +377,15 @@ const __mfCurrentScript = document.currentScript;
   await __mfHostInit.__tla;
   const { initHost } = __mfHostInit;
   ${preloadBlock}${pendingShareLoadsAwait}
-})().then(() => ${importExpression(entrySrc)});
+})().then(() => ${entryImportExpression});
 `;
 
-    return [getRuntimeModuleCacheBootstrapCode(), importHelper, importCode].join('\n');
+    return [
+      getRuntimeModuleCacheBootstrapCode(),
+      importHelper,
+      entryImportDeclaration,
+      importCode,
+    ].join('\n');
   }
 
   function getSystemBootstrapSource(initSrc: string, entrySrc: string) {
@@ -517,10 +539,17 @@ const __mfCurrentScript = document.currentScript;
           const stripBase = (p: string) =>
             base && p.startsWith(base + '/') ? p.slice(base.length) : p;
           const html = rewriteEntryScripts(c, (originalSrc) => {
-            addEntryRemoteImports(stripBase(originalSrc));
+            const entrySrc = stripBase(originalSrc);
+            addEntryRemoteImports(entrySrc);
+            // `virtual:` is a Vite plugin identifier, not a browser-supported
+            // URL scheme. The bootstrap runs in the browser, so route virtual
+            // entries through Vite's encoded module URL before dynamic import.
+            const resolvedEntrySrc = entrySrc.startsWith('virtual:')
+              ? toViteEncodedId(entrySrc)
+              : entrySrc;
             const query = new URLSearchParams({
               init: sanitizeDevEntryPath(stripBase(devEntryPath)),
-              entry: sanitizeDevEntryPath(stripBase(originalSrc)),
+              entry: sanitizeDevEntryPath(resolvedEntrySrc),
             }).toString();
             return toViteEncodedId(`${DEV_HTML_PROXY_PREFIX}${query}`);
           });

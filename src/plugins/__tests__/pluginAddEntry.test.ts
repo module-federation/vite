@@ -953,6 +953,59 @@ describe('pluginAddEntry', () => {
     expect(result).not.toContain('<script type="module">');
   });
 
+  it('resolves virtual dev html entries through Vite before bootstrapping', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-html-virtual-entry-'));
+    fs.writeFileSync(path.join(tempDir, 'index.html'), '<html></html>');
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: 'virtual:mf-host-init',
+      inject: 'html',
+    });
+    const servePlugin = plugins[0];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(servePlugin, {
+      base: '/',
+      root: tempDir,
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = await runTransformIndexHtml(
+      servePlugin,
+      '<html><head></head><body><script type="module" src="virtual:/@storybook/builder-vite/vite-app.js"></script></body></html>',
+      {
+        filename: path.join(tempDir, 'index.html'),
+        path: '/index.html',
+        server: undefined,
+        originalUrl: '/index.html',
+      }
+    );
+
+    expect(typeof result).toBe('string');
+    if (typeof result !== 'string') throw new Error('transformIndexHtml should return html string');
+
+    const proxyPrefix = toViteEncodedId('virtual:mf-html-entry-proxy?');
+    const proxyIdMatch = result.match(
+      new RegExp(`src="(${proxyPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"]*)"`)
+    );
+    expect(proxyIdMatch).not.toBeNull();
+
+    const proxyId = decodeURIComponent(proxyIdMatch![1]).replace(/&amp;/g, '&');
+    const code = await runLoad(servePlugin, proxyId);
+    expect(code).toContain(
+      `const __mfEntryUrl = ${JSON.stringify(
+        toViteEncodedId('virtual:/@storybook/builder-vite/vite-app.js')
+      )};`
+    );
+    expect(code).toContain('})().then(() => import(/* @vite-ignore */ __mfEntryUrl));');
+  });
+
   it('rewrites entry scripts and resolves proxy imports with non-root base (#590)', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-html-base-'));
     fs.writeFileSync(path.join(tempDir, 'index.html'), '<html></html>');
