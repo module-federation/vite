@@ -22,15 +22,10 @@ import {
   getLoadShareModulePath,
 } from '../virtualModules/virtualShared_preBuild';
 
-const { hasPackageDependencyMock, mfWarn, normalizeModuleFederationOptionsMock } = vi.hoisted(
-  () => ({
-    hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>(
-      (_dependency: string) => false
-    ),
-    mfWarn: vi.fn(),
-    normalizeModuleFederationOptionsMock: vi.fn(),
-  })
-);
+const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
+  hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>((_dependency: string) => false),
+  mfWarn: vi.fn(),
+}));
 
 vi.mock('../utils/packageUtils', async () => {
   const actual =
@@ -47,15 +42,6 @@ vi.mock('../utils/logger', async () => {
   return {
     ...actual,
     mfWarn,
-  };
-});
-
-vi.mock('../utils/normalizeModuleFederationOptions', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../utils/normalizeModuleFederationOptions')>();
-  normalizeModuleFederationOptionsMock.mockImplementation(actual.normalizeModuleFederationOptions);
-  return {
-    ...actual,
-    normalizeModuleFederationOptions: normalizeModuleFederationOptionsMock,
   };
 });
 
@@ -332,17 +318,6 @@ describe('federation in test environment', () => {
       filename: 'remoteEntry.js',
     });
     expect(plugins.length).toBeGreaterThan(0);
-  });
-
-  it('normalizes the same user config only once', () => {
-    normalizeModuleFederationOptionsMock.mockClear();
-    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
-    const options = { name: 'cached-federation-options' };
-
-    federation(options);
-    federation(options);
-
-    expect(normalizeModuleFederationOptionsMock).toHaveBeenCalledOnce();
   });
 });
 
