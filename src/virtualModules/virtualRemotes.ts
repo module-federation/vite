@@ -5,7 +5,7 @@ import {
 } from '../utils/normalizeModuleFederationOptions';
 import type { RemoteConsumer } from '../utils/remoteConsumerTarget';
 import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
-import VirtualModule from '../utils/VirtualModule';
+import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
   getRuntimeInitBootstrapCode,
@@ -49,7 +49,7 @@ export function getRemoteVirtualModule(
     // code (notably without the client host-init import). Keep the historical
     // id for legacy/unified graphs.
     const consumerName = consumer === 'unified' ? remote : `${remote}__mf_consumer__${consumer}`;
-    const virtualName = `${consumerName}__mf_owner__${getRemoteOptionsId(options)}`;
+    const virtualName = `${consumerName}${MF_OWNER_INFIX}${getRemoteOptionsId(options)}`;
     const virtual = new VirtualModule(virtualName, LOAD_REMOTE_TAG, '.js', options.internalName);
     virtual.writeSync(generateRemotes(remote, command, enableSsrInit, consumer, options));
     instanceCache.set(cacheKey, virtual);

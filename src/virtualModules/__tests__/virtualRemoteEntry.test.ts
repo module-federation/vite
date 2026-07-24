@@ -289,6 +289,7 @@ function getRuntimeDeferredResolutionCode(code: string) {
 
 vi.mock('../../utils/VirtualModule', () => {
   return {
+    MF_OWNER_INFIX: '__mf_owner__',
     default: class MockVirtualModule {
       name: string;
 
