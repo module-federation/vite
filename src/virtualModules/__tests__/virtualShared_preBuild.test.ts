@@ -377,6 +377,7 @@ vi.mock('../../utils/packageUtils', () => ({
 // Mock VirtualModule to capture written code
 vi.mock('../../utils/VirtualModule', () => {
   return {
+    MF_OWNER_INFIX: '__mf_owner__',
     default: class MockVirtualModule {
       getPath = vi.fn(() => '/mock/path.js');
       getImportId = vi.fn(() => 'mock-import-id');

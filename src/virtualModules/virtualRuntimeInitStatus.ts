@@ -1,4 +1,4 @@
-import VirtualModule from '../utils/VirtualModule';
+import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
 
@@ -26,7 +26,7 @@ function getRuntimeInitModule(options?: NormalizedModuleFederationOptions) {
       'runtimeInit',
       '__mf_v__',
       '',
-      `${options.internalName}__mf_owner__${ownerId}`
+      `${options.internalName}${MF_OWNER_INFIX}${ownerId}`
     );
     runtimeInitModules.set(options, runtimeInitModule);
   }
@@ -43,7 +43,7 @@ export function getRuntimeRemoteCachePrefix(options?: NormalizedModuleFederation
 
 export function getRuntimeRemoteAlias(alias: string, options?: NormalizedModuleFederationOptions) {
   if (!options) return alias;
-  return `${options.internalName}__mf_owner__${getRuntimeInitOwnerId(options)}__${alias}`;
+  return `${options.internalName}${MF_OWNER_INFIX}${getRuntimeInitOwnerId(options)}__${alias}`;
 }
 
 export function getRuntimeInitGlobalKey(ownerImportId?: string) {

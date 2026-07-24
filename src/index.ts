@@ -79,6 +79,7 @@ import { addUsedShares } from './virtualModules/virtualRemoteEntry';
 import { addUsedRemote } from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
+  findCurrentLoadShareForStaleOwnerId,
   getLoadShareModulePath,
   materializeCachedLoadShareModule,
   prependWorkspaceSingletonSsrImport,
@@ -779,7 +780,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             writeLocalSharedImportMap: () => writeLocalSharedImportMap(options),
             federationOptions: options,
           });
-          virtualModule = VirtualModule.findById(id);
+          virtualModule =
+            VirtualModule.findById(id) ??
+            findCurrentLoadShareForStaleOwnerId(id, options.shared, findSharedKey, options);
         }
         if (!virtualModule) return;
         return virtualModule.getResolvedId();

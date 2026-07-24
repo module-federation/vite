@@ -13,8 +13,8 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
-import { mfWarn } from '../utils/logger';
 import { createCodePositionMap } from '../utils/codePositionMap';
+import { mfWarn } from '../utils/logger';
 import {
   getNormalizeModuleFederationOptions,
   type NormalizedModuleFederationOptions,
@@ -26,19 +26,19 @@ import {
   getInstalledPackageJson,
   getPackageDetectionCwd,
   getPackageName,
-  packageNameEncode,
-  packageNameDecode,
   getSharedCacheDescriptor,
+  packageNameDecode,
+  packageNameEncode,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
-import VirtualModule, { normalizeVirtualModuleId } from '../utils/VirtualModule';
 import { normalizeNodeModulePath } from '../utils/pathNormalization';
+import { getTreeShakingExportUsage } from '../utils/treeShaking';
+import VirtualModule, { MF_OWNER_INFIX, normalizeVirtualModuleId } from '../utils/VirtualModule';
 import {
   getRuntimeInitPromiseBootstrapCode,
   getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
-import { getTreeShakingExportUsage } from '../utils/treeShaking';
 
 const JS_IDENTIFIER_REGEX = new RegExp(
   '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
@@ -850,7 +850,7 @@ function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions
       treeShakingProviderCacheMap: {},
       materializedTreeShakingProviders: new Set(),
       loadShareCacheMap: {},
-      ownerKey: `${options.internalName}__mf_owner__${nextSharedVirtualModuleOwnerId++}`,
+      ownerKey: `${options.internalName}${MF_OWNER_INFIX}${nextSharedVirtualModuleOwnerId++}`,
     };
     sharedVirtualModuleStates.set(options, state);
   }
@@ -1264,6 +1264,33 @@ export function materializeCachedLoadShareModule(options: {
   }
   options.addUsedShares(pkg);
   options.writeLocalSharedImportMap();
+}
+
+// Owner keys embed a process-wide generation counter, so a loadShare id is
+// only resolvable in the process (and config generation) that minted it. But
+// Vite's dependency optimizer persists these ids inside node_modules/.vite:
+// a config re-evaluation or a fresh dev-server process mints new generations,
+// and cached deps referencing the old owner would fail to resolve until the
+// cache is deleted. When a stale id was minted by an earlier generation
+// of THIS instance, redirect it to the current generation's module instead.
+export function findCurrentLoadShareForStaleOwnerId(
+  id: string,
+  shared: NormalizedShared,
+  findSharedKey: (source: string, shared: NormalizedShared) => string | undefined,
+  options: NormalizedModuleFederationOptions
+): VirtualModule | undefined {
+  const pkg = getCachedLoadSharePkg(id);
+  if (!pkg) return;
+  const normalized = normalizeVirtualModuleId(id);
+  if (!normalized.startsWith('virtual:mf:')) return;
+  const encodedKey = normalized.slice('virtual:mf:'.length);
+  const ownerStart = encodedKey.indexOf(MF_OWNER_INFIX);
+  if (ownerStart === -1) return;
+  // Owner keys are scoped per federation instance; only reclaim ids this
+  // instance minted. Other instances' resolveId hooks handle their own.
+  if (encodedKey.slice(0, ownerStart) !== packageNameEncode(options.internalName)) return;
+  if (!findSharedKey(pkg, shared)) return;
+  return getSharedVirtualModuleState(options).loadShareCacheMap[pkg];
 }
 
 function getSharedCacheReadExpression(cacheDescriptor: string, treeShakingConsumer?: string) {

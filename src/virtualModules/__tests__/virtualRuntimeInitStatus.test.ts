@@ -5,6 +5,7 @@ const { writeSyncSpy } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../utils/VirtualModule', () => ({
+  MF_OWNER_INFIX: '__mf_owner__',
   default: class MockVirtualModule {
     getImportId() {
       return 'virtual:runtimeInit';

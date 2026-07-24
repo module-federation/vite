@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import VirtualModule from '../../utils/VirtualModule';
+import { findSharedKey } from '../../plugins/pluginProxySharedModule_preBuild';
 import {
   normalizeModuleFederationOptions,
+  type NormalizedShared,
   type ShareItem,
 } from '../../utils/normalizeModuleFederationOptions';
 import {
+  findCurrentLoadShareForStaleOwnerId,
   getLoadShareModulePath,
   getPreBuildLibImportId,
   getTreeShakingSharedProviderImportId,
@@ -15,9 +18,9 @@ import { generateRemoteEntry } from '../virtualRemoteEntry';
 import { getRuntimeInitStatusImportId, writeRuntimeInitStatus } from '../virtualRuntimeInitStatus';
 import { recordTreeShakingExports, setTreeShakingBuildMode } from '../../utils/treeShaking';
 
-function makeOptions() {
+function makeOptions(name = 'same-name-host') {
   return normalizeModuleFederationOptions({
-    name: 'same-name-host',
+    name,
     shared: {},
   });
 }
@@ -145,5 +148,121 @@ describe('shared virtual module instance isolation', () => {
     expect(providerA).not.toContain('useState as __mfTreeShaken_0');
     expect(providerB).toContain('useState as __mfTreeShaken_0');
     expect(providerB).not.toContain('createElement as __mfTreeShaken_0');
+  });
+});
+
+function makePkgShareItem(pkg: string): ShareItem {
+  return {
+    name: pkg,
+    from: 'stale-owner-host',
+    version: '19.1.0',
+    scope: 'default',
+    shareConfig: {
+      import: pkg,
+      singleton: true,
+      requiredVersion: '^19.0.0',
+    },
+  };
+}
+
+function makeShared(pkg: string): NormalizedShared {
+  return { [pkg]: makePkgShareItem(pkg) } as NormalizedShared;
+}
+
+// The flip side of instance isolation: owner keys embed a process-wide
+// generation counter, but Vite persists loadShare ids into the dep-optimizer
+// cache (node_modules/.vite). Ids minted by an earlier generation of the SAME
+// instance must resolve to the current generation, while other instances' ids
+// stay isolated (#970).
+describe('stale owner loadShare resolution', () => {
+  it('redirects loadShare ids minted by a previous generation of the same instance', () => {
+    const previousGen = makeOptions('stale-owner-host');
+    const currentGen = makeOptions('stale-owner-host');
+    const shared = makeShared('react');
+
+    writeLoadShareModule('react', shared['react'], 'serve', false, previousGen);
+    writeLoadShareModule('react', shared['react'], 'serve', false, currentGen);
+    const staleId = getLoadShareModulePath('react', false, previousGen);
+    const currentId = getLoadShareModulePath('react', false, currentGen);
+    expect(staleId).not.toBe(currentId);
+
+    const healed = findCurrentLoadShareForStaleOwnerId(staleId, shared, findSharedKey, currentGen);
+    expect(healed?.getImportId()).toBe(currentId);
+  });
+
+  it('redirects stale ids for encoded package subpaths', () => {
+    const previousGen = makeOptions('stale-owner-host');
+    const currentGen = makeOptions('stale-owner-host');
+    const shared = makeShared('react-dom/client');
+
+    writeLoadShareModule(
+      'react-dom/client',
+      shared['react-dom/client'],
+      'serve',
+      false,
+      previousGen
+    );
+    writeLoadShareModule(
+      'react-dom/client',
+      shared['react-dom/client'],
+      'serve',
+      false,
+      currentGen
+    );
+    const staleId = getLoadShareModulePath('react-dom/client', false, previousGen);
+
+    const healed = findCurrentLoadShareForStaleOwnerId(staleId, shared, findSharedKey, currentGen);
+    expect(healed?.getImportId()).toBe(
+      getLoadShareModulePath('react-dom/client', false, currentGen)
+    );
+  });
+
+  it('does not reclaim ids minted by a different federation instance', () => {
+    const otherInstance = makeOptions('other-host');
+    const currentGen = makeOptions('stale-owner-host');
+    const shared = makeShared('react');
+
+    writeLoadShareModule('react', shared['react'], 'serve', false, otherInstance);
+    writeLoadShareModule('react', shared['react'], 'serve', false, currentGen);
+    const foreignId = getLoadShareModulePath('react', false, otherInstance);
+
+    expect(findCurrentLoadShareForStaleOwnerId(foreignId, shared, findSharedKey, currentGen)).toBe(
+      undefined
+    );
+  });
+
+  it('does not reclaim ids of instances whose name is a prefix of another', () => {
+    // "host" is a prefix of "hostSecondary": slicing at __mf_owner__ must
+    // compare the full instance name, not a startsWith match.
+    const secondary = makeOptions('hostSecondary');
+    const primary = makeOptions('host');
+    const shared = makeShared('react');
+
+    writeLoadShareModule('react', shared['react'], 'serve', false, secondary);
+    writeLoadShareModule('react', shared['react'], 'serve', false, primary);
+    const secondaryId = getLoadShareModulePath('react', false, secondary);
+
+    expect(findCurrentLoadShareForStaleOwnerId(secondaryId, shared, findSharedKey, primary)).toBe(
+      undefined
+    );
+  });
+
+  it('does not resolve packages that are no longer shared', () => {
+    const previousGen = makeOptions('stale-owner-host');
+    const currentGen = makeOptions('stale-owner-host');
+
+    writeLoadShareModule('react', makePkgShareItem('react'), 'serve', false, previousGen);
+    const staleId = getLoadShareModulePath('react', false, previousGen);
+
+    expect(
+      findCurrentLoadShareForStaleOwnerId(staleId, makeShared('vue'), findSharedKey, currentGen)
+    ).toBe(undefined);
+  });
+
+  it('ignores ids that are not loadShare virtual modules', () => {
+    const currentGen = makeOptions('stale-owner-host');
+    expect(
+      findCurrentLoadShareForStaleOwnerId('react', makeShared('react'), findSharedKey, currentGen)
+    ).toBe(undefined);
   });
 });
