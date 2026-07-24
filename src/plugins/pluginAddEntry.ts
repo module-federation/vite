@@ -473,9 +473,10 @@ const __mfCurrentScript = document.currentScript;
             const initSrc = params.get('init');
             const entrySrc = params.get('entry');
             if (initSrc && entrySrc) {
+              const withBase = (src: string) => viteConfig.base + src.replace(/^\//, '');
               res.statusCode = 200;
               res.setHeader('Content-Type', 'application/javascript');
-              res.end(getBootstrapSource(initSrc, entrySrc));
+              res.end(getBootstrapSource(withBase(initSrc), withBase(entrySrc)));
               return;
             }
           }

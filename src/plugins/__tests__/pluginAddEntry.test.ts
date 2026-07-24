@@ -207,6 +207,42 @@ describe('pluginAddEntry', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it('serves html proxy imports with the configured base', () => {
+    const [servePlugin] = addEntry({
+      entryName: 'hostInit',
+      entryPath: 'virtual:mf-host-init',
+      inject: 'html',
+    });
+    const handlers: Function[] = [];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(servePlugin, {
+      root: '/repo',
+      base: '/subpath/',
+    } as unknown as ResolvedConfig);
+    runConfigureServer(servePlugin, {
+      middlewares: { use: (handler: Function) => handlers.push(handler) },
+    } as unknown as ViteDevServer);
+
+    const end = vi.fn();
+    handlers[0](
+      {
+        url: `${toViteEncodedId('virtual:mf-html-entry-proxy')}?init=%2F%40id%2Fvirtual%3Amf-host-init&entry=%2Fsrc%2Fmain.tsx`,
+      },
+      { setHeader: vi.fn(), end },
+      vi.fn()
+    );
+
+    const code = end.mock.calls[0][0] as string;
+    expect(code).toContain('import("/subpath/@id/virtual:mf-host-init")');
+    expect(code).toContain('import("/subpath/src/main.tsx")');
+  });
+
   it('injects host init into html-script entry during serve when inject is entry', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-'));
     const htmlFile = path.join(tempDir, 'index.html');
