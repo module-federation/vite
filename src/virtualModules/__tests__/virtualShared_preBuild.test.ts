@@ -532,7 +532,8 @@ Object.keys(dependency).forEach(function (key) {
       return `export const definitionRefRegistry = new WeakMap<object, any>();
 export const createThing = factory<Result, Options>();
 export const nestedRegistry: Map<string, WeakMap<object, any>> = new Map();
-export const identity = <T = string, U = number>(value: T) => value;`;
+export const identity = <T = string, U = number>(value: T) => value;
+export const assertedRegistry = <Map<object, any>>new Map();`;
     }
     if (filePath.endsWith('/repo/packages/generic-and-multi.ts')) {
       return 'export const first = factory<Result, Options>(), second = 2;';
@@ -1664,6 +1665,7 @@ describe('writeLoadShareModule', () => {
       'createThing',
       'nestedRegistry',
       'identity',
+      'assertedRegistry',
     ]);
     expect(generatedCode).not.toContain('export * from "/repo/packages/generic-initializer.ts"');
   });

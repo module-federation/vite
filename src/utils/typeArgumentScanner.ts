@@ -56,7 +56,8 @@ function updateTypeArgumentAngleDepth(
 function hasLikelyTypeArgumentFollower(
   source: string,
   end: number,
-  codePositions: boolean[]
+  codePositions: boolean[],
+  followsNamedExpression: boolean
 ): boolean {
   let next = end + 1;
   while (next < source.length && (!codePositions[next] || /\s/.test(source[next]))) next++;
@@ -65,7 +66,11 @@ function hasLikelyTypeArgumentFollower(
   const followingToken = source
     .slice(next)
     .match(/^[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*/u)?.[0];
-  return followingToken === 'as' || followingToken === 'satisfies';
+  return (
+    followingToken === 'as' ||
+    followingToken === 'satisfies' ||
+    (!followsNamedExpression && followingToken !== undefined)
+  );
 }
 
 function isInvalidTypeArgumentTerminator(
@@ -106,7 +111,8 @@ export function findLikelyTypeArgumentEnd(
     const angleAction = updateTypeArgumentAngleDepth(source, index, state);
     if (angleAction === 'invalid') return undefined;
     if (angleAction === 'closed') {
-      return state.sawTypeComma && hasLikelyTypeArgumentFollower(source, index, codePositions)
+      return state.sawTypeComma &&
+        hasLikelyTypeArgumentFollower(source, index, codePositions, context.followsNamedExpression)
         ? index
         : undefined;
     }

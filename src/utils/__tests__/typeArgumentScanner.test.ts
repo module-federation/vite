@@ -27,6 +27,12 @@ describe('findLikelyTypeArgumentEnd', () => {
     );
   });
 
+  it('finds nested type arguments in a TypeScript angle-bracket assertion', () => {
+    expect(findTypeArgumentRange('const registry = <Map<object, any>>new Map();')).toBe(
+      '<Map<object, any>>'
+    );
+  });
+
   it.each([
     'const value = left < right;',
     'const first = left < right, second = value > fallback;',
