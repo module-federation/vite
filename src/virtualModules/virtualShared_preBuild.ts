@@ -145,7 +145,12 @@ function inspectSharedExportsFromFile(
   }
 }
 
-function resolveConfiguredImportPath(importSource: string): string | undefined {
+const DEFAULT_SHARED_EXPORT_CONDITIONS = ['browser', 'import', 'module', 'default'];
+
+function resolveConfiguredImportPath(
+  importSource: string,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
+): string | undefined {
   if (path.isAbsolute(importSource)) {
     return resolveFileLikeModule(importSource);
   }
@@ -156,7 +161,7 @@ function resolveConfiguredImportPath(importSource: string): string | undefined {
   }
 
   const esmEntry = getInstalledPackageEntry(importSource, {
-    conditions: ['browser', 'import', 'module', 'default'],
+    conditions: exportConditions,
     resolveSubpathWithRequire: false,
   });
   if (esmEntry) return esmEntry;
@@ -558,12 +563,15 @@ function getRequiredNamedExports(specifier: string): string[] | undefined {
   }
 }
 
-function getPackageNamedExports(pkg: string): string[] | undefined {
-  // Inspect the browser/import entry that Vite will bundle before considering
-  // the package's require condition. Dual-format packages can expose different
-  // APIs from those two entry points.
+function getPackageNamedExports(
+  pkg: string,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
+): string[] | undefined {
+  // Inspect the entry selected by the active Vite environment before
+  // considering the package's require condition. Dual-format and
+  // browser/server packages can expose different APIs from those entry points.
   const esmEntryPath = getInstalledPackageEntry(pkg, {
-    conditions: ['browser', 'import', 'module', 'default'],
+    conditions: exportConditions,
     resolveSubpathWithRequire: false,
   });
   if (esmEntryPath) {
@@ -583,10 +591,14 @@ function getPackageNamedExports(pkg: string): string[] | undefined {
   return getRequiredNamedExports(pkg);
 }
 
-export function getSharedNamedExports(pkg: string, shareItem?: ShareItem): string[] | undefined {
+export function getSharedNamedExports(
+  pkg: string,
+  shareItem?: ShareItem,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
+): string[] | undefined {
   const configuredImport = shareItem?.shareConfig.import;
   if (typeof configuredImport === 'string') {
-    const configuredImportPath = resolveConfiguredImportPath(configuredImport);
+    const configuredImportPath = resolveConfiguredImportPath(configuredImport, exportConditions);
     // The configured source is authoritative. Do not fall back to the package
     // entry when that source is default-only or cannot be inspected: its export
     // shape may intentionally differ from the package root.
@@ -601,7 +613,7 @@ export function getSharedNamedExports(pkg: string, shareItem?: ShareItem): strin
     return undefined;
   }
 
-  return getPackageNamedExports(pkg);
+  return getPackageNamedExports(pkg, exportConditions);
 }
 
 export function getLocalProviderImportPath(pkg: string): string | undefined {
@@ -1048,7 +1060,8 @@ export default { get, init };
 export function writePreBuildLibPath(
   pkg: string,
   shareItem?: ShareItem,
-  options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  exportConditions?: string[]
 ) {
   const { preBuildCacheMap, preBuildShareItemMap } = getSharedVirtualModuleState(options);
   if (!preBuildCacheMap[pkg]) {
@@ -1113,7 +1126,7 @@ export function writePreBuildLibPath(
     );
     return;
   }
-  const namedExports = getSharedNamedExports(pkg, shareItem) ?? [];
+  const namedExports = getSharedNamedExports(pkg, shareItem, exportConditions) ?? [];
   if (namedExports.length > 0) {
     const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
     const declarations = namedExports
@@ -1219,21 +1232,29 @@ export function getLoadShareModulePath(
   return filepath;
 }
 
-export function getCachedLoadSharePkg(id: string): string | undefined {
-  // Most resolved ids are not loadShare virtual ids. Fast reject before
+function getCachedSharedVirtualPkg(id: string, tag: string): string | undefined {
+  // Most resolved ids are not shared virtual ids. Fast reject before
   // normalization/decoding work on the resolveId hot path.
-  if (!id.includes(LOAD_SHARE_TAG)) return;
+  if (!id.includes(tag)) return;
   const normalized = normalizeVirtualModuleId(id);
   if (!normalized.startsWith('virtual:mf:')) return;
 
-  const start = normalized.indexOf(LOAD_SHARE_TAG);
+  const start = normalized.indexOf(tag);
   if (start === -1) return;
 
-  const encodedPkgStart = start + LOAD_SHARE_TAG.length;
-  const end = normalized.indexOf(LOAD_SHARE_TAG, encodedPkgStart);
+  const encodedPkgStart = start + tag.length;
+  const end = normalized.indexOf(tag, encodedPkgStart);
   if (end === -1) return;
 
   return packageNameDecode(normalized.slice(encodedPkgStart, end));
+}
+
+export function getCachedPreBuildPkg(id: string): string | undefined {
+  return getCachedSharedVirtualPkg(id, PREBUILD_TAG);
+}
+
+export function getCachedLoadSharePkg(id: string): string | undefined {
+  return getCachedSharedVirtualPkg(id, LOAD_SHARE_TAG);
 }
 
 export function materializeCachedLoadShareModule(options: {
@@ -1512,7 +1533,8 @@ export function writeLoadShareModule(
   shareItem: ShareItem,
   command: string,
   _isRolldown: boolean,
-  options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  exportConditions?: string[]
 ) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const { loadShareCacheMap } = getSharedVirtualModuleState(options);
@@ -1533,7 +1555,7 @@ export function writeLoadShareModule(
     // Try to detect named exports from locally installed devDependencies.
     // This enables `import { ref } from 'vue'` even though the module is provided by the host.
     // For packages that aren't installed, fall back to default-only export.
-    const detectedNamedExports = getPackageNamedExports(pkg);
+    const detectedNamedExports = getPackageNamedExports(pkg, exportConditions);
     const namedExports = detectedNamedExports ?? [];
     let exportLine: string;
     if (namedExports.length > 0) {
@@ -1584,7 +1606,7 @@ export function writeLoadShareModule(
       ? concreteSharedImportSource || localProviderPath || devImportSource
       : concreteSharedImportSource || localProviderPath || sharedImportSource;
   const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
-  const detectedNamedExports = getSharedNamedExports(pkg, shareItem);
+  const detectedNamedExports = getSharedNamedExports(pkg, shareItem, exportConditions);
   const namedExports = detectedNamedExports ?? [];
   const hasCompleteExportCoverage = detectedNamedExports !== undefined;
   const isWorkspaceSingleton = isWorkspacePackage && shareItem.shareConfig.singleton === true;
