@@ -1,4 +1,5 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { generateReactIslandSSRDefinition } from '../utils/reactIsland';
 
 /**
  * Virtual module ID for the SSR exposes map.
@@ -21,7 +22,10 @@ export function getVirtualExposesSSRId(
  *   build so Node resolves them via its own module cache — this is what
  *   guarantees the React singleton is shared with react-dom/server.
  */
-export function generateExposesSSR(options: NormalizedModuleFederationOptions) {
+export function generateExposesSSR(
+  options: NormalizedModuleFederationOptions,
+  reactIslandExposes: ReadonlySet<string> = new Set()
+) {
   return `
     export default {
     ${Object.keys(options.exposes)
@@ -31,6 +35,7 @@ export function generateExposesSSR(options: NormalizedModuleFederationOptions) {
           const importModule = await import(${JSON.stringify(options.exposes[key].import)})
           const exportModule = {}
           Object.assign(exportModule, importModule)
+          ${generateReactIslandSSRDefinition(reactIslandExposes.has(key))}
           Object.defineProperty(exportModule, "__esModule", {
             value: true,
             enumerable: false

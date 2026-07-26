@@ -12,6 +12,7 @@ import {
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
+import { getReactIslandExposes } from '../utils/reactIsland';
 import { filterId, resolvePublicPath } from '../utils/pathNormalization';
 import {
   generateExposes,
@@ -47,6 +48,7 @@ export default function ({
   let exposeRemoteDependenciesDirty = true;
   let refreshPromise: Promise<void> | undefined;
   let dependencyInvalidationVersion = 0;
+  let reactIslandExposes: ReadonlySet<string> = new Set();
 
   const isHostAutoInitId = (id: string) => {
     const cleanId = id.split('?')[0];
@@ -144,6 +146,7 @@ export default function ({
     configResolved(config) {
       viteConfig = config;
       root = config.root;
+      reactIslandExposes = getReactIslandExposes(options, root);
     },
     config(config, { command }) {
       _command = command;
@@ -206,7 +209,7 @@ export default function ({
       }
       if (id === virtualExposesId) {
         await refreshExposeRemoteDependencies(this);
-        return generateExposes(options, exposeRemoteDependencies, _command);
+        return generateExposes(options, exposeRemoteDependencies, _command, reactIslandExposes);
       }
       if (_command === 'serve' && isHostAutoInitId(id)) {
         return id;
@@ -220,7 +223,7 @@ export default function ({
         }
         if (id === virtualExposesId) {
           await refreshExposeRemoteDependencies(this);
-          return generateExposes(options, exposeRemoteDependencies, _command);
+          return generateExposes(options, exposeRemoteDependencies, _command, reactIslandExposes);
         }
         if (isHostAutoInitId(id)) {
           if (_command === 'serve') {
