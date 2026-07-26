@@ -44,7 +44,6 @@ describe('normalizeModuleFederationOption', () => {
       shareStrategy: 'loaded-first',
       ignoreOrigin: false,
       virtualModuleDir: '__mf__virtual',
-      hostInitEntry: undefined,
       hostInitInjectLocation: 'html',
       bundleAllCSS: false,
       treeShakingDir: undefined,
@@ -64,27 +63,6 @@ describe('normalizeModuleFederationOption', () => {
         externalRuntime: false,
         provideExternalRuntime: false,
       },
-    });
-  });
-
-  describe('hostInitEntry', () => {
-    it('preserves an explicit host entry when injecting into the entry module', () => {
-      expect(
-        normalizeModuleFederationOptions({
-          ...minimalOptions,
-          hostInitInjectLocation: 'entry',
-          hostInitEntry: './src/entry.client.tsx',
-        }).hostInitEntry
-      ).toBe('./src/entry.client.tsx');
-    });
-
-    it('requires entry injection', () => {
-      expect(() =>
-        normalizeModuleFederationOptions({
-          ...minimalOptions,
-          hostInitEntry: './src/entry.client.tsx',
-        })
-      ).toThrow("hostInitEntry requires hostInitInjectLocation: 'entry'");
     });
   });
 

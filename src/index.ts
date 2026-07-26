@@ -749,7 +749,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   applyExternalRuntimeExperiments(options);
 
   const isVinext = hasPackageDependency('vinext');
-  const { name, shared, filename, hostInitEntry, hostInitInjectLocation } = options;
+  const { name, shared, filename, hostInitInjectLocation } = options;
   const hasTreeShakingShared = Object.values(shared).some(
     (share) => !!share.shareConfig.treeShaking
   );
@@ -886,7 +886,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       entryName: 'hostInit',
       entryPath: () => getHostAutoInitPath(options),
       inject: hostInitInjectLocation,
-      targetEntry: hostInitEntry,
       forceClientInjected: Object.keys(options.exposes).length > 0,
       skipTransformFor: Object.values(options.exposes).map((expose) => expose.import),
       federationOptions: options,

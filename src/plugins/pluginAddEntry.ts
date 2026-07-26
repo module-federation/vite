@@ -38,8 +38,6 @@ interface AddEntryOptions {
   inject?: NormalizedModuleFederationOptions['hostInitInjectLocation'];
   /** When true, skip the dev HTML-entry fallback (used for MF remotes whose index.html is never browser-requested). */
   forceClientInjected?: boolean;
-  /** A single client entry module to wrap instead of discovering one from Vite inputs or framework heuristics. */
-  targetEntry?: string;
   skipTransformFor?: string[];
   federationOptions?: NormalizedModuleFederationOptions;
 }
@@ -99,6 +97,10 @@ function stripQueryAndHash(file: string) {
   return file.split(/[?#]/)[0];
 }
 
+function isReactRouterClientRouteInput(file: string) {
+  return /[?&]__react-router-build-client-route(?:[=&]|$)/.test(file);
+}
+
 function resolveDevHashEntryFileName(fileName: string) {
   if (!fileName.includes('[hash')) return fileName;
 
@@ -149,7 +151,6 @@ const addEntry = ({
   fileName,
   inject = 'entry',
   forceClientInjected,
-  targetEntry,
   skipTransformFor = [],
   federationOptions,
 }: AddEntryOptions): Plugin[] => {
@@ -160,7 +161,6 @@ const addEntry = ({
   const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
   let devEntryPath = '';
   let entryFiles: string[] = [];
-  let targetEntryId: string | undefined;
   let htmlFilePath: string | undefined;
   let _command: string;
   let emitFileId: string;
@@ -463,32 +463,6 @@ const __mfCurrentScript = document.currentScript;
     }
   }
 
-  function injectIntoModule(
-    code: string,
-    id: string,
-    projectId: string,
-    { skipRemotePreload = false }: { skipRemotePreload?: boolean } = {}
-  ) {
-    clientInjected = true;
-    injectedTransformIds.add(projectId);
-
-    // Non-hostInit injections only need a side-effect import. Host-init
-    // bootstrap must await initHost() before the app entry runs — in both
-    // build and serve — so bridge-react remotes do not hit
-    // "Module Federation runtime is not initialized" on first paint.
-    if (!waitsForInit) {
-      const injection = `import ${JSON.stringify(getEntryPath())};\n`;
-      return mapCodeToCodeWithSourcemap(injection + code);
-    }
-    const entrySrc = id.includes('?')
-      ? `${id}&${ENTRY_BOOTSTRAP_QUERY.slice(1)}`
-      : `${id}${ENTRY_BOOTSTRAP_QUERY}`;
-    const bootstrap = getBootstrapSource(getEntryPath(), entrySrc, false, {
-      skipRemotePreload,
-    });
-    return mapCodeToCodeWithSourcemap(bootstrap);
-  }
-
   return [
     {
       name: 'add-entry',
@@ -556,8 +530,7 @@ const __mfCurrentScript = document.currentScript;
         // would mistakenly rewrite those proxied inline scripts too (#571).
         order: 'pre',
         handler(c) {
-          const shouldWrapEntryHtml =
-            _command === 'serve' && inject === 'entry' && waitsForInit && !targetEntry;
+          const shouldWrapEntryHtml = _command === 'serve' && inject === 'entry' && waitsForInit;
           if (!injectHtml() && !shouldWrapEntryHtml) return;
           clientInjected = true;
           // Normalize all paths to root-relative (without base) before storing
@@ -650,18 +623,6 @@ const __mfCurrentScript = document.currentScript;
             : undefined
         ) as { name?: string } | undefined;
         if (envName?.name && envName.name !== 'client') return;
-
-        // An explicit target is a deterministic replacement for Vite input and
-        // framework-entry discovery. In particular, React Router framework
-        // mode supplies route modules as Vite inputs; only its browser entry
-        // may be wrapped with the bootstrap query.
-        if (targetEntry) {
-          targetEntryId = resolveProjectId(targetEntry);
-          entryFiles = [targetEntryId];
-          htmlFilePath = undefined;
-          return;
-        }
-
         const inputOptions = getBuildInput(config);
 
         if (!inputOptions) {
@@ -669,9 +630,17 @@ const __mfCurrentScript = document.currentScript;
         } else if (typeof inputOptions === 'string') {
           entryFiles = [resolveProjectId(inputOptions)];
         } else if (Array.isArray(inputOptions)) {
-          entryFiles = inputOptions.map(resolveProjectId);
+          entryFiles = inputOptions
+            // React Router framework mode exposes route modules as bundler
+            // inputs so it can preserve their exports. They are code-split
+            // routes, not browser bootstrap entries, and wrapping them leaks
+            // server-only route code into client requests (#976).
+            .filter((input) => !isReactRouterClientRouteInput(String(input)))
+            .map(resolveProjectId);
         } else if (typeof inputOptions === 'object') {
-          entryFiles = Object.values(inputOptions).map((input) => resolveProjectId(String(input)));
+          entryFiles = Object.values(inputOptions)
+            .filter((input) => !isReactRouterClientRouteInput(String(input)))
+            .map((input) => resolveProjectId(String(input)));
         }
 
         if (entryFiles.length > 0) {
@@ -852,15 +821,6 @@ const __mfCurrentScript = document.currentScript;
             : undefined
         ) as { name?: string } | undefined;
         if (transformEnv?.name && transformEnv.name !== 'client') return;
-
-        // Explicit target mode deliberately bypasses every framework-specific
-        // and transform-order-dependent fallback below. The configured module
-        // is the sole module that may receive host initialization.
-        if (targetEntryId) {
-          if (projectId !== targetEntryId) return;
-          return injectIntoModule(code, id, projectId);
-        }
-
         const isVinext = hasPackageDependency('vinext');
         if (
           isVinext &&
@@ -970,9 +930,23 @@ const __mfCurrentScript = document.currentScript;
             isHydrationEntryFallback ||
             isNuxtClientEntryFallback);
         if (shouldInject) {
-          return injectIntoModule(code, id, projectId, {
+          clientInjected = true;
+          injectedTransformIds.add(projectId);
+          // Non-hostInit injections only need a side-effect import. Host-init
+          // bootstrap must await initHost() before the app entry runs — in both
+          // build and serve — so bridge-react remotes do not hit
+          // "Module Federation runtime is not initialized" on first paint.
+          if (!waitsForInit) {
+            const injection = `import ${JSON.stringify(getEntryPath())};\n`;
+            return mapCodeToCodeWithSourcemap(injection + code);
+          }
+          const entrySrc = id.includes('?')
+            ? `${id}&${ENTRY_BOOTSTRAP_QUERY.slice(1)}`
+            : `${id}${ENTRY_BOOTSTRAP_QUERY}`;
+          const bootstrap = getBootstrapSource(getEntryPath(), entrySrc, false, {
             skipRemotePreload: _command === 'serve' && isNuxtEntryAsyncModule,
           });
+          return mapCodeToCodeWithSourcemap(bootstrap);
         }
       },
     },

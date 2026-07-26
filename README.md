@@ -167,11 +167,6 @@ export default defineConfig({
       // initHost() completes before hydrateRoot and @module-federation/bridge-react
       // remotes render on first paint.
       hostInitInjectLocation: "html", // or "entry"
-      // When `hostInitInjectLocation` is "entry", optionally wrap exactly this
-      // client module instead of discovering one from Vite inputs. Useful for
-      // frameworks such as React Router that expose route modules as additional
-      // Vite inputs.
-      // hostInitEntry: "./src/entry.client.tsx",
       // Controls whether all CSS assets from the bundle should be added to every exposed module.
       // When false (default), the plugin will not process any CSS assets.
       // When true, all CSS assets are bundled into every exposed module.
@@ -227,7 +222,6 @@ export default defineConfig({
 
 The host app configuration specifies its name, the filename of its exposed remote entry remoteEntry.js, and importantly, the configuration of the remote application to load.
 You can specify the place the host initialization file is injected with the **hostInitInjectLocation** option, which is described in the example code above.
-When using `hostInitInjectLocation: "entry"`, **hostInitEntry** can select one client entry module to wrap. The path is resolved relative to Vite's `root`; all other Vite inputs, including framework route modules, are left unchanged.
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
 

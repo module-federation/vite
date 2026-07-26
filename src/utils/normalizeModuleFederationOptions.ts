@@ -514,13 +514,6 @@ export type ModuleFederationOptions = {
   shareStrategy?: ShareStrategy;
   ignoreOrigin?: boolean;
   virtualModuleDir?: string;
-  /**
-   * The single client entry module that should be wrapped with host initialization.
-   * This is useful for frameworks that expose multiple Vite inputs, such as
-   * React Router framework mode. Requires `hostInitInjectLocation: 'entry'`.
-   * The path is resolved relative to Vite's `root`.
-   */
-  hostInitEntry?: string;
   hostInitInjectLocation?: HostInitInjectLocationOptions;
   /**
    * Timeout for parsing modules in seconds.
@@ -616,7 +609,6 @@ export interface NormalizedModuleFederationOptions extends Omit<
   manifest?: PluginManifestOptions | boolean;
   shareStrategy: ShareStrategy;
   virtualModuleDir: string;
-  hostInitEntry?: string;
   hostInitInjectLocation: HostInitInjectLocationOptions;
   bundleAllCSS: boolean;
   moduleParseTimeout: number;
@@ -768,12 +760,6 @@ export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
   warnOnReservedInternalNamePrefix(options.name, 'containerName');
-  if (options.hostInitEntry && options.hostInitInjectLocation !== 'entry') {
-    throw createModuleFederationError(
-      "hostInitEntry requires hostInitInjectLocation: 'entry'. " +
-        'Set hostInitInjectLocation to entry to wrap the configured client entry module.'
-    );
-  }
   if (options.virtualModuleDir && options.virtualModuleDir.includes('/')) {
     throw createModuleFederationError(
       `Invalid virtualModuleDir: "${options.virtualModuleDir}". ` +
@@ -805,7 +791,6 @@ export function normalizeModuleFederationOptions(
     shareStrategy: options.shareStrategy || 'version-first',
     ignoreOrigin: options.ignoreOrigin || false,
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
-    hostInitEntry: options.hostInitEntry,
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
     bundleAllCSS: options.bundleAllCSS || false,
     treeShakingDir: options.treeShakingDir,

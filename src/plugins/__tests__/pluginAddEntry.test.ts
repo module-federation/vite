@@ -305,16 +305,17 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
 
-  it('wraps only an explicit host entry when Vite exposes multiple client inputs', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-explicit-'));
+  it('does not wrap React Router route modules exposed as client inputs', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-react-router-'));
     const clientEntry = path.join(tempDir, 'src/entry.client.tsx');
     const rootRoute = path.join(tempDir, 'src/root.tsx');
     const childRoute = path.join(tempDir, 'src/routes/child.tsx');
+    const rootRouteInput = `${rootRoute}?__react-router-build-client-route`;
+    const childRouteInput = `${childRoute}?__react-router-build-client-route`;
     const plugins = addEntry({
       entryName: 'hostInit',
       entryPath: '/virtual/hostInit.js',
       inject: 'entry',
-      targetEntry: './src/entry.client.tsx',
     });
     const buildPlugin = plugins[1];
 
@@ -324,11 +325,7 @@ describe('pluginAddEntry', () => {
       {
         build: {
           rollupOptions: {
-            input: {
-              root: rootRoute,
-              child: childRoute,
-              client: clientEntry,
-            },
+            input: [clientEntry, rootRouteInput, childRouteInput],
           },
         },
       },
@@ -339,33 +336,16 @@ describe('pluginAddEntry', () => {
       base: '/',
       build: {
         rollupOptions: {
-          input: {
-            root: rootRoute,
-            child: childRoute,
-            client: clientEntry,
-          },
+          input: [clientEntry, rootRouteInput, childRouteInput],
         },
       },
     } as unknown as ResolvedConfig);
 
-    // A route can contain hydration-like code, but it must not become the
-    // bootstrap entry merely because it is transformed before entry.client.
     expect(
-      await runTransform(
-        buildPlugin,
-        "import { hydrateRoot } from 'react-dom/client'; export const loader = () => null; hydrateRoot();",
-        rootRoute
-      )
+      await runTransform(buildPlugin, 'export const loader = () => null;', rootRouteInput)
     ).toBeUndefined();
     expect(
-      await runTransform(buildPlugin, 'export const route = true;', childRoute)
-    ).toBeUndefined();
-    expect(
-      await runTransform(
-        buildPlugin,
-        'export const browserEntry = true;',
-        'virtual:vinext-app-browser-entry'
-      )
+      await runTransform(buildPlugin, 'export const route = true;', childRouteInput)
     ).toBeUndefined();
 
     const result = (await runTransform(
@@ -378,27 +358,6 @@ describe('pluginAddEntry', () => {
     expect(result?.code).toContain(
       `})().then(() => import(${JSON.stringify(`${clientEntry}?v=abc123&mf-entry-bootstrap`)}));`
     );
-  });
-
-  it('does not replace HTML module scripts when an explicit host entry is configured', async () => {
-    const plugins = addEntry({
-      entryName: 'hostInit',
-      entryPath: '/virtual/hostInit.js',
-      inject: 'entry',
-      targetEntry: './src/entry.client.tsx',
-    });
-    const servePlugin = plugins[0];
-    runConfig(
-      servePlugin,
-      {} as ConfigPluginContext,
-      {},
-      { command: 'serve', mode: 'development' }
-    );
-
-    const html = '<script type="module" src="/src/main.tsx"></script>';
-    expect(
-      await runTransformIndexHtml(servePlugin, html, {} as IndexHtmlTransformContext)
-    ).toBeUndefined();
   });
 
   it('awaits pendingShareLoads after initHost before importing entry', async () => {
