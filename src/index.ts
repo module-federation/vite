@@ -929,8 +929,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     {
       name: 'vite:module-federation-config',
       enforce: 'pre',
-      config(config: UserConfig, env: ConfigEnv) {
+      config(_config: UserConfig, env: ConfigEnv) {
         command = env.command;
+      },
+      configResolved(config: ResolvedConfig) {
         rootResolveConditions = config.resolve?.conditions
           ? [...config.resolve.conditions]
           : undefined;
@@ -938,8 +940,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           ? [...config.ssr.resolve.conditions]
           : undefined;
         ssrTarget = config.ssr?.target ?? 'node';
-      },
-      configResolved(config: ResolvedConfig) {
         isProduction = config.isProduction;
         const ssrCapabilities = getSsrCapabilities(
           parseInt(viteVersion, 10),
