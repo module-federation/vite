@@ -373,7 +373,7 @@ export const getRemoteInfo = (key: object) => ({
       name: 'issue978RemoteOne',
       filename: 'remoteEntry.js',
       manifest: true,
-      exposes: { './info': './src/RemoteOne.ts' },
+      exposes: { './info': path.join(fixtureRoot, 'src/RemoteOne.ts') },
       dts: false,
       shared,
     });
@@ -381,7 +381,7 @@ export const getRemoteInfo = (key: object) => ({
       name: 'issue978RemoteTwo',
       filename: 'remoteEntry.js',
       manifest: true,
-      exposes: { './info': './src/RemoteTwo.ts' },
+      exposes: { './info': path.join(fixtureRoot, 'src/RemoteTwo.ts') },
       dts: false,
       shared,
     });
