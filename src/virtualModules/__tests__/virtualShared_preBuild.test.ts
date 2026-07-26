@@ -4,6 +4,7 @@ import {
   normalizeModuleFederationOptions,
   ShareItem,
 } from '../../utils/normalizeModuleFederationOptions';
+import { setTreeShakingBuildMode } from '../../utils/treeShaking';
 import {
   addTreeShakingGraphQuery,
   getConcreteSharedImportSource,
@@ -11,11 +12,10 @@ import {
   getTreeShakingGraphToken,
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
+  stripTreeShakingGraphQuery,
   writeLoadShareModule,
   writePreBuildLibPath,
-  stripTreeShakingGraphQuery,
 } from '../virtualShared_preBuild';
-import { setTreeShakingBuildMode } from '../../utils/treeShaking';
 
 const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
@@ -443,6 +443,9 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/partial-with-unknown-star.js') ||
       filePath.endsWith('/repo/packages/barrel-with-cjs-star.js') ||
       filePath.endsWith('/repo/packages/hidden.cjs') ||
+      filePath.endsWith('/repo/packages/generic-initializer.ts') ||
+      filePath.endsWith('/repo/packages/generic-and-multi.ts') ||
+      filePath.endsWith('/repo/packages/relational-multi-declarator.ts') ||
       filePath.endsWith('/repo/packages/multi-declarator.js') ||
       filePath.endsWith('/repo/packages/postfix-multi-declarator.js') ||
       filePath.endsWith('/repo/packages/string-export-list.js') ||
@@ -524,6 +527,19 @@ Object.keys(dependency).forEach(function (key) {
     }
     if (filePath.endsWith('/repo/packages/hidden.cjs')) {
       return "module['exports'] = { hidden: 1 };";
+    }
+    if (filePath.endsWith('/repo/packages/generic-initializer.ts')) {
+      return `export const definitionRefRegistry = new WeakMap<object, any>();
+export const createThing = factory<Result, Options>();
+export const nestedRegistry: Map<string, WeakMap<object, any>> = new Map();
+export const identity = <T = string, U = number>(value: T) => value;
+export const assertedRegistry = <Map<object, any>>new Map();`;
+    }
+    if (filePath.endsWith('/repo/packages/generic-and-multi.ts')) {
+      return 'export const first = factory<Result, Options>(), second = 2;';
+    }
+    if (filePath.endsWith('/repo/packages/relational-multi-declarator.ts')) {
+      return 'export const first = left < right, second = value > (fallback);';
     }
     if (filePath.endsWith('/repo/packages/multi-declarator.js')) {
       return `export const first =
@@ -1622,6 +1638,83 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).toContain('let current = __mfLocalShare;');
     expect(generatedCode).toContain('export * from "/repo/packages/barrel-with-cjs-star.js"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+  });
+
+  it('keeps TypeScript generic commas inside a single exported declarator', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/generic-initializer.ts',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expectLiveSingletonProxy(generatedCode, pkg, [
+      'definitionRefRegistry',
+      'createThing',
+      'nestedRegistry',
+      'identity',
+      'assertedRegistry',
+    ]);
+    expect(generatedCode).not.toContain('export * from "/repo/packages/generic-initializer.ts"');
+  });
+
+  it('still detects a real declarator comma after a generic initializer', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/generic-and-multi.ts',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('export * from "/repo/packages/generic-and-multi.ts"');
+    expect(generatedCode).not.toContain('__mfApplySharedExports');
+  });
+
+  it('does not confuse relational expressions with TypeScript type arguments', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/relational-multi-declarator.ts',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'export * from "/repo/packages/relational-multi-declarator.ts"'
+    );
     expect(generatedCode).not.toContain('__mfApplySharedExports');
   });
 
