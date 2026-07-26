@@ -59,9 +59,8 @@ const isNodeServer = (): boolean =>
 const runnerCache = new Map<string, Promise<unknown>>();
 
 /**
- * Import `vite/module-runner` dynamically. Returns null on Vite < 8 where the
- * subpath doesn't exist. Uses a plain dynamic import (not nodeImport) so that
- * Vitest can intercept it with vi.mock in tests.
+ * Load `vite/module-runner`. Returns null on Vite < 8 where the subpath doesn't
+ * exist.
  */
 async function getModuleRunnerModule(): Promise<{
   ModuleRunner: new (
@@ -79,10 +78,17 @@ async function getModuleRunnerModule(): Promise<{
   ) => { import: (id: string) => Promise<unknown> };
   ESModulesEvaluator: new () => unknown;
 } | null> {
+  // Prefer Node's loader. When this plugin itself runs inside another Vite
+  // ModuleRunner (for example Vinext RSC), a regular import lets the host
+  // transform Vite's own module-runner and breaks its internal import(filepath).
   try {
-    // Dynamic import without @vite-ignore so Vitest can intercept via vi.mock.
-    // This module is server-side only (guarded by window check in loadEntry)
-    // so it's safe to import here without worrying about browser bundles.
+    const { createRequire } = (await nodeImport('module')) as typeof import('module');
+    const require = createRequire(import.meta.url);
+    return require('vite/module-runner') as Awaited<ReturnType<typeof getModuleRunnerModule>>;
+  } catch {
+    // Retain an ESM fallback for releases which cannot be required and tests.
+  }
+  try {
     return (await import('vite/module-runner')) as Awaited<
       ReturnType<typeof getModuleRunnerModule>
     >;
