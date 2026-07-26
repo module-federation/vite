@@ -305,6 +305,102 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
 
+  it('wraps only an explicit host entry when Vite exposes multiple client inputs', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-explicit-'));
+    const clientEntry = path.join(tempDir, 'src/entry.client.tsx');
+    const rootRoute = path.join(tempDir, 'src/root.tsx');
+    const childRoute = path.join(tempDir, 'src/routes/child.tsx');
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      targetEntry: './src/entry.client.tsx',
+    });
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      {
+        build: {
+          rollupOptions: {
+            input: {
+              root: rootRoute,
+              child: childRoute,
+              client: clientEntry,
+            },
+          },
+        },
+      },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      build: {
+        rollupOptions: {
+          input: {
+            root: rootRoute,
+            child: childRoute,
+            client: clientEntry,
+          },
+        },
+      },
+    } as unknown as ResolvedConfig);
+
+    // A route can contain hydration-like code, but it must not become the
+    // bootstrap entry merely because it is transformed before entry.client.
+    expect(
+      await runTransform(
+        buildPlugin,
+        "import { hydrateRoot } from 'react-dom/client'; export const loader = () => null; hydrateRoot();",
+        rootRoute
+      )
+    ).toBeUndefined();
+    expect(
+      await runTransform(buildPlugin, 'export const route = true;', childRoute)
+    ).toBeUndefined();
+    expect(
+      await runTransform(
+        buildPlugin,
+        'export const browserEntry = true;',
+        'virtual:vinext-app-browser-entry'
+      )
+    ).toBeUndefined();
+
+    const result = (await runTransform(
+      buildPlugin,
+      'export const browserEntry = true;',
+      `${clientEntry}?v=abc123`
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain(
+      `})().then(() => import(${JSON.stringify(`${clientEntry}?v=abc123&mf-entry-bootstrap`)}));`
+    );
+  });
+
+  it('does not replace HTML module scripts when an explicit host entry is configured', async () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      targetEntry: './src/entry.client.tsx',
+    });
+    const servePlugin = plugins[0];
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+
+    const html = '<script type="module" src="/src/main.tsx"></script>';
+    expect(
+      await runTransformIndexHtml(servePlugin, html, {} as IndexHtmlTransformContext)
+    ).toBeUndefined();
+  });
+
   it('awaits pendingShareLoads after initHost before importing entry', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-pending-'));
     const htmlFile = path.join(tempDir, 'index.html');
