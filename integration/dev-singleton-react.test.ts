@@ -1,12 +1,12 @@
+import { chromium } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { chromium } from '@playwright/test';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer as createViteServer, version as viteVersion } from 'vite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { federation } from '../src';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
@@ -326,9 +326,135 @@ describe(`singleton React dev fallback (Vite ${viteVersion})`, () => {
   }, 60_000);
 });
 
+describe('runtime-registered TypeScript source singleton', () => {
+  it('shares named exports and module state with two registered remotes', async () => {
+    const sharedEntry = path.join(fixtureRoot, 'src/shared-lib.ts');
+    await Promise.all([
+      writeFile(
+        path.join(fixtureRoot, 'index.html'),
+        '<div id="root"></div>\n<script type="module" src="/src/singleton-main.ts"></script>\n'
+      ),
+      writeFile(
+        sharedEntry,
+        `export const MODULE_INSTANCE_ID = Math.random().toString(36);
+export const registry = new WeakMap<object, any>();
+export const registerRef = (key: object, value: any) => registry.set(key, value);
+export const getRef = (key: object) => registry.get(key);
+`
+      ),
+      writeFile(
+        path.join(fixtureRoot, 'src/RemoteOne.ts'),
+        `import { MODULE_INSTANCE_ID, getRef } from 'issue978-shared';
+export const getRemoteInfo = (key: object) => ({
+  instanceId: MODULE_INSTANCE_ID,
+  value: getRef(key),
+});
+`
+      ),
+      writeFile(
+        path.join(fixtureRoot, 'src/RemoteTwo.ts'),
+        `import { MODULE_INSTANCE_ID, getRef } from 'issue978-shared';
+export const getRemoteInfo = (key: object) => ({
+  instanceId: MODULE_INSTANCE_ID,
+  value: getRef(key),
+});
+`
+      ),
+    ]);
+
+    const shared = {
+      'issue978-shared': {
+        import: sharedEntry,
+        singleton: true,
+        requiredVersion: false,
+      },
+    } satisfies Parameters<typeof federation>[0]['shared'];
+    const remoteOne = await createDevServer('issue-978-remote-one', {
+      name: 'issue978RemoteOne',
+      filename: 'remoteEntry.js',
+      manifest: true,
+      exposes: { './info': './src/RemoteOne.ts' },
+      dts: false,
+      shared,
+    });
+    const remoteTwo = await createDevServer('issue-978-remote-two', {
+      name: 'issue978RemoteTwo',
+      filename: 'remoteEntry.js',
+      manifest: true,
+      exposes: { './info': './src/RemoteTwo.ts' },
+      dts: false,
+      shared,
+    });
+
+    await writeFile(
+      path.join(fixtureRoot, 'src/singleton-main.ts'),
+      `import { loadRemote, registerRemotes } from '@module-federation/runtime';
+import { MODULE_INSTANCE_ID, getRef, registerRef } from 'issue978-shared';
+
+const key = {};
+registerRef(key, 'host-value');
+registerRemotes([
+  { name: 'issue978RemoteOne', entry: '${remoteOne.origin}/mf-manifest.json' },
+  { name: 'issue978RemoteTwo', entry: '${remoteTwo.origin}/mf-manifest.json' },
+]);
+
+const [remoteOne, remoteTwo] = await Promise.all([
+  loadRemote('issue978RemoteOne/info'),
+  loadRemote('issue978RemoteTwo/info'),
+]);
+const one = remoteOne.getRemoteInfo(key);
+const two = remoteTwo.getRemoteInfo(key);
+window.__issue978Result = {
+  hostId: MODULE_INSTANCE_ID,
+  remoteOneId: one.instanceId,
+  remoteTwoId: two.instanceId,
+  remoteOneValue: one.value,
+  remoteTwoValue: two.value,
+  hostValue: getRef(key),
+};
+`
+    );
+
+    const host = await createDevServer('issue-978-host', {
+      name: 'issue978Host',
+      remotes: {},
+      dts: false,
+      shared,
+    });
+    const browser = await chromium.launch({ channel: 'chrome', headless: true });
+    cleanupTasks.push(() => browser.close());
+    const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+    await page.goto(host.origin, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => window.__issue978Result !== undefined, undefined, {
+      timeout: 15_000,
+    });
+
+    const result = await page.evaluate(() => window.__issue978Result);
+    expect(result).toMatchObject({
+      hostId: expect.any(String),
+      remoteOneValue: 'host-value',
+      remoteTwoValue: 'host-value',
+      hostValue: 'host-value',
+    });
+    expect(result?.remoteOneId).toBe(result?.hostId);
+    expect(result?.remoteTwoId).toBe(result?.hostId);
+    expect(pageErrors).toEqual([]);
+  }, 60_000);
+});
+
 declare global {
   interface Window {
     __issue913HostReact?: unknown;
     __issue913RemoteReact?: unknown;
+    __issue978Result?: {
+      hostId: string;
+      remoteOneId: string;
+      remoteTwoId: string;
+      remoteOneValue: unknown;
+      remoteTwoValue: unknown;
+      hostValue: unknown;
+    };
   }
 }

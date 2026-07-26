@@ -33,6 +33,7 @@ import {
 } from '../utils/packageUtils';
 import { normalizeNodeModulePath } from '../utils/pathNormalization';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
+import { findLikelyTypeArgumentEnd } from '../utils/typeArgumentScanner';
 import VirtualModule, { MF_OWNER_INFIX, normalizeVirtualModuleId } from '../utils/VirtualModule';
 import {
   getRuntimeInitPromiseBootstrapCode,
@@ -226,7 +227,11 @@ function resolveReExportModule(filePath: string, specifier: string): string | un
   }
 }
 
-function hasTopLevelDeclaratorComma(source: string, start: number): boolean {
+function hasTopLevelDeclaratorComma(
+  source: string,
+  start: number,
+  codePositions: boolean[]
+): boolean {
   let depth = 0;
   let quote: string | undefined;
   let escaped = false;
@@ -317,6 +322,14 @@ function hasTopLevelDeclaratorComma(source: string, start: number): boolean {
     if (char === '!' && source[index + 1] !== '=') {
       continue;
     }
+    if (char === '<') {
+      const typeArgumentEnd = findLikelyTypeArgumentEnd(source, index, codePositions);
+      if (typeArgumentEnd !== undefined) {
+        index = typeArgumentEnd;
+        canStartRegex = false;
+        continue;
+      }
+    }
     if (char === '(' || char === '[' || char === '{') {
       depth++;
       canStartRegex = true;
@@ -396,7 +409,9 @@ function getNamedExportsViaRegex(
   const exportedVariableDeclarationRegex = /export\s+(?:const|let|var)\s+/g;
   while ((match = exportedVariableDeclarationRegex.exec(source)) !== null) {
     if (!codePositions[match.index]) continue;
-    if (hasTopLevelDeclaratorComma(source, exportedVariableDeclarationRegex.lastIndex)) {
+    if (
+      hasTopLevelDeclaratorComma(source, exportedVariableDeclarationRegex.lastIndex, codePositions)
+    ) {
       scanState.complete = false;
     }
     if (hasUnsupportedBindingPattern(source, exportedVariableDeclarationRegex.lastIndex)) {
