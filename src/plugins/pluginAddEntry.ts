@@ -97,6 +97,10 @@ function stripQueryAndHash(file: string) {
   return file.split(/[?#]/)[0];
 }
 
+function isReactRouterClientRouteInput(file: string) {
+  return /[?&]__react-router-build-client-route(?:[=&]|$)/.test(file);
+}
+
 function resolveDevHashEntryFileName(fileName: string) {
   if (!fileName.includes('[hash')) return fileName;
 
@@ -626,9 +630,17 @@ const __mfCurrentScript = document.currentScript;
         } else if (typeof inputOptions === 'string') {
           entryFiles = [resolveProjectId(inputOptions)];
         } else if (Array.isArray(inputOptions)) {
-          entryFiles = inputOptions.map(resolveProjectId);
+          entryFiles = inputOptions
+            // React Router framework mode exposes route modules as bundler
+            // inputs so it can preserve their exports. They are code-split
+            // routes, not browser bootstrap entries, and wrapping them leaks
+            // server-only route code into client requests (#976).
+            .filter((input) => !isReactRouterClientRouteInput(String(input)))
+            .map(resolveProjectId);
         } else if (typeof inputOptions === 'object') {
-          entryFiles = Object.values(inputOptions).map((input) => resolveProjectId(String(input)));
+          entryFiles = Object.values(inputOptions)
+            .filter((input) => !isReactRouterClientRouteInput(String(input)))
+            .map((input) => resolveProjectId(String(input)));
         }
 
         if (entryFiles.length > 0) {
