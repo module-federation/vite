@@ -765,6 +765,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   let command: string;
   let desiredRolldownOutput: OutputNameOptions[] | undefined;
   let isSsrBuild = false;
+  let isProduction = false;
   let rootResolveConditions: string[] | undefined;
   let ssrResolveConditions: string[] | undefined;
   let ssrTarget: 'node' | 'webworker' = 'node';
@@ -778,6 +779,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config?: {
         consumer?: string;
         build?: { ssr?: boolean | string };
+        isProduction?: boolean;
         resolve?: { conditions?: string[] };
       };
     };
@@ -794,6 +796,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       environment?.name === 'server';
     return getSharedExportConditions({
       environmentConditions: environment?.config?.resolve?.conditions,
+      isProduction: environment?.config?.isProduction ?? isProduction,
       isSsr,
       rootConditions: rootResolveConditions,
       ssrConditions: ssrResolveConditions,
@@ -936,7 +939,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           : undefined;
         ssrTarget = config.ssr?.target ?? 'node';
       },
-      configResolved() {
+      configResolved(config: ResolvedConfig) {
+        isProduction = config.isProduction;
         const ssrCapabilities = getSsrCapabilities(
           parseInt(viteVersion, 10),
           command as 'serve' | 'build',

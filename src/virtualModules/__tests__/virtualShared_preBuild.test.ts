@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../../utils/buildPaths';
+import { getSharedExportConditions } from '../../utils/sharedExportConditions';
 import {
   normalizeModuleFederationOptions,
   ShareItem,
@@ -8,6 +9,7 @@ import {
   addTreeShakingGraphQuery,
   getConcreteSharedImportSource,
   getProjectResolvedImportPath,
+  getSharedNamedExports,
   getTreeShakingGraphToken,
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
@@ -225,6 +227,15 @@ vi.mock('../../utils/packageUtils', () => ({
       }
       return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/browser.js';
     }
+    if (pkg === 'mock-package-mode-conditional') {
+      if (opts?.conditions?.includes('production')) {
+        return '/repo/apps/remote/node_modules/mock-package-mode-conditional/dist/production.js';
+      }
+      if (opts?.conditions?.includes('development')) {
+        return '/repo/apps/remote/node_modules/mock-package-mode-conditional/dist/development.js';
+      }
+      return '/repo/apps/remote/node_modules/mock-package-mode-conditional/dist/default.js';
+    }
     if (pkg === 'mock-package-dual-shape') {
       return '/repo/apps/remote/node_modules/mock-package-dual-shape/dist/browser.js';
     }
@@ -425,6 +436,12 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-browser-conditional/dist/server.js') ||
       filePath.endsWith('node_modules/mock-package-browser-conditional/dist/worker.js') ||
       filePath.endsWith('/mock-package-browser-conditional/dist/worker.js') ||
+      filePath.endsWith('node_modules/mock-package-mode-conditional/dist/development.js') ||
+      filePath.endsWith('/mock-package-mode-conditional/dist/development.js') ||
+      filePath.endsWith('node_modules/mock-package-mode-conditional/dist/production.js') ||
+      filePath.endsWith('/mock-package-mode-conditional/dist/production.js') ||
+      filePath.endsWith('node_modules/mock-package-mode-conditional/dist/default.js') ||
+      filePath.endsWith('/mock-package-mode-conditional/dist/default.js') ||
       filePath.endsWith('node_modules/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('node_modules/mock-package-cjs-comment/index.js') ||
@@ -738,6 +755,15 @@ export const [firstItem, ...restItems] = tuple;`;
     }
     if (filePath.endsWith('node_modules/mock-package-browser-conditional/dist/worker.js')) {
       return 'export const workerOnly = true;';
+    }
+    if (filePath.endsWith('node_modules/mock-package-mode-conditional/dist/development.js')) {
+      return 'export const developmentOnly = true;';
+    }
+    if (filePath.endsWith('node_modules/mock-package-mode-conditional/dist/production.js')) {
+      return 'export const productionOnly = true;';
+    }
+    if (filePath.endsWith('node_modules/mock-package-mode-conditional/dist/default.js')) {
+      return 'export const defaultOnly = true;';
     }
     if (filePath.endsWith('node_modules/mock-package-dual-shape/dist/browser.js')) {
       return 'export const browserNamed = true;';
@@ -2314,6 +2340,24 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('__mf_0 as workerOnly');
     expect(generatedCode).not.toContain('serverOnly');
   });
+
+  it.each([
+    ['production', true, 'productionOnly'],
+    ['development', false, 'developmentOnly'],
+  ])(
+    'inspects the %s mode entry after expanding Vite development|production',
+    (_mode, isProduction, expectedExport) => {
+      const exportConditions = getSharedExportConditions({
+        environmentConditions: ['module', 'node', 'development|production'],
+        isProduction,
+        isSsr: true,
+      });
+
+      expect(
+        getSharedNamedExports('mock-package-mode-conditional', undefined, exportConditions)
+      ).toEqual([expectedExport]);
+    }
+  );
 
   it('uses the same export conditions for shareConfig.import package sources', () => {
     const pkg = 'conditional-package-alias';

@@ -7,9 +7,13 @@ const DEFAULT_WEBWORKER_SSR_EXPORT_CONDITIONS = [
   'module',
   'default',
 ];
+// Vite expands this sentinel immediately before package resolution. Shared
+// export scanning uses its own resolver, so normalize it at this boundary.
+const VITE_DEV_PROD_CONDITION = 'development|production';
 
 type SharedExportConditionOptions = {
   environmentConditions?: readonly string[];
+  isProduction: boolean;
   isSsr: boolean;
   rootConditions?: readonly string[];
   ssrConditions?: readonly string[];
@@ -23,15 +27,30 @@ function appendConditions(
   return [...new Set([...conditions, ...fallbackConditions])];
 }
 
+function resolveViteModeCondition(conditions: readonly string[], isProduction: boolean): string[] {
+  const modeCondition = isProduction ? 'production' : 'development';
+  return [
+    ...new Set(
+      conditions.map((condition) =>
+        condition === VITE_DEV_PROD_CONDITION ? modeCondition : condition
+      )
+    ),
+  ];
+}
+
 export function getSharedExportConditions({
   environmentConditions,
+  isProduction,
   isSsr,
   rootConditions,
   ssrConditions,
   ssrTarget = 'node',
 }: SharedExportConditionOptions): string[] {
   if (environmentConditions !== undefined) {
-    return appendConditions(environmentConditions, ['import', 'default']);
+    return resolveViteModeCondition(
+      appendConditions(environmentConditions, ['import', 'default']),
+      isProduction
+    );
   }
 
   const defaultConditions = isSsr
@@ -42,7 +61,10 @@ export function getSharedExportConditions({
   const configuredConditions = isSsr ? (ssrConditions ?? rootConditions) : rootConditions;
 
   if (configuredConditions !== undefined) {
-    return appendConditions(configuredConditions, defaultConditions);
+    return resolveViteModeCondition(
+      appendConditions(configuredConditions, defaultConditions),
+      isProduction
+    );
   }
   return [...defaultConditions];
 }

@@ -2,17 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { getSharedExportConditions } from '../sharedExportConditions';
 
 describe('getSharedExportConditions', () => {
-  it('uses the active Vite environment conditions and appends ESM fallbacks', () => {
+  it.each([
+    [true, 'production'],
+    [false, 'development'],
+  ])('expands Vite development|production for isProduction=%s', (isProduction, modeCondition) => {
     expect(
       getSharedExportConditions({
         environmentConditions: ['module', 'node', 'development|production'],
         isSsr: true,
+        isProduction,
       })
-    ).toEqual(['module', 'node', 'development|production', 'import', 'default']);
+    ).toEqual(['module', 'node', modeCondition, 'import', 'default']);
   });
 
   it('preserves the browser-first default when no environment conditions are available', () => {
-    expect(getSharedExportConditions({ isSsr: false })).toEqual([
+    expect(getSharedExportConditions({ isProduction: false, isSsr: false })).toEqual([
       'browser',
       'import',
       'module',
@@ -20,6 +24,7 @@ describe('getSharedExportConditions', () => {
     ]);
     expect(
       getSharedExportConditions({
+        isProduction: false,
         isSsr: false,
         rootConditions: ['custom'],
       })
@@ -27,7 +32,7 @@ describe('getSharedExportConditions', () => {
   });
 
   it('uses node conditions for legacy SSR builds and honors explicit SSR conditions', () => {
-    expect(getSharedExportConditions({ isSsr: true })).toEqual([
+    expect(getSharedExportConditions({ isProduction: true, isSsr: true })).toEqual([
       'node',
       'import',
       'module',
@@ -35,15 +40,27 @@ describe('getSharedExportConditions', () => {
     ]);
     expect(
       getSharedExportConditions({
+        isProduction: true,
         isSsr: true,
         ssrConditions: ['react-server'],
       })
     ).toEqual(['react-server', 'node', 'import', 'module', 'default']);
   });
 
+  it('expands Vite development|production in configured fallback conditions', () => {
+    expect(
+      getSharedExportConditions({
+        isProduction: true,
+        isSsr: true,
+        ssrConditions: ['react-server', 'development|production'],
+      })
+    ).toEqual(['react-server', 'production', 'node', 'import', 'module', 'default']);
+  });
+
   it('keeps webworker SSR on worker/browser conditions instead of node', () => {
     expect(
       getSharedExportConditions({
+        isProduction: true,
         isSsr: true,
         ssrTarget: 'webworker',
       })
