@@ -1,14 +1,16 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type {
-  ConfigEnv,
-  ConfigPluginContext,
-  MinimalPluginContextWithoutEnvironment,
-  Plugin,
-  Rollup,
-  UserConfig,
-  ViteBuilder,
+import {
+  mergeConfig,
+  type ConfigEnv,
+  type ConfigPluginContext,
+  type MinimalPluginContextWithoutEnvironment,
+  type Plugin,
+  type ResolvedConfig,
+  type Rollup,
+  type UserConfig,
+  type ViteBuilder,
 } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parsePromise } from '../plugins/pluginModuleParseEnd';
@@ -24,10 +26,26 @@ import {
   getLoadShareModulePath,
 } from '../virtualModules/virtualShared_preBuild';
 
-const { hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
+const { getSharedExportConditionsMock, hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
+  getSharedExportConditionsMock: vi.fn(),
   hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>((_dependency: string) => false),
   mfWarn: vi.fn(),
 }));
+
+vi.mock('../utils/sharedExportConditions', async () => {
+  const actual = await vi.importActual<typeof import('../utils/sharedExportConditions')>(
+    '../utils/sharedExportConditions'
+  );
+  return {
+    ...actual,
+    getSharedExportConditions: (
+      ...args: Parameters<typeof actual.getSharedExportConditions>
+    ): ReturnType<typeof actual.getSharedExportConditions> => {
+      getSharedExportConditionsMock(...args);
+      return actual.getSharedExportConditions(...args);
+    },
+  };
+});
 
 vi.mock('../utils/packageUtils', async () => {
   const actual =
@@ -359,6 +377,104 @@ describe('module parse wiring', () => {
   });
 });
 
+describe('shared export condition configuration', () => {
+  it('uses SSR conditions contributed by a later config hook in Vite 5-7 load hooks', () => {
+    const pkg = 'missing-late-conditions-package';
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      shared: {
+        [pkg]: {
+          import: false,
+        },
+      },
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-early-init'
+    );
+    const federationConfigPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-config'
+    );
+    const federationOptionsPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-vite'
+    );
+    const federationLoadPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-esm-shims'
+    );
+    if (
+      !earlyInitPlugin ||
+      !federationConfigPlugin ||
+      !federationOptionsPlugin ||
+      !federationLoadPlugin
+    ) {
+      throw new Error('module federation plugins not found');
+    }
+
+    const config: UserConfig = {
+      root: process.cwd(),
+      build: {
+        ssr: true,
+      },
+    };
+    const env = {
+      command: 'build',
+      mode: 'production',
+    } as ConfigEnv;
+    const configContext = { meta: {} } as ConfigPluginContext;
+
+    runConfig(earlyInitPlugin, configContext, config, env);
+    runConfig(federationConfigPlugin, configContext, config, env);
+
+    const lateConditionsPlugin: Plugin = {
+      name: 'late-ssr-conditions',
+      config() {
+        return {
+          resolve: {
+            conditions: ['late-root-condition'],
+          },
+          ssr: {
+            target: 'webworker',
+            resolve: {
+              conditions: ['late-ssr-condition'],
+            },
+          },
+        };
+      },
+    };
+    const lateConfig = callHook(lateConditionsPlugin.config, configContext, config, env);
+    const resolvedConfig = {
+      ...mergeConfig(config, lateConfig ?? {}),
+      isProduction: true,
+    } as ResolvedConfig;
+
+    callHook(
+      federationConfigPlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      resolvedConfig
+    );
+
+    // Vite 5-7 load hooks have no `this.environment`, so they use the values
+    // captured from the final ResolvedConfig above.
+    getSharedExportConditionsMock.mockClear();
+    const federationOptions = (
+      federationOptionsPlugin as Plugin & {
+        _options: NonNullable<Parameters<typeof getLoadShareModulePath>[2]>;
+      }
+    )._options;
+    const loadShareId = getLoadShareModulePath(pkg, false, federationOptions);
+    callHook(federationLoadPlugin.load, {} as Rollup.PluginContext, loadShareId, { ssr: true });
+
+    expect(getSharedExportConditionsMock).toHaveBeenCalledWith({
+      environmentConditions: undefined,
+      isProduction: true,
+      isSsr: true,
+      rootConditions: ['late-root-condition'],
+      ssrConditions: ['late-ssr-condition'],
+      ssrTarget: 'webworker',
+    });
+  });
+});
+
 describe('module-federation-esm-shims', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -389,15 +505,17 @@ describe('module-federation-esm-shims', () => {
     expect(deps).toEqual(['assets/index.js']);
   });
 
-  it('prepends workspace singleton imports for legacy SSR build load hooks', () => {
-    const plugin = getEsmShimsPlugin();
-    const config: any = {
-      build: { ssr: true },
-    };
-    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+  it.each([true, 'src/entry-server.ts'])(
+    'prepends workspace singleton imports for legacy SSR build load hooks with build.ssr=%s',
+    (ssr) => {
+      const plugin = getEsmShimsPlugin();
+      const config: any = {
+        build: { ssr },
+      };
+      runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
-    const virtualModule = new VirtualModule('legacy-workspace-singleton', LOAD_SHARE_TAG, '.js');
-    virtualModule.write(`
+      const virtualModule = new VirtualModule('legacy-workspace-singleton', LOAD_SHARE_TAG, '.js');
+      virtualModule.write(`
       let __mf_default;
       const __mfApplyLazyShareExports = (mod) => {
         __mf_default = mod.default ?? mod;
@@ -416,14 +534,15 @@ describe('module-federation-esm-shims', () => {
       export { __mf_default as default };
     `);
 
-    const result = callHook(plugin.load, {} as any, virtualModule.getImportId()) as {
-      code: string;
-    };
+      const result = callHook(plugin.load, {} as any, virtualModule.getImportId()) as {
+        code: string;
+      };
 
-    expect(result.code).toContain(
-      'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
-    );
-  });
+      expect(result.code).toContain(
+        'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
+      );
+    }
+  );
 
   it('returns null when build load hook cannot resolve a virtual module', () => {
     const plugin = getEsmShimsPlugin();

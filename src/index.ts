@@ -30,6 +30,7 @@ import {
 } from './utils/controlChunkSanitizer';
 import { isTestEnv } from './utils/isTestEnv';
 import { createModuleFederationError, mfWarn } from './utils/logger';
+import { getSharedExportConditions } from './utils/sharedExportConditions';
 import type {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -80,7 +81,10 @@ import { addUsedRemote } from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
   findCurrentLoadShareForStaleOwnerId,
+  getCachedLoadSharePkg,
+  getCachedPreBuildPkg,
   getLoadShareModulePath,
+  getPreBuildLibImportId,
   materializeCachedLoadShareModule,
   prependWorkspaceSingletonSsrImport,
   writeLoadShareModule,
@@ -837,7 +841,88 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   let command: string;
   let desiredRolldownOutput: OutputNameOptions[] | undefined;
   let isSsrBuild = false;
+  let isProduction = false;
+  let rootResolveConditions: string[] | undefined;
+  let ssrResolveConditions: string[] | undefined;
+  let ssrTarget: 'node' | 'webworker' = 'node';
   const emittedRuntimeCapabilityWarnings = new Set<string>();
+
+  type LoadHookOptions = { ssr?: boolean };
+  type SharedVirtualRefreshStatus = 'refreshed' | 'not-owned' | 'not-applicable';
+  type LoadHookContext = {
+    environment?: {
+      name?: string;
+      config?: {
+        consumer?: string;
+        build?: { ssr?: boolean | string };
+        isProduction?: boolean;
+        resolve?: { conditions?: string[] };
+      };
+    };
+  };
+
+  const getLoadHookExportConditions = (context: LoadHookContext, loadOptions?: LoadHookOptions) => {
+    const environment = context.environment;
+    const isSsr =
+      loadOptions?.ssr === true ||
+      isSsrBuild ||
+      environment?.config?.consumer === 'server' ||
+      Boolean(environment?.config?.build?.ssr) ||
+      environment?.name === 'ssr' ||
+      environment?.name === 'server';
+    return getSharedExportConditions({
+      environmentConditions: environment?.config?.resolve?.conditions,
+      isProduction: environment?.config?.isProduction ?? isProduction,
+      isSsr,
+      rootConditions: rootResolveConditions,
+      ssrConditions: ssrResolveConditions,
+      ssrTarget,
+    });
+  };
+
+  const refreshPreBuildModuleForEnvironment = (
+    id: string,
+    context: LoadHookContext,
+    loadOptions?: LoadHookOptions
+  ): SharedVirtualRefreshStatus => {
+    const pkg = getCachedPreBuildPkg(id);
+    if (!pkg) return 'not-applicable';
+    const key = findSharedKey(pkg, shared);
+    if (!key) return 'not-applicable';
+    const requestedModule = VirtualModule.findById(id);
+    const ownedModule = VirtualModule.findById(getPreBuildLibImportId(pkg, options));
+    if (!requestedModule || requestedModule !== ownedModule) return 'not-owned';
+    writePreBuildLibPath(
+      pkg,
+      shared[key],
+      options,
+      getLoadHookExportConditions(context, loadOptions)
+    );
+    return 'refreshed';
+  };
+
+  const refreshLoadShareModuleForEnvironment = (
+    id: string,
+    context: LoadHookContext,
+    loadOptions?: LoadHookOptions
+  ): SharedVirtualRefreshStatus => {
+    const pkg = getCachedLoadSharePkg(id);
+    if (!pkg) return 'not-applicable';
+    const key = findSharedKey(pkg, shared);
+    if (!key) return 'not-applicable';
+    const requestedModule = VirtualModule.findById(id);
+    const ownedModule = VirtualModule.findById(getLoadShareModulePath(pkg, false, options));
+    if (!requestedModule || requestedModule !== ownedModule) return 'not-owned';
+    writeLoadShareModule(
+      pkg,
+      shared[key],
+      command,
+      getIsRolldown(context),
+      options,
+      getLoadHookExportConditions(context, loadOptions)
+    );
+    return 'refreshed';
+  };
 
   return [
     {
@@ -863,7 +948,22 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         if (!virtualModule) return;
         return virtualModule.getResolvedId();
       },
-      load(id: string) {
+      load(id: string, loadOptions?: LoadHookOptions) {
+        if (
+          command !== 'build' &&
+          id.includes(LOAD_SHARE_TAG) &&
+          refreshLoadShareModuleForEnvironment(id, this as LoadHookContext, loadOptions) ===
+            'not-owned'
+        ) {
+          return;
+        }
+        if (
+          id.includes(PREBUILD_TAG) &&
+          refreshPreBuildModuleForEnvironment(id, this as LoadHookContext, loadOptions) ===
+            'not-owned'
+        ) {
+          return;
+        }
         const virtualModule = VirtualModule.findById(id);
         if (!virtualModule) return;
         if (command === 'build' && (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG))) {
@@ -908,7 +1008,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(_config: UserConfig, env: ConfigEnv) {
         command = env.command;
       },
-      configResolved() {
+      configResolved(config: ResolvedConfig) {
+        rootResolveConditions = config.resolve?.conditions
+          ? [...config.resolve.conditions]
+          : undefined;
+        ssrResolveConditions = config.ssr?.resolve?.conditions
+          ? [...config.ssr.resolve.conditions]
+          : undefined;
+        ssrTarget = config.ssr?.target ?? 'node';
+        isProduction = config.isProduction;
         const ssrCapabilities = getSsrCapabilities(
           parseInt(viteVersion, 10),
           command as 'serve' | 'build',
@@ -1002,7 +1110,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       enforce: 'pre',
       apply: 'build',
       config(config: UserConfig) {
-        isSsrBuild = config.build?.ssr === true;
+        isSsrBuild = Boolean(config.build?.ssr);
         // Force loadShare modules and runtimeInitStatus into separate chunks.
         //
         // For Vite 8+: loadShare chunks need separate async init barriers
@@ -1252,8 +1360,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           };
         }
       },
-      load(id: string) {
+      load(id: string, loadOptions?: LoadHookOptions) {
         if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
+          if (
+            id.includes(LOAD_SHARE_TAG) &&
+            refreshLoadShareModuleForEnvironment(id, this as LoadHookContext, loadOptions) ===
+              'not-owned'
+          ) {
+            return;
+          }
           const virtualModule = VirtualModule.findById(id);
           if (!virtualModule?.code) return null;
           let code = virtualModule.code;
@@ -1406,7 +1521,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       _options: options,
       config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
-        isSsrBuild = _command === 'build' && config.build?.ssr === true;
+        isSsrBuild = _command === 'build' && Boolean(config.build?.ssr);
         const needsRuntimeHelpers = Object.keys(options.shared ?? {}).length > 0;
 
         if (needsRuntimeHelpers) {

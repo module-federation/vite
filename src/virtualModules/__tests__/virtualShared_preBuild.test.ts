@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../../utils/buildPaths';
+import { getSharedExportConditions } from '../../utils/sharedExportConditions';
 import {
   normalizeModuleFederationOptions,
   ShareItem,
@@ -9,6 +10,7 @@ import {
   addTreeShakingGraphQuery,
   getConcreteSharedImportSource,
   getProjectResolvedImportPath,
+  getSharedNamedExports,
   getTreeShakingGraphToken,
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
@@ -175,7 +177,7 @@ vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
-  getInstalledPackageEntry: vi.fn((pkg: string, opts?: { cwd?: string }) => {
+  getInstalledPackageEntry: vi.fn((pkg: string, opts?: { cwd?: string; conditions?: string[] }) => {
     if (pkg === 'react/jsx-runtime') {
       return '/repo/apps/remote/node_modules/react/jsx-runtime.js';
     }
@@ -217,7 +219,22 @@ vi.mock('../../utils/packageUtils', () => ({
       pkg === 'mock-package-browser-conditional' ||
       pkg.startsWith('mock-package-browser-conditional/')
     ) {
+      if (opts?.conditions?.includes('node')) {
+        return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/server.js';
+      }
+      if (opts?.conditions?.includes('worker')) {
+        return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/worker.js';
+      }
       return '/repo/apps/remote/node_modules/mock-package-browser-conditional/dist/browser.js';
+    }
+    if (pkg === 'mock-package-mode-conditional') {
+      if (opts?.conditions?.includes('production')) {
+        return '/repo/apps/remote/node_modules/mock-package-mode-conditional/dist/production.js';
+      }
+      if (opts?.conditions?.includes('development')) {
+        return '/repo/apps/remote/node_modules/mock-package-mode-conditional/dist/development.js';
+      }
+      return '/repo/apps/remote/node_modules/mock-package-mode-conditional/dist/default.js';
     }
     if (pkg === 'mock-package-dual-shape') {
       return '/repo/apps/remote/node_modules/mock-package-dual-shape/dist/browser.js';
@@ -343,8 +360,11 @@ vi.mock('../../utils/packageUtils', () => ({
           name: 'mock-package-browser-conditional',
           exports: {
             '.': {
-              worker: {
+              node: {
                 import: './dist/server.js',
+              },
+              worker: {
+                import: './dist/worker.js',
               },
               browser: {
                 import: './dist/browser.js',
@@ -414,6 +434,14 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-browser-conditional/dist/browser.js') ||
       filePath.endsWith('node_modules/mock-package-browser-conditional/dist/server.js') ||
       filePath.endsWith('/mock-package-browser-conditional/dist/server.js') ||
+      filePath.endsWith('node_modules/mock-package-browser-conditional/dist/worker.js') ||
+      filePath.endsWith('/mock-package-browser-conditional/dist/worker.js') ||
+      filePath.endsWith('node_modules/mock-package-mode-conditional/dist/development.js') ||
+      filePath.endsWith('/mock-package-mode-conditional/dist/development.js') ||
+      filePath.endsWith('node_modules/mock-package-mode-conditional/dist/production.js') ||
+      filePath.endsWith('/mock-package-mode-conditional/dist/production.js') ||
+      filePath.endsWith('node_modules/mock-package-mode-conditional/dist/default.js') ||
+      filePath.endsWith('/mock-package-mode-conditional/dist/default.js') ||
       filePath.endsWith('node_modules/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('node_modules/mock-package-cjs-comment/index.js') ||
@@ -721,8 +749,11 @@ export const [firstItem, ...restItems] = tuple;`;
         name: 'mock-package-browser-conditional',
         exports: {
           '.': {
-            worker: {
+            node: {
               import: './dist/server.js',
+            },
+            worker: {
+              import: './dist/worker.js',
             },
             browser: {
               import: './dist/browser.js',
@@ -737,6 +768,18 @@ export const [firstItem, ...restItems] = tuple;`;
     }
     if (filePath.endsWith('node_modules/mock-package-browser-conditional/dist/server.js')) {
       return 'export const serverOnly = true;';
+    }
+    if (filePath.endsWith('node_modules/mock-package-browser-conditional/dist/worker.js')) {
+      return 'export const workerOnly = true;';
+    }
+    if (filePath.endsWith('node_modules/mock-package-mode-conditional/dist/development.js')) {
+      return 'export const developmentOnly = true;';
+    }
+    if (filePath.endsWith('node_modules/mock-package-mode-conditional/dist/production.js')) {
+      return 'export const productionOnly = true;';
+    }
+    if (filePath.endsWith('node_modules/mock-package-mode-conditional/dist/default.js')) {
+      return 'export const defaultOnly = true;';
     }
     if (filePath.endsWith('node_modules/mock-package-dual-shape/dist/browser.js')) {
       return 'export const browserNamed = true;';
@@ -2335,6 +2378,107 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('serverOnly');
   });
 
+  it('uses node conditional exports when detecting shared ESM named exports for SSR', () => {
+    const pkg = 'mock-package-browser-conditional';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false, undefined, [
+      'node',
+      'import',
+      'default',
+    ]);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('__mf_0 as serverOnly');
+    expect(generatedCode).not.toContain('clientOnly');
+    expect(generatedCode).not.toContain('workerOnly');
+  });
+
+  it('uses worker conditional exports for webworker SSR', () => {
+    const pkg = 'mock-package-browser-conditional';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false, undefined, [
+      'worker',
+      'browser',
+      'import',
+      'default',
+    ]);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('__mf_0 as workerOnly');
+    expect(generatedCode).not.toContain('serverOnly');
+  });
+
+  it.each([
+    ['production', true, 'productionOnly'],
+    ['development', false, 'developmentOnly'],
+  ])(
+    'inspects the %s mode entry after expanding Vite development|production',
+    (_mode, isProduction, expectedExport) => {
+      const exportConditions = getSharedExportConditions({
+        environmentConditions: ['module', 'node', 'development|production'],
+        isProduction,
+        isSsr: true,
+      });
+
+      expect(
+        getSharedNamedExports('mock-package-mode-conditional', undefined, exportConditions)
+      ).toEqual([expectedExport]);
+    }
+  );
+
+  it('uses the same export conditions for shareConfig.import package sources', () => {
+    const pkg = 'conditional-package-alias';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: 'mock-package-browser-conditional',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false, undefined, [
+      'node',
+      'import',
+      'default',
+    ]);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('__mf_0 as serverOnly');
+    expect(generatedCode).not.toContain('clientOnly');
+  });
+
   it('uses the Vite import entry when the require condition has a different shape', () => {
     const pkg = 'mock-package-dual-shape';
     const mockShareItem: ShareItem = {
@@ -3294,6 +3438,20 @@ describe('writePreBuildLibPath', () => {
       'export default Reflect.get(__mfPrebuildNamespace, "default") ?? __mfPrebuildNamespace;'
     );
     expect(generatedCode).not.toMatch(/export default __mfPrebuildExports;\s*$/m);
+  });
+
+  it('uses node conditional exports for SSR prebuild wrappers', () => {
+    writePreBuildLibPath('mock-package-browser-conditional', undefined, undefined, [
+      'node',
+      'import',
+      'default',
+    ]);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('__mf_0 as serverOnly');
+    expect(generatedCode).not.toContain('clientOnly');
+    expect(generatedCode).not.toContain('workerOnly');
   });
 
   // ── pendingShareLoads: deferred export assignment ──────────────────────────
