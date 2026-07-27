@@ -15,7 +15,7 @@ describe('getSharedExportConditions', () => {
     ).toEqual(['module', 'node', modeCondition, 'import', 'default']);
   });
 
-  it('preserves the browser-first default when no environment conditions are available', () => {
+  it('uses client export conditions when no environment conditions are available', () => {
     expect(getSharedExportConditions({ isProduction: false, isSsr: false })).toEqual([
       'browser',
       'import',

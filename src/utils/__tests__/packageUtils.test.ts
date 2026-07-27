@@ -116,6 +116,73 @@ describe('getInstalledPackageJson', () => {
     expect(entry).toBe(path.join(packageDir, 'dist/browser.js'));
   });
 
+  it('respects package export key order when multiple conditions are active', () => {
+    const packageName = 'mf-test-conditional-key-order';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-conditional-order-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(path.join(packageDir, 'dist'), { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: {
+          '.': {
+            browser: './dist/browser.js',
+            worker: './dist/worker.js',
+            default: './dist/default.js',
+          },
+        },
+      })
+    );
+    writeFileSync(path.join(packageDir, 'dist/browser.js'), 'export const browserOnly = true;');
+    writeFileSync(path.join(packageDir, 'dist/worker.js'), 'export const workerOnly = true;');
+    writeFileSync(path.join(packageDir, 'dist/default.js'), 'export const defaultOnly = true;');
+
+    const entry = getInstalledPackageEntry(packageName, {
+      cwd: hostDir,
+      conditions: ['worker', 'browser', 'import', 'default'],
+    });
+
+    // Conditional exports are matched in package.json key order. Although both
+    // worker and browser are active, browser appears first and must win.
+    expect(entry).toBe(realpathSync(path.join(packageDir, 'dist/browser.js')));
+  });
+
+  it('uses the import entry for default ESM package resolution', () => {
+    const packageName = 'mf-test-default-import-condition';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-default-import-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(path.join(packageDir, 'dist'), { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: {
+          '.': {
+            require: './dist/index.cjs',
+            import: './dist/index.js',
+            default: './dist/default.js',
+          },
+        },
+      })
+    );
+    writeFileSync(path.join(packageDir, 'dist/index.cjs'), 'module.exports = {};');
+    writeFileSync(path.join(packageDir, 'dist/index.js'), 'export const esmOnly = true;');
+    writeFileSync(path.join(packageDir, 'dist/default.js'), 'export const defaultOnly = true;');
+
+    const entry = getInstalledPackageEntry(packageName, { cwd: hostDir });
+
+    expect(entry).toBe(realpathSync(path.join(packageDir, 'dist/index.js')));
+  });
+
   it('preserves legacy package subpaths when ESM condition resolution is requested', () => {
     const packageName = 'mf-test-legacy-subpath';
     const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-legacy-subpath-'));

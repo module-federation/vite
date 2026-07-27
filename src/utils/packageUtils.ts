@@ -61,26 +61,41 @@ type PackageEntryConditions = {
   fromResolvedEntry?: string;
 };
 
-const DEFAULT_EXPORT_CONDITIONS = ['browser', 'import', 'module', 'default', 'require'];
+const DEFAULT_EXPORT_CONDITIONS = ['browser', 'import', 'module', 'default'];
 
 function resolveExportsEntry(
   exportsField: unknown,
   conditions = DEFAULT_EXPORT_CONDITIONS
 ): string | undefined {
+  return resolveExportsEntryWithConditions(exportsField, new Set(conditions));
+}
+
+function resolveExportsEntryWithConditions(
+  exportsField: unknown,
+  conditions: ReadonlySet<string>
+): string | undefined {
   if (typeof exportsField === 'string') return exportsField;
   if (!exportsField || typeof exportsField !== 'object') return undefined;
-  const record = exportsField as Record<string, unknown>;
-  const rootExport = record['.'];
-  if (rootExport) return resolveExportsEntry(rootExport);
 
-  for (const condition of conditions) {
-    const target = resolveExportsEntry(record[condition], conditions);
-    if (target) return target;
+  if (Array.isArray(exportsField)) {
+    for (const target of exportsField) {
+      const resolved = resolveExportsEntryWithConditions(target, conditions);
+      if (resolved) return resolved;
+    }
+    return undefined;
   }
 
-  for (const target of Object.values(record)) {
-    const resolved = resolveExportsEntry(target, conditions);
-    if (resolved) return resolved;
+  const record = exportsField as Record<string, unknown>;
+  const rootExport = record['.'];
+  if (rootExport) return resolveExportsEntryWithConditions(rootExport, conditions);
+
+  // Conditional exports are matched in package.json key order. Conditions
+  // identify the active branches, but their own order does not affect which
+  // branch wins. `default` is always eligible as the universal fallback.
+  for (const [condition, value] of Object.entries(record)) {
+    if (condition !== 'default' && !conditions.has(condition)) continue;
+    const target = resolveExportsEntryWithConditions(value, conditions);
+    if (target) return target;
   }
 
   return undefined;
