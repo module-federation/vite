@@ -1640,6 +1640,68 @@ describe('vite:module-federation-early-init', () => {
     }
   });
 
+  it.each([
+    {
+      name: 'has no main export',
+      packageName: '@fixture/no-main-export',
+      exports: { './feature': { import: './feature.js' } },
+      // Keep the conventional fallback on disk to prove an exports map without
+      // "." is not accidentally treated as exporting index.js.
+      entry: 'index.js',
+    },
+    {
+      name: 'has a non-optimizable ESM-only main entry',
+      packageName: '@fixture/esm-tsx-entry',
+      exports: { '.': { import: './index.tsx' } },
+      entry: 'index.tsx',
+    },
+  ])(
+    'excludes a shared singleton that $name from dev optimizeDeps',
+    ({ packageName, exports, entry }) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'mf-unoptimizable-esm-'));
+      try {
+        writeFileSync(
+          path.join(root, 'package.json'),
+          JSON.stringify({ name: 'host', dependencies: { [packageName]: '1.0.0' } })
+        );
+        const pkgDir = path.join(root, 'node_modules', ...packageName.split('/'));
+        mkdirSync(pkgDir, { recursive: true });
+        writeFileSync(
+          path.join(pkgDir, 'package.json'),
+          JSON.stringify({
+            name: packageName,
+            version: '1.0.0',
+            type: 'module',
+            exports,
+          })
+        );
+        writeFileSync(path.join(pkgDir, entry), 'export const marker = 1;\n');
+
+        const earlyInitPlugin = (
+          federation({
+            name: 'host',
+            filename: 'remoteEntry.js',
+            shared: { [packageName]: { singleton: true } },
+          }) as Plugin[]
+        ).find((plugin) => plugin.name === 'vite:module-federation-early-init');
+        if (!earlyInitPlugin) {
+          throw new Error('vite:module-federation-early-init plugin not found');
+        }
+
+        const config: any = { root, optimizeDeps: { include: [], exclude: [] } };
+        runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+          command: 'serve',
+          mode: 'test',
+        });
+
+        expect(config.optimizeDeps.include).not.toContain(packageName);
+        expect(config.optimizeDeps.exclude).toContain(packageName);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
   it('pre-seeds transitive shared dependencies for the dev optimizer', () => {
     const plugin = (
       federation({

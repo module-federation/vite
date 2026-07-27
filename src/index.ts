@@ -278,8 +278,8 @@ function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean 
     // condition) makes Node's require.resolve throw ERR_PACKAGE_PATH_NOT_EXPORTED even
     // though Vite's own resolver can resolve it. Excluding such a package from dependency
     // optimization serves its raw CommonJS sub-dependencies to the browser in dev, which
-    // blanks the app. Treat it as optimizable so Vite pre-bundles it (and its transitive
-    // CJS deps) with interop.
+    // blanks the app. Resolve its import target and let Vite pre-bundle it (and its
+    // transitive CJS deps) with interop when the target is optimizable.
     //
     // Only apply this to a package's main entry (a bare specifier). A *subpath* can throw
     // the same code simply because it isn't exported at all (e.g. react/compiler-runtime
@@ -289,10 +289,62 @@ function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean 
       (error as NodeJS.ErrnoException)?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' &&
       !isBarePackageSubpath(subpath)
     ) {
-      return true;
+      const entry = resolveViteImportPackageEntry(subpath, projectRoot);
+      return entry !== undefined && existsSync(entry) && isViteOptimizableEntry(entry);
     }
     return false;
   }
+}
+
+const VITE_DEV_IMPORT_CONDITIONS = new Set([
+  'browser',
+  'development',
+  'import',
+  'module',
+  'default',
+]);
+
+function resolveConditionalExportTarget(target: unknown): string | undefined {
+  if (typeof target === 'string') return target;
+  if (Array.isArray(target)) {
+    for (const candidate of target) {
+      const resolved = resolveConditionalExportTarget(candidate);
+      if (resolved) return resolved;
+    }
+    return undefined;
+  }
+  if (!target || typeof target !== 'object') return undefined;
+
+  for (const [condition, candidate] of Object.entries(target)) {
+    if (!VITE_DEV_IMPORT_CONDITIONS.has(condition)) continue;
+    const resolved = resolveConditionalExportTarget(candidate);
+    if (resolved) return resolved;
+  }
+  return undefined;
+}
+
+function resolveViteImportPackageEntry(
+  packageName: string,
+  projectRoot: string
+): string | undefined {
+  const installed = getInstalledPackageJson(packageName, { cwd: projectRoot });
+  if (!installed) return undefined;
+
+  const exportsField = installed.packageJson.exports;
+  let rootExport: unknown = exportsField;
+  if (exportsField && typeof exportsField === 'object' && !Array.isArray(exportsField)) {
+    const exportsRecord = exportsField as Record<string, unknown>;
+    if (Object.keys(exportsRecord).some((key) => key.startsWith('.'))) {
+      rootExport = exportsRecord['.'];
+    }
+  }
+
+  const target = resolveConditionalExportTarget(rootExport);
+  if (!target?.startsWith('./')) return undefined;
+  const resolved = path.resolve(installed.dir, target);
+  const relative = path.relative(installed.dir, resolved);
+  if (relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return undefined;
+  return resolved;
 }
 
 // True when `specifier` addresses a subpath of a package (e.g. `react/compiler-runtime`)
