@@ -1,3 +1,5 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type {
   ConfigEnv,
@@ -1585,6 +1587,120 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).not.toContain('@test-issue/theme/provider');
     expect(config.optimizeDeps.exclude).toContain('@test-issue/theme/provider');
   });
+
+  it('includes an ESM-only shared singleton (exports map without a "require" condition) in dev optimizeDeps', () => {
+    // A package whose package.json `exports` only declares an `import` condition makes
+    // Node's require.resolve throw ERR_PACKAGE_PATH_NOT_EXPORTED, even though Vite's own
+    // resolver can resolve it. It must NOT be excluded from dev optimization — otherwise
+    // its generated prebuild imports the raw package source and its transitive CommonJS
+    // deps are served raw to the browser, which blanks the app.
+    // https://github.com/module-federation/vite/issues/974
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-esm-only-'));
+    try {
+      writeFileSync(
+        path.join(root, 'package.json'),
+        JSON.stringify({ name: 'host', dependencies: { '@fixture/esm-ui': '1.0.0' } })
+      );
+      const pkgDir = path.join(root, 'node_modules', '@fixture', 'esm-ui');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        path.join(pkgDir, 'package.json'),
+        JSON.stringify({
+          name: '@fixture/esm-ui',
+          version: '1.0.0',
+          type: 'module',
+          // Only an `import` condition — no `require`/`default` — so CJS require.resolve
+          // throws ERR_PACKAGE_PATH_NOT_EXPORTED while Vite can still resolve it.
+          exports: { '.': { import: './index.js' } },
+        })
+      );
+      writeFileSync(path.join(pkgDir, 'index.js'), 'export const marker = 1;\n');
+
+      const earlyInitPlugin = (
+        federation({
+          name: 'host',
+          filename: 'remoteEntry.js',
+          shared: { '@fixture/esm-ui': { singleton: true } },
+        }) as Plugin[]
+      ).find((entry) => entry.name === 'vite:module-federation-early-init');
+      if (!earlyInitPlugin) {
+        throw new Error('vite:module-federation-early-init plugin not found');
+      }
+
+      const config: any = { root, optimizeDeps: { include: [], exclude: [] } };
+      runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      expect(config.optimizeDeps.include).toContain('@fixture/esm-ui');
+      expect(config.optimizeDeps.exclude).not.toContain('@fixture/esm-ui');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
+      name: 'has no main export',
+      packageName: '@fixture/no-main-export',
+      exports: { './feature': { import: './feature.js' } },
+      // Keep the conventional fallback on disk to prove an exports map without
+      // "." is not accidentally treated as exporting index.js.
+      entry: 'index.js',
+    },
+    {
+      name: 'has a non-optimizable ESM-only main entry',
+      packageName: '@fixture/esm-tsx-entry',
+      exports: { '.': { import: './index.tsx' } },
+      entry: 'index.tsx',
+    },
+  ])(
+    'excludes a shared singleton that $name from dev optimizeDeps',
+    ({ packageName, exports, entry }) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'mf-unoptimizable-esm-'));
+      try {
+        writeFileSync(
+          path.join(root, 'package.json'),
+          JSON.stringify({ name: 'host', dependencies: { [packageName]: '1.0.0' } })
+        );
+        const pkgDir = path.join(root, 'node_modules', ...packageName.split('/'));
+        mkdirSync(pkgDir, { recursive: true });
+        writeFileSync(
+          path.join(pkgDir, 'package.json'),
+          JSON.stringify({
+            name: packageName,
+            version: '1.0.0',
+            type: 'module',
+            exports,
+          })
+        );
+        writeFileSync(path.join(pkgDir, entry), 'export const marker = 1;\n');
+
+        const earlyInitPlugin = (
+          federation({
+            name: 'host',
+            filename: 'remoteEntry.js',
+            shared: { [packageName]: { singleton: true } },
+          }) as Plugin[]
+        ).find((plugin) => plugin.name === 'vite:module-federation-early-init');
+        if (!earlyInitPlugin) {
+          throw new Error('vite:module-federation-early-init plugin not found');
+        }
+
+        const config: any = { root, optimizeDeps: { include: [], exclude: [] } };
+        runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+          command: 'serve',
+          mode: 'test',
+        });
+
+        expect(config.optimizeDeps.include).not.toContain(packageName);
+        expect(config.optimizeDeps.exclude).toContain(packageName);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
 
   it('pre-seeds transitive shared dependencies for the dev optimizer', () => {
     const plugin = (
