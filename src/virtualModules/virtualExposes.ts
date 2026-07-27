@@ -1,4 +1,5 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { generateReactIslandBrowserDefinition } from '../utils/reactIsland';
 import { getRemoteVirtualModule } from './virtualRemotes';
 
 const EXPOSES_CSS_MAP_PLACEHOLDER = '__MF_EXPOSES_CSS_MAP__';
@@ -17,7 +18,8 @@ export function getVirtualExposesId(
 export function generateExposes(
   options: NormalizedModuleFederationOptions,
   remoteDependencyMap: Record<string, string[]> = {},
-  command = 'build'
+  command = 'build',
+  reactIslandExposes: ReadonlySet<string> = new Set()
 ) {
   return `
     const cssAssetMap = ${JSON.stringify(options.bundleAllCSS ? EXPOSES_CSS_MAP_PLACEHOLDER : {})};
@@ -103,6 +105,7 @@ export function generateExposes(
           }
           const exportModule = {}
           Object.assign(exportModule, importModule)
+          ${generateReactIslandBrowserDefinition(reactIslandExposes.has(key))}
           Object.defineProperty(exportModule, "__esModule", {
             value: true,
             enumerable: false

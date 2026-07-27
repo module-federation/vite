@@ -1196,27 +1196,29 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * freshLoaderWithRunner — like freshLoader but also configures vite/module-runner
- * via vi.doMock (not hoisted) so per-test ModuleRunner behaviour can be injected.
+ * freshLoaderWithRunner — like freshLoader but configures Node's createRequire
+ * so per-test ModuleRunner behaviour can be injected.
  */
 async function freshLoaderWithRunner(
   runnerFactory: () => { import: (id: string) => Promise<unknown> } | null
 ) {
   vi.resetModules();
+  const impl = runnerFactory();
+  const runnerModule =
+    impl === null
+      ? null
+      : {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ModuleRunner: vi.fn(function (this: any) {
+            return impl;
+          }),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ESModulesEvaluator: vi.fn(function (this: any) {
+            return {};
+          }),
+        };
   vi.doMock('vite/module-runner', () => {
-    const impl = runnerFactory();
-    if (impl === null) throw new Error('module not found');
-    // Must use regular functions (not arrow functions) so they're newable.
-    return {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ModuleRunner: vi.fn(function (this: any) {
-        return impl;
-      }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ESModulesEvaluator: vi.fn(function (this: any) {
-        return {};
-      }),
-    };
+    throw new Error('the transformed dynamic import must not be used');
   });
   vi.doMock('path', () => ({
     default: {
@@ -1236,10 +1238,11 @@ async function freshLoaderWithRunner(
     const hash = { update: vi.fn().mockReturnThis(), digest: vi.fn(() => 'abc123def456789') };
     return { default: { createHash: vi.fn(() => hash) }, createHash: vi.fn(() => hash) };
   });
-  vi.doMock('module', () => ({
-    default: { createRequire: vi.fn() },
-    createRequire: vi.fn(),
-  }));
+  const createRequire = vi.fn(() => (id: string) => {
+    if (id !== 'vite/module-runner' || runnerModule === null) throw new Error('module not found');
+    return runnerModule;
+  });
+  vi.doMock('module', () => ({ default: { createRequire }, createRequire }));
   const { default: factory } = await import('../ssrEntryLoader');
   return factory;
 }

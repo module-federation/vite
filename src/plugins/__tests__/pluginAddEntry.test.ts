@@ -305,6 +305,61 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
 
+  it('does not wrap React Router route modules exposed as client inputs', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-react-router-'));
+    const clientEntry = path.join(tempDir, 'src/entry.client.tsx');
+    const rootRoute = path.join(tempDir, 'src/root.tsx');
+    const childRoute = path.join(tempDir, 'src/routes/child.tsx');
+    const rootRouteInput = `${rootRoute}?__react-router-build-client-route`;
+    const childRouteInput = `${childRoute}?__react-router-build-client-route`;
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      {
+        build: {
+          rollupOptions: {
+            input: [clientEntry, rootRouteInput, childRouteInput],
+          },
+        },
+      },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      build: {
+        rollupOptions: {
+          input: [clientEntry, rootRouteInput, childRouteInput],
+        },
+      },
+    } as unknown as ResolvedConfig);
+
+    expect(
+      await runTransform(buildPlugin, 'export const loader = () => null;', rootRouteInput)
+    ).toBeUndefined();
+    expect(
+      await runTransform(buildPlugin, 'export const route = true;', childRouteInput)
+    ).toBeUndefined();
+
+    const result = (await runTransform(
+      buildPlugin,
+      'export const browserEntry = true;',
+      `${clientEntry}?v=abc123`
+    )) as { code: string } | undefined;
+
+    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
+    expect(result?.code).toContain(
+      `})().then(() => import(${JSON.stringify(`${clientEntry}?v=abc123&mf-entry-bootstrap`)}));`
+    );
+  });
+
   it('awaits pendingShareLoads after initHost before importing entry', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-pending-'));
     const htmlFile = path.join(tempDir, 'index.html');

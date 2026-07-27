@@ -62,8 +62,35 @@ describe('normalizeModuleFederationOption', () => {
       experiments: {
         externalRuntime: false,
         provideExternalRuntime: false,
+        ssrMode: undefined,
       },
     });
+  });
+
+  it('normalizes experiments.ssrMode as an explicit island opt-in', () => {
+    expect(normalizeModuleFederationOptions(minimalOptions).experiments.ssrMode).toBeUndefined();
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        experiments: { ssrMode: 'ISLAND' },
+      }).experiments.ssrMode
+    ).toBe('ISLAND');
+  });
+
+  it('warns when island mode is combined with shared React', () => {
+    mfWarnSpy.mockClear();
+
+    normalizeModuleFederationOptions({
+      ...minimalOptions,
+      experiments: { ssrMode: 'ISLAND' },
+      shared: { react: { singleton: true } },
+    });
+
+    expect(mfWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Island expose generation is disabled because experiments.ssrMode is "ISLAND" and React is configured as shared'
+      )
+    );
   });
 
   it('normalizes experiments.externalRuntime and provideExternalRuntime', () => {

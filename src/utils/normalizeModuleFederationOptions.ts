@@ -458,6 +458,7 @@ function normalizeExperiments(
   return {
     externalRuntime: experiments?.externalRuntime === true,
     provideExternalRuntime: experiments?.provideExternalRuntime === true,
+    ssrMode: experiments?.ssrMode === 'ISLAND' ? 'ISLAND' : undefined,
   };
 }
 
@@ -585,11 +586,14 @@ export interface PluginExperimentsOptions {
    * publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`.
    */
   provideExternalRuntime?: boolean;
+  /** Generate the React SSR/hydration island capability for eligible exposes. */
+  ssrMode?: 'ISLAND';
 }
 
 export interface NormalizedExperimentsOptions {
   externalRuntime: boolean;
   provideExternalRuntime: boolean;
+  ssrMode: 'ISLAND' | undefined;
 }
 
 export interface NormalizedModuleFederationOptions extends Omit<
@@ -806,6 +810,15 @@ export function normalizeModuleFederationOptions(
     disableSnapshot: options.disableSnapshot,
     experiments: normalizeExperiments(options.experiments),
   };
+  if (
+    normalized.experiments.ssrMode === 'ISLAND' &&
+    Object.prototype.hasOwnProperty.call(normalized.shared, 'react')
+  ) {
+    mfWarn(
+      'Island expose generation is disabled because experiments.ssrMode is "ISLAND" and React is configured as shared. ' +
+        'Remove "react" from shared to generate island exposes, or remove ssrMode to use standard shared rendering.'
+    );
+  }
   explicitSharedKeysByOptions.set(normalized, new Set(explicitSharedKeys));
   return (config = normalized);
 }

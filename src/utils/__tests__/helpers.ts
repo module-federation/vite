@@ -24,6 +24,7 @@ export function getDefaultMockOptions(
     experiments: {
       externalRuntime: false,
       provideExternalRuntime: false,
+      ssrMode: undefined,
     },
     ...overrides,
   };
