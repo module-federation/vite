@@ -184,6 +184,12 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'mock-package-star-dependency') {
       return '/repo/apps/remote/node_modules/mock-package-star-dependency/index.js';
     }
+    if (pkg === 'mock-package-conditional-star-entry') {
+      return '/repo/apps/remote/node_modules/mock-package-conditional-star-entry/index.js';
+    }
+    if (pkg === 'mock-package-cjs-star-entry') {
+      return '/repo/apps/remote/node_modules/mock-package-cjs-star-entry/index.mjs';
+    }
     if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
       return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
     }
@@ -442,6 +448,12 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-mode-conditional/dist/production.js') ||
       filePath.endsWith('node_modules/mock-package-mode-conditional/dist/default.js') ||
       filePath.endsWith('/mock-package-mode-conditional/dist/default.js') ||
+      filePath.endsWith('node_modules/mock-package-conditional-star-entry/index.js') ||
+      filePath.endsWith('/mock-package-conditional-star-entry/index.js') ||
+      filePath.endsWith('node_modules/mock-package-cjs-star-entry/index.mjs') ||
+      filePath.endsWith('/mock-package-cjs-star-entry/index.mjs') ||
+      filePath.endsWith('node_modules/mock-package-cjs-star-entry/index.cjs') ||
+      filePath.endsWith('/mock-package-cjs-star-entry/index.cjs') ||
       filePath.endsWith('node_modules/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('node_modules/mock-package-cjs-comment/index.js') ||
@@ -607,6 +619,15 @@ export const buttonBase = 1;`;
     }
     if (filePath.endsWith('node_modules/mock-package-star-dependency/index.js')) {
       return 'export const fromStar = 1; export function anotherFromStar() {}';
+    }
+    if (filePath.endsWith('node_modules/mock-package-conditional-star-entry/index.js')) {
+      return "export * from 'mock-package-browser-conditional';";
+    }
+    if (filePath.endsWith('node_modules/mock-package-cjs-star-entry/index.mjs')) {
+      return "export * from './index.cjs';";
+    }
+    if (filePath.endsWith('node_modules/mock-package-cjs-star-entry/index.cjs')) {
+      return 'module.exports = { fromCommonJs: true };';
     }
     if (
       filePath.endsWith('node_modules/lit/package.json') ||
@@ -906,6 +927,11 @@ vi.mock('module', async (importOriginal) => {
             real: 1,
             default: {},
             __esModule: true,
+          };
+        }
+        if (pkg.endsWith('/mock-package-cjs-star-entry/index.cjs')) {
+          return {
+            fromCommonJs: true,
           };
         }
         if (pkg.endsWith('/react/jsx-runtime.js')) {
@@ -2404,6 +2430,22 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('__mf_0 as serverOnly');
     expect(generatedCode).not.toContain('clientOnly');
     expect(generatedCode).not.toContain('workerOnly');
+  });
+
+  it('preserves node conditions through bare package star re-exports', () => {
+    expect(
+      getSharedNamedExports('mock-package-conditional-star-entry', undefined, [
+        'node',
+        'import',
+        'default',
+      ])
+    ).toEqual(['serverOnly']);
+  });
+
+  it('detects named exports re-exported from a CommonJS entry', () => {
+    expect(
+      getSharedNamedExports('mock-package-cjs-star-entry', undefined, ['node', 'import', 'default'])
+    ).toEqual(['fromCommonJs']);
   });
 
   it('uses worker conditional exports for webworker SSR', () => {

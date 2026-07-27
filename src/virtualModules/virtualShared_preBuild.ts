@@ -108,6 +108,8 @@ type NamedExportScanState = {
   complete: boolean;
 };
 
+const DEFAULT_SHARED_EXPORT_CONDITIONS = ['browser', 'import', 'module', 'default'];
+
 function hasCodeMatch(source: string, regex: RegExp, codePositions: boolean[]): boolean {
   regex.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -127,13 +129,20 @@ function hasCommonJsExports(source: string): boolean {
 }
 
 function inspectSharedExportsFromFile(
-  entryPath: string | undefined
+  entryPath: string | undefined,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
 ): SharedExportInspection | undefined {
   try {
     if (!entryPath) return undefined;
     const source = readFileSync(entryPath, 'utf-8');
     const scanState: NamedExportScanState = { complete: true };
-    const namedExports = getNamedExportsViaRegex(source, entryPath, undefined, scanState);
+    const namedExports = getNamedExportsViaRegex(
+      source,
+      entryPath,
+      undefined,
+      scanState,
+      exportConditions
+    );
     const commonJs = hasCommonJsExports(source);
     return {
       // A complete empty ESM scan is a known default-only export surface. Keep
@@ -145,8 +154,6 @@ function inspectSharedExportsFromFile(
     return undefined;
   }
 }
-
-const DEFAULT_SHARED_EXPORT_CONDITIONS = ['browser', 'import', 'module', 'default'];
 
 function resolveConfiguredImportPath(
   importSource: string,
@@ -211,7 +218,11 @@ function resolveRelativeModule(filePath: string, specifier: string): string | un
   return undefined;
 }
 
-function resolveReExportModule(filePath: string, specifier: string): string | undefined {
+function resolveReExportModule(
+  filePath: string,
+  specifier: string,
+  exportConditions: string[]
+): string | undefined {
   if (specifier.startsWith('.')) return resolveRelativeModule(filePath, specifier);
 
   // Package entry files commonly re-export their public API from another
@@ -220,7 +231,7 @@ function resolveReExportModule(filePath: string, specifier: string): string | un
   // Vite will load, rather than a CommonJS fallback selected by require.
   const esmEntry = getInstalledPackageEntry(specifier, {
     cwd: path.dirname(filePath),
-    conditions: ['browser', 'import', 'module', 'default'],
+    conditions: exportConditions,
     resolveSubpathWithRequire: false,
   });
   if (esmEntry) return esmEntry;
@@ -386,7 +397,8 @@ function getNamedExportsViaRegex(
   source: string,
   filePath?: string,
   visited?: Set<string>,
-  scanState: NamedExportScanState = { complete: true }
+  scanState: NamedExportScanState = { complete: true },
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
 ): string[] {
   const names = new Set<string>();
   const codePositions = createCodePositionMap(source);
@@ -508,27 +520,32 @@ function getNamedExportsViaRegex(
       if (!codePositions[match.index]) continue;
       recognizedExportStarts.add(match.index);
       const specifier = match[1];
-      const resolvedPath = resolveReExportModule(filePath, specifier);
+      const resolvedPath = resolveReExportModule(filePath, specifier, exportConditions);
       if (!resolvedPath) {
         scanState.complete = false;
         continue;
       }
       if (visited.has(resolvedPath)) continue;
-      if (path.extname(resolvedPath) === '.cjs') {
-        scanState.complete = false;
-        continue;
-      }
       try {
         const reExportSource = readFileSync(resolvedPath, 'utf-8');
-        if (hasCommonJsExports(reExportSource)) {
-          scanState.complete = false;
+        if (path.extname(resolvedPath) === '.cjs' || hasCommonJsExports(reExportSource)) {
+          // ESM barrels can re-export a CommonJS entry (Vue's Node entry does
+          // this). Preserve its runtime keys so consumers such as vue-demi do
+          // not receive an empty namespace during SSR bundling.
+          const requiredNames = getRequiredNamedExports(resolvedPath);
+          if (!requiredNames?.length) {
+            scanState.complete = false;
+            continue;
+          }
+          for (const name of requiredNames) names.add(name);
           continue;
         }
         const reExportNames = getNamedExportsViaRegex(
           reExportSource,
           resolvedPath,
           visited,
-          scanState
+          scanState,
+          exportConditions
         );
         for (const name of reExportNames) {
           names.add(name);
@@ -590,7 +607,7 @@ function getPackageNamedExports(
     resolveSubpathWithRequire: false,
   });
   if (esmEntryPath) {
-    const inspection = inspectSharedExportsFromFile(esmEntryPath);
+    const inspection = inspectSharedExportsFromFile(esmEntryPath, exportConditions);
 
     // The selected Vite entry may itself be CommonJS. Requiring that exact file
     // gives us its runtime namespace without substituting a different condition.
@@ -617,7 +634,7 @@ export function getSharedNamedExports(
     // The configured source is authoritative. Do not fall back to the package
     // entry when that source is default-only or cannot be inspected: its export
     // shape may intentionally differ from the package root.
-    const inspection = inspectSharedExportsFromFile(configuredImportPath);
+    const inspection = inspectSharedExportsFromFile(configuredImportPath, exportConditions);
     if (
       configuredImportPath &&
       (inspection?.commonJs || path.extname(configuredImportPath) === '.cjs')
