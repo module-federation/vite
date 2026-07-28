@@ -248,6 +248,9 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'mock-package-cjs-comment') {
       return '/repo/apps/remote/node_modules/mock-package-cjs-comment/index.js';
     }
+    if (pkg === 'mock-package-browser-esm-internal-cjs') {
+      return '/repo/apps/remote/node_modules/mock-package-browser-esm-internal-cjs/index.js';
+    }
     if (pkg === 'workspace-shared-lib') {
       return '/repo/packages/workspace-shared-lib/src/index.tsx';
     }
@@ -458,6 +461,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('node_modules/mock-package-cjs-comment/index.js') ||
       filePath.endsWith('/mock-package-cjs-comment/index.js') ||
+      filePath.endsWith('node_modules/mock-package-browser-esm-internal-cjs/index.js') ||
+      filePath.endsWith('/mock-package-browser-esm-internal-cjs/index.js') ||
       filePath.endsWith('node_modules/react/jsx-runtime.js') ||
       filePath.endsWith('/repo/packages/workspace-shared-lib/package.json') ||
       filePath.endsWith('/repo/packages/workspace-unknown-exports/package.json') ||
@@ -858,6 +863,14 @@ export const [firstItem, ...restItems] = tuple;`;
                 return sharedValue;
               }`;
     }
+    if (filePath.endsWith('/mock-package-browser-esm-internal-cjs/index.js')) {
+      return `const internalModule = { exports: {} };
+((t) => {
+  t.exports = { internal: true };
+})(internalModule);
+window.__internalState = internalModule.exports;
+export const namedValue = 'named ESM export';`;
+    }
     throw new Error(`Unexpected readFileSync path: ${filePath}`);
   }),
   realpathSync: Object.assign(
@@ -928,6 +941,9 @@ vi.mock('module', async (importOriginal) => {
             default: {},
             __esModule: true,
           };
+        }
+        if (pkg.endsWith('/mock-package-browser-esm-internal-cjs/index.js')) {
+          throw new ReferenceError('window is not defined');
         }
         if (pkg.endsWith('/mock-package-cjs-star-entry/index.cjs')) {
           return {
@@ -2566,6 +2582,29 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('__mf_0 as real');
     expect(generatedCode).not.toContain('phantom');
     expect(mfWarnSpy).not.toHaveBeenCalled();
+  });
+
+  it('detects ESM named exports when browser code contains an internal .exports assignment', () => {
+    const pkg = 'mock-package-browser-esm-internal-cjs';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('__mf_0 as namedValue');
+    expect(mfWarnSpy).not.toHaveBeenCalledWith(expect.stringContaining('not installed locally'));
   });
 
   it('prefers browser conditional exports for project-resolved import paths', () => {
