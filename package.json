@@ -82,15 +82,15 @@
     "@module-federation/sdk": "2.8.1"
   },
   "devDependencies": {
-    "@playwright/test": "1.58.2",
-    "@types/node": "25.3.3",
+    "@playwright/test": "1.62.0",
+    "@types/node": "26.1.2",
     "husky": "9.1.7",
     "mock-shared-dep": "workspace:*",
-    "oxfmt": "0.36.0",
-    "rollup": "4.47.1",
-    "tsdown": "0.21.0",
-    "typescript": "5.9.3",
-    "vite": "8.1.0",
+    "oxfmt": "0.61.0",
+    "rollup": "4.62.3",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
     "vitest": "4.0.18"
   }
 }
