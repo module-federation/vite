@@ -121,11 +121,30 @@ function hasCodeMatch(source: string, regex: RegExp, codePositions: boolean[]): 
 
 function hasCommonJsExports(source: string): boolean {
   const codePositions = createCodePositionMap(source);
-  return hasCodeMatch(
-    source,
-    /\bmodule\s*(?:\.exports|\[\s*['"]exports['"]\s*\])|\bexports\s*(?:\.|\[|[,)]|=(?!=|>))/g,
-    codePositions
-  );
+  if (hasCodeMatch(source, /\bmodule\s*(?:\.exports|\[\s*['"]exports['"]\s*\])/g, codePositions)) {
+    return true;
+  }
+
+  const exportsRegex = /\bexports\s*(?:\.|\[|[,)]|=(?!=|>))/g;
+  let match: RegExpExecArray | null;
+  while ((match = exportsRegex.exec(source)) !== null) {
+    if (!codePositions[match.index]) continue;
+
+    // `exports` is a CommonJS marker only when it is a standalone identifier.
+    // Member properties such as `wrapper.exports` describe arbitrary objects
+    // and do not determine the containing file's module format.
+    let previousCodeIndex = match.index - 1;
+    while (
+      previousCodeIndex >= 0 &&
+      (/\s/.test(source[previousCodeIndex]) || !codePositions[previousCodeIndex])
+    ) {
+      previousCodeIndex--;
+    }
+    if (source[previousCodeIndex] === '.') continue;
+
+    return true;
+  }
+  return false;
 }
 
 function inspectSharedExportsFromFile(
