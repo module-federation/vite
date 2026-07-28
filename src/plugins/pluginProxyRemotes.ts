@@ -5,6 +5,12 @@ import { resolveRemoteConsumer } from '../utils/remoteConsumerTarget';
 import { getSsrCapabilities } from '../utils/ssrCapabilities';
 import { getInstalledPackageEntry } from '../utils/packageUtils';
 import { filterId } from '../utils/pathNormalization';
+import {
+  getReactIslandImportRemoteId,
+  getReactIslandServerImportId,
+  loadReactIslandConsumerModule,
+  resolveReactIslandConsumerId,
+} from '../utils/reactIsland';
 import { addUsedRemote, getRemoteVirtualModule, refreshHostAutoInit } from '../virtualModules';
 
 function isNodeModulesImporter(importer?: string) {
@@ -85,11 +91,29 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
       ).enableSsrInitBootstrap;
     },
     resolveId(source, importer) {
+      const resolvedIslandConsumerId = resolveReactIslandConsumerId(source);
+      if (resolvedIslandConsumerId) return resolvedIslandConsumerId;
+
+      const islandRemoteId = getReactIslandImportRemoteId(source);
+      if (islandRemoteId) {
+        for (const remoteAlias of Object.keys(remotes)) {
+          if (islandRemoteId !== remoteAlias && !islandRemoteId.startsWith(`${remoteAlias}/`)) {
+            continue;
+          }
+          addUsedRemote(remoteAlias, islandRemoteId, options);
+          refreshHostAutoInit(options);
+          return `\0${getReactIslandServerImportId(islandRemoteId)}`;
+        }
+      }
+
       if (!filterId(source)) return;
       for (const remoteAlias of Object.keys(remotes)) {
         if (source !== remoteAlias && !source.startsWith(`${remoteAlias}/`)) continue;
         return resolveRemoteId(this, source, importer, remoteAlias);
       }
+    },
+    load(id) {
+      return loadReactIslandConsumerModule(id);
     },
   };
 }

@@ -157,3 +157,123 @@ export function generateReactIslandSSRDefinition(enabled: boolean): string {
             }
           }`;
 }
+
+export const REACT_ISLAND_IMPORT_QUERY = 'mf-island';
+export const REACT_ISLAND_CLIENT_ID_PREFIX = 'virtual:mf-react-island-client:';
+export const REACT_ISLAND_SERVER_ID_PREFIX = 'virtual:mf-react-island-server:';
+
+const RESOLVED_REACT_ISLAND_CLIENT_ID_PREFIX = `\0${REACT_ISLAND_CLIENT_ID_PREFIX}`;
+const RESOLVED_REACT_ISLAND_SERVER_ID_PREFIX = `\0${REACT_ISLAND_SERVER_ID_PREFIX}`;
+
+function encodeIslandRemoteId(remoteId: string) {
+  return encodeURIComponent(remoteId);
+}
+
+function decodeIslandRemoteId(encodedRemoteId: string) {
+  return decodeURIComponent(encodedRemoteId);
+}
+
+export function getReactIslandImportRemoteId(source: string): string | undefined {
+  const queryIndex = source.indexOf('?');
+  if (queryIndex === -1) return;
+
+  const query = new URLSearchParams(source.slice(queryIndex + 1));
+  if (!query.has(REACT_ISLAND_IMPORT_QUERY)) return;
+  return source.slice(0, queryIndex);
+}
+
+export function getReactIslandServerImportId(remoteId: string) {
+  return `${REACT_ISLAND_SERVER_ID_PREFIX}${encodeIslandRemoteId(remoteId)}`;
+}
+
+export function getReactIslandClientImportId(remoteId: string) {
+  return `${REACT_ISLAND_CLIENT_ID_PREFIX}${encodeIslandRemoteId(remoteId)}`;
+}
+
+export function resolveReactIslandConsumerId(id: string): string | undefined {
+  if (id.startsWith(REACT_ISLAND_SERVER_ID_PREFIX)) return `\0${id}`;
+  if (id.startsWith(REACT_ISLAND_CLIENT_ID_PREFIX)) return `\0${id}`;
+}
+
+function remoteIdFromResolvedIslandId(id: string, prefix: string) {
+  if (!id.startsWith(prefix)) return;
+  return decodeIslandRemoteId(id.slice(prefix.length));
+}
+
+/** Generates the server half of the opt-in `?mf-island` consumer component. */
+export function generateReactIslandConsumerServer(remoteId: string): string {
+  const source = JSON.stringify(remoteId);
+  const clientSource = JSON.stringify(getReactIslandClientImportId(remoteId));
+  return `import * as React from "react";
+import IslandClient from ${clientSource};
+
+const islandModulePromise = import(${source});
+
+async function loadIslandModule() {
+  const namespace = await islandModulePromise;
+  const pending = namespace && namespace.__mf_remote_pending;
+  if (pending && typeof pending.then === "function") return pending;
+  return namespace && namespace.__moduleExports || namespace;
+}
+
+export default async function ModuleFederationIsland(props) {
+  const remoteModule = await loadIslandModule();
+  const shell = remoteModule && remoteModule.__mf_island;
+  if (!shell || typeof shell.renderToHtml !== "function") {
+    throw new Error(${JSON.stringify(
+      `[Module Federation] ${remoteId} does not expose an SSR island capability`
+    )});
+  }
+  const html = await shell.renderToHtml(props);
+  return React.createElement(IslandClient, { html, islandProps: props });
+}`;
+}
+
+/** Generates the client boundary which hydrates with the remote-owned React. */
+export function generateReactIslandConsumerClient(remoteId: string): string {
+  const source = JSON.stringify(remoteId);
+  return `"use client";
+
+import * as React from "react";
+
+const islandModulePromise = import(${source});
+
+async function loadIslandModule() {
+  const namespace = await islandModulePromise;
+  const pending = namespace && namespace.__mf_remote_pending;
+  if (pending && typeof pending.then === "function") return pending;
+  return namespace && namespace.__moduleExports || namespace;
+}
+
+export default function ModuleFederationIslandClient({ html, islandProps }) {
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    void loadIslandModule().then((remoteModule) => {
+      const shell = remoteModule && remoteModule.__mf_island;
+      if (!shell || typeof shell.hydrate !== "function") {
+        throw new Error(${JSON.stringify(
+          `[Module Federation] ${remoteId} does not expose a client island capability`
+        )});
+      }
+      return shell.hydrate(element, islandProps);
+    });
+  }, []);
+
+  return React.createElement("div", {
+    ref,
+    suppressHydrationWarning: true,
+    dangerouslySetInnerHTML: { __html: html },
+  });
+}`;
+}
+
+export function loadReactIslandConsumerModule(id: string): string | undefined {
+  const serverRemoteId = remoteIdFromResolvedIslandId(id, RESOLVED_REACT_ISLAND_SERVER_ID_PREFIX);
+  if (serverRemoteId !== undefined) return generateReactIslandConsumerServer(serverRemoteId);
+
+  const clientRemoteId = remoteIdFromResolvedIslandId(id, RESOLVED_REACT_ISLAND_CLIENT_ID_PREFIX);
+  if (clientRemoteId !== undefined) return generateReactIslandConsumerClient(clientRemoteId);
+}

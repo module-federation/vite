@@ -2,7 +2,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getReactIslandExposes, isReactComponentSource } from '../reactIsland';
+import {
+  generateReactIslandConsumerClient,
+  generateReactIslandConsumerServer,
+  getReactIslandImportRemoteId,
+  getReactIslandExposes,
+  isReactComponentSource,
+  loadReactIslandConsumerModule,
+  resolveReactIslandConsumerId,
+} from '../reactIsland';
 import { getDefaultMockOptions } from './helpers';
 
 const temporaryDirectories: string[] = [];
@@ -69,5 +77,34 @@ describe('react island source classification', () => {
       exposes: { './Button': { import: './Button.tsx' } as any },
     });
     expect([...getReactIslandExposes(options, root)]).toEqual([]);
+  });
+});
+
+describe('react island consumer import', () => {
+  it('recognizes only the explicit mf-island query parameter', () => {
+    expect(getReactIslandImportRemoteId('remote/Counter?mf-island')).toBe('remote/Counter');
+    expect(getReactIslandImportRemoteId('remote/Counter?raw&mf-island')).toBe('remote/Counter');
+    expect(getReactIslandImportRemoteId('remote/Counter')).toBeUndefined();
+    expect(getReactIslandImportRemoteId('remote/Counter?raw')).toBeUndefined();
+  });
+
+  it('generates a server component and a separate client hydration boundary', () => {
+    const server = generateReactIslandConsumerServer('remote/Counter');
+    const client = generateReactIslandConsumerClient('remote/Counter');
+
+    expect(server).toContain('await shell.renderToHtml(props)');
+    expect(server).toContain('virtual:mf-react-island-client:remote%2FCounter');
+    expect(client.trimStart()).toMatch(/^"use client"/);
+    expect(client).toContain('shell.hydrate(element, islandProps)');
+    expect(server).toContain('import("remote/Counter")');
+    expect(client).toContain('import("remote/Counter")');
+  });
+
+  it('resolves and loads generated consumer modules', () => {
+    const publicId = 'virtual:mf-react-island-client:remote%2FCounter';
+    const resolvedId = resolveReactIslandConsumerId(publicId);
+
+    expect(resolvedId).toBe(`\0${publicId}`);
+    expect(loadReactIslandConsumerModule(resolvedId!)).toContain('client island capability');
   });
 });
