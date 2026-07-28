@@ -204,6 +204,28 @@ describe('pluginProxyRemotes', () => {
     );
   });
 
+  it('generates the opt-in React island adapter without changing the remote id', () => {
+    const { plugin } = getSchedulerPluginAndConfig();
+
+    const result = runResolveId(plugin, 'scheduler/SchedulePanel?mf-island', '/repo/src/App.tsx');
+
+    expect(result).toBe('\0virtual:mf-react-island-server:scheduler%2FSchedulePanel');
+    expect(getRemoteVirtualModuleMock).not.toHaveBeenCalled();
+    expect(addUsedRemoteMock).toHaveBeenCalledWith(
+      'scheduler',
+      'scheduler/SchedulePanel',
+      expect.objectContaining({ name: 'host' })
+    );
+
+    const code = callHook(
+      plugin.load,
+      { meta: createPluginMeta() } as unknown as Rollup.PluginContext,
+      result as string
+    );
+    expect(code).toContain('await shell.renderToHtml(props)');
+    expect(code).toContain('import("scheduler/SchedulePanel")');
+  });
+
   it('still proxies bare remote ids from app importers via resolveId', () => {
     const plugin = pluginProxyRemotes(
       normalizeModuleFederationOptions({
