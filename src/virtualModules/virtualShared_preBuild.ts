@@ -174,6 +174,97 @@ function inspectSharedExportsFromFile(
   }
 }
 
+function getMutableExportsFromFile(
+  entryPath: string | undefined,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS,
+  visited = new Set<string>()
+): string[] {
+  // Cache-backed `let` exports only react to provider replacement. Forwarding
+  // from the ESM source is required to observe synchronous binding mutations.
+  if (!entryPath || visited.has(entryPath)) return [];
+  visited.add(entryPath);
+
+  try {
+    const source = readFileSync(entryPath, 'utf-8');
+    const codePositions = createCodePositionMap(source);
+    const mutableBindings = new Set<string>();
+    const mutableExports = new Set<string>();
+    let match: RegExpExecArray | null;
+    const declarationRegex = new RegExp(
+      `\\b(?:export\\s+)?(?:let|var)\\s+(${JS_IDENTIFIER_PATTERN})`,
+      'gu'
+    );
+    let declarationScanIndex = 0;
+    let braceDepth = 0;
+    while ((match = declarationRegex.exec(source)) !== null) {
+      if (!codePositions[match.index]) continue;
+      for (let index = declarationScanIndex; index < match.index; index++) {
+        if (!codePositions[index]) continue;
+        if (source[index] === '{') braceDepth++;
+        else if (source[index] === '}') braceDepth--;
+      }
+      declarationScanIndex = match.index;
+      if (braceDepth !== 0) continue;
+      mutableBindings.add(match[1]);
+      if (match[0].trimStart().startsWith('export')) mutableExports.add(match[1]);
+    }
+
+    const listRegex = /export\s*\{([^}]+)\}(?:\s*from\s*['"]([^'"]+)['"])?/g;
+    while ((match = listRegex.exec(source)) !== null) {
+      if (!codePositions[match.index]) continue;
+      const reExportPath = match[2]
+        ? resolveReExportModule(entryPath, match[2], exportConditions)
+        : undefined;
+      const reExportedMutable = new Set(
+        reExportPath ? getMutableExportsFromFile(reExportPath, exportConditions, visited) : []
+      );
+      for (const rawSpecifier of match[1].split(',')) {
+        const specifier = rawSpecifier.trim();
+        if (!specifier || specifier.startsWith('type ')) continue;
+        const parts = specifier.split(/\s+as\s+/);
+        const local = parts[0].trim();
+        const exported = (parts[1] || local).trim();
+        if (
+          isValidEsmExportName(exported) &&
+          (mutableBindings.has(local) || reExportedMutable.has(local))
+        ) {
+          mutableExports.add(exported);
+        }
+      }
+    }
+
+    const starExportRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+    while ((match = starExportRegex.exec(source)) !== null) {
+      if (!codePositions[match.index]) continue;
+      const resolved = resolveReExportModule(entryPath, match[1], exportConditions);
+      for (const name of getMutableExportsFromFile(resolved, exportConditions, visited)) {
+        mutableExports.add(name);
+      }
+    }
+    visited.delete(entryPath);
+    return Array.from(mutableExports);
+  } catch {
+    visited.delete(entryPath);
+    return [];
+  }
+}
+
+function getSharedMutableExports(
+  pkg: string,
+  shareItem?: ShareItem,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
+): string[] {
+  const configuredImport = shareItem?.shareConfig.import;
+  const entryPath =
+    typeof configuredImport === 'string'
+      ? resolveConfiguredImportPath(configuredImport, exportConditions)
+      : getInstalledPackageEntry(pkg, {
+          conditions: exportConditions,
+          resolveSubpathWithRequire: false,
+        });
+  return getMutableExportsFromFile(entryPath, exportConditions);
+}
+
 function resolveConfiguredImportPath(
   importSource: string,
   exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
@@ -841,6 +932,15 @@ function isRemoteOnlyContainer(
   );
 }
 
+function isLocalOnlyContainer(
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
+  return (
+    Object.keys(options.exposes || {}).length === 0 &&
+    Object.keys(options.remotes || {}).length === 0
+  );
+}
+
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
   try {
     const projectRequire = createRequire(pathToFileURL(path.join(root, 'package.json')));
@@ -1118,6 +1218,7 @@ export function writePreBuildLibPath(
   options?: NormalizedModuleFederationOptions,
   exportConditions?: string[]
 ) {
+  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const { preBuildCacheMap, preBuildShareItemMap } = getSharedVirtualModuleState(options);
   if (!preBuildCacheMap[pkg]) {
     preBuildCacheMap[pkg] = createScopedSharedVirtualModule(pkg, PREBUILD_TAG, options);
@@ -1183,14 +1284,26 @@ export function writePreBuildLibPath(
   }
   const namedExports = getSharedNamedExports(pkg, shareItem, exportConditions) ?? [];
   if (namedExports.length > 0) {
-    const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
-    const declarations = namedExports
+    const mutableExports = new Set(
+      isLocalOnlyContainer(resolvedOptions)
+        ? getSharedMutableExports(pkg, shareItem, exportConditions)
+        : []
+    );
+    const copiedExports = namedExports.filter((name) => !mutableExports.has(name));
+    const liveExports = namedExports.filter((name) => mutableExports.has(name));
+    const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
+    const declarations = copiedExports
       .map(
         (name, i) =>
           `const ${namedExportVars[i]} = __mfPrebuildExports[${escapeGeneratedStringLiteral(name)}];`
       )
       .join('\n    ');
-    const namedExportLine = `export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`;
+    const namedExportLine = copiedExports.length
+      ? `export { ${copiedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+      : '';
+    const liveExportLine = liveExports.length
+      ? `export { ${liveExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+      : '';
 
     preBuildCacheMap[pkg].writeSync(
       `
@@ -1198,6 +1311,7 @@ export function writePreBuildLibPath(
     const __mfPrebuildExports = __mfPrebuildNamespace;
     ${declarations}
     ${namedExportLine}
+    ${liveExportLine}
     export default Reflect.get(__mfPrebuildNamespace, "default") ?? __mfPrebuildNamespace;
   `,
       true
@@ -1380,23 +1494,28 @@ function generateEagerWorkspaceSingletonExports(
   importSource: string,
   cacheDescriptor: string,
   cacheOwner: string,
-  treeShakingConsumer?: string
+  treeShakingConsumer?: string,
+  mutableExports: string[] = []
 ) {
-  const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+  const copiedExports = namedExports.filter((name) => !mutableExports.includes(name));
+  const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
   const declarations =
     namedExports.length > 0
       ? ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join('\n    ')
       : 'let __mf_default;';
   const assignments = [
-    ...namedExports.map(
+    ...copiedExports.map(
       (name, i) => `${namedExportVars[i]} = mod[${escapeGeneratedStringLiteral(name)}];`
     ),
     '__mf_default = mod.default ?? mod;',
   ].join('\n      ');
   const namedExportLine =
-    namedExports.length > 0
-      ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+    copiedExports.length > 0
+      ? `\n    export { ${copiedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
+  const mutableExportLine = mutableExports.length
+    ? `\n    export { ${mutableExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+    : '';
 
   return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
@@ -1414,7 +1533,7 @@ function generateEagerWorkspaceSingletonExports(
     };
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyEagerShareExports);
     __mfApplyEagerShareExports(exportModule);
-    export { __mf_default as default };${namedExportLine}`;
+    export { __mf_default as default };${namedExportLine}${mutableExportLine}`;
 }
 function generateLazyWorkspaceSingletonExports(
   namedExports: string[],
@@ -1422,26 +1541,31 @@ function generateLazyWorkspaceSingletonExports(
   cacheDescriptor: string,
   cacheOwner: string,
   treeShakingConsumer?: string,
-  serveLocalFallback = false
+  serveLocalFallback = false,
+  mutableExports: string[] = []
 ) {
-  const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+  const copiedExports = namedExports.filter((name) => !mutableExports.includes(name));
+  const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
   const declarations =
     namedExports.length > 0
       ? ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join('\n    ')
       : 'let __mf_default;';
   const assignments =
-    namedExports.length > 0
+    copiedExports.length > 0
       ? [
-          ...namedExports.map(
+          ...copiedExports.map(
             (name, i) => `${namedExportVars[i]} = mod[${escapeGeneratedStringLiteral(name)}];`
           ),
           '__mf_default = mod.default ?? mod;',
         ].join('\n      ')
       : '__mf_default = mod.default ?? mod;';
   const namedExportLine =
-    namedExports.length > 0
-      ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+    copiedExports.length > 0
+      ? `\n    export { ${copiedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
+  const mutableExportLine = mutableExports.length
+    ? `\n    export { ${mutableExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+    : '';
   const applyLocalFallback = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
       __mfApplyLazyShareExports(exportModule);`;
@@ -1471,7 +1595,7 @@ function generateLazyWorkspaceSingletonExports(
     } else {
       __mfApplyLazyShareExports(exportModule);
     }
-    export { __mf_default as default };${namedExportLine}`;
+    export { __mf_default as default };${namedExportLine}${mutableExportLine}`;
 
   return body;
 }
@@ -1663,6 +1787,16 @@ export function writeLoadShareModule(
   const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
   const detectedNamedExports = getSharedNamedExports(pkg, shareItem, exportConditions);
   const namedExports = detectedNamedExports ?? [];
+  const mutableExports = new Set(
+    isLocalOnlyContainer(resolvedOptions)
+      ? getSharedMutableExports(pkg, shareItem, exportConditions)
+      : []
+  );
+  const copiedNamedExports = namedExports.filter((name) => !mutableExports.has(name));
+  const liveNamedExports = namedExports.filter((name) => mutableExports.has(name));
+  const liveNamedExportLine = liveNamedExports.length
+    ? `export { ${liveNamedExports.join(', ')} } from ${escapeGeneratedStringLiteral(sharedImportSource)};`
+    : '';
   const hasCompleteExportCoverage = detectedNamedExports !== undefined;
   const isWorkspaceSingleton = isWorkspacePackage && shareItem.shareConfig.singleton === true;
   const isDefaultShareScope =
@@ -1706,7 +1840,8 @@ export function writeLoadShareModule(
       cacheOwner,
       treeShakingConsumer,
       command !== 'build' &&
-        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback)
+        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback),
+      liveNamedExports
     );
   } else if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
     exportLine = generateEagerWorkspaceSingletonExports(
@@ -1714,7 +1849,8 @@ export function writeLoadShareModule(
       lazyLocalFallbackSource,
       cacheDescriptor,
       cacheOwner,
-      treeShakingConsumer
+      treeShakingConsumer,
+      liveNamedExports
     );
   } else if (usesDeferredSingletonFallback) {
     importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
@@ -1725,7 +1861,8 @@ export function writeLoadShareModule(
       cacheOwner,
       treeShakingConsumer,
       command !== 'build' &&
-        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback)
+        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback),
+      liveNamedExports
     );
   } else if (detectedNamedExports === undefined) {
     // Unknown export coverage cannot be rebound safely: a live default backed by
@@ -1743,13 +1880,13 @@ export function writeLoadShareModule(
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
   } else if (namedExports.length > 0 && shareItem.shareConfig.singleton === true) {
-    const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+    const namedExportVars = copiedNamedExports.map((_name, i) => `__mf_${i}`);
     const declarations = [
       'let __mfDefaultExport;',
       ...namedExportVars.map((name) => `let ${name};`),
     ].join('\n    ');
     const assignments = [
-      ...namedExports.map(
+      ...copiedNamedExports.map(
         (name, i) => `${namedExportVars[i]} = mod[${escapeGeneratedStringLiteral(name)}];`
       ),
       `__mfDefaultExport = (() => {
@@ -1760,7 +1897,9 @@ export function writeLoadShareModule(
         })}
       })();`,
     ].join('\n      ');
-    const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
+    const namedExportLine = copiedNamedExports.length
+      ? `export { ${copiedNamedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`
+      : '';
     exportLine = `${declarations}
     const __mfApplySharedExports = (mod) => {
       ${assignments}
@@ -1768,12 +1907,17 @@ export function writeLoadShareModule(
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplySharedExports);
     __mfApplySharedExports(exportModule);
     export { __mfDefaultExport as default };
-    ${namedExportLine}`;
+    ${namedExportLine}
+    ${liveNamedExportLine}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
   } else if (namedExports.length > 0) {
-    const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
-    const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
+    const destructure = copiedNamedExports.length
+      ? `const { ${copiedNamedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`
+      : '';
+    const namedExportLine = copiedNamedExports.length
+      ? `export { ${copiedNamedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`
+      : '';
     exportLine = `const __mfDefaultExport = (() => {
       ${generateShareModuleUnwrapCode({
         source: 'exportModule',
@@ -1783,7 +1927,8 @@ export function writeLoadShareModule(
     })();
     export default __mfDefaultExport;
     ${destructure}
-    ${namedExportLine}`;
+    ${namedExportLine}
+    ${liveNamedExportLine}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
   } else if (shareItem.shareConfig.singleton === true) {
