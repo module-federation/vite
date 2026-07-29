@@ -72,7 +72,11 @@ import {
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
 } from '../virtualModules';
-import { getUsedShares } from '../virtualModules/virtualRemoteEntry';
+import {
+  getLocalSharedImportMapPath,
+  getResolvedLocalSharedImportMapId,
+  getUsedShares,
+} from '../virtualModules/virtualRemoteEntry';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
 const REACT_EXAMPLE_ROOT = path.join(process.cwd(), 'examples/vite-vite/vite-host');
@@ -346,6 +350,80 @@ describe('federation in test environment', () => {
 });
 
 describe('module parse wiring', () => {
+  it('does not deadlock local shared maps across federation instances', async () => {
+    const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
+    let pluginSets: Plugin[][];
+    try {
+      pluginSets = ['first', 'second'].map(
+        (name) =>
+          federation({
+            name,
+            filename: `${name}-remoteEntry.js`,
+            shared: { react: { import: false } },
+          }) as Plugin[]
+      );
+    } finally {
+      if (previousNoTestEnvCheck === undefined) {
+        delete process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+      } else {
+        process.env.MFE_VITE_NO_TEST_ENV_CHECK = previousNoTestEnvCheck;
+      }
+    }
+
+    const instances = pluginSets.map((plugins) => {
+      const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
+      const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
+      const localSharedMap = plugins.find(
+        (plugin) => plugin.name === 'generateLocalSharedImportMap'
+      );
+      const federationOptionsPlugin = plugins.find(
+        (plugin) => plugin.name === 'module-federation-vite'
+      );
+      if (!parseStart || !parseEnd || !localSharedMap || !federationOptionsPlugin) {
+        throw new Error('module federation plugins not found');
+      }
+      const options = (
+        federationOptionsPlugin as Plugin & {
+          _options: NormalizedModuleFederationOptions;
+        }
+      )._options;
+      return { localSharedMap, options, parseEnd, parseStart };
+    });
+    const ctx = {} as any;
+
+    for (const instance of instances) {
+      await callHook(instance.parseStart.buildStart, ctx, undefined as never);
+    }
+    for (const observer of instances) {
+      callHook(observer.parseStart.load, ctx, '/src/main.ts');
+      for (const owner of instances) {
+        callHook(observer.parseStart.load, ctx, getResolvedLocalSharedImportMapId(owner.options));
+      }
+      callHook(observer.parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
+    }
+
+    const pendingMaps = instances.map((instance) =>
+      Promise.resolve(
+        callHook(
+          instance.localSharedMap.load,
+          ctx,
+          getResolvedLocalSharedImportMapId(instance.options)
+        )
+      )
+    );
+    const resolved = await Promise.all(pendingMaps.map(resolvesQuickly));
+
+    // Clean up the parse timers without waiting for the production timeout.
+    for (const instance of instances) callHook(instance.parseEnd.buildEnd, ctx);
+    await Promise.all(pendingMaps);
+
+    expect(resolved).toEqual([true, true]);
+    expect(getLocalSharedImportMapPath(instances[0].options)).not.toBe(
+      getLocalSharedImportMapPath(instances[1].options)
+    );
+  });
+
   it('does not wait for generated load-share or prebuild modules', async () => {
     const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
     process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';

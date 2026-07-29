@@ -66,7 +66,6 @@ import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualM
 import {
   getHostAutoInitImportId,
   getHostAutoInitPath,
-  getLocalSharedImportMapPath,
   getRemoteEntryId,
   initVirtualModules,
   LOAD_REMOTE_TAG,
@@ -845,7 +844,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         id.includes(getHostAutoInitImportId(options)) ||
         id.includes(remoteEntryId) ||
         id.includes(virtualExposesId) ||
-        id.includes(getLocalSharedImportMapPath(options)) ||
+        id.includes('virtual:mf-localSharedImportMap') ||
         id.includes(LOAD_SHARE_TAG) ||
         id.includes(PREBUILD_TAG) ||
         id.includes(TREE_SHAKING_PROVIDER_TAG) ||
