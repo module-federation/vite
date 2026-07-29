@@ -6,6 +6,7 @@ import type {
 } from '../normalizeModuleFederationOptions';
 import {
   collectTreeShakingImports,
+  getSharedExportUsage,
   getTreeShakingExportUsage,
   getTreeShakingUsedExports,
   markTreeShakingPackageUnsafe,
@@ -32,6 +33,15 @@ function createShareItem(treeShaking?: TreeShakingConfig): ShareItem {
 const antdShare = createShareItem({ mode: 'runtime-infer' });
 const lodashPrefixShare = createShareItem({ mode: 'runtime-infer' });
 const notTreeShakenShare = createShareItem();
+const hostProvidedBaseShare = createShareItem();
+const hostProvidedShare: ShareItem = {
+  ...hostProvidedBaseShare,
+  name: 'host-only',
+  shareConfig: {
+    ...hostProvidedBaseShare.shareConfig,
+    import: false,
+  },
+};
 
 function createShared(): NormalizedShared {
   return {
@@ -156,6 +166,30 @@ describe('collectTreeShakingImports', () => {
     `);
 
     expect(recorded).toEqual([]);
+    expect(unsafe).toEqual([]);
+  });
+
+  it('collects host-provided import:false exports without a tree-shaking option', () => {
+    const recorded: RecordedUsage[] = [];
+    const unsafe: UnsafeUsage[] = [];
+    const shared: NormalizedShared = { 'host-only': hostProvidedShare };
+
+    collectTreeShakingImports(
+      `import { value2, value1 as first } from 'host-only';`,
+      '/repo/src/App.js',
+      shared,
+      findSharedKey,
+      (key, names, request) => recorded.push({ key, names, request }),
+      (key, request) => unsafe.push({ key, request })
+    );
+
+    expect(recorded).toEqual([
+      {
+        key: 'host-only',
+        names: ['value2', 'value1'],
+        request: 'host-only',
+      },
+    ]);
     expect(unsafe).toEqual([]);
   });
 
@@ -284,6 +318,16 @@ describe('tree-shaking export usage state', () => {
 
     setTreeShakingBuildMode(true);
     expect(getTreeShakingExportUsage('plain', notTreeShakenShare, 'plain')).toBeUndefined();
+  });
+
+  it('exposes inferred usage for import:false without enabling provider tree shaking', () => {
+    recordTreeShakingExports('host-only', ['value2', 'value1'], 'host-only');
+
+    expect(getSharedExportUsage('host-only', hostProvidedShare, 'host-only')).toEqual({
+      kind: 'exports',
+      usedExports: ['value1', 'value2'],
+    });
+    expect(getTreeShakingExportUsage('host-only', hostProvidedShare, 'host-only')).toBeUndefined();
   });
 
   it('keeps the legacy array accessor for callers that have not migrated yet', () => {

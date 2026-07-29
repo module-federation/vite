@@ -21,12 +21,12 @@ import {
   getExposesCssMapPlaceholder,
   getHostAutoInitPath,
 } from '../virtualModules';
-import { parsePromise } from './pluginModuleParseEnd';
 
 interface ProxyRemoteEntryParams {
   options: NormalizedModuleFederationOptions;
   remoteEntryId: string;
   virtualExposesId: string;
+  getParsePromise?: () => Promise<unknown>;
 }
 
 function resolveDevHashEntryFileName(fileName: string) {
@@ -42,6 +42,7 @@ export default function ({
   options,
   remoteEntryId,
   virtualExposesId,
+  getParsePromise = () => Promise.resolve(),
 }: ProxyRemoteEntryParams): Plugin {
   let viteConfig: any, _command: string, root: string, originalConfigBase: string | undefined;
   let exposeRemoteDependencies: Record<string, string[]> = {};
@@ -205,7 +206,9 @@ export default function ({
     },
     async load(id: string) {
       if (id === remoteEntryId) {
-        return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
+        return getParsePromise().then((_) =>
+          generateRemoteEntry(options, virtualExposesId, _command)
+        );
       }
       if (id === virtualExposesId) {
         await refreshExposeRemoteDependencies(this);
@@ -219,7 +222,9 @@ export default function ({
       const transformedCode = await (async () => {
         if (!filterId(id)) return;
         if (id.includes(remoteEntryId)) {
-          return parsePromise.then((_) => generateRemoteEntry(options, virtualExposesId, _command));
+          return getParsePromise().then((_) =>
+            generateRemoteEntry(options, virtualExposesId, _command)
+          );
         }
         if (id === virtualExposesId) {
           await refreshExposeRemoteDependencies(this);
