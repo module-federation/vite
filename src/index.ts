@@ -9,7 +9,7 @@ import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
 import pluginExternalRuntimeCore from './plugins/pluginExternalRuntimeCore';
 import pluginManifest from './plugins/pluginMFManifest';
-import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
+import pluginModuleParseEnd, { createModuleParseController } from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
@@ -55,6 +55,7 @@ import {
   applyRuntimeCapabilityDefines,
   getRuntimeCapabilityConfigurationWarnings,
 } from './utils/runtimeCapabilityOptimization';
+import { getSharedExportUsage } from './utils/treeShaking';
 import { getSsrCapabilities } from './utils/ssrCapabilities';
 import {
   getCommonSharedSubpaths,
@@ -65,7 +66,6 @@ import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualM
 import {
   getHostAutoInitImportId,
   getHostAutoInitPath,
-  getLocalSharedImportMapPath,
   getRemoteEntryId,
   initVirtualModules,
   LOAD_REMOTE_TAG,
@@ -837,6 +837,27 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
   const remoteEntryId = getRemoteEntryId(options);
   const virtualExposesId = getVirtualExposesId(options);
+  const moduleParseController = createModuleParseController();
+  const moduleParsePlugins = pluginModuleParseEnd(
+    (id: string) => {
+      return (
+        id.includes(getHostAutoInitImportId(options)) ||
+        id.includes(remoteEntryId) ||
+        id.includes(virtualExposesId) ||
+        id.includes('virtual:mf-localSharedImportMap') ||
+        id.includes(LOAD_SHARE_TAG) ||
+        id.includes(PREBUILD_TAG) ||
+        id.includes(TREE_SHAKING_PROVIDER_TAG) ||
+        id.includes(TREE_SHAKING_GRAPH_QUERY)
+      );
+    },
+    {
+      moduleParseTimeout: options.moduleParseTimeout,
+      moduleParseIdleTimeout: options.moduleParseIdleTimeout,
+      exposedModuleImports: Object.values(options.exposes).map((expose) => expose.import),
+    },
+    moduleParseController
+  );
 
   let command: string;
   let desiredRolldownOutput: OutputNameOptions[] | undefined;
@@ -904,7 +925,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   const refreshLoadShareModuleForEnvironment = (
     id: string,
     context: LoadHookContext,
-    loadOptions?: LoadHookOptions
+    loadOptions?: LoadHookOptions,
+    importFalseExportUsage?: ReturnType<typeof getSharedExportUsage>
   ): SharedVirtualRefreshStatus => {
     const pkg = getCachedLoadSharePkg(id);
     if (!pkg) return 'not-applicable';
@@ -919,9 +941,23 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       command,
       getIsRolldown(context),
       options,
-      getLoadHookExportConditions(context, loadOptions)
+      getLoadHookExportConditions(context, loadOptions),
+      importFalseExportUsage
     );
     return 'refreshed';
+  };
+
+  const getCompleteImportFalseExportUsage = (id: string) => {
+    if (command !== 'build') return undefined;
+    const pkg = getCachedLoadSharePkg(id);
+    if (!pkg) return undefined;
+    const key = findSharedKey(pkg, shared);
+    if (!key || shared[key].shareConfig.import !== false) return undefined;
+
+    return moduleParseController.parsePromise.then((completion) => {
+      if (!completion.complete) return undefined;
+      return getSharedExportUsage(pkg, shared[key], key, options);
+    });
   };
 
   return [
@@ -1079,31 +1115,19 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       entryPath: virtualExposesId,
       federationOptions: options,
     }),
-    pluginProxyRemoteEntry({ options, remoteEntryId, virtualExposesId }),
+    pluginProxyRemoteEntry({
+      options,
+      remoteEntryId,
+      virtualExposesId,
+      getParsePromise: () => moduleParseController.parsePromise,
+    }),
     pluginProxyRemotes(options),
     pluginRemoteNamedExports(options),
-    ...pluginModuleParseEnd(
-      (id: string) => {
-        return (
-          id.includes(getHostAutoInitImportId(options)) ||
-          id.includes(remoteEntryId) ||
-          id.includes(virtualExposesId) ||
-          id.includes(getLocalSharedImportMapPath(options)) ||
-          id.includes(LOAD_SHARE_TAG) ||
-          id.includes(PREBUILD_TAG) ||
-          id.includes(TREE_SHAKING_PROVIDER_TAG) ||
-          id.includes(TREE_SHAKING_GRAPH_QUERY)
-        );
-      },
-      {
-        moduleParseTimeout: options.moduleParseTimeout,
-        moduleParseIdleTimeout: options.moduleParseIdleTimeout,
-        exposedModuleImports: Object.values(options.exposes).map((expose) => expose.import),
-      }
-    ),
+    ...moduleParsePlugins,
     ...proxySharedModule({
       shared,
       federationOptions: options,
+      getParsePromise: () => moduleParseController.parsePromise,
     }),
     {
       name: 'module-federation-esm-shims',
@@ -1361,11 +1385,18 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
       },
       load(id: string, loadOptions?: LoadHookOptions) {
-        if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
+        const loadVirtualModule = (
+          importFalseExportUsage?: ReturnType<typeof getSharedExportUsage>
+        ) => {
+          if (!id.includes(LOAD_SHARE_TAG) && !id.includes(LOAD_REMOTE_TAG)) return;
           if (
             id.includes(LOAD_SHARE_TAG) &&
-            refreshLoadShareModuleForEnvironment(id, this as LoadHookContext, loadOptions) ===
-              'not-owned'
+            refreshLoadShareModuleForEnvironment(
+              id,
+              this as LoadHookContext,
+              loadOptions,
+              importFalseExportUsage
+            ) === 'not-owned'
           ) {
             return;
           }
@@ -1434,7 +1465,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             return { code };
           }
           return { code, syntheticNamedExports: '__moduleExports' };
+        };
+
+        const pendingImportFalseExportUsage = id.includes(LOAD_SHARE_TAG)
+          ? getCompleteImportFalseExportUsage(id)
+          : undefined;
+        if (pendingImportFalseExportUsage) {
+          return pendingImportFalseExportUsage.then(loadVirtualModule);
         }
+        return loadVirtualModule();
       },
       generateBundle(
         _outputOptions: NormalizedOutputOptionsLike,

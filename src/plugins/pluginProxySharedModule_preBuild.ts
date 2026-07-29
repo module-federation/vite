@@ -36,6 +36,7 @@ import {
   recordTreeShakingExports,
   resetTreeShakingExports,
   setTreeShakingBuildMode,
+  shouldAnalyzeSharedExports,
 } from '../utils/treeShaking';
 import {
   addUsedShares,
@@ -61,7 +62,6 @@ import {
   refreshTreeShakingModules,
   stripTreeShakingGraphQuery,
 } from '../virtualModules';
-import { parsePromise } from './pluginModuleParseEnd';
 
 function getPrebuildResolutionSource(pkgName: string, shareItem?: ShareItem): string {
   return getConcreteSharedImportSource(pkgName, shareItem) || pkgName;
@@ -256,8 +256,9 @@ export function proxySharedModule(options: {
   include?: string | string[];
   exclude?: string | string[];
   federationOptions?: NormalizedModuleFederationOptions;
+  getParsePromise?: () => Promise<unknown>;
 }): Plugin[] {
-  const { shared = {}, federationOptions } = options;
+  const { shared = {}, federationOptions, getParsePromise = () => Promise.resolve() } = options;
   let _config: ResolvedConfig | undefined;
   let _command = 'serve';
   let useDirectReactImport = false;
@@ -271,6 +272,9 @@ export function proxySharedModule(options: {
   // sources have been materialized so the heavy writes happen at most once each.
   const materializedLoadShareSources = new Set<string>();
   const emittedTreeShakingProviders = new Set<string>();
+  const hasAnalyzableShares = Object.values(shared).some((share) =>
+    shouldAnalyzeSharedExports(share)
+  );
 
   const normalizeTreeShakingOutputPath = (value: string) => {
     const normalized = normalizePathForImport(value);
@@ -345,7 +349,7 @@ export function proxySharedModule(options: {
       },
       load(id) {
         if (id === getResolvedLocalSharedImportMapId(federationOptions)) {
-          return parsePromise.then((_) => {
+          return getParsePromise().then((_) => {
             // Export analysis is additive across the module graph. Materialize
             // and emit optimized providers only when the shared map itself is
             // finalized, immediately before Rollup discovers their imports.
@@ -424,16 +428,10 @@ export function proxySharedModule(options: {
       shouldTransformCachedModule() {
         // Watch builds must revisit cached importers after the per-build usage
         // map is reset, otherwise only changed files contribute usedExports.
-        return (
-          _command === 'build' &&
-          Object.values(shared).some((share) => !!share.shareConfig.treeShaking)
-        );
+        return _command === 'build' && hasAnalyzableShares;
       },
       transform(code, id) {
-        if (
-          _command !== 'build' ||
-          !Object.keys(shared).some((key) => shared[key].shareConfig.treeShaking)
-        ) {
+        if (_command !== 'build' || !hasAnalyzableShares) {
           return;
         }
         collectTreeShakingImports(

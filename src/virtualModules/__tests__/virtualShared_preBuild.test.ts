@@ -2493,6 +2493,86 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('export { __mf_default as default }');
   });
 
+  it('emits only analyzed named exports for a finalized import:false consumer', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false, undefined, undefined, {
+      kind: 'exports',
+      usedExports: ['default', 'get'],
+    });
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).toContain('exportModule["get"]');
+    expect(generatedCode).toContain('__mf_0 as get');
+    expect(generatedCode).not.toContain('exportModule["delete"]');
+    expect(generatedCode).not.toContain('exportModule["request"]');
+    expect(generatedCode).toContain('export { __mf_default as default }');
+  });
+
+  it.each([{ kind: 'unknown' as const }, { kind: 'full' as const }])(
+    'keeps the complete import:false export surface for $kind analysis',
+    (usage) => {
+      const pkg = 'mock-package-with-reserved';
+      const mockShareItem: ShareItem = {
+        name: pkg,
+        from: '',
+        version: undefined,
+        shareConfig: {
+          import: false,
+          singleton: true,
+          strictVersion: false,
+          requiredVersion: '*',
+        },
+        scope: 'default',
+      };
+
+      writeLoadShareModule(pkg, mockShareItem, 'build', false, undefined, undefined, usage);
+
+      const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      expect(generatedCode).toContain('exportModule["delete"]');
+      expect(generatedCode).toContain('exportModule["get"]');
+      expect(generatedCode).toContain('exportModule["request"]');
+    }
+  );
+
+  it('keeps the complete import:false export surface when analyzed exports are not detected locally', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false, undefined, undefined, {
+      kind: 'exports',
+      usedExports: ['hostOnlyExport'],
+    });
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).toContain('exportModule["delete"]');
+    expect(generatedCode).toContain('exportModule["get"]');
+    expect(generatedCode).toContain('exportModule["request"]');
+  });
+
   it('prefers browser conditional exports when detecting shared ESM named exports', () => {
     const pkg = 'mock-package-browser-conditional';
     const mockShareItem: ShareItem = {

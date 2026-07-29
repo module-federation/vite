@@ -1,18 +1,28 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { build as viteBuild } from 'vite';
-import pluginModuleParseEnd, { parsePromise } from '../pluginModuleParseEnd';
+import pluginModuleParseEnd, { createModuleParseController } from '../pluginModuleParseEnd';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 
-function getParsePlugins(excludeFn: (id: string) => boolean, exposedModuleImports?: string[]) {
-  const plugins = pluginModuleParseEnd(excludeFn, {
-    moduleParseTimeout: 10,
-    exposedModuleImports,
-  });
+function getParsePlugins(
+  excludeFn: (id: string) => boolean,
+  exposedModuleImports?: string[],
+  moduleParseIdleTimeout?: number
+) {
+  const controller = createModuleParseController();
+  const plugins = pluginModuleParseEnd(
+    excludeFn,
+    {
+      moduleParseTimeout: 10,
+      moduleParseIdleTimeout,
+      exposedModuleImports,
+    },
+    controller
+  );
 
   const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
   const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
   if (!parseStart || !parseEnd) throw new Error('parse plugins not found');
-  return { parseStart, parseEnd };
+  return { controller, parseStart, parseEnd };
 }
 
 async function resolvesQuickly(promise: Promise<unknown>) {
@@ -24,18 +34,34 @@ async function resolvesQuickly(promise: Promise<unknown>) {
 
 describe('pluginModuleParseEnd', () => {
   it('resolves parsePromise on buildEnd', async () => {
-    const { parseStart, parseEnd } = getParsePlugins(() => false);
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
     const ctx = {} as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
     callHook(parseStart.load, ctx, '/src/main.ts');
     callHook(parseEnd.buildEnd, ctx);
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await controller.parsePromise).toEqual({ complete: false, reason: 'build-end' });
+  });
+
+  it('marks an idle-timeout barrier result as incomplete', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { controller, parseStart } = getParsePlugins(() => false, undefined, 0.001);
+
+      callHook(parseStart.buildStart, {} as any, undefined as never);
+
+      expect(await controller.parsePromise).toEqual({
+        complete: false,
+        reason: 'idle-timeout',
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('does not wait for excluded load-share or prebuild ids', async () => {
-    const { parseStart, parseEnd } = getParsePlugins(
+    const { controller, parseStart, parseEnd } = getParsePlugins(
       (id) => id.includes('__loadShare__') || id.includes('__prebuild__')
     );
     const ctx = {} as any;
@@ -47,11 +73,13 @@ describe('pluginModuleParseEnd', () => {
 
     callHook(parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
   });
 
   it('settles when an excluded barrier module loads after the graph completes', async () => {
-    const { parseStart, parseEnd } = getParsePlugins((id) => id.includes('__loadShare__'));
+    const { controller, parseStart, parseEnd } = getParsePlugins((id) =>
+      id.includes('__loadShare__')
+    );
     const ctx = {} as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
@@ -59,21 +87,21 @@ describe('pluginModuleParseEnd', () => {
     callHook(parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
     callHook(parseStart.load, ctx, 'virtual:mf:app__loadShare__react__loadShare__.js');
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
   });
 
   it('does not settle an empty graph just because an excluded module loads', async () => {
-    const { parseStart } = getParsePlugins((id) => id.includes('__loadShare__'));
+    const { controller, parseStart } = getParsePlugins((id) => id.includes('__loadShare__'));
     const ctx = {} as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
     callHook(parseStart.load, ctx, 'virtual:mf:app__loadShare__react__loadShare__.js');
 
-    expect(await resolvesQuickly(parsePromise)).toBe(false);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
   });
 
   it('settles when parsed modules are a superset of tracked loads', async () => {
-    const { parseStart, parseEnd } = getParsePlugins(() => false);
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
     const ctx = {} as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
@@ -81,11 +109,14 @@ describe('pluginModuleParseEnd', () => {
     callHook(parseEnd.moduleParsed, ctx, { id: '/virtual/internal.ts' } as never);
     callHook(parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
   });
 
   it('waits for imported children discovered when an entry is parsed', async () => {
-    const { parseStart, parseEnd } = getParsePlugins(() => false);
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
     const ctx = { getModuleInfo: () => undefined } as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
@@ -98,7 +129,7 @@ describe('pluginModuleParseEnd', () => {
       dynamicallyImportedIdResolutions: [],
     } as never);
     callHook(parseStart.load, ctx, '/src/child.ts');
-    expect(await resolvesQuickly(parsePromise)).toBe(false);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
 
     callHook(parseEnd.moduleParsed, ctx, {
       id: '/src/child.ts',
@@ -108,11 +139,40 @@ describe('pluginModuleParseEnd', () => {
       dynamicallyImportedIdResolutions: [],
     } as never);
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
+  });
+
+  it('tracks resolved imported ids when resolution metadata is unavailable', async () => {
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = {
+      getModuleInfo: () => ({ isExternal: false }),
+    } as any;
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/main.ts',
+      importedIds: ['/src/late-child.ts'],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
+
+    callHook(parseStart.load, ctx, '/src/late-child.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/late-child.ts',
+      importedIds: [],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
   });
 
   it('does not wait for external dependencies discovered during parsing', async () => {
-    const { parseStart, parseEnd } = getParsePlugins(() => false);
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
     const ctx = {} as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
@@ -125,12 +185,14 @@ describe('pluginModuleParseEnd', () => {
       dynamicallyImportedIdResolutions: [],
     } as never);
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
   });
 
   it('tracks children of the excluded virtual exposes module', async () => {
     const virtualExposesId = 'virtual:mf:exposes';
-    const { parseStart, parseEnd } = getParsePlugins((id) => id.includes(virtualExposesId));
+    const { controller, parseStart, parseEnd } = getParsePlugins((id) =>
+      id.includes(virtualExposesId)
+    );
     const ctx = {} as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
@@ -148,7 +210,7 @@ describe('pluginModuleParseEnd', () => {
     for (const id of ['/src/expose-a.ts', '/src/expose-b.ts']) {
       callHook(parseStart.load, ctx, id);
     }
-    expect(await resolvesQuickly(parsePromise)).toBe(false);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
 
     for (const id of ['/src/expose-a.ts', '/src/expose-b.ts']) {
       callHook(parseEnd.moduleParsed, ctx, {
@@ -160,18 +222,18 @@ describe('pluginModuleParseEnd', () => {
       } as never);
     }
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
   });
 
   it('waits for configured expose entries even before Rollup loads them', async () => {
     const childId = '/src/expose.ts';
-    const { parseStart, parseEnd } = getParsePlugins(() => false, ['./src/expose.ts']);
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false, ['./src/expose.ts']);
     const ctx = {
       resolve: async (id: string) => ({ id: id === './src/expose.ts' ? childId : id }),
     } as any;
 
     await callHook(parseStart.buildStart, ctx, undefined as never);
-    expect(await resolvesQuickly(parsePromise)).toBe(false);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
 
     callHook(parseStart.load, ctx, childId);
     callHook(parseEnd.moduleParsed, ctx, {
@@ -182,13 +244,111 @@ describe('pluginModuleParseEnd', () => {
       dynamicallyImportedIdResolutions: [],
     } as never);
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
+  });
+
+  it('isolates parse completion across plugin instances', async () => {
+    const {
+      controller: firstController,
+      parseStart: firstStart,
+      parseEnd: firstEnd,
+    } = getParsePlugins(() => false);
+    const {
+      controller: secondController,
+      parseStart: secondStart,
+      parseEnd: secondEnd,
+    } = getParsePlugins(() => false);
+    const ctx = {} as any;
+
+    await callHook(firstStart.buildStart, ctx, undefined as never);
+    await callHook(secondStart.buildStart, ctx, undefined as never);
+    callHook(firstStart.load, ctx, '/src/first.ts');
+    callHook(firstEnd.moduleParsed, ctx, { id: '/src/first.ts' } as never);
+
+    expect(await firstController.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
+    expect(await resolvesQuickly(secondController.parsePromise)).toBe(false);
+
+    callHook(secondStart.load, ctx, '/src/second.ts');
+    callHook(secondEnd.moduleParsed, ctx, { id: '/src/second.ts' } as never);
+    expect(await secondController.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
+  });
+
+  it.each(['rollupOptions', 'rolldownOptions'] as const)(
+    'waits for configured %s inputs before they are loaded',
+    async (inputOption) => {
+      const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+      const ctx = {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any;
+
+      const input = {
+        first: 'src/first.ts',
+        second: 'src/second.ts',
+      };
+      callHook(parseStart.configResolved, ctx, {
+        build: {
+          rollupOptions: inputOption === 'rollupOptions' ? { input } : {},
+          ...(inputOption === 'rolldownOptions' ? { rolldownOptions: { input } } : {}),
+        },
+      } as never);
+      await callHook(parseStart.buildStart, ctx, undefined as never);
+
+      callHook(parseStart.load, ctx, '/resolved/src/first.ts');
+      callHook(parseEnd.moduleParsed, ctx, { id: '/resolved/src/first.ts' } as never);
+      expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
+
+      callHook(parseStart.load, ctx, '/resolved/src/second.ts');
+      callHook(parseEnd.moduleParsed, ctx, { id: '/resolved/src/second.ts' } as never);
+      expect(await controller.parsePromise).toEqual({
+        complete: true,
+        reason: 'graph-complete',
+      });
+    }
+  );
+
+  it('resets parse state between consecutive builds', async () => {
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = {} as any;
+
+    await callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/first-build.ts');
+    callHook(parseEnd.buildEnd, ctx);
+    expect(await controller.parsePromise).toEqual({
+      complete: false,
+      reason: 'build-end',
+    });
+
+    await callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/second-build.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/second-build.ts',
+      importedIds: [],
+      dynamicallyImportedIds: [],
+      importedIdResolutions: [],
+      dynamicallyImportedIdResolutions: [],
+    } as never);
+
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
   });
 
   it('waits for child transforms in a real Vite module graph without resolution metadata', async () => {
-    const parsePlugins = pluginModuleParseEnd(() => false, {
-      moduleParseTimeout: 0,
-    });
+    const controller = createModuleParseController();
+    const parsePlugins = pluginModuleParseEnd(
+      () => false,
+      {
+        moduleParseTimeout: 0,
+      },
+      controller
+    );
     let childTransformed = false;
     let resolvedBeforeChild = false;
 
@@ -200,7 +360,7 @@ describe('pluginModuleParseEnd', () => {
         {
           name: 'parse-barrier-vite-probe',
           buildStart() {
-            void parsePromise.then(() => {
+            void controller.parsePromise.then(() => {
               resolvedBeforeChild = !childTransformed;
             });
           },

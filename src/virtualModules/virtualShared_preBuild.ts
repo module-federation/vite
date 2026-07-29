@@ -32,7 +32,7 @@ import {
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import { normalizeNodeModulePath } from '../utils/pathNormalization';
-import { getTreeShakingExportUsage } from '../utils/treeShaking';
+import { getTreeShakingExportUsage, type TreeShakingExportUsage } from '../utils/treeShaking';
 import { findLikelyTypeArgumentEnd } from '../utils/typeArgumentScanner';
 import VirtualModule, { MF_OWNER_INFIX, normalizeVirtualModuleId } from '../utils/VirtualModule';
 import {
@@ -1671,6 +1671,21 @@ function generateDeferredHostProvidedExports(
     export { __mf_default as default };${namedExportLine}`;
 }
 
+function selectImportFalseNamedExports(
+  detectedNamedExports: string[] | undefined,
+  usage?: TreeShakingExportUsage
+) {
+  if (!detectedNamedExports || usage?.kind !== 'exports') {
+    return detectedNamedExports ?? [];
+  }
+
+  const usedNamedExports = new Set(usage.usedExports.filter((name) => name !== 'default'));
+  if ([...usedNamedExports].some((name) => !detectedNamedExports.includes(name))) {
+    return detectedNamedExports;
+  }
+  return detectedNamedExports.filter((name) => usedNamedExports.has(name));
+}
+
 function generateShareModuleUnwrapCode({
   source,
   preserveNamedExports,
@@ -1713,7 +1728,8 @@ export function writeLoadShareModule(
   command: string,
   _isRolldown: boolean,
   options?: NormalizedModuleFederationOptions,
-  exportConditions?: string[]
+  exportConditions?: string[],
+  importFalseExportUsage?: TreeShakingExportUsage
 ) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const { loadShareCacheMap } = getSharedVirtualModuleState(options);
@@ -1735,7 +1751,10 @@ export function writeLoadShareModule(
     // This enables `import { ref } from 'vue'` even though the module is provided by the host.
     // For packages that aren't installed, fall back to default-only export.
     const detectedNamedExports = getPackageNamedExports(pkg, exportConditions);
-    const namedExports = detectedNamedExports ?? [];
+    const namedExports = selectImportFalseNamedExports(
+      detectedNamedExports,
+      importFalseExportUsage
+    );
     let exportLine: string;
     if (namedExports.length > 0) {
       exportLine = generateDeferredHostProvidedExports(

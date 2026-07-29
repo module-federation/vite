@@ -13,7 +13,6 @@ import {
   type ViteBuilder,
 } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { parsePromise } from '../plugins/pluginModuleParseEnd';
 import { callHook } from '../utils/__tests__/viteHookHelpers';
 import type {
   ModuleFederationOptions,
@@ -67,8 +66,17 @@ vi.mock('../utils/logger', async () => {
 
 import { federation } from '../index';
 import VirtualModule from '../utils/VirtualModule';
-import { getPreBuildLibImportId, LOAD_SHARE_TAG, PREBUILD_TAG } from '../virtualModules';
-import { getUsedShares } from '../virtualModules/virtualRemoteEntry';
+import {
+  getPreBuildLibImportId,
+  getRemoteEntryId,
+  LOAD_SHARE_TAG,
+  PREBUILD_TAG,
+} from '../virtualModules';
+import {
+  getLocalSharedImportMapPath,
+  getResolvedLocalSharedImportMapId,
+  getUsedShares,
+} from '../virtualModules/virtualRemoteEntry';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
 const REACT_EXAMPLE_ROOT = path.join(process.cwd(), 'examples/vite-vite/vite-host');
@@ -342,6 +350,80 @@ describe('federation in test environment', () => {
 });
 
 describe('module parse wiring', () => {
+  it('does not deadlock local shared maps across federation instances', async () => {
+    const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
+    let pluginSets: Plugin[][];
+    try {
+      pluginSets = ['first', 'second'].map(
+        (name) =>
+          federation({
+            name,
+            filename: `${name}-remoteEntry.js`,
+            shared: { react: { import: false } },
+          }) as Plugin[]
+      );
+    } finally {
+      if (previousNoTestEnvCheck === undefined) {
+        delete process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+      } else {
+        process.env.MFE_VITE_NO_TEST_ENV_CHECK = previousNoTestEnvCheck;
+      }
+    }
+
+    const instances = pluginSets.map((plugins) => {
+      const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
+      const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
+      const localSharedMap = plugins.find(
+        (plugin) => plugin.name === 'generateLocalSharedImportMap'
+      );
+      const federationOptionsPlugin = plugins.find(
+        (plugin) => plugin.name === 'module-federation-vite'
+      );
+      if (!parseStart || !parseEnd || !localSharedMap || !federationOptionsPlugin) {
+        throw new Error('module federation plugins not found');
+      }
+      const options = (
+        federationOptionsPlugin as Plugin & {
+          _options: NormalizedModuleFederationOptions;
+        }
+      )._options;
+      return { localSharedMap, options, parseEnd, parseStart };
+    });
+    const ctx = {} as any;
+
+    for (const instance of instances) {
+      await callHook(instance.parseStart.buildStart, ctx, undefined as never);
+    }
+    for (const observer of instances) {
+      callHook(observer.parseStart.load, ctx, '/src/main.ts');
+      for (const owner of instances) {
+        callHook(observer.parseStart.load, ctx, getResolvedLocalSharedImportMapId(owner.options));
+      }
+      callHook(observer.parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
+    }
+
+    const pendingMaps = instances.map((instance) =>
+      Promise.resolve(
+        callHook(
+          instance.localSharedMap.load,
+          ctx,
+          getResolvedLocalSharedImportMapId(instance.options)
+        )
+      )
+    );
+    const resolved = await Promise.all(pendingMaps.map(resolvesQuickly));
+
+    // Clean up the parse timers without waiting for the production timeout.
+    for (const instance of instances) callHook(instance.parseEnd.buildEnd, ctx);
+    await Promise.all(pendingMaps);
+
+    expect(resolved).toEqual([true, true]);
+    expect(getLocalSharedImportMapPath(instances[0].options)).not.toBe(
+      getLocalSharedImportMapPath(instances[1].options)
+    );
+  });
+
   it('does not wait for generated load-share or prebuild modules', async () => {
     const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
     process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
@@ -363,22 +445,122 @@ describe('module parse wiring', () => {
     }
     const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
     const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
-    if (!parseStart || !parseEnd) throw new Error('parse plugins not found');
+    const proxyRemoteEntry = plugins.find((plugin) => plugin.name === 'proxyRemoteEntry');
+    const federationOptionsPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-vite'
+    );
+    if (!parseStart || !parseEnd || !proxyRemoteEntry || !federationOptionsPlugin) {
+      throw new Error('module federation plugins not found');
+    }
     const ctx = {} as any;
+    const federationOptions = (
+      federationOptionsPlugin as Plugin & {
+        _options: NormalizedModuleFederationOptions;
+      }
+    )._options;
 
+    runConfig(proxyRemoteEntry, {} as ConfigPluginContext, {}, { command: 'build', mode: 'test' });
     callHook(parseStart.buildStart, ctx, undefined as never);
     callHook(parseStart.load, ctx, `virtual:mf:host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js`);
     callHook(parseStart.load, ctx, `virtual:mf:host${PREBUILD_TAG}react${PREBUILD_TAG}.js`);
     callHook(parseStart.load, ctx, '/src/main.ts');
+    const pendingRemoteEntry = callHook(
+      proxyRemoteEntry.load,
+      ctx,
+      getRemoteEntryId(federationOptions)
+    );
 
     callHook(parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await resolvesQuickly(Promise.resolve(pendingRemoteEntry))).toBe(true);
+  });
+
+  it('keeps the complete import:false export surface when parse analysis is incomplete', async () => {
+    const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
+    let plugins: Plugin[];
+    try {
+      plugins = federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          react: {
+            import: false,
+            singleton: true,
+          },
+        },
+      }) as Plugin[];
+    } finally {
+      if (previousNoTestEnvCheck === undefined) {
+        delete process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+      } else {
+        process.env.MFE_VITE_NO_TEST_ENV_CHECK = previousNoTestEnvCheck;
+      }
+    }
+
+    const earlyInitPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-early-init'
+    );
+    const federationConfigPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-config'
+    );
+    const sharedAnalysisPlugin = plugins.find((plugin) => plugin.name === 'proxyPreBuildShared');
+    const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
+    const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
+    const federationLoadPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-esm-shims'
+    );
+    const federationOptionsPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-vite'
+    );
+    if (
+      !earlyInitPlugin ||
+      !federationConfigPlugin ||
+      !sharedAnalysisPlugin ||
+      !parseStart ||
+      !parseEnd ||
+      !federationLoadPlugin ||
+      !federationOptionsPlugin
+    ) {
+      throw new Error('module federation plugins not found');
+    }
+
+    const config = { root: process.cwd(), build: {} } as UserConfig;
+    const env = { command: 'build', mode: 'test' } as ConfigEnv;
+    const configContext = { meta: {} } as ConfigPluginContext;
+    runConfig(earlyInitPlugin, configContext, config, env);
+    runConfig(federationConfigPlugin, configContext, config, env);
+    runConfig(sharedAnalysisPlugin, configContext, config, env);
+
+    const parseContext = { resolve: async (id: string) => ({ id }) } as any;
+    await callHook(parseStart.buildStart, parseContext, undefined as never);
+    callHook(
+      sharedAnalysisPlugin.transform,
+      {} as any,
+      'import { useState } from "react";',
+      '/src/main.ts'
+    );
+    callHook(parseEnd.buildEnd, parseContext);
+
+    const federationOptions = (
+      federationOptionsPlugin as Plugin & {
+        _options: NormalizedModuleFederationOptions;
+      }
+    )._options;
+    const loadShareId = getLoadShareModulePath('react', false, federationOptions);
+    const result = (await callHook(
+      federationLoadPlugin.load,
+      {} as Rollup.PluginContext,
+      loadShareId
+    )) as { code: string };
+
+    expect(result.code).toContain('exportModule["useState"]');
+    expect(result.code).toContain('exportModule["createElement"]');
   });
 });
 
 describe('shared export condition configuration', () => {
-  it('uses SSR conditions contributed by a later config hook in Vite 5-7 load hooks', () => {
+  it('uses SSR conditions contributed by a later config hook in Vite 5-7 load hooks', async () => {
     const pkg = 'missing-late-conditions-package';
     const plugins = federation({
       name: 'host',
@@ -462,7 +644,9 @@ describe('shared export condition configuration', () => {
       }
     )._options;
     const loadShareId = getLoadShareModulePath(pkg, false, federationOptions);
-    callHook(federationLoadPlugin.load, {} as Rollup.PluginContext, loadShareId, { ssr: true });
+    await callHook(federationLoadPlugin.load, {} as Rollup.PluginContext, loadShareId, {
+      ssr: true,
+    });
 
     expect(getSharedExportConditionsMock).toHaveBeenCalledWith({
       environmentConditions: undefined,

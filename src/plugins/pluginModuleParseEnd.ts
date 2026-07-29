@@ -5,89 +5,107 @@
 import type { Plugin } from 'vite';
 import { mfWarn } from '../utils/logger';
 
-let _resolve: ((value: any) => void) | null = null;
-let _parseTimeout: ReturnType<typeof setTimeout> | null = null;
-let _settleTimeout: ReturnType<typeof setTimeout> | null = null;
+type ParseCompletion =
+  | { complete: true; reason: 'graph-complete' }
+  | {
+      complete: false;
+      reason: 'initial' | 'timeout' | 'idle-timeout' | 'build-end';
+    };
 
-let parsePromise = Promise.resolve(1);
+export function createModuleParseController() {
+  return {
+    resolve: null as ((value: ParseCompletion) => void) | null,
+    parseTimeout: null as ReturnType<typeof setTimeout> | null,
+    settleTimeout: null as ReturnType<typeof setTimeout> | null,
+    parsePromise: Promise.resolve<ParseCompletion>({
+      complete: false,
+      reason: 'initial',
+    }),
+    parseStartSet: new Set<string>(),
+    parseEndSet: new Set<string>(),
+    lastLoadedModule: '',
+    lastParsedModule: '',
+  };
+}
 
-let parseStartSet = new Set<string>();
-let parseEndSet = new Set<string>();
-let lastLoadedModule = '';
-let lastParsedModule = '';
+type ModuleParseController = ReturnType<typeof createModuleParseController>;
 
-function clearParseTimeout() {
-  if (_parseTimeout) {
-    clearTimeout(_parseTimeout);
-    _parseTimeout = null;
+function clearParseTimeout(controller: ModuleParseController) {
+  if (controller.parseTimeout) {
+    clearTimeout(controller.parseTimeout);
+    controller.parseTimeout = null;
   }
 }
 
-function clearSettleTimeout() {
-  if (_settleTimeout) {
-    clearTimeout(_settleTimeout);
-    _settleTimeout = null;
+function clearSettleTimeout(controller: ModuleParseController) {
+  if (controller.settleTimeout) {
+    clearTimeout(controller.settleTimeout);
+    controller.settleTimeout = null;
   }
 }
 
-function resetParseState() {
-  clearParseTimeout();
-  clearSettleTimeout();
-  parseStartSet = new Set();
-  parseEndSet = new Set();
-  lastLoadedModule = '';
-  lastParsedModule = '';
-  parsePromise = new Promise((resolve) => {
-    _resolve = (v: any) => {
-      clearParseTimeout();
-      clearSettleTimeout();
-      resolve(v);
+function resetParseState(controller: ModuleParseController) {
+  clearParseTimeout(controller);
+  clearSettleTimeout(controller);
+  controller.parseStartSet = new Set();
+  controller.parseEndSet = new Set();
+  controller.lastLoadedModule = '';
+  controller.lastParsedModule = '';
+  controller.parsePromise = new Promise<ParseCompletion>((resolve) => {
+    controller.resolve = (result) => {
+      clearParseTimeout(controller);
+      clearSettleTimeout(controller);
+      resolve(result);
     };
   });
 }
 
-function setParseTimeout(timeout: number) {
-  if (!_parseTimeout) {
-    _parseTimeout = setTimeout(() => {
+function setParseTimeout(controller: ModuleParseController, timeout: number) {
+  if (!controller.parseTimeout) {
+    controller.parseTimeout = setTimeout(() => {
       mfWarn(`Parse timeout (${timeout}s) - forcing resolve`);
-      _resolve?.(1);
+      controller.resolve?.({ complete: false, reason: 'timeout' });
     }, timeout * 1000);
   }
 }
 
-function resetIdleTimeout(timeout: number) {
-  clearParseTimeout();
-  _parseTimeout = setTimeout(() => {
-    const pendingModules = Array.from(parseStartSet).filter(
-      (moduleId) => !parseEndSet.has(moduleId)
+function resetIdleTimeout(controller: ModuleParseController, timeout: number) {
+  clearParseTimeout(controller);
+  controller.parseTimeout = setTimeout(() => {
+    const pendingModules = Array.from(controller.parseStartSet).filter(
+      (moduleId) => !controller.parseEndSet.has(moduleId)
     );
     mfWarn(
       `moduleParseIdleTimeout: no module activity for ${timeout}s, forcing resolve. ` +
         'Some shared/remote dependencies may be missing. Consider increasing moduleParseIdleTimeout.' +
-        ` Tracked modules: ${parseEndSet.size}/${parseStartSet.size}.` +
-        (lastLoadedModule ? ` Last loaded: ${lastLoadedModule}.` : '') +
-        (lastParsedModule ? ` Last parsed: ${lastParsedModule}.` : '') +
+        ` Tracked modules: ${controller.parseEndSet.size}/${controller.parseStartSet.size}.` +
+        (controller.lastLoadedModule ? ` Last loaded: ${controller.lastLoadedModule}.` : '') +
+        (controller.lastParsedModule ? ` Last parsed: ${controller.lastParsedModule}.` : '') +
         (pendingModules.length ? ` Pending modules: ${pendingModules.slice(0, 10).join(', ')}` : '')
     );
-    _resolve?.(1);
+    controller.resolve?.({ complete: false, reason: 'idle-timeout' });
   }, timeout * 1000);
 }
 
-function scheduleParseCompletionCheck() {
-  clearSettleTimeout();
+function scheduleParseCompletionCheck(controller: ModuleParseController) {
+  clearSettleTimeout(controller);
   // Give Rollup/Vite a short scheduling window to load child modules after
   // parsing an importer. Some environments report moduleParsed before the
   // child load, without exposing resolution metadata on the module object.
-  _settleTimeout = setTimeout(() => {
-    _settleTimeout = null;
+  controller.settleTimeout = setTimeout(() => {
+    controller.settleTimeout = null;
     // Vite/Rolldown can report moduleParsed for cached or internally loaded
     // modules that did not pass through this plugin's load hook. Completion is
     // therefore a subset check: every tracked load must have parsed; additional
     // parsed modules do not keep the barrier open.
     const parseCompleted =
-      parseStartSet.size > 0 &&
-      Array.from(parseStartSet).every((moduleId) => parseEndSet.has(moduleId));
-    if (parseCompleted) _resolve?.(1);
+      controller.parseStartSet.size > 0 &&
+      Array.from(controller.parseStartSet).every((moduleId) =>
+        controller.parseEndSet.has(moduleId)
+      );
+    if (parseCompleted) {
+      controller.resolve?.({ complete: true, reason: 'graph-complete' });
+    }
   }, 10);
 }
 
@@ -97,49 +115,65 @@ interface ModuleParseOptions {
   exposedModuleImports?: string[];
 }
 
-export default function (excludeFn: Function, options: ModuleParseOptions): Plugin[] {
+function getConfiguredInputImports(input: unknown): string[] {
+  if (typeof input === 'string') return [input];
+  if (Array.isArray(input))
+    return input.filter((entry): entry is string => typeof entry === 'string');
+  if (!input || typeof input !== 'object') return [];
+  return Object.values(input).filter((entry): entry is string => typeof entry === 'string');
+}
+
+export default function (
+  excludeFn: Function,
+  options: ModuleParseOptions,
+  controller = createModuleParseController()
+): Plugin[] {
   // Large builds can exceed a fixed total timeout while still making progress.
   // Default to an idle timeout so we only force-resolve after parsing stalls.
   const idleTimeout = options.moduleParseIdleTimeout ?? options.moduleParseTimeout;
+  let configuredInputImports: string[] = [];
   return [
-    {
-      name: '_',
-      apply: 'serve',
-      config() {
-        // No waiting in development mode
-        _resolve?.(1);
-      },
-    },
     {
       enforce: 'pre',
       name: 'parseStart',
       apply: 'build',
+      configResolved(config) {
+        const buildOptions = config.build as typeof config.build & {
+          rolldownOptions?: { input?: unknown };
+        };
+        configuredInputImports = getConfiguredInputImports(
+          buildOptions.rollupOptions.input ?? buildOptions.rolldownOptions?.input
+        );
+      },
       async buildStart() {
-        resetParseState();
+        resetParseState(controller);
         if (idleTimeout) {
-          resetIdleTimeout(idleTimeout);
+          resetIdleTimeout(controller, idleTimeout);
         } else if (options.moduleParseTimeout) {
-          setParseTimeout(options.moduleParseTimeout);
+          setParseTimeout(controller, options.moduleParseTimeout);
         }
-        // Exposed modules are emitted as independent entry chunks rather than
-        // children of the application's entry graph. Seed them up front so an
-        // otherwise-complete entry cannot finalize shared export usage before
-        // Rollup starts loading those expose entries.
-        for (const importSource of options.exposedModuleImports || []) {
+        // Exposed modules and explicit Rollup inputs can be scheduled
+        // independently. Seed every known entry before loading starts so one
+        // fast entry cannot finalize shared export usage ahead of the others.
+        const entryImports = new Set([
+          ...(options.exposedModuleImports || []),
+          ...configuredInputImports,
+        ]);
+        for (const importSource of entryImports) {
           const resolved = await this.resolve(importSource);
           if (resolved && !resolved.external && !excludeFn(resolved.id)) {
-            parseStartSet.add(resolved.id);
+            controller.parseStartSet.add(resolved.id);
           }
         }
       },
       load(id) {
-        lastLoadedModule = id;
+        controller.lastLoadedModule = id;
         if (excludeFn(id)) {
           return;
         }
-        clearSettleTimeout();
-        if (idleTimeout) resetIdleTimeout(idleTimeout);
-        parseStartSet.add(id);
+        clearSettleTimeout(controller);
+        if (idleTimeout) resetIdleTimeout(controller, idleTimeout);
+        controller.parseStartSet.add(id);
       },
     },
     {
@@ -147,12 +181,12 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
       name: 'parseEnd',
       apply: 'build',
       moduleParsed(module) {
-        clearSettleTimeout();
+        clearSettleTimeout(controller);
         const id = module.id;
-        lastParsedModule = id;
+        controller.lastParsedModule = id;
         if (idleTimeout) {
           // Reset idle timer on every module — any activity means the build is still progressing.
-          resetIdleTimeout(idleTimeout);
+          resetIdleTimeout(controller, idleTimeout);
         }
         // Rollup reports moduleParsed for an importer before it necessarily
         // loads/parses that importer's dependencies. Seed the pending set from
@@ -171,21 +205,37 @@ export default function (excludeFn: Function, options: ModuleParseOptions): Plug
         ) => {
           for (const resolution of resolutions || []) {
             if (!resolution.external && !excludeFn(resolution.id)) {
-              parseStartSet.add(resolution.id);
+              controller.parseStartSet.add(resolution.id);
+            }
+          }
+        };
+        const addPendingIds = (ids: string[] | undefined) => {
+          for (const pendingId of ids || []) {
+            const moduleInfo = this.getModuleInfo(pendingId);
+            // External ids have no ModuleInfo. Only seed modules Rollup has
+            // admitted into the graph; unresolved/unknown ids remain covered by
+            // the load hook or make the completion result conservative.
+            if (moduleInfo && !excludeFn(pendingId)) {
+              controller.parseStartSet.add(pendingId);
             }
           }
         };
         addPendingResolutions(parsedModule.importedIdResolutions);
         addPendingResolutions(parsedModule.dynamicallyImportedIdResolutions);
-        if (!excludeFn(id)) {
-          parseEndSet.add(id);
+        if (parsedModule.importedIdResolutions === undefined) {
+          addPendingIds(module.importedIds);
         }
-        scheduleParseCompletionCheck();
+        if (parsedModule.dynamicallyImportedIdResolutions === undefined) {
+          addPendingIds(module.dynamicallyImportedIds);
+        }
+        if (!excludeFn(id)) {
+          controller.parseEndSet.add(id);
+        }
+        scheduleParseCompletionCheck(controller);
       },
       buildEnd() {
-        _resolve?.(1);
+        controller.resolve?.({ complete: false, reason: 'build-end' });
       },
     },
   ];
 }
-export { parsePromise };
