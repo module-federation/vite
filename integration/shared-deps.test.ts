@@ -14,6 +14,12 @@ const SHARED_BASE_MF_OPTIONS = {
   dts: false,
 } satisfies Partial<ModuleFederationOptions>;
 
+function getHostProvidedExportAccessPattern(exportName: string) {
+  // Rollup may append a numeric suffix when the generated helper parameter
+  // conflicts with the outer exportModule binding.
+  return new RegExp(`\\bexportModule\\d*\\["${exportName}"\\]`);
+}
+
 describe('shared dependencies', () => {
   it('routes shared dep through loadShare()', async () => {
     const output = await buildFixture({
@@ -111,10 +117,10 @@ describe('shared dependencies', () => {
     expect(allCode).toContain('initRes.loadShare(pkg');
     expect(loadShare!.code).toContain('initPromise.then');
     expect(loadShare!.code).toContain('pendingShareLoads');
-    expect(loadShare!.code).toContain('exportModule["init"]');
-    expect(loadShare!.code).not.toContain('exportModule["value1"]');
-    expect(loadShare!.code).not.toContain('exportModule["value2"]');
-    expect(loadShare!.code).not.toContain('exportModule["value3"]');
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('init'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value1'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value2'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value3'));
     expect(loadShare!.code).toContain('default:mock-shared-dep');
     expect(loadShare!.code).toContain('mock-shared-dep');
     expect(loadShare!.code).toContain('init');
@@ -140,10 +146,10 @@ describe('shared dependencies', () => {
       .find((chunk) => chunk.code.includes('default:mock-shared-dep'));
 
     expect(loadShare).toBeDefined();
-    expect(loadShare!.code).toContain('exportModule["init"]');
-    expect(loadShare!.code).toContain('exportModule["value2"]');
-    expect(loadShare!.code).not.toContain('exportModule["value1"]');
-    expect(loadShare!.code).not.toContain('exportModule["value3"]');
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('init'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value2'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value1'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value3'));
   });
 
   it('unions import:false named exports across Rollup inputs and exposed consumers', async () => {
@@ -169,10 +175,10 @@ describe('shared dependencies', () => {
       .find((chunk) => chunk.code.includes('default:mock-shared-dep'));
 
     expect(loadShare).toBeDefined();
-    expect(loadShare!.code).toContain('exportModule["init"]');
-    expect(loadShare!.code).toContain('exportModule["value2"]');
-    expect(loadShare!.code).not.toContain('exportModule["value1"]');
-    expect(loadShare!.code).not.toContain('exportModule["value3"]');
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('init'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value2'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value1'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value3'));
   });
 
   it('keeps the complete import:false export surface for namespace consumers', async () => {
@@ -191,10 +197,10 @@ describe('shared dependencies', () => {
       .find((chunk) => chunk.code.includes('default:mock-shared-dep'));
 
     expect(loadShare).toBeDefined();
-    expect(loadShare!.code).toContain('exportModule["init"]');
-    expect(loadShare!.code).toContain('exportModule["value1"]');
-    expect(loadShare!.code).toContain('exportModule["value2"]');
-    expect(loadShare!.code).toContain('exportModule["value3"]');
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('init'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value1'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value2'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value3'));
   });
 
   it('includes shared deps in manifest', async () => {
