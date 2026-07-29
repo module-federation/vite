@@ -184,6 +184,12 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'mock-package-star-dependency') {
       return '/repo/apps/remote/node_modules/mock-package-star-dependency/index.js';
     }
+    if (pkg === 'mock-package-mutable-barrel') {
+      return '/repo/apps/remote/node_modules/mock-package-mutable-barrel/index.js';
+    }
+    if (pkg === 'mock-package-mutable-source') {
+      return '/repo/apps/remote/node_modules/mock-package-mutable-source/index.js';
+    }
     if (pkg === 'mock-package-conditional-star-entry') {
       return '/repo/apps/remote/node_modules/mock-package-conditional-star-entry/index.js';
     }
@@ -438,6 +444,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('node_modules/mock-package-enum-destructure/package.json') ||
       filePath.endsWith('/mock-package-enum-destructure/package.json') ||
       filePath.endsWith('node_modules/mock-package-browser-conditional/package.json') ||
+      filePath.endsWith('node_modules/mock-package-mutable-barrel/index.js') ||
+      filePath.endsWith('node_modules/mock-package-mutable-source/index.js') ||
       filePath.endsWith('/mock-package-browser-conditional/package.json') ||
       filePath.endsWith('node_modules/mock-package-browser-conditional/dist/browser.js') ||
       filePath.endsWith('/mock-package-browser-conditional/dist/browser.js') ||
@@ -633,6 +641,12 @@ export const buttonBase = 1;`;
     }
     if (filePath.endsWith('node_modules/mock-package-star-dependency/index.js')) {
       return 'export const fromStar = 1; export function anotherFromStar() {}';
+    }
+    if (filePath.endsWith('node_modules/mock-package-mutable-barrel/index.js')) {
+      return "export * from 'mock-package-mutable-source'; export const stable = 1;";
+    }
+    if (filePath.endsWith('node_modules/mock-package-mutable-source/index.js')) {
+      return 'let current = null; export function getCurrent() { return current; } export { current as currentInstance };';
     }
     if (filePath.endsWith('node_modules/mock-package-conditional-star-entry/index.js')) {
       return "export * from 'mock-package-browser-conditional';";
@@ -1206,6 +1220,53 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('export { __mfDefaultExport as default };');
     expect(generatedCode).toContain('export { __mf_0 as clientOnly };');
     expect(generatedCode).not.toContain('const { clientOnly: __mf_0 } = exportModule;');
+  });
+
+  it('forwards mutable exports only when the provider is necessarily local', () => {
+    const pkg = 'mock-package-mutable-barrel';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writePreBuildLibPath(pkg, mockShareItem);
+    const prebuildCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(prebuildCode).toContain(
+      'export { currentInstance } from "mock-package-mutable-barrel";'
+    );
+    expect(prebuildCode).not.toContain('__mfPrebuildExports["currentInstance"]');
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+    const loadShareCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(loadShareCode).toContain('export { currentInstance } from "mock-import-id";');
+    expect(loadShareCode).not.toContain('mod["currentInstance"]');
+    expect(loadShareCode).toContain('mod["stable"]');
+    expect(loadShareCode).toContain('mod["getCurrent"]');
+
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: { './App': './src/App.ts' },
+    });
+    writePreBuildLibPath(pkg, mockShareItem);
+    const selectablePrebuildCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(selectablePrebuildCode).toContain('__mfPrebuildExports["currentInstance"]');
+    expect(selectablePrebuildCode).not.toContain(
+      'export { currentInstance } from "mock-package-mutable-barrel";'
+    );
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+    const selectableLoadShareCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(selectableLoadShareCode).toContain('mod["currentInstance"]');
+    expect(selectableLoadShareCode).not.toContain(
+      'export { currentInstance } from "mock-import-id";'
+    );
   });
 
   it('aliases reserved named exports in prebuild wrappers instead of declaring them', () => {
