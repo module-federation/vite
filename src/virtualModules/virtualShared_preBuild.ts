@@ -500,6 +500,10 @@ function getNamedExportsViaRegex(
     const specifiers = match[1].split(',');
     for (const specifier of specifiers) {
       const trimmed = specifier.trim();
+      if (!trimmed) {
+        // empty specifier from a trailing comma in the export list — valid syntax, not a scan gap
+        continue;
+      }
       if (typeOnlySpecifierRegex.test(trimmed)) {
         continue;
       }

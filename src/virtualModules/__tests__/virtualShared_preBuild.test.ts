@@ -494,6 +494,7 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/multi-declarator.js') ||
       filePath.endsWith('/repo/packages/postfix-multi-declarator.js') ||
       filePath.endsWith('/repo/packages/string-export-list.js') ||
+      filePath.endsWith('/repo/packages/trailing-comma-export-list.js') ||
       filePath.endsWith('/repo/packages/default-reexport-list.js') ||
       filePath.endsWith('/repo/packages/string-namespace-export.js') ||
       filePath.endsWith('/repo/packages/nested-destructuring.js') ||
@@ -596,6 +597,14 @@ export const assertedRegistry = <Map<object, any>>new Map();`;
     }
     if (filePath.endsWith('/repo/packages/string-export-list.js')) {
       return 'const foo = 1; export { foo as "a-b", foo as valid };';
+    }
+    if (filePath.endsWith('/repo/packages/trailing-comma-export-list.js')) {
+      // Prettier's default `trailingComma` formatting for a multi-line export list.
+      return `export const first = 1;
+export const second = 2;
+export {
+  first as alias,
+};`;
     }
     if (filePath.endsWith('/repo/packages/default-reexport-list.js')) {
       // MUI's per-component barrel shape: a bare `export { default }` re-export
@@ -1900,6 +1909,33 @@ describe('writeLoadShareModule', () => {
     // buttonBase (declaration) + buttonClasses (`as` alias) are detected; the bare
     // `default` is skipped rather than marking the scan incomplete.
     expectLiveSingletonProxy(generatedCode, pkg, ['buttonBase', 'buttonClasses']);
+    expect(generatedCode).not.toContain(`export * from ${JSON.stringify(importPath)}`);
+  });
+
+  it('keeps an export list with a trailing comma as complete', () => {
+    const pkg = 'mock-package-with-reserved';
+    const importPath = '/repo/packages/trailing-comma-export-list.js';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    // Regression (#990): a trailing comma in a multi-line export list (Prettier's
+    // default formatting) produces an empty specifier when the list is split on
+    // commas; it must be skipped rather than marking the scan incomplete.
+    expectLiveSingletonProxy(generatedCode, pkg, ['first', 'second', 'alias']);
     expect(generatedCode).not.toContain(`export * from ${JSON.stringify(importPath)}`);
   });
 
