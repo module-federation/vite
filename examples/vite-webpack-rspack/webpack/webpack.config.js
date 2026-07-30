@@ -18,6 +18,9 @@ module.exports = {
 
   devServer: {
     port: 8080,
+    headers: {
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    },
     historyApiFallback: true,
     watchFiles: [path.resolve(__dirname, 'src')],
     onListening: function (devServer) {

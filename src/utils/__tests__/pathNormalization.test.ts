@@ -47,6 +47,10 @@ describe('pathNormalization', () => {
     expect(isNodeModulePath('/repo/src/App.tsx')).toBe(false);
   });
 
+  it('removes queries without regex backtracking', () => {
+    expect(normalizeNodeModulePath(`/repo/file.js?${'?'.repeat(10_000)}\n`)).toBe('/repo/file.js');
+  });
+
   it('matches the longest node_modules subpath candidate', () => {
     expect(
       getMatchingNodeModuleSubpath('/repo/node_modules/react-dom/server.browser.js?v=1', [
