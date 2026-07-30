@@ -190,7 +190,7 @@ describe('pluginModuleParseEnd', () => {
 
   it('completes when the only pending ids are externals reported with a ModuleInfo stub', async () => {
     // Rolldown returns a ModuleInfo for external ids without an `isExternal`
-    // marker. Capture the external flag while resolution still exposes it.
+    // marker, so the id has to be resolved again to find out.
     const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
     const ctx = {
       getModuleInfo: () => ({ id: 'react', code: null }),
@@ -198,7 +198,6 @@ describe('pluginModuleParseEnd', () => {
     } as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
-    await callHook(parseStart.resolveId, ctx, 'react', '/src/main.ts', { isEntry: false });
     callHook(parseStart.load, ctx, '/src/main.ts');
     callHook(parseEnd.moduleParsed, ctx, {
       id: '/src/main.ts',
@@ -244,9 +243,6 @@ describe('pluginModuleParseEnd', () => {
     } as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
-    await callHook(parseStart.resolveId, ctx, './late-child.ts', '/src/main.ts', {
-      isEntry: false,
-    });
     callHook(parseStart.load, ctx, '/src/main.ts');
     callHook(parseEnd.moduleParsed, ctx, {
       id: '/src/main.ts',

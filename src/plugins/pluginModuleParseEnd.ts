@@ -12,8 +12,6 @@ type ParseCompletion =
       reason: 'initial' | 'timeout' | 'idle-timeout' | 'build-end';
     };
 
-const EXTERNAL_PROBE_KEY = 'module-federation:module-parse-external-probe';
-
 export function createModuleParseController() {
   return {
     resolve: null as ((value: ParseCompletion) => void) | null,
@@ -29,6 +27,9 @@ export function createModuleParseController() {
     // analysis after the barrier gave up.
     discardWarned: false,
     externalSet: new Set<string>(),
+    // Ids already sent through `this.resolve` to determine externality, so each
+    // one is probed at most once per build.
+    resolutionProbed: new Set<string>(),
     lastLoadedModule: '',
     lastParsedModule: '',
   };
@@ -56,6 +57,7 @@ function resetParseState(controller: ModuleParseController) {
   controller.parseStartSet = new Set();
   controller.parseEndSet = new Set();
   controller.externalSet = new Set();
+  controller.resolutionProbed = new Set();
   controller.discardWarned = false;
   controller.lastLoadedModule = '';
   controller.lastParsedModule = '';
@@ -177,30 +179,6 @@ export default function (
         configuredExternal =
           buildOptions.rollupOptions.external ?? buildOptions.rolldownOptions?.external;
       },
-      async resolveId(source, importer, resolveOptions) {
-        const custom = resolveOptions.custom || {};
-        const activeProbe = custom[EXTERNAL_PROBE_KEY] as
-          | { controllers: Set<ModuleParseController> }
-          | undefined;
-        if (activeProbe) {
-          activeProbe.controllers.add(controller);
-          return null;
-        }
-
-        const probe = { controllers: new Set([controller]) };
-        const resolved = await this.resolve(source, importer, {
-          ...resolveOptions,
-          skipSelf: true,
-          custom: { ...custom, [EXTERNAL_PROBE_KEY]: probe },
-        });
-        if (resolved?.external) {
-          for (const parseController of probe.controllers) {
-            parseController.externalSet.add(source);
-            parseController.externalSet.add(resolved.id);
-          }
-        }
-        return resolved;
-      },
       async buildStart() {
         resetParseState(controller);
         if (idleTimeout) {
@@ -265,20 +243,40 @@ export default function (
             }
           }
         };
+        // Rolldown returns ModuleInfo stubs for externals and exposes no field
+        // that separates them from modules the build has not loaded yet, so the
+        // resolution has to be repeated. `this.resolve` replays the whole
+        // resolveId chain, which means an external produced by a plugin ordered
+        // before this one is still observed — watching our own resolveId hook
+        // cannot see those, because resolution is first-wins.
+        const probeExternal = (pendingId: string) => {
+          if (typeof this.resolve !== 'function') return;
+          if (controller.resolutionProbed.has(pendingId)) return;
+          controller.resolutionProbed.add(pendingId);
+          void this.resolve(pendingId, id, { skipSelf: true })
+            .then((resolved) => {
+              if (!resolved?.external) return;
+              controller.externalSet.add(pendingId);
+              controller.parseStartSet.delete(pendingId);
+              // The dropped id may have been the last one the barrier waited on.
+              scheduleParseCompletionCheck(controller);
+            })
+            .catch(() => {});
+        };
         const addPendingIds = (ids: string[] | undefined) => {
           for (const pendingId of ids || []) {
-            const moduleInfo = this.getModuleInfo(pendingId);
-            // Rolldown returns ModuleInfo stubs for externals. The pre-plugin's
-            // resolveId observer records the actual resolution result because
-            // no ModuleInfo field distinguishes those stubs from pending modules.
             if (
-              moduleInfo &&
-              !controller.externalSet.has(pendingId) &&
-              !matchesExternal(configuredExternal, pendingId, id) &&
-              !excludeFn(pendingId)
+              !this.getModuleInfo(pendingId) ||
+              controller.externalSet.has(pendingId) ||
+              matchesExternal(configuredExternal, pendingId, id) ||
+              excludeFn(pendingId)
             ) {
-              controller.parseStartSet.add(pendingId);
+              continue;
             }
+            controller.parseStartSet.add(pendingId);
+            // Until the resolution answers, the id keeps the barrier open —
+            // waiting is the safe direction.
+            if (!controller.parseEndSet.has(pendingId)) probeExternal(pendingId);
           }
         };
         addPendingResolutions(parsedModule.importedIdResolutions);
