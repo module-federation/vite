@@ -25,10 +25,10 @@ function getParsePlugins(
   return { controller, parseStart, parseEnd };
 }
 
-async function resolvesQuickly(promise: Promise<unknown>) {
+async function resolvesQuickly(promise: Promise<unknown>, timeout = 25) {
   return Promise.race([
     promise.then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), 25)),
+    new Promise((resolve) => setTimeout(() => resolve(false), timeout)),
   ]);
 }
 
@@ -186,6 +186,84 @@ describe('pluginModuleParseEnd', () => {
     } as never);
 
     expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
+  });
+
+  it('completes when the only pending ids are externals reported with a ModuleInfo stub', async () => {
+    // Rolldown returns a ModuleInfo for external ids without an `isExternal`
+    // marker, so the id has to be resolved again to find out.
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = {
+      getModuleInfo: () => ({ id: 'react', code: null }),
+      resolve: async () => ({ id: 'react', external: true }),
+    } as any;
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/main.ts',
+      importedIds: ['react'],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
+  });
+
+  it('filters configured externals that bypass resolveId hooks', async () => {
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = { getModuleInfo: () => ({ id: 'react', code: null }) } as any;
+
+    callHook(parseStart.configResolved, ctx, {
+      build: { rollupOptions: { external: [/^react$/] } },
+    } as never);
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/main.ts',
+      importedIds: ['react'],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
+  });
+
+  it('keeps waiting for an internal id after slow resolution', async () => {
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = {
+      getModuleInfo: () => ({ id: '/src/late-child.ts', code: null }),
+      resolve: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return { id: '/src/late-child.ts', external: false };
+      },
+    } as any;
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/main.ts',
+      importedIds: ['/src/late-child.ts'],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    callHook(parseStart.load, ctx, '/src/late-child.ts');
+
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
+
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/late-child.ts',
+      importedIds: [],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
   });
 
   it('tracks children of the excluded virtual exposes module', async () => {

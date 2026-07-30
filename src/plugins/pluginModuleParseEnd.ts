@@ -23,6 +23,13 @@ export function createModuleParseController() {
     }),
     parseStartSet: new Set<string>(),
     parseEndSet: new Set<string>(),
+    // One discard warning per build, however many shared consumers ask for the
+    // analysis after the barrier gave up.
+    discardWarned: false,
+    externalSet: new Set<string>(),
+    // Ids already sent through `this.resolve` to determine externality, so each
+    // one is probed at most once per build.
+    resolutionProbed: new Set<string>(),
     lastLoadedModule: '',
     lastParsedModule: '',
   };
@@ -49,6 +56,9 @@ function resetParseState(controller: ModuleParseController) {
   clearSettleTimeout(controller);
   controller.parseStartSet = new Set();
   controller.parseEndSet = new Set();
+  controller.externalSet = new Set();
+  controller.resolutionProbed = new Set();
+  controller.discardWarned = false;
   controller.lastLoadedModule = '';
   controller.lastParsedModule = '';
   controller.parsePromise = new Promise<ParseCompletion>((resolve) => {
@@ -115,6 +125,27 @@ interface ModuleParseOptions {
   exposedModuleImports?: string[];
 }
 
+type ExternalOption =
+  | string
+  | RegExp
+  | Array<string | RegExp>
+  | ((source: string, importer: string | undefined, isResolved: boolean) => boolean | null | void);
+
+function matchesExternal(
+  external: ExternalOption | undefined,
+  id: string,
+  importer: string
+): boolean {
+  if (!external) return false;
+  if (typeof external === 'function') return external(id, importer, true) === true;
+  const entries = Array.isArray(external) ? external : [external];
+  return entries.some((entry) => {
+    if (typeof entry === 'string') return entry === id;
+    entry.lastIndex = 0;
+    return entry.test(id);
+  });
+}
+
 function getConfiguredInputImports(input: unknown): string[] {
   if (typeof input === 'string') return [input];
   if (Array.isArray(input))
@@ -132,6 +163,7 @@ export default function (
   // Default to an idle timeout so we only force-resolve after parsing stalls.
   const idleTimeout = options.moduleParseIdleTimeout ?? options.moduleParseTimeout;
   let configuredInputImports: string[] = [];
+  let configuredExternal: ExternalOption | undefined;
   return [
     {
       enforce: 'pre',
@@ -139,11 +171,13 @@ export default function (
       apply: 'build',
       configResolved(config) {
         const buildOptions = config.build as typeof config.build & {
-          rolldownOptions?: { input?: unknown };
+          rolldownOptions?: { input?: unknown; external?: ExternalOption };
         };
         configuredInputImports = getConfiguredInputImports(
           buildOptions.rollupOptions.input ?? buildOptions.rolldownOptions?.input
         );
+        configuredExternal =
+          buildOptions.rollupOptions.external ?? buildOptions.rolldownOptions?.external;
       },
       async buildStart() {
         resetParseState(controller);
@@ -209,15 +243,40 @@ export default function (
             }
           }
         };
+        // Rolldown returns ModuleInfo stubs for externals and exposes no field
+        // that separates them from modules the build has not loaded yet, so the
+        // resolution has to be repeated. `this.resolve` replays the whole
+        // resolveId chain, which means an external produced by a plugin ordered
+        // before this one is still observed — watching our own resolveId hook
+        // cannot see those, because resolution is first-wins.
+        const probeExternal = (pendingId: string) => {
+          if (typeof this.resolve !== 'function') return;
+          if (controller.resolutionProbed.has(pendingId)) return;
+          controller.resolutionProbed.add(pendingId);
+          void this.resolve(pendingId, id, { skipSelf: true })
+            .then((resolved) => {
+              if (!resolved?.external) return;
+              controller.externalSet.add(pendingId);
+              controller.parseStartSet.delete(pendingId);
+              // The dropped id may have been the last one the barrier waited on.
+              scheduleParseCompletionCheck(controller);
+            })
+            .catch(() => {});
+        };
         const addPendingIds = (ids: string[] | undefined) => {
           for (const pendingId of ids || []) {
-            const moduleInfo = this.getModuleInfo(pendingId);
-            // External ids have no ModuleInfo. Only seed modules Rollup has
-            // admitted into the graph; unresolved/unknown ids remain covered by
-            // the load hook or make the completion result conservative.
-            if (moduleInfo && !excludeFn(pendingId)) {
-              controller.parseStartSet.add(pendingId);
+            if (
+              !this.getModuleInfo(pendingId) ||
+              controller.externalSet.has(pendingId) ||
+              matchesExternal(configuredExternal, pendingId, id) ||
+              excludeFn(pendingId)
+            ) {
+              continue;
             }
+            controller.parseStartSet.add(pendingId);
+            // Until the resolution answers, the id keeps the barrier open —
+            // waiting is the safe direction.
+            if (!controller.parseEndSet.has(pendingId)) probeExternal(pendingId);
           }
         };
         addPendingResolutions(parsedModule.importedIdResolutions);
