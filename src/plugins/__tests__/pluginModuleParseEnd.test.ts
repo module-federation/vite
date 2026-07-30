@@ -189,13 +189,36 @@ describe('pluginModuleParseEnd', () => {
   });
 
   it('completes when the only pending ids are externals reported with a ModuleInfo stub', async () => {
-    // Rolldown returns a ModuleInfo for external ids and exposes no
-    // `isExternal` marker, so they can only be recognized by never reaching the
-    // load hook. Without the speculative grace window the barrier stalls until
-    // the idle timeout and the shared export analysis is discarded.
+    // Rolldown returns a ModuleInfo for external ids without an `isExternal`
+    // marker. Capture the external flag while resolution still exposes it.
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = {
+      getModuleInfo: () => ({ id: 'react', code: null }),
+      resolve: async () => ({ id: 'react', external: true }),
+    } as any;
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    await callHook(parseStart.resolveId, ctx, 'react', '/src/main.ts', { isEntry: false });
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/main.ts',
+      importedIds: ['react'],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
+  });
+
+  it('filters configured externals that bypass resolveId hooks', async () => {
     const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
     const ctx = { getModuleInfo: () => ({ id: 'react', code: null }) } as any;
 
+    callHook(parseStart.configResolved, ctx, {
+      build: { rollupOptions: { external: [/^react$/] } },
+    } as never);
     callHook(parseStart.buildStart, ctx, undefined as never);
     callHook(parseStart.load, ctx, '/src/main.ts');
     callHook(parseEnd.moduleParsed, ctx, {
@@ -204,18 +227,26 @@ describe('pluginModuleParseEnd', () => {
       dynamicallyImportedIds: [],
     } as never);
 
-    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
     expect(await controller.parsePromise).toEqual({
       complete: true,
       reason: 'graph-complete',
     });
   });
 
-  it('keeps waiting when a speculatively seeded id loads within the grace window', async () => {
+  it('keeps waiting for an internal id after slow resolution', async () => {
     const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
-    const ctx = { getModuleInfo: () => ({ id: '/src/late-child.ts', code: null }) } as any;
+    const ctx = {
+      getModuleInfo: () => ({ id: '/src/late-child.ts', code: null }),
+      resolve: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return { id: '/src/late-child.ts', external: false };
+      },
+    } as any;
 
     callHook(parseStart.buildStart, ctx, undefined as never);
+    await callHook(parseStart.resolveId, ctx, './late-child.ts', '/src/main.ts', {
+      isEntry: false,
+    });
     callHook(parseStart.load, ctx, '/src/main.ts');
     callHook(parseEnd.moduleParsed, ctx, {
       id: '/src/main.ts',
@@ -223,11 +254,9 @@ describe('pluginModuleParseEnd', () => {
       dynamicallyImportedIds: [],
     } as never);
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
     callHook(parseStart.load, ctx, '/src/late-child.ts');
 
-    // The child is confirmed real, so the grace window must not drop it.
-    expect(await resolvesQuickly(controller.parsePromise, 400)).toBe(false);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
 
     callHook(parseEnd.moduleParsed, ctx, {
       id: '/src/late-child.ts',
