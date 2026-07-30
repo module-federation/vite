@@ -44,7 +44,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Override bundler version
-        run: pnpm add -Dw ${{ matrix.bundler }}
+        run: |
+          case '${{ matrix.bundler }}' in
+            vite@5) pnpm pkg set 'pnpm.overrides.vite@5>esbuild=0.21.5' ;;
+            vite@6) pnpm pkg set 'pnpm.overrides.vite@6>esbuild=0.25.12' ;;
+          esac
+          pnpm add -Dw vite-under-test@npm:${{ matrix.bundler }}
 
       - name: Run Integration Tests
-        run: pnpm test:integration
+        run: MFE_VITE_PACKAGE=vite-under-test pnpm test:integration

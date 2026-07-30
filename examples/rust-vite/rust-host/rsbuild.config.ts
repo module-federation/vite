@@ -22,7 +22,7 @@ export default defineConfig({
           },
           remoteType: 'module',
           exposes: {
-            './app': './src/app.tsx',
+            './app': './src/App.tsx',
           },
           manifest: {
             filePath: 'manifestpath',

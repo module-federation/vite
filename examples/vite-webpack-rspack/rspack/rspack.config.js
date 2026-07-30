@@ -1,5 +1,10 @@
 const rspack = require('@rspack/core');
-const refreshPlugin = require('@rspack/plugin-react-refresh');
+const {
+  ModuleFederationPlugin,
+} = require('@module-federation/enhanced/rspack');
+const {
+  ReactRefreshRspackPlugin,
+} = require('@rspack/plugin-react-refresh');
 const isDev = process.env.NODE_ENV === 'development';
 const path = require('path');
 
@@ -91,7 +96,7 @@ module.exports = {
     ],
   },
   plugins: [
-    new rspack.container.ModuleFederationPlugin({
+    new ModuleFederationPlugin({
       name: 'rspack',
       filename: 'remoteEntry.js',
       exposes: {
@@ -106,6 +111,6 @@ module.exports = {
     new rspack.HtmlRspackPlugin({
       template: './src/index.html',
     }),
-    isDev ? new refreshPlugin() : null,
+    isDev ? new ReactRefreshRspackPlugin() : null,
   ].filter(Boolean),
 };

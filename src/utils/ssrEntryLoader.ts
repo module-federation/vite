@@ -78,20 +78,19 @@ async function getModuleRunnerModule(): Promise<{
   ) => { import: (id: string) => Promise<unknown> };
   ESModulesEvaluator: new () => unknown;
 } | null> {
+  const moduleRunnerId = ['vite', 'module-runner'].join('/');
   // Prefer Node's loader. When this plugin itself runs inside another Vite
   // ModuleRunner (for example Vinext RSC), a regular import lets the host
   // transform Vite's own module-runner and breaks its internal import(filepath).
   try {
     const { createRequire } = (await nodeImport('module')) as typeof import('module');
     const require = createRequire(import.meta.url);
-    return require('vite/module-runner') as Awaited<ReturnType<typeof getModuleRunnerModule>>;
+    return require(moduleRunnerId) as Awaited<ReturnType<typeof getModuleRunnerModule>>;
   } catch {
     // Retain an ESM fallback for releases which cannot be required and tests.
   }
   try {
-    return (await import('vite/module-runner')) as Awaited<
-      ReturnType<typeof getModuleRunnerModule>
-    >;
+    return (await nodeImport(moduleRunnerId)) as Awaited<ReturnType<typeof getModuleRunnerModule>>;
   } catch {
     return null;
   }

@@ -354,9 +354,16 @@ describe('pluginAddEntry', () => {
       `${clientEntry}?v=abc123`
     )) as { code: string } | undefined;
 
-    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
-    expect(result?.code).toContain(
-      `})().then(() => import(${JSON.stringify(`${clientEntry}?v=abc123&mf-entry-bootstrap`)}));`
+    const code = result?.code ?? '';
+    const importPrefix = '})().then(() => import(';
+    const serializedStart = code.indexOf(importPrefix) + importPrefix.length;
+    const serializedEnd = code.indexOf('));', serializedStart);
+
+    expect(code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
+    expect(serializedStart).toBeGreaterThanOrEqual(importPrefix.length);
+    expect(serializedEnd).toBeGreaterThan(serializedStart);
+    expect(JSON.parse(code.slice(serializedStart, serializedEnd))).toBe(
+      `${clientEntry}?v=abc123&mf-entry-bootstrap`
     );
   });
 
