@@ -12,17 +12,35 @@ type ParseCompletion =
       reason: 'initial' | 'timeout' | 'idle-timeout' | 'build-end';
     };
 
+/**
+ * Additional quiet window granted when the only outstanding modules were seeded
+ * speculatively from `importedIds`. Quiescence is the only available signal
+ * that such an id is an external the graph will never load, and there is no
+ * event for it — any load/parse activity cancels this timer, so it elapses only
+ * after the whole graph has gone silent for far longer than the settle
+ * debounce below.
+ */
+const SPECULATIVE_SETTLE_TIMEOUT = 250;
+
 export function createModuleParseController() {
   return {
     resolve: null as ((value: ParseCompletion) => void) | null,
     parseTimeout: null as ReturnType<typeof setTimeout> | null,
     settleTimeout: null as ReturnType<typeof setTimeout> | null,
+    speculativeTimeout: null as ReturnType<typeof setTimeout> | null,
     parsePromise: Promise.resolve<ParseCompletion>({
       complete: false,
       reason: 'initial',
     }),
     parseStartSet: new Set<string>(),
     parseEndSet: new Set<string>(),
+    // One discard warning per build, however many shared consumers ask for the
+    // analysis after the barrier gave up.
+    discardWarned: false,
+    // Ids seeded from `importedIds` that have not been observed in the load
+    // hook or `moduleParsed` yet. Under Rolldown these can be external ids,
+    // which never load and would otherwise stall the barrier forever.
+    speculativeSet: new Set<string>(),
     lastLoadedModule: '',
     lastParsedModule: '',
   };
@@ -42,6 +60,10 @@ function clearSettleTimeout(controller: ModuleParseController) {
     clearTimeout(controller.settleTimeout);
     controller.settleTimeout = null;
   }
+  if (controller.speculativeTimeout) {
+    clearTimeout(controller.speculativeTimeout);
+    controller.speculativeTimeout = null;
+  }
 }
 
 function resetParseState(controller: ModuleParseController) {
@@ -49,6 +71,8 @@ function resetParseState(controller: ModuleParseController) {
   clearSettleTimeout(controller);
   controller.parseStartSet = new Set();
   controller.parseEndSet = new Set();
+  controller.speculativeSet = new Set();
+  controller.discardWarned = false;
   controller.lastLoadedModule = '';
   controller.lastParsedModule = '';
   controller.parsePromise = new Promise<ParseCompletion>((resolve) => {
@@ -87,6 +111,12 @@ function resetIdleTimeout(controller: ModuleParseController, timeout: number) {
   }, timeout * 1000);
 }
 
+function getUnparsedIds(controller: ModuleParseController): string[] {
+  return Array.from(controller.parseStartSet).filter(
+    (moduleId) => !controller.parseEndSet.has(moduleId)
+  );
+}
+
 function scheduleParseCompletionCheck(controller: ModuleParseController) {
   clearSettleTimeout(controller);
   // Give Rollup/Vite a short scheduling window to load child modules after
@@ -98,14 +128,39 @@ function scheduleParseCompletionCheck(controller: ModuleParseController) {
     // modules that did not pass through this plugin's load hook. Completion is
     // therefore a subset check: every tracked load must have parsed; additional
     // parsed modules do not keep the barrier open.
-    const parseCompleted =
-      controller.parseStartSet.size > 0 &&
-      Array.from(controller.parseStartSet).every((moduleId) =>
-        controller.parseEndSet.has(moduleId)
-      );
-    if (parseCompleted) {
-      controller.resolve?.({ complete: true, reason: 'graph-complete' });
+    const unparsedIds = getUnparsedIds(controller);
+    if (unparsedIds.length === 0) {
+      if (controller.parseStartSet.size > 0) {
+        controller.resolve?.({ complete: true, reason: 'graph-complete' });
+      }
+      return;
     }
+    // A speculatively seeded id that never reaches the load hook cannot be a
+    // module this build will parse — Rolldown reports external ids through
+    // `importedIds` with a ModuleInfo and no `isExternal` marker, so they are
+    // indistinguishable at seed time. Grant one longer quiet window before
+    // giving up on them; dropping them at the settle debounce would discard
+    // children that #994 deliberately waits for.
+    if (!unparsedIds.every((moduleId) => controller.speculativeSet.has(moduleId))) {
+      return;
+    }
+    controller.speculativeTimeout = setTimeout(() => {
+      controller.speculativeTimeout = null;
+      const stillUnparsed = getUnparsedIds(controller);
+      if (
+        stillUnparsed.length === 0 ||
+        !stillUnparsed.every((moduleId) => controller.speculativeSet.has(moduleId))
+      ) {
+        return;
+      }
+      for (const moduleId of stillUnparsed) {
+        controller.parseStartSet.delete(moduleId);
+        controller.speculativeSet.delete(moduleId);
+      }
+      if (controller.parseStartSet.size > 0) {
+        controller.resolve?.({ complete: true, reason: 'graph-complete' });
+      }
+    }, SPECULATIVE_SETTLE_TIMEOUT);
   }, 10);
 }
 
@@ -173,6 +228,9 @@ export default function (
         }
         clearSettleTimeout(controller);
         if (idleTimeout) resetIdleTimeout(controller, idleTimeout);
+        // Reaching the load hook proves the id is a real module, not an
+        // external the graph will never parse.
+        controller.speculativeSet.delete(id);
         controller.parseStartSet.add(id);
       },
     },
@@ -212,10 +270,19 @@ export default function (
         const addPendingIds = (ids: string[] | undefined) => {
           for (const pendingId of ids || []) {
             const moduleInfo = this.getModuleInfo(pendingId);
-            // External ids have no ModuleInfo. Only seed modules Rollup has
-            // admitted into the graph; unresolved/unknown ids remain covered by
-            // the load hook or make the completion result conservative.
+            // Only seed modules the bundler has admitted into the graph;
+            // unresolved/unknown ids remain covered by the load hook or make
+            // the completion result conservative. Rollup omits ModuleInfo for
+            // externals, but Rolldown returns a stub for them with no
+            // `isExternal` marker, so treat these seeds as speculative until
+            // the load hook confirms them.
             if (moduleInfo && !excludeFn(pendingId)) {
+              if (
+                !controller.parseStartSet.has(pendingId) &&
+                !controller.parseEndSet.has(pendingId)
+              ) {
+                controller.speculativeSet.add(pendingId);
+              }
               controller.parseStartSet.add(pendingId);
             }
           }
@@ -228,6 +295,7 @@ export default function (
         if (parsedModule.dynamicallyImportedIdResolutions === undefined) {
           addPendingIds(module.dynamicallyImportedIds);
         }
+        controller.speculativeSet.delete(id);
         if (!excludeFn(id)) {
           controller.parseEndSet.add(id);
         }

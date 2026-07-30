@@ -955,7 +955,22 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     if (!key || shared[key].shareConfig.import !== false) return undefined;
 
     return moduleParseController.parsePromise.then((completion) => {
-      if (!completion.complete) return undefined;
+      if (!completion.complete) {
+        // The fallback is safe but invisible: without this the build silently
+        // pays the barrier's timeout and emits the complete export surface.
+        if (!moduleParseController.discardWarned) {
+          moduleParseController.discardWarned = true;
+          mfWarn(
+            `import: false shared export analysis was discarded (reason: ${completion.reason})` +
+              ' — falling back to the complete export surface, so shared consumers keep every' +
+              ' detected named export.' +
+              (completion.reason === 'idle-timeout' || completion.reason === 'timeout'
+                ? ' If the build is simply slow, increasing moduleParseIdleTimeout may let the analysis finish.'
+                : '')
+          );
+        }
+        return undefined;
+      }
       return getSharedExportUsage(pkg, shared[key], key, options);
     });
   };

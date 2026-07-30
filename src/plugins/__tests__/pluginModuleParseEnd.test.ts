@@ -25,10 +25,10 @@ function getParsePlugins(
   return { controller, parseStart, parseEnd };
 }
 
-async function resolvesQuickly(promise: Promise<unknown>) {
+async function resolvesQuickly(promise: Promise<unknown>, timeout = 25) {
   return Promise.race([
     promise.then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), 25)),
+    new Promise((resolve) => setTimeout(() => resolve(false), timeout)),
   ]);
 }
 
@@ -186,6 +186,59 @@ describe('pluginModuleParseEnd', () => {
     } as never);
 
     expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
+  });
+
+  it('completes when the only pending ids are externals reported with a ModuleInfo stub', async () => {
+    // Rolldown returns a ModuleInfo for external ids and exposes no
+    // `isExternal` marker, so they can only be recognized by never reaching the
+    // load hook. Without the speculative grace window the barrier stalls until
+    // the idle timeout and the shared export analysis is discarded.
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = { getModuleInfo: () => ({ id: 'react', code: null }) } as any;
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/main.ts',
+      importedIds: ['react'],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
+  });
+
+  it('keeps waiting when a speculatively seeded id loads within the grace window', async () => {
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = { getModuleInfo: () => ({ id: '/src/late-child.ts', code: null }) } as any;
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/main.ts',
+      importedIds: ['/src/late-child.ts'],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    callHook(parseStart.load, ctx, '/src/late-child.ts');
+
+    // The child is confirmed real, so the grace window must not drop it.
+    expect(await resolvesQuickly(controller.parsePromise, 400)).toBe(false);
+
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/late-child.ts',
+      importedIds: [],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
   });
 
   it('tracks children of the excluded virtual exposes module', async () => {
