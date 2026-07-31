@@ -12,6 +12,10 @@ import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd, { createModuleParseController } from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
+import {
+  createEsbuildReactMixedModeGuard,
+  createRolldownReactMixedModeGuard,
+} from './plugins/pluginReactMixedModeGuard';
 import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
@@ -421,6 +425,8 @@ function includeLinkedSharedEntries(
 function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOptions): Plugin {
   const { shared, remotes } = options;
   const isLitShare = (pkg: string) => pkg === 'lit' || pkg.startsWith('lit/');
+  const shouldGuardReactMixedMode =
+    Object.keys(remotes ?? {}).length > 0 && shared?.react?.shareConfig.singleton === true;
 
   return {
     name: 'vite:module-federation-early-init',
@@ -471,6 +477,9 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           if (isRolldown) {
             optimizeDeps.rolldownOptions ??= {};
             optimizeDeps.rolldownOptions.plugins ??= [];
+            if (shouldGuardReactMixedMode) {
+              optimizeDeps.rolldownOptions.plugins.push(createRolldownReactMixedModeGuard());
+            }
             optimizeDeps.rolldownOptions.plugins.push({
               name: 'module-federation:optimize-shared-resolver',
               load(id: string) {
@@ -541,6 +550,9 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           } else {
             optimizeDeps.esbuildOptions ??= {};
             optimizeDeps.esbuildOptions.plugins ??= [];
+            if (shouldGuardReactMixedMode) {
+              optimizeDeps.esbuildOptions.plugins.push(createEsbuildReactMixedModeGuard());
+            }
             optimizeDeps.esbuildOptions.plugins.push({
               name: 'module-federation:optimize-shared-proxy',
               setup(build: any) {
