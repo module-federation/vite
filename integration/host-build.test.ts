@@ -65,8 +65,9 @@ describe('host build', () => {
     expect(bootstrapAsset?.source).toContain('const { initHost } = __mfHostInit;');
     expect(bootstrapAsset?.source).toContain('const runtime = await initHost();');
     expect(bootstrapAsset?.source).toMatch(
-      /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1\/Module", "remote1\/Module"\)/
+      /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1", "remote1"\)/
     );
+    expect(bootstrapAsset?.source).not.toContain('remote1/Module');
     expect(bootstrapAsset?.source).toContain('runtime.loadRemote(runtimeRemote)');
     expect(bootstrapAsset?.source).toContain('})().then(() => __mfImport(');
     expect(bootstrapAsset?.source).toContain('globalThis.System.import(src)');
@@ -108,6 +109,13 @@ describe('host build', () => {
     // but it's loaded through the module graph rather than an HTML script tag
     expect(getChunkNames(output).some((name) => name.includes('hostInit'))).toBe(true);
     expect(getAllChunkCode(output)).toContain('initializeSharing');
+    const entryBootstrap = output.output.find(
+      (item) => item.type === 'chunk' && item.code.includes('__mfRemotePreloads')
+    );
+    expect(entryBootstrap?.code).toMatch(
+      /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1", "remote1"\)/
+    );
+    expect(entryBootstrap?.code).not.toMatch(/__mfPreloadRemote\([^)]*remote1\/Module/);
   });
 
   it('embeds configured federation name in remoteEntry chunk', async () => {

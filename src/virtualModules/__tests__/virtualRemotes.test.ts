@@ -6,8 +6,20 @@ import {
   generateRemotes,
   getRemoteVirtualModule,
   getUsedRemotesMap,
+  isDynamicOnlyRemote,
+  markDynamicRemote,
+  markStaticRemote,
   resolveRemoteInitMode,
 } from '../virtualRemotes';
+
+it('classifies an expose as dynamic-only until a static import is seen', () => {
+  const options = {} as never;
+  markDynamicRemote('remote/Card', options);
+  expect(isDynamicOnlyRemote('remote/Card', options)).toBe(true);
+
+  markStaticRemote('remote/Card', options);
+  expect(isDynamicOnlyRemote('remote/Card', options)).toBe(false);
+});
 
 const mockOptions = vi.hoisted(() => ({
   shareStrategy: 'version-first' as 'version-first' | 'loaded-first',

@@ -25,6 +25,7 @@ import {
   addUsedRemote,
   getRuntimeRemoteId,
   getUsedRemotesMap,
+  isDynamicOnlyRemote,
 } from '../virtualModules/virtualRemotes';
 import {
   getRuntimeModuleCacheBootstrapCode,
@@ -315,6 +316,7 @@ const __mfCurrentScript = document.currentScript;
     const remotePreloads = shouldPreloadRemotes
       ? Object.entries(getUsedRemotesMap(federationOptions))
           .flatMap(([, remotes]) => Array.from(remotes))
+          .filter((remote) => !federationOptions || !isDynamicOnlyRemote(remote, federationOptions))
           .sort()
           .map(
             (remote) =>

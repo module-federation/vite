@@ -22,7 +22,12 @@ import type { Plugin } from 'vite';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { LOAD_REMOTE_TAG, LOAD_SHARE_TAG } from '../virtualModules';
+import {
+  LOAD_REMOTE_TAG,
+  LOAD_SHARE_TAG,
+  markDynamicRemote,
+  markStaticRemote,
+} from '../virtualModules';
 
 const JS_EXTENSIONS_RE = /\.(?:[mc]?[jt]sx?|vue|svelte)(?:\?|$)/;
 
@@ -55,6 +60,7 @@ interface ExportAllInfo {
 
 interface DynamicImportInfo {
   kind: 'dynamic';
+  source: string;
   start: number;
   end: number;
   originalText: string;
@@ -76,6 +82,22 @@ interface WalkVisitor {
 
 function isAstNode(value: unknown): value is { type: string; [key: string]: unknown } {
   return !!value && typeof value === 'object' && typeof (value as any).type === 'string';
+}
+
+function findStaticRemoteSources(code: string, isRemoteImport: (source: string) => boolean) {
+  const codePositions = createCodePositionMap(code);
+  const sources = new Set<string>();
+  const patterns = [
+    /\b(?:import|export)\s+[^;]*?\bfrom\s*["']([^"']+)["']/g,
+    /\bimport\s*["']([^"']+)["']/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of code.matchAll(pattern)) {
+      const source = match[1];
+      if (codePositions[match.index!] && isRemoteImport(source)) sources.add(source);
+    }
+  }
+  return sources;
 }
 
 function walkAST(root: unknown, visitor: WalkVisitor): void {
@@ -377,6 +399,7 @@ async function collectFromAST(
 
         result.push({
           kind: 'dynamic',
+          source: value,
           start: node.start,
           end: node.end,
           originalText: code.slice(node.start, node.end),
@@ -492,6 +515,7 @@ function collectFromRegex(
 
     result.push({
       kind: 'dynamic',
+      source,
       start: match.index!,
       end: match.index! + full.length,
       originalText: full,
@@ -530,6 +554,9 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
       // Quick bail-out: does the source mention any remote name?
       if (!remoteNames.some((name) => code.includes(name))) return;
       const matchesRemoteImport = (source: string) => isRemoteImport(source, id);
+      for (const source of findStaticRemoteSources(code, matchesRemoteImport)) {
+        markStaticRemote(source, options);
+      }
 
       let imports: ImportInfo[] | undefined;
 
@@ -545,6 +572,9 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
       }
 
       if (!imports) return;
+      for (const remoteImport of imports) {
+        if (remoteImport.kind === 'dynamic') markDynamicRemote(remoteImport.source, options);
+      }
       return applyRewrites(code, imports, id);
     },
   };
