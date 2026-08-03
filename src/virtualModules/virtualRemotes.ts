@@ -63,6 +63,8 @@ const usedRemotesByOptions = new WeakMap<
   NormalizedModuleFederationOptions,
   Record<string, Set<string>>
 >();
+const dynamicRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
+const staticRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 
 function getScopedUsedRemotesMap(options: NormalizedModuleFederationOptions) {
   let scoped = usedRemotesByOptions.get(options);
@@ -93,6 +95,31 @@ export function addUsedRemote(
 export function getUsedRemotesMap(options?: NormalizedModuleFederationOptions) {
   if (options) return getScopedUsedRemotesMap(options);
   return usedRemotesMap;
+}
+
+export function markDynamicRemote(remote: string, options: NormalizedModuleFederationOptions) {
+  let remotes = dynamicRemotesByOptions.get(options);
+  if (!remotes) {
+    remotes = new Set();
+    dynamicRemotesByOptions.set(options, remotes);
+  }
+  remotes.add(remote);
+}
+
+export function markStaticRemote(remote: string, options: NormalizedModuleFederationOptions) {
+  let remotes = staticRemotesByOptions.get(options);
+  if (!remotes) {
+    remotes = new Set();
+    staticRemotesByOptions.set(options, remotes);
+  }
+  remotes.add(remote);
+}
+
+export function isDynamicOnlyRemote(remote: string, options: NormalizedModuleFederationOptions) {
+  return (
+    (dynamicRemotesByOptions.get(options)?.has(remote) ?? false) &&
+    !(staticRemotesByOptions.get(options)?.has(remote) ?? false)
+  );
 }
 
 function getRemoteAliasFromId(id: string, remotes: Record<string, RemoteObjectConfig>) {
