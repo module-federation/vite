@@ -79,6 +79,10 @@ const App = () => {
   const [randomBanner, setRandomBanner] = React.useState<'SignUpBanner' | 'SpecialPromo'>(
     'SpecialPromo'
   );
+  const RuntimeModuleRemoteProduct = useDynamicImport({
+    module: 'Product',
+    scope: 'moduleRemote',
+  });
 
   const Banner = useDynamicImport({
     module: randomBanner,
@@ -102,6 +106,9 @@ const App = () => {
           <Suspense fallback="Loading...">
             <ModuleRemoteProduct />
           </Suspense>
+          <span data-testid="configured-load-remote">
+            {RuntimeModuleRemoteProduct ? 'loaded' : 'loading'}
+          </span>
           <Suspense fallback="Loading...">
             <VarRemotePurchasesCount />
           </Suspense>

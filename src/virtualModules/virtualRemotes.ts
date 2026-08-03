@@ -364,7 +364,7 @@ export function generateRemotes(
       ? `runtime.registerRemotes([${JSON.stringify({
           entryGlobalName: remote.entryGlobalName,
           name: options ? runtimeRemoteAlias : remote.name,
-          alias: runtimeRemoteAlias,
+          alias: remoteAlias,
           type: remote.type,
           entry: remote.entry,
           shareScope: remote.shareScope ?? 'default',

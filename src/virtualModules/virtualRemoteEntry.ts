@@ -283,7 +283,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           if (!remote) return null;
           return `
                 {
-                  alias: ${JSON.stringify(getRuntimeRemoteAlias(key, options))},
+                  alias: ${JSON.stringify(key)},
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
                   name: ${JSON.stringify(
                     options ? getRuntimeRemoteAlias(key, options) : remote.name
