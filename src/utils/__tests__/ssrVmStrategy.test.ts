@@ -37,6 +37,16 @@ async function freshStrategy() {
   return await import('../ssrVmStrategy');
 }
 
+async function createFallbackSharedModule(prefix: string): Promise<string> {
+  const { mkdtempSync, writeFileSync } = await import('fs');
+  const { tmpdir } = await import('os');
+  const { join } = await import('path');
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const file = join(dir, 'fallback.mjs');
+  writeFileSync(file, 'export const value = "fallback";', 'utf8');
+  return file;
+}
+
 const baseOptions = {
   resolvedShared: {},
   shareScopeName: 'default',
@@ -109,6 +119,132 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(loadShare).toHaveBeenCalledWith('shared-lib');
     expect(namespace.val).toBe(42);
     expect(namespace.def.name).toBe('host-shared');
+  });
+
+  it('negotiates static and dynamic common shared subpaths through the parent share', async () => {
+    const fallbackFile = await createFallbackSharedModule('mf-vm-subpath-');
+
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text:
+          'import { value as staticValue } from "react/jsx-runtime";' +
+          'export const value = staticValue;' +
+          'export async function getDynamicValue() {' +
+          '  const mod = await import("react/jsx-runtime");' +
+          '  return mod.value;' +
+          '}',
+      },
+    }) as unknown as typeof globalThis.fetch;
+
+    const loadShare = vi.fn(async (specifier: string) => {
+      expect(specifier).toBe('react/jsx-runtime');
+      return () => ({ value: 'negotiated' });
+    });
+    (globalThis as Record<string, unknown>).__FEDERATION__ = {
+      __INSTANCES__: [{ options: { shared: { react: { scope: 'default' } } }, loadShare }],
+    };
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions, resolvedShared: { 'react/jsx-runtime': fallbackFile } }
+    )) as { value: string; getDynamicValue: () => Promise<string> };
+
+    expect(namespace.value).toBe('negotiated');
+    await expect(namespace.getDynamicValue()).resolves.toBe('negotiated');
+    expect(loadShare).toHaveBeenCalledWith('react/jsx-runtime');
+    expect(loadShare).toHaveBeenCalledTimes(2);
+  });
+
+  it('prefers an explicit shared subpath configuration over its parent', async () => {
+    const fallbackFile = await createFallbackSharedModule('mf-vm-explicit-subpath-');
+
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'import { value } from "react/jsx-runtime"; export { value };',
+      },
+    }) as unknown as typeof globalThis.fetch;
+
+    const loadShare = vi.fn(async () => () => ({ value: 'negotiated' }));
+    (globalThis as Record<string, unknown>).__FEDERATION__ = {
+      __INSTANCES__: [
+        {
+          options: {
+            shared: {
+              react: { scope: 'default' },
+              'react/jsx-runtime': { scope: 'custom' },
+            },
+          },
+          loadShare,
+        },
+      ],
+    };
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions, resolvedShared: { 'react/jsx-runtime': fallbackFile } }
+    )) as { value: string };
+
+    expect(namespace.value).toBe('fallback');
+    expect(loadShare).not.toHaveBeenCalled();
+  });
+
+  it('matches wildcard shared packages', async () => {
+    const fallbackFile = await createFallbackSharedModule('mf-vm-wildcard-');
+
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'import { value } from "@scope/ui/button"; export { value };',
+      },
+    }) as unknown as typeof globalThis.fetch;
+
+    const loadShare = vi.fn(async () => () => ({ value: 'negotiated' }));
+    (globalThis as Record<string, unknown>).__FEDERATION__ = {
+      __INSTANCES__: [
+        {
+          options: { shared: { '@scope/ui/': { scope: 'default' } } },
+          loadShare,
+        },
+      ],
+    };
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions, resolvedShared: { '@scope/ui/button': fallbackFile } }
+    )) as { value: string };
+
+    expect(namespace.value).toBe('negotiated');
+    expect(loadShare).toHaveBeenCalledWith('@scope/ui/button');
+  });
+
+  it('does not treat arbitrary package subpaths as parent shared modules', async () => {
+    const fallbackFile = await createFallbackSharedModule('mf-vm-unmatched-subpath-');
+
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'import { value } from "react/not-a-common-subpath"; export { value };',
+      },
+    }) as unknown as typeof globalThis.fetch;
+
+    const loadShare = vi.fn(async () => () => ({ value: 'negotiated' }));
+    (globalThis as Record<string, unknown>).__FEDERATION__ = {
+      __INSTANCES__: [{ options: { shared: { react: { scope: 'default' } } }, loadShare }],
+    };
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions, resolvedShared: { 'react/not-a-common-subpath': fallbackFile } }
+    )) as { value: string };
+
+    expect(namespace.value).toBe('fallback');
+    expect(loadShare).not.toHaveBeenCalled();
   });
 
   it('skips instances that do not declare the package as shared', async () => {
