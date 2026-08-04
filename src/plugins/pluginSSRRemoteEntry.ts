@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { Plugin, ResolvedConfig } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
+import { getReactIslandExposes } from '../utils/reactIsland';
 import { getBasePath, isNuxtClientBase } from '../utils/pathNormalization';
 import { decodeViteId } from '../utils/VirtualModule';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
@@ -246,6 +247,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let isServe = false;
   let viteConfig: ResolvedConfig | undefined;
   let isNuxtProject = false;
+  let reactIslandExposes: ReadonlySet<string> = new Set();
 
   const findNuxtExposesChunk = (
     bundle: Record<string, { type: string; fileName: string; code?: string }>
@@ -332,6 +334,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       configResolved(config) {
         viteConfig = config;
         isNuxtProject = isNuxtProjectRoot(config.root);
+        reactIslandExposes = getReactIslandExposes(options, config.root);
       },
 
       configureServer(server) {
@@ -463,7 +466,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         server.middlewares.use(exposesPath, (_req, res) => {
           res.setHeader('Content-Type', 'application/javascript');
           res.setHeader('Access-Control-Allow-Origin', '*');
-          res.end(generateExposesSSR(options));
+          res.end(generateExposesSSR(options, reactIslandExposes));
         });
       },
 
@@ -486,7 +489,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           return generateRemoteEntrySSR(options);
         }
         if (id === virtualExposesSSRId || id.startsWith(virtualExposesSSRId)) {
-          return generateExposesSSR(options);
+          return generateExposesSSR(options, reactIslandExposes);
         }
       },
 

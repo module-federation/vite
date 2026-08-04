@@ -1,6 +1,13 @@
 import { defineConfig } from 'vitest/config';
 
+const vitePackage = process.env.MFE_VITE_PACKAGE;
+
 export default defineConfig({
+  resolve: vitePackage
+    ? {
+        alias: [{ find: /^vite(?=\/|$)/, replacement: vitePackage }],
+      }
+    : undefined,
   test: {
     globals: true,
     exclude: ['**/e2e/**', '**/node_modules/**'],

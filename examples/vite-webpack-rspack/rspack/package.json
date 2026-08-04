@@ -9,14 +9,16 @@
     "start": "BROWSERSLIST_IGNORE_OLD_DATA=1 NODE_ENV=development rspack serve"
   },
   "devDependencies": {
-    "@rspack/cli": "1.0.4",
-    "@rspack/core": "1.0.4",
-    "@rspack/plugin-react-refresh": "1.0.0",
+    "@module-federation/enhanced": "2.8.1",
+    "@rspack/cli": "2.1.7",
+    "@rspack/core": "2.1.7",
+    "@rspack/dev-server": "2.1.0",
+    "@rspack/plugin-react-refresh": "2.0.2",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
     "autoprefixer": "10.4.20",
-    "postcss": "8.4.49",
-    "postcss-loader": "8.1.1",
+    "postcss": "8.5.25",
+    "postcss-loader": "8.2.1",
     "react-refresh": "0.14.2",
     "tailwindcss": "3.4.17"
   },

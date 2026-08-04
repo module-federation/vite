@@ -78,7 +78,9 @@ export function isNuxtClientBase(base?: string): boolean {
 }
 
 export function normalizeNodeModulePath(source: string): string {
-  return source.replace(/\\/g, '/').replace(/\?.*$/, '');
+  const queryIndex = source.indexOf('?');
+  const path = queryIndex === -1 ? source : source.slice(0, queryIndex);
+  return path.replace(/\\/g, '/');
 }
 
 export function isNodeModulePath(source: string): boolean {

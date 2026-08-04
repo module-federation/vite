@@ -43,6 +43,10 @@ test.describe('Vite Host Tests', () => {
     ]);
   });
 
+  test('loadRemote resolves a plugin-configured public alias', async ({ page }) => {
+    await expect(page.getByTestId('configured-load-remote')).toHaveText('loaded');
+  });
+
   test('test footer - vite host', async ({ page }) => {
     const productsHeading = page.getByRole('heading', {
       level: 3,

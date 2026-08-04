@@ -1,15 +1,18 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type {
-  ConfigEnv,
-  ConfigPluginContext,
-  MinimalPluginContextWithoutEnvironment,
-  Plugin,
-  Rollup,
-  UserConfig,
-  ViteBuilder,
+import {
+  mergeConfig,
+  type ConfigEnv,
+  type ConfigPluginContext,
+  type MinimalPluginContextWithoutEnvironment,
+  type Plugin,
+  type ResolvedConfig,
+  type Rollup,
+  type UserConfig,
+  type ViteBuilder,
 } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { parsePromise } from '../plugins/pluginModuleParseEnd';
 import { callHook } from '../utils/__tests__/viteHookHelpers';
 import type {
   ModuleFederationOptions,
@@ -22,15 +25,26 @@ import {
   getLoadShareModulePath,
 } from '../virtualModules/virtualShared_preBuild';
 
-const { hasPackageDependencyMock, mfWarn, normalizeModuleFederationOptionsMock } = vi.hoisted(
-  () => ({
-    hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>(
-      (_dependency: string) => false
-    ),
-    mfWarn: vi.fn(),
-    normalizeModuleFederationOptionsMock: vi.fn(),
-  })
-);
+const { getSharedExportConditionsMock, hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
+  getSharedExportConditionsMock: vi.fn(),
+  hasPackageDependencyMock: vi.fn<(dependency: string) => boolean>((_dependency: string) => false),
+  mfWarn: vi.fn(),
+}));
+
+vi.mock('../utils/sharedExportConditions', async () => {
+  const actual = await vi.importActual<typeof import('../utils/sharedExportConditions')>(
+    '../utils/sharedExportConditions'
+  );
+  return {
+    ...actual,
+    getSharedExportConditions: (
+      ...args: Parameters<typeof actual.getSharedExportConditions>
+    ): ReturnType<typeof actual.getSharedExportConditions> => {
+      getSharedExportConditionsMock(...args);
+      return actual.getSharedExportConditions(...args);
+    },
+  };
+});
 
 vi.mock('../utils/packageUtils', async () => {
   const actual =
@@ -50,19 +64,23 @@ vi.mock('../utils/logger', async () => {
   };
 });
 
-vi.mock('../utils/normalizeModuleFederationOptions', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../utils/normalizeModuleFederationOptions')>();
-  normalizeModuleFederationOptionsMock.mockImplementation(actual.normalizeModuleFederationOptions);
-  return {
-    ...actual,
-    normalizeModuleFederationOptions: normalizeModuleFederationOptionsMock,
-  };
-});
-
 import { federation } from '../index';
+import {
+  REACT_MIXED_MODE_ESBUILD_PLUGIN,
+  REACT_MIXED_MODE_ROLLDOWN_PLUGIN,
+} from '../plugins/pluginReactMixedModeGuard';
 import VirtualModule from '../utils/VirtualModule';
-import { getPreBuildLibImportId, LOAD_SHARE_TAG, PREBUILD_TAG } from '../virtualModules';
-import { getUsedShares } from '../virtualModules/virtualRemoteEntry';
+import {
+  getPreBuildLibImportId,
+  getRemoteEntryId,
+  LOAD_SHARE_TAG,
+  PREBUILD_TAG,
+} from '../virtualModules';
+import {
+  getLocalSharedImportMapPath,
+  getResolvedLocalSharedImportMapId,
+  getUsedShares,
+} from '../virtualModules/virtualRemoteEntry';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
 const REACT_EXAMPLE_ROOT = path.join(process.cwd(), 'examples/vite-vite/vite-host');
@@ -333,20 +351,83 @@ describe('federation in test environment', () => {
     });
     expect(plugins.length).toBeGreaterThan(0);
   });
-
-  it('normalizes the same user config only once', () => {
-    normalizeModuleFederationOptionsMock.mockClear();
-    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
-    const options = { name: 'cached-federation-options' };
-
-    federation(options);
-    federation(options);
-
-    expect(normalizeModuleFederationOptionsMock).toHaveBeenCalledOnce();
-  });
 });
 
 describe('module parse wiring', () => {
+  it('does not deadlock local shared maps across federation instances', async () => {
+    const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
+    let pluginSets: Plugin[][];
+    try {
+      pluginSets = ['first', 'second'].map(
+        (name) =>
+          federation({
+            name,
+            filename: `${name}-remoteEntry.js`,
+            shared: { react: { import: false } },
+          }) as Plugin[]
+      );
+    } finally {
+      if (previousNoTestEnvCheck === undefined) {
+        delete process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+      } else {
+        process.env.MFE_VITE_NO_TEST_ENV_CHECK = previousNoTestEnvCheck;
+      }
+    }
+
+    const instances = pluginSets.map((plugins) => {
+      const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
+      const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
+      const localSharedMap = plugins.find(
+        (plugin) => plugin.name === 'generateLocalSharedImportMap'
+      );
+      const federationOptionsPlugin = plugins.find(
+        (plugin) => plugin.name === 'module-federation-vite'
+      );
+      if (!parseStart || !parseEnd || !localSharedMap || !federationOptionsPlugin) {
+        throw new Error('module federation plugins not found');
+      }
+      const options = (
+        federationOptionsPlugin as Plugin & {
+          _options: NormalizedModuleFederationOptions;
+        }
+      )._options;
+      return { localSharedMap, options, parseEnd, parseStart };
+    });
+    const ctx = {} as any;
+
+    for (const instance of instances) {
+      await callHook(instance.parseStart.buildStart, ctx, undefined as never);
+    }
+    for (const observer of instances) {
+      callHook(observer.parseStart.load, ctx, '/src/main.ts');
+      for (const owner of instances) {
+        callHook(observer.parseStart.load, ctx, getResolvedLocalSharedImportMapId(owner.options));
+      }
+      callHook(observer.parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
+    }
+
+    const pendingMaps = instances.map((instance) =>
+      Promise.resolve(
+        callHook(
+          instance.localSharedMap.load,
+          ctx,
+          getResolvedLocalSharedImportMapId(instance.options)
+        )
+      )
+    );
+    const resolved = await Promise.all(pendingMaps.map(resolvesQuickly));
+
+    // Clean up the parse timers without waiting for the production timeout.
+    for (const instance of instances) callHook(instance.parseEnd.buildEnd, ctx);
+    await Promise.all(pendingMaps);
+
+    expect(resolved).toEqual([true, true]);
+    expect(getLocalSharedImportMapPath(instances[0].options)).not.toBe(
+      getLocalSharedImportMapPath(instances[1].options)
+    );
+  });
+
   it('does not wait for generated load-share or prebuild modules', async () => {
     const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
     process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
@@ -368,17 +449,217 @@ describe('module parse wiring', () => {
     }
     const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
     const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
-    if (!parseStart || !parseEnd) throw new Error('parse plugins not found');
+    const proxyRemoteEntry = plugins.find((plugin) => plugin.name === 'proxyRemoteEntry');
+    const federationOptionsPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-vite'
+    );
+    if (!parseStart || !parseEnd || !proxyRemoteEntry || !federationOptionsPlugin) {
+      throw new Error('module federation plugins not found');
+    }
     const ctx = {} as any;
+    const federationOptions = (
+      federationOptionsPlugin as Plugin & {
+        _options: NormalizedModuleFederationOptions;
+      }
+    )._options;
 
+    runConfig(proxyRemoteEntry, {} as ConfigPluginContext, {}, { command: 'build', mode: 'test' });
     callHook(parseStart.buildStart, ctx, undefined as never);
     callHook(parseStart.load, ctx, `virtual:mf:host${LOAD_SHARE_TAG}react${LOAD_SHARE_TAG}.js`);
     callHook(parseStart.load, ctx, `virtual:mf:host${PREBUILD_TAG}react${PREBUILD_TAG}.js`);
     callHook(parseStart.load, ctx, '/src/main.ts');
+    const pendingRemoteEntry = callHook(
+      proxyRemoteEntry.load,
+      ctx,
+      getRemoteEntryId(federationOptions)
+    );
 
     callHook(parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
 
-    expect(await resolvesQuickly(parsePromise)).toBe(true);
+    expect(await resolvesQuickly(Promise.resolve(pendingRemoteEntry))).toBe(true);
+  });
+
+  it('keeps the complete import:false export surface when parse analysis is incomplete', async () => {
+    const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
+    let plugins: Plugin[];
+    try {
+      plugins = federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          react: {
+            import: false,
+            singleton: true,
+          },
+        },
+      }) as Plugin[];
+    } finally {
+      if (previousNoTestEnvCheck === undefined) {
+        delete process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+      } else {
+        process.env.MFE_VITE_NO_TEST_ENV_CHECK = previousNoTestEnvCheck;
+      }
+    }
+
+    const earlyInitPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-early-init'
+    );
+    const federationConfigPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-config'
+    );
+    const sharedAnalysisPlugin = plugins.find((plugin) => plugin.name === 'proxyPreBuildShared');
+    const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
+    const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
+    const federationLoadPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-esm-shims'
+    );
+    const federationOptionsPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-vite'
+    );
+    if (
+      !earlyInitPlugin ||
+      !federationConfigPlugin ||
+      !sharedAnalysisPlugin ||
+      !parseStart ||
+      !parseEnd ||
+      !federationLoadPlugin ||
+      !federationOptionsPlugin
+    ) {
+      throw new Error('module federation plugins not found');
+    }
+
+    const config = { root: process.cwd(), build: {} } as UserConfig;
+    const env = { command: 'build', mode: 'test' } as ConfigEnv;
+    const configContext = { meta: {} } as ConfigPluginContext;
+    runConfig(earlyInitPlugin, configContext, config, env);
+    runConfig(federationConfigPlugin, configContext, config, env);
+    runConfig(sharedAnalysisPlugin, configContext, config, env);
+
+    const parseContext = { resolve: async (id: string) => ({ id }) } as any;
+    await callHook(parseStart.buildStart, parseContext, undefined as never);
+    callHook(
+      sharedAnalysisPlugin.transform,
+      {} as any,
+      'import { useState } from "react";',
+      '/src/main.ts'
+    );
+    callHook(parseEnd.buildEnd, parseContext);
+
+    const federationOptions = (
+      federationOptionsPlugin as Plugin & {
+        _options: NormalizedModuleFederationOptions;
+      }
+    )._options;
+    const loadShareId = getLoadShareModulePath('react', false, federationOptions);
+    const result = (await callHook(
+      federationLoadPlugin.load,
+      {} as Rollup.PluginContext,
+      loadShareId
+    )) as { code: string };
+
+    expect(result.code).toContain('exportModule["useState"]');
+    expect(result.code).toContain('exportModule["createElement"]');
+  });
+});
+
+describe('shared export condition configuration', () => {
+  it('uses SSR conditions contributed by a later config hook in Vite 5-7 load hooks', async () => {
+    const pkg = 'missing-late-conditions-package';
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      shared: {
+        [pkg]: {
+          import: false,
+        },
+      },
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-early-init'
+    );
+    const federationConfigPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-config'
+    );
+    const federationOptionsPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-vite'
+    );
+    const federationLoadPlugin = plugins.find(
+      (plugin) => plugin.name === 'module-federation-esm-shims'
+    );
+    if (
+      !earlyInitPlugin ||
+      !federationConfigPlugin ||
+      !federationOptionsPlugin ||
+      !federationLoadPlugin
+    ) {
+      throw new Error('module federation plugins not found');
+    }
+
+    const config: UserConfig = {
+      root: process.cwd(),
+      build: {
+        ssr: true,
+      },
+    };
+    const env = {
+      command: 'build',
+      mode: 'production',
+    } as ConfigEnv;
+    const configContext = { meta: {} } as ConfigPluginContext;
+
+    runConfig(earlyInitPlugin, configContext, config, env);
+    runConfig(federationConfigPlugin, configContext, config, env);
+
+    const lateConditionsPlugin: Plugin = {
+      name: 'late-ssr-conditions',
+      config() {
+        return {
+          resolve: {
+            conditions: ['late-root-condition'],
+          },
+          ssr: {
+            target: 'webworker',
+            resolve: {
+              conditions: ['late-ssr-condition'],
+            },
+          },
+        };
+      },
+    };
+    const lateConfig = callHook(lateConditionsPlugin.config, configContext, config, env);
+    const resolvedConfig = {
+      ...mergeConfig(config, lateConfig ?? {}),
+      isProduction: true,
+    } as ResolvedConfig;
+
+    callHook(
+      federationConfigPlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      resolvedConfig
+    );
+
+    // Vite 5-7 load hooks have no `this.environment`, so they use the values
+    // captured from the final ResolvedConfig above.
+    getSharedExportConditionsMock.mockClear();
+    const federationOptions = (
+      federationOptionsPlugin as Plugin & {
+        _options: NonNullable<Parameters<typeof getLoadShareModulePath>[2]>;
+      }
+    )._options;
+    const loadShareId = getLoadShareModulePath(pkg, false, federationOptions);
+    await callHook(federationLoadPlugin.load, {} as Rollup.PluginContext, loadShareId, {
+      ssr: true,
+    });
+
+    expect(getSharedExportConditionsMock).toHaveBeenCalledWith({
+      environmentConditions: undefined,
+      isProduction: true,
+      isSsr: true,
+      rootConditions: ['late-root-condition'],
+      ssrConditions: ['late-ssr-condition'],
+      ssrTarget: 'webworker',
+    });
   });
 });
 
@@ -412,15 +693,17 @@ describe('module-federation-esm-shims', () => {
     expect(deps).toEqual(['assets/index.js']);
   });
 
-  it('prepends workspace singleton imports for legacy SSR build load hooks', () => {
-    const plugin = getEsmShimsPlugin();
-    const config: any = {
-      build: { ssr: true },
-    };
-    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+  it.each([true, 'src/entry-server.ts'])(
+    'prepends workspace singleton imports for legacy SSR build load hooks with build.ssr=%s',
+    (ssr) => {
+      const plugin = getEsmShimsPlugin();
+      const config: any = {
+        build: { ssr },
+      };
+      runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
-    const virtualModule = new VirtualModule('legacy-workspace-singleton', LOAD_SHARE_TAG, '.js');
-    virtualModule.write(`
+      const virtualModule = new VirtualModule('legacy-workspace-singleton', LOAD_SHARE_TAG, '.js');
+      virtualModule.write(`
       let __mf_default;
       const __mfApplyLazyShareExports = (mod) => {
         __mf_default = mod.default ?? mod;
@@ -439,14 +722,15 @@ describe('module-federation-esm-shims', () => {
       export { __mf_default as default };
     `);
 
-    const result = callHook(plugin.load, {} as any, virtualModule.getImportId()) as {
-      code: string;
-    };
+      const result = callHook(plugin.load, {} as any, virtualModule.getImportId()) as {
+        code: string;
+      };
 
-    expect(result.code).toContain(
-      'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
-    );
-  });
+      expect(result.code).toContain(
+        'import * as __mfLocalShare from "/repo/packages/workspace-shared-lib/src/index.tsx";'
+      );
+    }
+  );
 
   it('returns null when build load hook cannot resolve a virtual module', () => {
     const plugin = getEsmShimsPlugin();
@@ -942,6 +1226,72 @@ describe('vite:module-federation-early-init', () => {
     expect(resolver.resolveId('react', '/repo/node_modules/react-dom/cjs/react-dom.js')).toBe(
       undefined
     );
+  });
+
+  it('guards React DEV runtimes for Rolldown dev hosts with remotes', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        remotes: { remote: 'remote@http://localhost:4174/remoteEntry.js' },
+        shared: { react: { singleton: true } },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const guard = config.optimizeDeps.rolldownOptions.plugins.find(
+      (entry: { name: string }) => entry.name === REACT_MIXED_MODE_ROLLDOWN_PLUGIN
+    );
+    expect(guard).toBeDefined();
+    expect(
+      guard.transform(
+        'return null === dispatcher ? null : dispatcher.getOwner();',
+        '/repo/node_modules/react/cjs/react-jsx-runtime.development.js'
+      )
+    ).toContain('typeof dispatcher?.getOwner === "function"');
+  });
+
+  it('guards React DEV runtimes for esbuild dev hosts with remotes', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        remotes: { remote: 'remote@http://localhost:4174/remoteEntry.js' },
+        shared: { react: { singleton: true } },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(
+      config.optimizeDeps.esbuildOptions.plugins.some(
+        (entry: { name: string }) => entry.name === REACT_MIXED_MODE_ESBUILD_PLUGIN
+      )
+    ).toBe(true);
+  });
+
+  it('does not install the React mixed-mode guard without remotes', () => {
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(
+      config.optimizeDeps.rolldownOptions.plugins.some(
+        (entry: { name: string }) => entry.name === REACT_MIXED_MODE_ROLLDOWN_PLUGIN
+      )
+    ).toBe(false);
   });
 
   it('decouples Rolldown react-dom/client from the react-dom optimizer entry', () => {
@@ -1610,6 +1960,120 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.include).not.toContain('@test-issue/theme/provider');
     expect(config.optimizeDeps.exclude).toContain('@test-issue/theme/provider');
   });
+
+  it('includes an ESM-only shared singleton (exports map without a "require" condition) in dev optimizeDeps', () => {
+    // A package whose package.json `exports` only declares an `import` condition makes
+    // Node's require.resolve throw ERR_PACKAGE_PATH_NOT_EXPORTED, even though Vite's own
+    // resolver can resolve it. It must NOT be excluded from dev optimization — otherwise
+    // its generated prebuild imports the raw package source and its transitive CommonJS
+    // deps are served raw to the browser, which blanks the app.
+    // https://github.com/module-federation/vite/issues/974
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-esm-only-'));
+    try {
+      writeFileSync(
+        path.join(root, 'package.json'),
+        JSON.stringify({ name: 'host', dependencies: { '@fixture/esm-ui': '1.0.0' } })
+      );
+      const pkgDir = path.join(root, 'node_modules', '@fixture', 'esm-ui');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        path.join(pkgDir, 'package.json'),
+        JSON.stringify({
+          name: '@fixture/esm-ui',
+          version: '1.0.0',
+          type: 'module',
+          // Only an `import` condition — no `require`/`default` — so CJS require.resolve
+          // throws ERR_PACKAGE_PATH_NOT_EXPORTED while Vite can still resolve it.
+          exports: { '.': { import: './index.js' } },
+        })
+      );
+      writeFileSync(path.join(pkgDir, 'index.js'), 'export const marker = 1;\n');
+
+      const earlyInitPlugin = (
+        federation({
+          name: 'host',
+          filename: 'remoteEntry.js',
+          shared: { '@fixture/esm-ui': { singleton: true } },
+        }) as Plugin[]
+      ).find((entry) => entry.name === 'vite:module-federation-early-init');
+      if (!earlyInitPlugin) {
+        throw new Error('vite:module-federation-early-init plugin not found');
+      }
+
+      const config: any = { root, optimizeDeps: { include: [], exclude: [] } };
+      runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      expect(config.optimizeDeps.include).toContain('@fixture/esm-ui');
+      expect(config.optimizeDeps.exclude).not.toContain('@fixture/esm-ui');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
+      name: 'has no main export',
+      packageName: '@fixture/no-main-export',
+      exports: { './feature': { import: './feature.js' } },
+      // Keep the conventional fallback on disk to prove an exports map without
+      // "." is not accidentally treated as exporting index.js.
+      entry: 'index.js',
+    },
+    {
+      name: 'has a non-optimizable ESM-only main entry',
+      packageName: '@fixture/esm-tsx-entry',
+      exports: { '.': { import: './index.tsx' } },
+      entry: 'index.tsx',
+    },
+  ])(
+    'excludes a shared singleton that $name from dev optimizeDeps',
+    ({ packageName, exports, entry }) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'mf-unoptimizable-esm-'));
+      try {
+        writeFileSync(
+          path.join(root, 'package.json'),
+          JSON.stringify({ name: 'host', dependencies: { [packageName]: '1.0.0' } })
+        );
+        const pkgDir = path.join(root, 'node_modules', ...packageName.split('/'));
+        mkdirSync(pkgDir, { recursive: true });
+        writeFileSync(
+          path.join(pkgDir, 'package.json'),
+          JSON.stringify({
+            name: packageName,
+            version: '1.0.0',
+            type: 'module',
+            exports,
+          })
+        );
+        writeFileSync(path.join(pkgDir, entry), 'export const marker = 1;\n');
+
+        const earlyInitPlugin = (
+          federation({
+            name: 'host',
+            filename: 'remoteEntry.js',
+            shared: { [packageName]: { singleton: true } },
+          }) as Plugin[]
+        ).find((plugin) => plugin.name === 'vite:module-federation-early-init');
+        if (!earlyInitPlugin) {
+          throw new Error('vite:module-federation-early-init plugin not found');
+        }
+
+        const config: any = { root, optimizeDeps: { include: [], exclude: [] } };
+        runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+          command: 'serve',
+          mode: 'test',
+        });
+
+        expect(config.optimizeDeps.include).not.toContain(packageName);
+        expect(config.optimizeDeps.exclude).toContain(packageName);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
 
   it('pre-seeds transitive shared dependencies for the dev optimizer', () => {
     const plugin = (

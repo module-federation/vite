@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 5
     runs-on: ubuntu-latest
     container:
-      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      image: mcr.microsoft.com/playwright:v1.62.0-noble
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5

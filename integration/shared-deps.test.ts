@@ -1,5 +1,5 @@
 import { resolve } from 'path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
 import { isRollupChunk } from './helpers/assertions';
 import { buildFixture, FIXTURES } from './helpers/build';
@@ -13,6 +13,12 @@ const SHARED_BASE_MF_OPTIONS = {
   },
   dts: false,
 } satisfies Partial<ModuleFederationOptions>;
+
+function getHostProvidedExportAccessPattern(exportName: string) {
+  // Rollup may append a numeric suffix when the generated helper parameter
+  // conflicts with the outer exportModule binding.
+  return new RegExp(`\\bexportModule\\d*\\["${exportName}"\\]`);
+}
 
 describe('shared dependencies', () => {
   it('routes shared dep through loadShare()', async () => {
@@ -111,12 +117,152 @@ describe('shared dependencies', () => {
     expect(allCode).toContain('initRes.loadShare(pkg');
     expect(loadShare!.code).toContain('initPromise.then');
     expect(loadShare!.code).toContain('pendingShareLoads');
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('init'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value1'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value2'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value3'));
     expect(loadShare!.code).toContain('default:mock-shared-dep');
     expect(loadShare!.code).toContain('mock-shared-dep');
     expect(loadShare!.code).toContain('init');
     expect(loadShare!.code).not.toContain('await initPromise');
     expect(allCode).not.toContain('from"mock-shared-dep"');
     expect(allCode).not.toContain('from "mock-shared-dep"');
+  });
+
+  it('unions import:false named exports across exposed consumers', async () => {
+    const output = await buildFixture({
+      fixture: 'shared-remote',
+      mfOptions: {
+        ...SHARED_BASE_MF_OPTIONS,
+        exposes: {
+          './exposed': resolve(FIXTURES, 'shared-remote', 'exposed-module.js'),
+          './secondary': resolve(FIXTURES, 'shared-remote', 'exposed-secondary.js'),
+        },
+        shared: { 'mock-shared-dep': { import: false, singleton: true } },
+      },
+    });
+    const loadShare = output.output
+      .filter(isRollupChunk)
+      .find((chunk) => chunk.code.includes('default:mock-shared-dep'));
+
+    expect(loadShare).toBeDefined();
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('init'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value2'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value1'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value3'));
+  });
+
+  it('reduces import:false named exports when the graph contains externals', async () => {
+    // Rolldown reports external ids through `importedIds` with a ModuleInfo
+    // stub and no `isExternal` marker. Seeding those as pending modules keeps
+    // the parse barrier open until the idle timeout, which silently discards
+    // the export analysis and falls back to the full export surface.
+    const output = await buildFixture({
+      fixture: 'shared-remote',
+      mfOptions: {
+        ...SHARED_BASE_MF_OPTIONS,
+        exposes: {
+          './exposed': resolve(FIXTURES, 'shared-remote', 'exposed-with-external.js'),
+        },
+        shared: { 'mock-shared-dep': { import: false, singleton: true } },
+        moduleParseIdleTimeout: 1,
+      },
+      viteConfig: {
+        build: { rollupOptions: { external: ['mock-external-dep'] } },
+      },
+    });
+    const loadShare = output.output
+      .filter(isRollupChunk)
+      .find((chunk) => chunk.code.includes('default:mock-shared-dep'));
+
+    expect(loadShare).toBeDefined();
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('init'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value1'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value2'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value3'));
+  });
+
+  it('warns and keeps the full export surface when the analysis is discarded', async () => {
+    // The fallback is safe but was previously silent, which is why the barrier
+    // stalling on externals went unnoticed. Force a discard with an idle
+    // timeout short enough to fire mid-build.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const output = await buildFixture({
+        fixture: 'shared-remote',
+        mfOptions: {
+          ...SHARED_BASE_MF_OPTIONS,
+          shared: { 'mock-shared-dep': { import: false, singleton: true } },
+          moduleParseIdleTimeout: 0.001,
+        },
+      });
+      const loadShare = output.output
+        .filter(isRollupChunk)
+        .find((chunk) => chunk.code.includes('default:mock-shared-dep'));
+
+      const discardWarnings = warn.mock.calls.filter((call) =>
+        String(call[0]).includes('shared export analysis was discarded')
+      );
+      expect(discardWarnings).toHaveLength(1);
+      expect(String(discardWarnings[0][0])).toContain('idle-timeout');
+
+      // Discarding must leave the complete surface, not a reduced one.
+      expect(loadShare).toBeDefined();
+      expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value1'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('unions import:false named exports across Rollup inputs and exposed consumers', async () => {
+    const output = await buildFixture({
+      fixture: 'shared-remote',
+      mfOptions: {
+        ...SHARED_BASE_MF_OPTIONS,
+        shared: { 'mock-shared-dep': { import: false, singleton: true } },
+      },
+      viteConfig: {
+        build: {
+          rollupOptions: {
+            input: {
+              main: resolve(FIXTURES, 'shared-remote', 'index.html'),
+              secondary: resolve(FIXTURES, 'shared-remote', 'exposed-secondary.js'),
+            },
+          },
+        },
+      },
+    });
+    const loadShare = output.output
+      .filter(isRollupChunk)
+      .find((chunk) => chunk.code.includes('default:mock-shared-dep'));
+
+    expect(loadShare).toBeDefined();
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('init'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value2'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value1'));
+    expect(loadShare!.code).not.toMatch(getHostProvidedExportAccessPattern('value3'));
+  });
+
+  it('keeps the complete import:false export surface for namespace consumers', async () => {
+    const output = await buildFixture({
+      fixture: 'shared-remote',
+      mfOptions: {
+        ...SHARED_BASE_MF_OPTIONS,
+        exposes: {
+          './namespace': resolve(FIXTURES, 'shared-remote', 'exposed-namespace.js'),
+        },
+        shared: { 'mock-shared-dep': { import: false, singleton: true } },
+      },
+    });
+    const loadShare = output.output
+      .filter(isRollupChunk)
+      .find((chunk) => chunk.code.includes('default:mock-shared-dep'));
+
+    expect(loadShare).toBeDefined();
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('init'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value1'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value2'));
+    expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value3'));
   });
 
   it('includes shared deps in manifest', async () => {

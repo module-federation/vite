@@ -24,6 +24,13 @@ export type TreeShakingExportUsage =
   | { kind: 'full' }
   | { kind: 'exports'; usedExports: string[] };
 
+export function shouldAnalyzeSharedExports(shareItem?: ShareItem) {
+  return !!(
+    shareItem &&
+    (shareItem.shareConfig.treeShaking || shareItem.shareConfig.import === false)
+  );
+}
+
 type RecordTreeShakingExports = (sharedKey: string, exports: string[], request?: string) => void;
 type MarkTreeShakingPackageUnsafe = (sharedKey: string, request?: string) => void;
 
@@ -137,19 +144,21 @@ function getExportRecords(
  * fallback lookup across keys keeps aliases/backwards-compatible callers
  * working, while still keeping each concrete request's exports isolated.
  */
-export function getTreeShakingExportUsage(
+export function getSharedExportUsage(
   request: string,
   shareItem?: ShareItem,
   sharedKey?: string,
   options?: NormalizedModuleFederationOptions
 ): TreeShakingExportUsage | undefined {
   const treeShaking = shareItem?.shareConfig.treeShaking;
-  if (!treeShaking || !getTreeShakingState(options).buildMode) return undefined;
+  if (!shouldAnalyzeSharedExports(shareItem) || !getTreeShakingState(options).buildMode) {
+    return undefined;
+  }
 
   const records = getExportRecords(sharedKey, request, options);
   if (records.some((record) => record.requiresFullBundle)) return { kind: 'full' };
 
-  const configured = treeShaking.usedExports ?? [];
+  const configured = treeShaking?.usedExports ?? [];
   const result = new Set(configured);
   records.forEach((record) => record.usedExports.forEach((name) => result.add(name)));
 
@@ -157,6 +166,16 @@ export function getTreeShakingExportUsage(
     return { kind: 'exports', usedExports: [...result].sort() };
   }
   return records.length > 0 ? { kind: 'exports', usedExports: [] } : { kind: 'unknown' };
+}
+
+export function getTreeShakingExportUsage(
+  request: string,
+  shareItem?: ShareItem,
+  sharedKey?: string,
+  options?: NormalizedModuleFederationOptions
+): TreeShakingExportUsage | undefined {
+  if (!shareItem?.shareConfig.treeShaking) return undefined;
+  return getSharedExportUsage(request, shareItem, sharedKey, options);
 }
 
 /**
@@ -331,8 +350,8 @@ function collectReExport(
  *
  * Parsing the module avoids treating import-looking text in comments, strings,
  * templates, or regular expressions as real dependencies. If parsing fails,
- * every configured tree-shaken share is conservatively marked as requiring its
- * full bundle instead of guessing from source text.
+ * every configured share whose exports are analyzed is conservatively marked
+ * as requiring its full export surface instead of guessing from source text.
  *
  * Generated federation wrappers are excluded because their imports describe
  * the wrapper implementation, not the consumer's requirements.
@@ -359,14 +378,14 @@ export function collectTreeShakingImports(
     ast = parseAst(code) as unknown as AstNode;
   } catch {
     Object.entries(shared).forEach(([sharedKey, shareItem]) => {
-      if (shareItem.shareConfig.treeShaking) markUnsafe(sharedKey, '*');
+      if (shouldAnalyzeSharedExports(shareItem)) markUnsafe(sharedKey, '*');
     });
     return;
   }
 
   const matchShared = (source: string) => {
     const sharedKey = findSharedKey(source, shared);
-    return sharedKey && shared[sharedKey]?.shareConfig.treeShaking ? sharedKey : undefined;
+    return sharedKey && shouldAnalyzeSharedExports(shared[sharedKey]) ? sharedKey : undefined;
   };
   const recordSource = (names: string[], source: string) => {
     const sharedKey = matchShared(source);

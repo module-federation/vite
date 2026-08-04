@@ -32,6 +32,10 @@ export const VITE_ID_PREFIX = '/@id/';
 export const VITE_NULL_BYTE_PLACEHOLDER = '__x00__';
 export const VITE_ENCODED_NULL_BYTE_PREFIX = `${VITE_ID_PREFIX}${VITE_NULL_BYTE_PLACEHOLDER}`;
 
+// Separates a federation instance's internalName from its per-generation
+// owner id inside scoped virtual module names.
+export const MF_OWNER_INFIX = '__mf_owner__';
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

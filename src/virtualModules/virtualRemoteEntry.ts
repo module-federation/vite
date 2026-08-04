@@ -14,7 +14,7 @@ import {
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
-import VirtualModule from '../utils/VirtualModule';
+import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
 import { getUsedRemotesMap } from './virtualRemotes';
 import {
@@ -66,7 +66,7 @@ function getLocalOwnerKey(options: NormalizedModuleFederationOptions) {
     ownerId = nextLocalOwnerId++;
     localOwnerIds.set(options, ownerId);
   }
-  return `${options.internalName}__mf_owner__${ownerId}`;
+  return `${options.internalName}${MF_OWNER_INFIX}${ownerId}`;
 }
 
 export function getLocalSharedImportMapPath(options?: NormalizedModuleFederationOptions) {
@@ -283,7 +283,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           if (!remote) return null;
           return `
                 {
-                  alias: ${JSON.stringify(getRuntimeRemoteAlias(key, options))},
+                  alias: ${JSON.stringify(key)},
                   entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
                   name: ${JSON.stringify(
                     options ? getRuntimeRemoteAlias(key, options) : remote.name

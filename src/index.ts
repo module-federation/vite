@@ -9,9 +9,13 @@ import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
 import pluginExternalRuntimeCore from './plugins/pluginExternalRuntimeCore';
 import pluginManifest from './plugins/pluginMFManifest';
-import pluginModuleParseEnd from './plugins/pluginModuleParseEnd';
+import pluginModuleParseEnd, { createModuleParseController } from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
+import {
+  createEsbuildReactMixedModeGuard,
+  createRolldownReactMixedModeGuard,
+} from './plugins/pluginReactMixedModeGuard';
 import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
@@ -30,6 +34,7 @@ import {
 } from './utils/controlChunkSanitizer';
 import { isTestEnv } from './utils/isTestEnv';
 import { createModuleFederationError, mfWarn } from './utils/logger';
+import { getSharedExportConditions } from './utils/sharedExportConditions';
 import type {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -54,6 +59,7 @@ import {
   applyRuntimeCapabilityDefines,
   getRuntimeCapabilityConfigurationWarnings,
 } from './utils/runtimeCapabilityOptimization';
+import { getSharedExportUsage } from './utils/treeShaking';
 import { getSsrCapabilities } from './utils/ssrCapabilities';
 import {
   getCommonSharedSubpaths,
@@ -64,7 +70,6 @@ import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualM
 import {
   getHostAutoInitImportId,
   getHostAutoInitPath,
-  getLocalSharedImportMapPath,
   getRemoteEntryId,
   initVirtualModules,
   LOAD_REMOTE_TAG,
@@ -79,7 +84,11 @@ import { addUsedShares } from './virtualModules/virtualRemoteEntry';
 import { addUsedRemote } from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
+  findCurrentLoadShareForStaleOwnerId,
+  getCachedLoadSharePkg,
+  getCachedPreBuildPkg,
   getLoadShareModulePath,
+  getPreBuildLibImportId,
   materializeCachedLoadShareModule,
   prependWorkspaceSingletonSsrImport,
   writeLoadShareModule,
@@ -87,10 +96,6 @@ import {
 } from './virtualModules/virtualShared_preBuild';
 
 const patchedManualChunks = new WeakSet<Function>();
-const normalizedOptionsByInput = new WeakMap<
-  ModuleFederationOptions,
-  NormalizedModuleFederationOptions
->();
 
 // Rolldown injects the `__vite_preload` helper as a special runtime module and,
 // left to automatic chunking, hoists it into whichever loadShare chunk first uses
@@ -276,9 +281,85 @@ function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean 
   try {
     const req = createRequire(pathToFileURL(path.join(projectRoot, 'package.json')));
     return isViteOptimizableEntry(req.resolve(subpath));
-  } catch {
+  } catch (error) {
+    // An ESM-only package (an `exports` map with no CommonJS `require`/`default`
+    // condition) makes Node's require.resolve throw ERR_PACKAGE_PATH_NOT_EXPORTED even
+    // though Vite's own resolver can resolve it. Excluding such a package from dependency
+    // optimization serves its raw CommonJS sub-dependencies to the browser in dev, which
+    // blanks the app. Resolve its import target and let Vite pre-bundle it (and its
+    // transitive CJS deps) with interop when the target is optimizable.
+    //
+    // Only apply this to a package's main entry (a bare specifier). A *subpath* can throw
+    // the same code simply because it isn't exported at all (e.g. react/compiler-runtime
+    // on React versions that predate it), which genuinely cannot be optimized and must
+    // stay excluded. https://github.com/module-federation/vite/issues/974
+    if (
+      (error as NodeJS.ErrnoException)?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' &&
+      !isBarePackageSubpath(subpath)
+    ) {
+      const entry = resolveViteImportPackageEntry(subpath, projectRoot);
+      return entry !== undefined && existsSync(entry) && isViteOptimizableEntry(entry);
+    }
     return false;
   }
+}
+
+const VITE_DEV_IMPORT_CONDITIONS = new Set([
+  'browser',
+  'development',
+  'import',
+  'module',
+  'default',
+]);
+
+function resolveConditionalExportTarget(target: unknown): string | undefined {
+  if (typeof target === 'string') return target;
+  if (Array.isArray(target)) {
+    for (const candidate of target) {
+      const resolved = resolveConditionalExportTarget(candidate);
+      if (resolved) return resolved;
+    }
+    return undefined;
+  }
+  if (!target || typeof target !== 'object') return undefined;
+
+  for (const [condition, candidate] of Object.entries(target)) {
+    if (!VITE_DEV_IMPORT_CONDITIONS.has(condition)) continue;
+    const resolved = resolveConditionalExportTarget(candidate);
+    if (resolved) return resolved;
+  }
+  return undefined;
+}
+
+function resolveViteImportPackageEntry(
+  packageName: string,
+  projectRoot: string
+): string | undefined {
+  const installed = getInstalledPackageJson(packageName, { cwd: projectRoot });
+  if (!installed) return undefined;
+
+  const exportsField = installed.packageJson.exports;
+  let rootExport: unknown = exportsField;
+  if (exportsField && typeof exportsField === 'object' && !Array.isArray(exportsField)) {
+    const exportsRecord = exportsField as Record<string, unknown>;
+    if (Object.keys(exportsRecord).some((key) => key.startsWith('.'))) {
+      rootExport = exportsRecord['.'];
+    }
+  }
+
+  const target = resolveConditionalExportTarget(rootExport);
+  if (!target?.startsWith('./')) return undefined;
+  const resolved = path.resolve(installed.dir, target);
+  const relative = path.relative(installed.dir, resolved);
+  if (relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return undefined;
+  return resolved;
+}
+
+// True when `specifier` addresses a subpath of a package (e.g. `react/compiler-runtime`)
+// rather than its main entry (e.g. `react` or `@scope/pkg`).
+function isBarePackageSubpath(specifier: string): boolean {
+  const segments = specifier.split('/');
+  return specifier.startsWith('@') ? segments.length > 2 : segments.length > 1;
 }
 
 /**
@@ -344,6 +425,8 @@ function includeLinkedSharedEntries(
 function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOptions): Plugin {
   const { shared, remotes } = options;
   const isLitShare = (pkg: string) => pkg === 'lit' || pkg.startsWith('lit/');
+  const shouldGuardReactMixedMode =
+    Object.keys(remotes ?? {}).length > 0 && shared?.react?.shareConfig.singleton === true;
 
   return {
     name: 'vite:module-federation-early-init',
@@ -394,6 +477,9 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           if (isRolldown) {
             optimizeDeps.rolldownOptions ??= {};
             optimizeDeps.rolldownOptions.plugins ??= [];
+            if (shouldGuardReactMixedMode) {
+              optimizeDeps.rolldownOptions.plugins.push(createRolldownReactMixedModeGuard());
+            }
             optimizeDeps.rolldownOptions.plugins.push({
               name: 'module-federation:optimize-shared-resolver',
               load(id: string) {
@@ -464,6 +550,9 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           } else {
             optimizeDeps.esbuildOptions ??= {};
             optimizeDeps.esbuildOptions.plugins ??= [];
+            if (shouldGuardReactMixedMode) {
+              optimizeDeps.esbuildOptions.plugins.push(createEsbuildReactMixedModeGuard());
+            }
             optimizeDeps.esbuildOptions.plugins.push({
               name: 'module-federation:optimize-shared-proxy',
               setup(build: any) {
@@ -748,9 +837,7 @@ function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOpti
 
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
-  const options =
-    normalizedOptionsByInput.get(mfUserOptions) ?? normalizeModuleFederationOptions(mfUserOptions);
-  normalizedOptionsByInput.set(mfUserOptions, options);
+  const options = normalizeModuleFederationOptions(mfUserOptions);
   applyExternalRuntimeExperiments(options);
 
   const isVinext = hasPackageDependency('vinext');
@@ -762,11 +849,143 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
   const remoteEntryId = getRemoteEntryId(options);
   const virtualExposesId = getVirtualExposesId(options);
+  const moduleParseController = createModuleParseController();
+  const moduleParsePlugins = pluginModuleParseEnd(
+    (id: string) => {
+      return (
+        id.includes(getHostAutoInitImportId(options)) ||
+        id.includes(remoteEntryId) ||
+        id.includes(virtualExposesId) ||
+        id.includes('virtual:mf-localSharedImportMap') ||
+        id.includes(LOAD_SHARE_TAG) ||
+        id.includes(PREBUILD_TAG) ||
+        id.includes(TREE_SHAKING_PROVIDER_TAG) ||
+        id.includes(TREE_SHAKING_GRAPH_QUERY)
+      );
+    },
+    {
+      moduleParseTimeout: options.moduleParseTimeout,
+      moduleParseIdleTimeout: options.moduleParseIdleTimeout,
+      exposedModuleImports: Object.values(options.exposes).map((expose) => expose.import),
+    },
+    moduleParseController
+  );
 
   let command: string;
   let desiredRolldownOutput: OutputNameOptions[] | undefined;
   let isSsrBuild = false;
+  let isProduction = false;
+  let rootResolveConditions: string[] | undefined;
+  let ssrResolveConditions: string[] | undefined;
+  let ssrTarget: 'node' | 'webworker' = 'node';
   const emittedRuntimeCapabilityWarnings = new Set<string>();
+
+  type LoadHookOptions = { ssr?: boolean };
+  type SharedVirtualRefreshStatus = 'refreshed' | 'not-owned' | 'not-applicable';
+  type LoadHookContext = {
+    environment?: {
+      name?: string;
+      config?: {
+        consumer?: string;
+        build?: { ssr?: boolean | string };
+        isProduction?: boolean;
+        resolve?: { conditions?: string[] };
+      };
+    };
+  };
+
+  const getLoadHookExportConditions = (context: LoadHookContext, loadOptions?: LoadHookOptions) => {
+    const environment = context.environment;
+    const isSsr =
+      loadOptions?.ssr === true ||
+      isSsrBuild ||
+      environment?.config?.consumer === 'server' ||
+      Boolean(environment?.config?.build?.ssr) ||
+      environment?.name === 'ssr' ||
+      environment?.name === 'server';
+    return getSharedExportConditions({
+      environmentConditions: environment?.config?.resolve?.conditions,
+      isProduction: environment?.config?.isProduction ?? isProduction,
+      isSsr,
+      rootConditions: rootResolveConditions,
+      ssrConditions: ssrResolveConditions,
+      ssrTarget,
+    });
+  };
+
+  const refreshPreBuildModuleForEnvironment = (
+    id: string,
+    context: LoadHookContext,
+    loadOptions?: LoadHookOptions
+  ): SharedVirtualRefreshStatus => {
+    const pkg = getCachedPreBuildPkg(id);
+    if (!pkg) return 'not-applicable';
+    const key = findSharedKey(pkg, shared);
+    if (!key) return 'not-applicable';
+    const requestedModule = VirtualModule.findById(id);
+    const ownedModule = VirtualModule.findById(getPreBuildLibImportId(pkg, options));
+    if (!requestedModule || requestedModule !== ownedModule) return 'not-owned';
+    writePreBuildLibPath(
+      pkg,
+      shared[key],
+      options,
+      getLoadHookExportConditions(context, loadOptions)
+    );
+    return 'refreshed';
+  };
+
+  const refreshLoadShareModuleForEnvironment = (
+    id: string,
+    context: LoadHookContext,
+    loadOptions?: LoadHookOptions,
+    importFalseExportUsage?: ReturnType<typeof getSharedExportUsage>
+  ): SharedVirtualRefreshStatus => {
+    const pkg = getCachedLoadSharePkg(id);
+    if (!pkg) return 'not-applicable';
+    const key = findSharedKey(pkg, shared);
+    if (!key) return 'not-applicable';
+    const requestedModule = VirtualModule.findById(id);
+    const ownedModule = VirtualModule.findById(getLoadShareModulePath(pkg, false, options));
+    if (!requestedModule || requestedModule !== ownedModule) return 'not-owned';
+    writeLoadShareModule(
+      pkg,
+      shared[key],
+      command,
+      getIsRolldown(context),
+      options,
+      getLoadHookExportConditions(context, loadOptions),
+      importFalseExportUsage
+    );
+    return 'refreshed';
+  };
+
+  const getCompleteImportFalseExportUsage = (id: string) => {
+    if (command !== 'build') return undefined;
+    const pkg = getCachedLoadSharePkg(id);
+    if (!pkg) return undefined;
+    const key = findSharedKey(pkg, shared);
+    if (!key || shared[key].shareConfig.import !== false) return undefined;
+
+    return moduleParseController.parsePromise.then((completion) => {
+      if (!completion.complete) {
+        // The fallback is safe but invisible: without this the build silently
+        // pays the barrier's timeout and emits the complete export surface.
+        if (!moduleParseController.discardWarned) {
+          moduleParseController.discardWarned = true;
+          mfWarn(
+            `import: false shared export analysis was discarded (reason: ${completion.reason})` +
+              ' — falling back to the complete export surface, so shared consumers keep every' +
+              ' detected named export.' +
+              (completion.reason === 'idle-timeout' || completion.reason === 'timeout'
+                ? ' If the build is simply slow, increasing moduleParseIdleTimeout may let the analysis finish.'
+                : '')
+          );
+        }
+        return undefined;
+      }
+      return getSharedExportUsage(pkg, shared[key], key, options);
+    });
+  };
 
   return [
     {
@@ -785,12 +1004,29 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             writeLocalSharedImportMap: () => writeLocalSharedImportMap(options),
             federationOptions: options,
           });
-          virtualModule = VirtualModule.findById(id);
+          virtualModule =
+            VirtualModule.findById(id) ??
+            findCurrentLoadShareForStaleOwnerId(id, options.shared, findSharedKey, options);
         }
         if (!virtualModule) return;
         return virtualModule.getResolvedId();
       },
-      load(id: string) {
+      load(id: string, loadOptions?: LoadHookOptions) {
+        if (
+          command !== 'build' &&
+          id.includes(LOAD_SHARE_TAG) &&
+          refreshLoadShareModuleForEnvironment(id, this as LoadHookContext, loadOptions) ===
+            'not-owned'
+        ) {
+          return;
+        }
+        if (
+          id.includes(PREBUILD_TAG) &&
+          refreshPreBuildModuleForEnvironment(id, this as LoadHookContext, loadOptions) ===
+            'not-owned'
+        ) {
+          return;
+        }
         const virtualModule = VirtualModule.findById(id);
         if (!virtualModule) return;
         if (command === 'build' && (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG))) {
@@ -835,7 +1071,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(_config: UserConfig, env: ConfigEnv) {
         command = env.command;
       },
-      configResolved() {
+      configResolved(config: ResolvedConfig) {
+        rootResolveConditions = config.resolve?.conditions
+          ? [...config.resolve.conditions]
+          : undefined;
+        ssrResolveConditions = config.ssr?.resolve?.conditions
+          ? [...config.ssr.resolve.conditions]
+          : undefined;
+        ssrTarget = config.ssr?.target ?? 'node';
+        isProduction = config.isProduction;
         const ssrCapabilities = getSsrCapabilities(
           parseInt(viteVersion, 10),
           command as 'serve' | 'build',
@@ -898,38 +1142,26 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       entryPath: virtualExposesId,
       federationOptions: options,
     }),
-    pluginProxyRemoteEntry({ options, remoteEntryId, virtualExposesId }),
+    pluginProxyRemoteEntry({
+      options,
+      remoteEntryId,
+      virtualExposesId,
+      getParsePromise: () => moduleParseController.parsePromise,
+    }),
     pluginProxyRemotes(options),
     pluginRemoteNamedExports(options),
-    ...pluginModuleParseEnd(
-      (id: string) => {
-        return (
-          id.includes(getHostAutoInitImportId(options)) ||
-          id.includes(remoteEntryId) ||
-          id.includes(virtualExposesId) ||
-          id.includes(getLocalSharedImportMapPath(options)) ||
-          id.includes(LOAD_SHARE_TAG) ||
-          id.includes(PREBUILD_TAG) ||
-          id.includes(TREE_SHAKING_PROVIDER_TAG) ||
-          id.includes(TREE_SHAKING_GRAPH_QUERY)
-        );
-      },
-      {
-        moduleParseTimeout: options.moduleParseTimeout,
-        moduleParseIdleTimeout: options.moduleParseIdleTimeout,
-        exposedModuleImports: Object.values(options.exposes).map((expose) => expose.import),
-      }
-    ),
+    ...moduleParsePlugins,
     ...proxySharedModule({
       shared,
       federationOptions: options,
+      getParsePromise: () => moduleParseController.parsePromise,
     }),
     {
       name: 'module-federation-esm-shims',
       enforce: 'pre',
       apply: 'build',
       config(config: UserConfig) {
-        isSsrBuild = config.build?.ssr === true;
+        isSsrBuild = Boolean(config.build?.ssr);
         // Force loadShare modules and runtimeInitStatus into separate chunks.
         //
         // For Vite 8+: loadShare chunks need separate async init barriers
@@ -1179,8 +1411,22 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           };
         }
       },
-      load(id: string) {
-        if (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG)) {
+      load(id: string, loadOptions?: LoadHookOptions) {
+        const loadVirtualModule = (
+          importFalseExportUsage?: ReturnType<typeof getSharedExportUsage>
+        ) => {
+          if (!id.includes(LOAD_SHARE_TAG) && !id.includes(LOAD_REMOTE_TAG)) return;
+          if (
+            id.includes(LOAD_SHARE_TAG) &&
+            refreshLoadShareModuleForEnvironment(
+              id,
+              this as LoadHookContext,
+              loadOptions,
+              importFalseExportUsage
+            ) === 'not-owned'
+          ) {
+            return;
+          }
           const virtualModule = VirtualModule.findById(id);
           if (!virtualModule?.code) return null;
           let code = virtualModule.code;
@@ -1246,7 +1492,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             return { code };
           }
           return { code, syntheticNamedExports: '__moduleExports' };
+        };
+
+        const pendingImportFalseExportUsage = id.includes(LOAD_SHARE_TAG)
+          ? getCompleteImportFalseExportUsage(id)
+          : undefined;
+        if (pendingImportFalseExportUsage) {
+          return pendingImportFalseExportUsage.then(loadVirtualModule);
         }
+        return loadVirtualModule();
       },
       generateBundle(
         _outputOptions: NormalizedOutputOptionsLike,
@@ -1333,7 +1587,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       _options: options,
       config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
-        isSsrBuild = _command === 'build' && config.build?.ssr === true;
+        isSsrBuild = _command === 'build' && Boolean(config.build?.ssr);
         const needsRuntimeHelpers = Object.keys(options.shared ?? {}).length > 0;
 
         if (needsRuntimeHelpers) {

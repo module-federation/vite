@@ -5,7 +5,7 @@ import {
 } from '../utils/normalizeModuleFederationOptions';
 import type { RemoteConsumer } from '../utils/remoteConsumerTarget';
 import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
-import VirtualModule from '../utils/VirtualModule';
+import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import { getHostAutoInitPath } from './virtualRemoteEntry';
 import {
   getRuntimeInitBootstrapCode,
@@ -49,7 +49,7 @@ export function getRemoteVirtualModule(
     // code (notably without the client host-init import). Keep the historical
     // id for legacy/unified graphs.
     const consumerName = consumer === 'unified' ? remote : `${remote}__mf_consumer__${consumer}`;
-    const virtualName = `${consumerName}__mf_owner__${getRemoteOptionsId(options)}`;
+    const virtualName = `${consumerName}${MF_OWNER_INFIX}${getRemoteOptionsId(options)}`;
     const virtual = new VirtualModule(virtualName, LOAD_REMOTE_TAG, '.js', options.internalName);
     virtual.writeSync(generateRemotes(remote, command, enableSsrInit, consumer, options));
     instanceCache.set(cacheKey, virtual);
@@ -63,6 +63,8 @@ const usedRemotesByOptions = new WeakMap<
   NormalizedModuleFederationOptions,
   Record<string, Set<string>>
 >();
+const dynamicRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
+const staticRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 
 function getScopedUsedRemotesMap(options: NormalizedModuleFederationOptions) {
   let scoped = usedRemotesByOptions.get(options);
@@ -93,6 +95,31 @@ export function addUsedRemote(
 export function getUsedRemotesMap(options?: NormalizedModuleFederationOptions) {
   if (options) return getScopedUsedRemotesMap(options);
   return usedRemotesMap;
+}
+
+export function markDynamicRemote(remote: string, options: NormalizedModuleFederationOptions) {
+  let remotes = dynamicRemotesByOptions.get(options);
+  if (!remotes) {
+    remotes = new Set();
+    dynamicRemotesByOptions.set(options, remotes);
+  }
+  remotes.add(remote);
+}
+
+export function markStaticRemote(remote: string, options: NormalizedModuleFederationOptions) {
+  let remotes = staticRemotesByOptions.get(options);
+  if (!remotes) {
+    remotes = new Set();
+    staticRemotesByOptions.set(options, remotes);
+  }
+  remotes.add(remote);
+}
+
+export function isDynamicOnlyRemote(remote: string, options: NormalizedModuleFederationOptions) {
+  return (
+    (dynamicRemotesByOptions.get(options)?.has(remote) ?? false) &&
+    !(staticRemotesByOptions.get(options)?.has(remote) ?? false)
+  );
 }
 
 function getRemoteAliasFromId(id: string, remotes: Record<string, RemoteObjectConfig>) {
@@ -337,7 +364,7 @@ export function generateRemotes(
       ? `runtime.registerRemotes([${JSON.stringify({
           entryGlobalName: remote.entryGlobalName,
           name: options ? runtimeRemoteAlias : remote.name,
-          alias: runtimeRemoteAlias,
+          alias: remoteAlias,
           type: remote.type,
           entry: remote.entry,
           shareScope: remote.shareScope ?? 'default',

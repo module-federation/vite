@@ -66,6 +66,41 @@ describe('virtualExposes', () => {
     expect(cssBundleCode).toContain(`const cssAssetMap = "${getExposesCssMapPlaceholder()}";`);
   });
 
+  it('adds a lazy browser hydration capability without changing the default export', async () => {
+    const code = generateExposes(
+      getDefaultMockOptions({
+        exposes: { './Button': { import: './Button.tsx' } as any },
+      }),
+      {},
+      'build',
+      new Set(['./Button'])
+    );
+    const hydrateRoot = vi.fn(() => ({ hydrated: true }));
+    const dynamicImport = vi.fn((id: string) => {
+      if (id === './Button.tsx') return Promise.resolve({ default: 'Button' });
+      if (id === 'react') return Promise.resolve({ createElement: vi.fn(() => 'element') });
+      if (id === 'react-dom/client') return Promise.resolve({ hydrateRoot });
+      return Promise.reject(new Error(`unexpected import: ${id}`));
+    });
+    const exposes = await toRunnableModule(code)(
+      undefined,
+      URL,
+      dynamicImport,
+      'file:///repo/remoteEntry.js'
+    );
+    const module = (await exposes['./Button']()) as any;
+
+    expect(module.default).toBe('Button');
+    expect(module.__mf_island.version).toBe(1);
+    const root = {
+      hasAttribute: () => true,
+      getAttribute: () => encodeURIComponent(JSON.stringify({ fromServer: true })),
+    };
+    await module.__mf_island.hydrate(root, { fromClient: true });
+    expect(hydrateRoot).toHaveBeenCalledWith(root, 'element');
+    expect(code.trimStart()).toMatch(/^const\s/);
+  });
+
   it('injects css once and serializes module imports across concurrent expose loads', async () => {
     const code = generateExposes(
       getDefaultMockOptions({

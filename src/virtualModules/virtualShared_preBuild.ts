@@ -13,8 +13,8 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
-import { mfWarn } from '../utils/logger';
 import { createCodePositionMap } from '../utils/codePositionMap';
+import { mfWarn } from '../utils/logger';
 import {
   getNormalizeModuleFederationOptions,
   type NormalizedModuleFederationOptions,
@@ -26,19 +26,20 @@ import {
   getInstalledPackageJson,
   getPackageDetectionCwd,
   getPackageName,
-  packageNameEncode,
-  packageNameDecode,
   getSharedCacheDescriptor,
+  packageNameDecode,
+  packageNameEncode,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
-import VirtualModule, { normalizeVirtualModuleId } from '../utils/VirtualModule';
 import { normalizeNodeModulePath } from '../utils/pathNormalization';
+import { getTreeShakingExportUsage, type TreeShakingExportUsage } from '../utils/treeShaking';
+import { findLikelyTypeArgumentEnd } from '../utils/typeArgumentScanner';
+import VirtualModule, { MF_OWNER_INFIX, normalizeVirtualModuleId } from '../utils/VirtualModule';
 import {
   getRuntimeInitPromiseBootstrapCode,
   getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
-import { getTreeShakingExportUsage } from '../utils/treeShaking';
 
 const JS_IDENTIFIER_REGEX = new RegExp(
   '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
@@ -107,6 +108,8 @@ type NamedExportScanState = {
   complete: boolean;
 };
 
+const DEFAULT_SHARED_EXPORT_CONDITIONS = ['browser', 'import', 'module', 'default'];
+
 function hasCodeMatch(source: string, regex: RegExp, codePositions: boolean[]): boolean {
   regex.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -118,21 +121,47 @@ function hasCodeMatch(source: string, regex: RegExp, codePositions: boolean[]): 
 
 function hasCommonJsExports(source: string): boolean {
   const codePositions = createCodePositionMap(source);
-  return hasCodeMatch(
-    source,
-    /\bmodule\s*(?:\.exports|\[\s*['"]exports['"]\s*\])|\bexports\s*(?:\.|\[|[,)]|=(?!=|>))/g,
-    codePositions
-  );
+  if (hasCodeMatch(source, /\bmodule\s*(?:\.exports|\[\s*['"]exports['"]\s*\])/g, codePositions)) {
+    return true;
+  }
+
+  const exportsRegex = /\bexports\s*(?:\.|\[|[,)]|=(?!=|>))/g;
+  let match: RegExpExecArray | null;
+  while ((match = exportsRegex.exec(source)) !== null) {
+    if (!codePositions[match.index]) continue;
+
+    // `exports` is a CommonJS marker only when it is a standalone identifier.
+    // Member properties such as `wrapper.exports` describe arbitrary objects
+    // and do not determine the containing file's module format.
+    let previousCodeIndex = match.index - 1;
+    while (
+      previousCodeIndex >= 0 &&
+      (/\s/.test(source[previousCodeIndex]) || !codePositions[previousCodeIndex])
+    ) {
+      previousCodeIndex--;
+    }
+    if (source[previousCodeIndex] === '.') continue;
+
+    return true;
+  }
+  return false;
 }
 
 function inspectSharedExportsFromFile(
-  entryPath: string | undefined
+  entryPath: string | undefined,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
 ): SharedExportInspection | undefined {
   try {
     if (!entryPath) return undefined;
     const source = readFileSync(entryPath, 'utf-8');
     const scanState: NamedExportScanState = { complete: true };
-    const namedExports = getNamedExportsViaRegex(source, entryPath, undefined, scanState);
+    const namedExports = getNamedExportsViaRegex(
+      source,
+      entryPath,
+      undefined,
+      scanState,
+      exportConditions
+    );
     const commonJs = hasCommonJsExports(source);
     return {
       // A complete empty ESM scan is a known default-only export surface. Keep
@@ -145,7 +174,101 @@ function inspectSharedExportsFromFile(
   }
 }
 
-function resolveConfiguredImportPath(importSource: string): string | undefined {
+function getMutableExportsFromFile(
+  entryPath: string | undefined,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS,
+  visited = new Set<string>()
+): string[] {
+  // Cache-backed `let` exports only react to provider replacement. Forwarding
+  // from the ESM source is required to observe synchronous binding mutations.
+  if (!entryPath || visited.has(entryPath)) return [];
+  visited.add(entryPath);
+
+  try {
+    const source = readFileSync(entryPath, 'utf-8');
+    const codePositions = createCodePositionMap(source);
+    const mutableBindings = new Set<string>();
+    const mutableExports = new Set<string>();
+    let match: RegExpExecArray | null;
+    const declarationRegex = new RegExp(
+      `\\b(?:export\\s+)?(?:let|var)\\s+(${JS_IDENTIFIER_PATTERN})`,
+      'gu'
+    );
+    let declarationScanIndex = 0;
+    let braceDepth = 0;
+    while ((match = declarationRegex.exec(source)) !== null) {
+      if (!codePositions[match.index]) continue;
+      for (let index = declarationScanIndex; index < match.index; index++) {
+        if (!codePositions[index]) continue;
+        if (source[index] === '{') braceDepth++;
+        else if (source[index] === '}') braceDepth--;
+      }
+      declarationScanIndex = match.index;
+      if (braceDepth !== 0) continue;
+      mutableBindings.add(match[1]);
+      if (match[0].trimStart().startsWith('export')) mutableExports.add(match[1]);
+    }
+
+    const listRegex = /export\s*\{([^}]+)\}(?:\s*from\s*['"]([^'"]+)['"])?/g;
+    while ((match = listRegex.exec(source)) !== null) {
+      if (!codePositions[match.index]) continue;
+      const reExportPath = match[2]
+        ? resolveReExportModule(entryPath, match[2], exportConditions)
+        : undefined;
+      const reExportedMutable = new Set(
+        reExportPath ? getMutableExportsFromFile(reExportPath, exportConditions, visited) : []
+      );
+      for (const rawSpecifier of match[1].split(',')) {
+        const specifier = rawSpecifier.trim();
+        if (!specifier || specifier.startsWith('type ')) continue;
+        const parts = specifier.split(/\s+as\s+/);
+        const local = parts[0].trim();
+        const exported = (parts[1] || local).trim();
+        if (
+          isValidEsmExportName(exported) &&
+          (mutableBindings.has(local) || reExportedMutable.has(local))
+        ) {
+          mutableExports.add(exported);
+        }
+      }
+    }
+
+    const starExportRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+    while ((match = starExportRegex.exec(source)) !== null) {
+      if (!codePositions[match.index]) continue;
+      const resolved = resolveReExportModule(entryPath, match[1], exportConditions);
+      for (const name of getMutableExportsFromFile(resolved, exportConditions, visited)) {
+        mutableExports.add(name);
+      }
+    }
+    visited.delete(entryPath);
+    return Array.from(mutableExports);
+  } catch {
+    visited.delete(entryPath);
+    return [];
+  }
+}
+
+function getSharedMutableExports(
+  pkg: string,
+  shareItem?: ShareItem,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
+): string[] {
+  const configuredImport = shareItem?.shareConfig.import;
+  const entryPath =
+    typeof configuredImport === 'string'
+      ? resolveConfiguredImportPath(configuredImport, exportConditions)
+      : getInstalledPackageEntry(pkg, {
+          conditions: exportConditions,
+          resolveSubpathWithRequire: false,
+        });
+  return getMutableExportsFromFile(entryPath, exportConditions);
+}
+
+function resolveConfiguredImportPath(
+  importSource: string,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
+): string | undefined {
   if (path.isAbsolute(importSource)) {
     return resolveFileLikeModule(importSource);
   }
@@ -156,7 +279,7 @@ function resolveConfiguredImportPath(importSource: string): string | undefined {
   }
 
   const esmEntry = getInstalledPackageEntry(importSource, {
-    conditions: ['browser', 'import', 'module', 'default'],
+    conditions: exportConditions,
     resolveSubpathWithRequire: false,
   });
   if (esmEntry) return esmEntry;
@@ -205,7 +328,11 @@ function resolveRelativeModule(filePath: string, specifier: string): string | un
   return undefined;
 }
 
-function resolveReExportModule(filePath: string, specifier: string): string | undefined {
+function resolveReExportModule(
+  filePath: string,
+  specifier: string,
+  exportConditions: string[]
+): string | undefined {
   if (specifier.startsWith('.')) return resolveRelativeModule(filePath, specifier);
 
   // Package entry files commonly re-export their public API from another
@@ -214,7 +341,7 @@ function resolveReExportModule(filePath: string, specifier: string): string | un
   // Vite will load, rather than a CommonJS fallback selected by require.
   const esmEntry = getInstalledPackageEntry(specifier, {
     cwd: path.dirname(filePath),
-    conditions: ['browser', 'import', 'module', 'default'],
+    conditions: exportConditions,
     resolveSubpathWithRequire: false,
   });
   if (esmEntry) return esmEntry;
@@ -226,7 +353,11 @@ function resolveReExportModule(filePath: string, specifier: string): string | un
   }
 }
 
-function hasTopLevelDeclaratorComma(source: string, start: number): boolean {
+function hasTopLevelDeclaratorComma(
+  source: string,
+  start: number,
+  codePositions: boolean[]
+): boolean {
   let depth = 0;
   let quote: string | undefined;
   let escaped = false;
@@ -317,6 +448,14 @@ function hasTopLevelDeclaratorComma(source: string, start: number): boolean {
     if (char === '!' && source[index + 1] !== '=') {
       continue;
     }
+    if (char === '<') {
+      const typeArgumentEnd = findLikelyTypeArgumentEnd(source, index, codePositions);
+      if (typeArgumentEnd !== undefined) {
+        index = typeArgumentEnd;
+        canStartRegex = false;
+        continue;
+      }
+    }
     if (char === '(' || char === '[' || char === '{') {
       depth++;
       canStartRegex = true;
@@ -368,7 +507,8 @@ function getNamedExportsViaRegex(
   source: string,
   filePath?: string,
   visited?: Set<string>,
-  scanState: NamedExportScanState = { complete: true }
+  scanState: NamedExportScanState = { complete: true },
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
 ): string[] {
   const names = new Set<string>();
   const codePositions = createCodePositionMap(source);
@@ -396,7 +536,9 @@ function getNamedExportsViaRegex(
   const exportedVariableDeclarationRegex = /export\s+(?:const|let|var)\s+/g;
   while ((match = exportedVariableDeclarationRegex.exec(source)) !== null) {
     if (!codePositions[match.index]) continue;
-    if (hasTopLevelDeclaratorComma(source, exportedVariableDeclarationRegex.lastIndex)) {
+    if (
+      hasTopLevelDeclaratorComma(source, exportedVariableDeclarationRegex.lastIndex, codePositions)
+    ) {
       scanState.complete = false;
     }
     if (hasUnsupportedBindingPattern(source, exportedVariableDeclarationRegex.lastIndex)) {
@@ -449,6 +591,10 @@ function getNamedExportsViaRegex(
     const specifiers = match[1].split(',');
     for (const specifier of specifiers) {
       const trimmed = specifier.trim();
+      if (!trimmed) {
+        // empty specifier from a trailing comma in the export list — valid syntax, not a scan gap
+        continue;
+      }
       if (typeOnlySpecifierRegex.test(trimmed)) {
         continue;
       }
@@ -488,27 +634,32 @@ function getNamedExportsViaRegex(
       if (!codePositions[match.index]) continue;
       recognizedExportStarts.add(match.index);
       const specifier = match[1];
-      const resolvedPath = resolveReExportModule(filePath, specifier);
+      const resolvedPath = resolveReExportModule(filePath, specifier, exportConditions);
       if (!resolvedPath) {
         scanState.complete = false;
         continue;
       }
       if (visited.has(resolvedPath)) continue;
-      if (path.extname(resolvedPath) === '.cjs') {
-        scanState.complete = false;
-        continue;
-      }
       try {
         const reExportSource = readFileSync(resolvedPath, 'utf-8');
-        if (hasCommonJsExports(reExportSource)) {
-          scanState.complete = false;
+        if (path.extname(resolvedPath) === '.cjs' || hasCommonJsExports(reExportSource)) {
+          // ESM barrels can re-export a CommonJS entry (Vue's Node entry does
+          // this). Preserve its runtime keys so consumers such as vue-demi do
+          // not receive an empty namespace during SSR bundling.
+          const requiredNames = getRequiredNamedExports(resolvedPath);
+          if (!requiredNames?.length) {
+            scanState.complete = false;
+            continue;
+          }
+          for (const name of requiredNames) names.add(name);
           continue;
         }
         const reExportNames = getNamedExportsViaRegex(
           reExportSource,
           resolvedPath,
           visited,
-          scanState
+          scanState,
+          exportConditions
         );
         for (const name of reExportNames) {
           names.add(name);
@@ -589,16 +740,19 @@ function getRequiredNamedExports(specifier: string): string[] | undefined {
   }
 }
 
-function getPackageNamedExports(pkg: string): string[] | undefined {
-  // Inspect the browser/import entry that Vite will bundle before considering
-  // the package's require condition. Dual-format packages can expose different
-  // APIs from those two entry points.
+function getPackageNamedExports(
+  pkg: string,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
+): string[] | undefined {
+  // Inspect the entry selected by the active Vite environment before
+  // considering the package's require condition. Dual-format and
+  // browser/server packages can expose different APIs from those entry points.
   const esmEntryPath = getInstalledPackageEntry(pkg, {
-    conditions: ['browser', 'import', 'module', 'default'],
+    conditions: exportConditions,
     resolveSubpathWithRequire: false,
   });
   if (esmEntryPath) {
-    const inspection = inspectSharedExportsFromFile(esmEntryPath);
+    const inspection = inspectSharedExportsFromFile(esmEntryPath, exportConditions);
 
     // The selected Vite entry may itself be CommonJS. Requiring that exact file
     // gives us its runtime namespace without substituting a different condition.
@@ -614,14 +768,18 @@ function getPackageNamedExports(pkg: string): string[] | undefined {
   return getRequiredNamedExports(pkg);
 }
 
-export function getSharedNamedExports(pkg: string, shareItem?: ShareItem): string[] | undefined {
+export function getSharedNamedExports(
+  pkg: string,
+  shareItem?: ShareItem,
+  exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
+): string[] | undefined {
   const configuredImport = shareItem?.shareConfig.import;
   if (typeof configuredImport === 'string') {
-    const configuredImportPath = resolveConfiguredImportPath(configuredImport);
+    const configuredImportPath = resolveConfiguredImportPath(configuredImport, exportConditions);
     // The configured source is authoritative. Do not fall back to the package
     // entry when that source is default-only or cannot be inspected: its export
     // shape may intentionally differ from the package root.
-    const inspection = inspectSharedExportsFromFile(configuredImportPath);
+    const inspection = inspectSharedExportsFromFile(configuredImportPath, exportConditions);
     if (
       configuredImportPath &&
       (inspection?.commonJs || path.extname(configuredImportPath) === '.cjs')
@@ -632,7 +790,7 @@ export function getSharedNamedExports(pkg: string, shareItem?: ShareItem): strin
     return undefined;
   }
 
-  return getPackageNamedExports(pkg);
+  return getPackageNamedExports(pkg, exportConditions);
 }
 
 export function getLocalProviderImportPath(pkg: string): string | undefined {
@@ -805,6 +963,15 @@ function isRemoteOnlyContainer(
   );
 }
 
+function isLocalOnlyContainer(
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
+  return (
+    Object.keys(options.exposes || {}).length === 0 &&
+    Object.keys(options.remotes || {}).length === 0
+  );
+}
+
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
   try {
     const projectRequire = createRequire(pathToFileURL(path.join(root, 'package.json')));
@@ -881,7 +1048,7 @@ function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions
       treeShakingProviderCacheMap: {},
       materializedTreeShakingProviders: new Set(),
       loadShareCacheMap: {},
-      ownerKey: `${options.internalName}__mf_owner__${nextSharedVirtualModuleOwnerId++}`,
+      ownerKey: `${options.internalName}${MF_OWNER_INFIX}${nextSharedVirtualModuleOwnerId++}`,
     };
     sharedVirtualModuleStates.set(options, state);
   }
@@ -1079,8 +1246,10 @@ export default { get, init };
 export function writePreBuildLibPath(
   pkg: string,
   shareItem?: ShareItem,
-  options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  exportConditions?: string[]
 ) {
+  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const { preBuildCacheMap, preBuildShareItemMap } = getSharedVirtualModuleState(options);
   if (!preBuildCacheMap[pkg]) {
     preBuildCacheMap[pkg] = createScopedSharedVirtualModule(pkg, PREBUILD_TAG, options);
@@ -1144,16 +1313,28 @@ export function writePreBuildLibPath(
     );
     return;
   }
-  const namedExports = getSharedNamedExports(pkg, shareItem) ?? [];
+  const namedExports = getSharedNamedExports(pkg, shareItem, exportConditions) ?? [];
   if (namedExports.length > 0) {
-    const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
-    const declarations = namedExports
+    const mutableExports = new Set(
+      isLocalOnlyContainer(resolvedOptions)
+        ? getSharedMutableExports(pkg, shareItem, exportConditions)
+        : []
+    );
+    const copiedExports = namedExports.filter((name) => !mutableExports.has(name));
+    const liveExports = namedExports.filter((name) => mutableExports.has(name));
+    const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
+    const declarations = copiedExports
       .map(
         (name, i) =>
           `const ${namedExportVars[i]} = __mfPrebuildExports[${escapeGeneratedStringLiteral(name)}];`
       )
       .join('\n    ');
-    const namedExportLine = `export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`;
+    const namedExportLine = copiedExports.length
+      ? `export { ${copiedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+      : '';
+    const liveExportLine = liveExports.length
+      ? `export { ${liveExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+      : '';
 
     preBuildCacheMap[pkg].writeSync(
       `
@@ -1161,6 +1342,7 @@ export function writePreBuildLibPath(
     const __mfPrebuildExports = __mfPrebuildNamespace;
     ${declarations}
     ${namedExportLine}
+    ${liveExportLine}
     export default Reflect.get(__mfPrebuildNamespace, "default") ?? __mfPrebuildNamespace;
   `,
       true
@@ -1250,21 +1432,29 @@ export function getLoadShareModulePath(
   return filepath;
 }
 
-export function getCachedLoadSharePkg(id: string): string | undefined {
-  // Most resolved ids are not loadShare virtual ids. Fast reject before
+function getCachedSharedVirtualPkg(id: string, tag: string): string | undefined {
+  // Most resolved ids are not shared virtual ids. Fast reject before
   // normalization/decoding work on the resolveId hot path.
-  if (!id.includes(LOAD_SHARE_TAG)) return;
+  if (!id.includes(tag)) return;
   const normalized = normalizeVirtualModuleId(id);
   if (!normalized.startsWith('virtual:mf:')) return;
 
-  const start = normalized.indexOf(LOAD_SHARE_TAG);
+  const start = normalized.indexOf(tag);
   if (start === -1) return;
 
-  const encodedPkgStart = start + LOAD_SHARE_TAG.length;
-  const end = normalized.indexOf(LOAD_SHARE_TAG, encodedPkgStart);
+  const encodedPkgStart = start + tag.length;
+  const end = normalized.indexOf(tag, encodedPkgStart);
   if (end === -1) return;
 
   return packageNameDecode(normalized.slice(encodedPkgStart, end));
+}
+
+export function getCachedPreBuildPkg(id: string): string | undefined {
+  return getCachedSharedVirtualPkg(id, PREBUILD_TAG);
+}
+
+export function getCachedLoadSharePkg(id: string): string | undefined {
+  return getCachedSharedVirtualPkg(id, LOAD_SHARE_TAG);
 }
 
 export function materializeCachedLoadShareModule(options: {
@@ -1297,6 +1487,33 @@ export function materializeCachedLoadShareModule(options: {
   options.writeLocalSharedImportMap();
 }
 
+// Owner keys embed a process-wide generation counter, so a loadShare id is
+// only resolvable in the process (and config generation) that minted it. But
+// Vite's dependency optimizer persists these ids inside node_modules/.vite:
+// a config re-evaluation or a fresh dev-server process mints new generations,
+// and cached deps referencing the old owner would fail to resolve until the
+// cache is deleted. When a stale id was minted by an earlier generation
+// of THIS instance, redirect it to the current generation's module instead.
+export function findCurrentLoadShareForStaleOwnerId(
+  id: string,
+  shared: NormalizedShared,
+  findSharedKey: (source: string, shared: NormalizedShared) => string | undefined,
+  options: NormalizedModuleFederationOptions
+): VirtualModule | undefined {
+  const pkg = getCachedLoadSharePkg(id);
+  if (!pkg) return;
+  const normalized = normalizeVirtualModuleId(id);
+  if (!normalized.startsWith('virtual:mf:')) return;
+  const encodedKey = normalized.slice('virtual:mf:'.length);
+  const ownerStart = encodedKey.indexOf(MF_OWNER_INFIX);
+  if (ownerStart === -1) return;
+  // Owner keys are scoped per federation instance; only reclaim ids this
+  // instance minted. Other instances' resolveId hooks handle their own.
+  if (encodedKey.slice(0, ownerStart) !== packageNameEncode(options.internalName)) return;
+  if (!findSharedKey(pkg, shared)) return;
+  return getSharedVirtualModuleState(options).loadShareCacheMap[pkg];
+}
+
 function getSharedCacheReadExpression(cacheDescriptor: string, treeShakingConsumer?: string) {
   return treeShakingConsumer
     ? `__mfReadTreeShakingSharedSelection(__mfModuleCache.share, ${cacheDescriptor}, ${JSON.stringify(treeShakingConsumer)})`
@@ -1308,23 +1525,28 @@ function generateEagerWorkspaceSingletonExports(
   importSource: string,
   cacheDescriptor: string,
   cacheOwner: string,
-  treeShakingConsumer?: string
+  treeShakingConsumer?: string,
+  mutableExports: string[] = []
 ) {
-  const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+  const copiedExports = namedExports.filter((name) => !mutableExports.includes(name));
+  const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
   const declarations =
     namedExports.length > 0
       ? ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join('\n    ')
       : 'let __mf_default;';
   const assignments = [
-    ...namedExports.map(
+    ...copiedExports.map(
       (name, i) => `${namedExportVars[i]} = mod[${escapeGeneratedStringLiteral(name)}];`
     ),
     '__mf_default = mod.default ?? mod;',
   ].join('\n      ');
   const namedExportLine =
-    namedExports.length > 0
-      ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+    copiedExports.length > 0
+      ? `\n    export { ${copiedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
+  const mutableExportLine = mutableExports.length
+    ? `\n    export { ${mutableExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+    : '';
 
   return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
@@ -1342,7 +1564,7 @@ function generateEagerWorkspaceSingletonExports(
     };
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyEagerShareExports);
     __mfApplyEagerShareExports(exportModule);
-    export { __mf_default as default };${namedExportLine}`;
+    export { __mf_default as default };${namedExportLine}${mutableExportLine}`;
 }
 function generateLazyWorkspaceSingletonExports(
   namedExports: string[],
@@ -1350,26 +1572,31 @@ function generateLazyWorkspaceSingletonExports(
   cacheDescriptor: string,
   cacheOwner: string,
   treeShakingConsumer?: string,
-  serveLocalFallback = false
+  serveLocalFallback = false,
+  mutableExports: string[] = []
 ) {
-  const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+  const copiedExports = namedExports.filter((name) => !mutableExports.includes(name));
+  const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
   const declarations =
     namedExports.length > 0
       ? ['let __mf_default;', ...namedExportVars.map((name) => `let ${name};`)].join('\n    ')
       : 'let __mf_default;';
   const assignments =
-    namedExports.length > 0
+    copiedExports.length > 0
       ? [
-          ...namedExports.map(
+          ...copiedExports.map(
             (name, i) => `${namedExportVars[i]} = mod[${escapeGeneratedStringLiteral(name)}];`
           ),
           '__mf_default = mod.default ?? mod;',
         ].join('\n      ')
       : '__mf_default = mod.default ?? mod;';
   const namedExportLine =
-    namedExports.length > 0
-      ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
+    copiedExports.length > 0
+      ? `\n    export { ${copiedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
+  const mutableExportLine = mutableExports.length
+    ? `\n    export { ${mutableExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+    : '';
   const applyLocalFallback = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
       __mfApplyLazyShareExports(exportModule);`;
@@ -1399,7 +1626,7 @@ function generateLazyWorkspaceSingletonExports(
     } else {
       __mfApplyLazyShareExports(exportModule);
     }
-    export { __mf_default as default };${namedExportLine}`;
+    export { __mf_default as default };${namedExportLine}${mutableExportLine}`;
 
   return body;
 }
@@ -1475,6 +1702,21 @@ function generateDeferredHostProvidedExports(
     export { __mf_default as default };${namedExportLine}`;
 }
 
+function selectImportFalseNamedExports(
+  detectedNamedExports: string[] | undefined,
+  usage?: TreeShakingExportUsage
+) {
+  if (!detectedNamedExports || usage?.kind !== 'exports') {
+    return detectedNamedExports ?? [];
+  }
+
+  const usedNamedExports = new Set(usage.usedExports.filter((name) => name !== 'default'));
+  if ([...usedNamedExports].some((name) => !detectedNamedExports.includes(name))) {
+    return detectedNamedExports;
+  }
+  return detectedNamedExports.filter((name) => usedNamedExports.has(name));
+}
+
 function generateShareModuleUnwrapCode({
   source,
   preserveNamedExports,
@@ -1516,7 +1758,9 @@ export function writeLoadShareModule(
   shareItem: ShareItem,
   command: string,
   _isRolldown: boolean,
-  options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  exportConditions?: string[],
+  importFalseExportUsage?: TreeShakingExportUsage
 ) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const { loadShareCacheMap } = getSharedVirtualModuleState(options);
@@ -1537,8 +1781,11 @@ export function writeLoadShareModule(
     // Try to detect named exports from locally installed devDependencies.
     // This enables `import { ref } from 'vue'` even though the module is provided by the host.
     // For packages that aren't installed, fall back to default-only export.
-    const detectedNamedExports = getPackageNamedExports(pkg);
-    const namedExports = detectedNamedExports ?? [];
+    const detectedNamedExports = getPackageNamedExports(pkg, exportConditions);
+    const namedExports = selectImportFalseNamedExports(
+      detectedNamedExports,
+      importFalseExportUsage
+    );
     let exportLine: string;
     if (namedExports.length > 0) {
       exportLine = generateDeferredHostProvidedExports(
@@ -1588,8 +1835,18 @@ export function writeLoadShareModule(
       ? concreteSharedImportSource || localProviderPath || devImportSource
       : concreteSharedImportSource || localProviderPath || sharedImportSource;
   const skipServePrebuildWarmup = command !== 'build' && (pkg === 'lit' || pkg.startsWith('lit/'));
-  const detectedNamedExports = getSharedNamedExports(pkg, shareItem);
+  const detectedNamedExports = getSharedNamedExports(pkg, shareItem, exportConditions);
   const namedExports = detectedNamedExports ?? [];
+  const mutableExports = new Set(
+    isLocalOnlyContainer(resolvedOptions)
+      ? getSharedMutableExports(pkg, shareItem, exportConditions)
+      : []
+  );
+  const copiedNamedExports = namedExports.filter((name) => !mutableExports.has(name));
+  const liveNamedExports = namedExports.filter((name) => mutableExports.has(name));
+  const liveNamedExportLine = liveNamedExports.length
+    ? `export { ${liveNamedExports.join(', ')} } from ${escapeGeneratedStringLiteral(sharedImportSource)};`
+    : '';
   const hasCompleteExportCoverage = detectedNamedExports !== undefined;
   const isWorkspaceSingleton = isWorkspacePackage && shareItem.shareConfig.singleton === true;
   const isDefaultShareScope =
@@ -1633,7 +1890,8 @@ export function writeLoadShareModule(
       cacheOwner,
       treeShakingConsumer,
       command !== 'build' &&
-        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback)
+        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback),
+      liveNamedExports
     );
   } else if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
     exportLine = generateEagerWorkspaceSingletonExports(
@@ -1641,7 +1899,8 @@ export function writeLoadShareModule(
       lazyLocalFallbackSource,
       cacheDescriptor,
       cacheOwner,
-      treeShakingConsumer
+      treeShakingConsumer,
+      liveNamedExports
     );
   } else if (usesDeferredSingletonFallback) {
     importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
@@ -1652,7 +1911,8 @@ export function writeLoadShareModule(
       cacheOwner,
       treeShakingConsumer,
       command !== 'build' &&
-        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback)
+        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback),
+      liveNamedExports
     );
   } else if (detectedNamedExports === undefined) {
     // Unknown export coverage cannot be rebound safely: a live default backed by
@@ -1670,13 +1930,13 @@ export function writeLoadShareModule(
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
   } else if (namedExports.length > 0 && shareItem.shareConfig.singleton === true) {
-    const namedExportVars = namedExports.map((_name, i) => `__mf_${i}`);
+    const namedExportVars = copiedNamedExports.map((_name, i) => `__mf_${i}`);
     const declarations = [
       'let __mfDefaultExport;',
       ...namedExportVars.map((name) => `let ${name};`),
     ].join('\n    ');
     const assignments = [
-      ...namedExports.map(
+      ...copiedNamedExports.map(
         (name, i) => `${namedExportVars[i]} = mod[${escapeGeneratedStringLiteral(name)}];`
       ),
       `__mfDefaultExport = (() => {
@@ -1687,7 +1947,9 @@ export function writeLoadShareModule(
         })}
       })();`,
     ].join('\n      ');
-    const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
+    const namedExportLine = copiedNamedExports.length
+      ? `export { ${copiedNamedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`
+      : '';
     exportLine = `${declarations}
     const __mfApplySharedExports = (mod) => {
       ${assignments}
@@ -1695,12 +1957,17 @@ export function writeLoadShareModule(
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplySharedExports);
     __mfApplySharedExports(exportModule);
     export { __mfDefaultExport as default };
-    ${namedExportLine}`;
+    ${namedExportLine}
+    ${liveNamedExportLine}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
   } else if (namedExports.length > 0) {
-    const destructure = `const { ${namedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`;
-    const namedExportLine = `export { ${namedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`;
+    const destructure = copiedNamedExports.length
+      ? `const { ${copiedNamedExports.map((name, i) => `${name}: __mf_${i}`).join(', ')} } = exportModule;`
+      : '';
+    const namedExportLine = copiedNamedExports.length
+      ? `export { ${copiedNamedExports.map((name, i) => `__mf_${i} as ${name}`).join(', ')} };`
+      : '';
     exportLine = `const __mfDefaultExport = (() => {
       ${generateShareModuleUnwrapCode({
         source: 'exportModule',
@@ -1710,7 +1977,8 @@ export function writeLoadShareModule(
     })();
     export default __mfDefaultExport;
     ${destructure}
-    ${namedExportLine}`;
+    ${namedExportLine}
+    ${liveNamedExportLine}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
   } else if (shareItem.shareConfig.singleton === true) {

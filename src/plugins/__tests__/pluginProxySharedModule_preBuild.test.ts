@@ -139,6 +139,7 @@ vi.mock('../../utils/packageUtils', () => ({
 }));
 
 vi.mock('../../utils/VirtualModule', () => ({
+  MF_OWNER_INFIX: '__mf_owner__',
   default: class MockVirtualModule {
     static findModule(tag: string, value: string) {
       const [, name] = value.split(tag);

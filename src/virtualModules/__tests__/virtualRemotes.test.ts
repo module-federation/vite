@@ -6,8 +6,20 @@ import {
   generateRemotes,
   getRemoteVirtualModule,
   getUsedRemotesMap,
+  isDynamicOnlyRemote,
+  markDynamicRemote,
+  markStaticRemote,
   resolveRemoteInitMode,
 } from '../virtualRemotes';
+
+it('classifies an expose as dynamic-only until a static import is seen', () => {
+  const options = {} as never;
+  markDynamicRemote('remote/Card', options);
+  expect(isDynamicOnlyRemote('remote/Card', options)).toBe(true);
+
+  markStaticRemote('remote/Card', options);
+  expect(isDynamicOnlyRemote('remote/Card', options)).toBe(false);
+});
 
 const mockOptions = vi.hoisted(() => ({
   shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
@@ -347,6 +359,27 @@ describe('generateRemotes', () => {
 
     expect(code).toContain('"name":"remote-container"');
     expect(code).toContain('"alias":"alias"');
+  });
+
+  it('keeps the public alias when runtime names are owner-scoped', () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const options = {
+      internalName: '__mfe_internal__host',
+      shareStrategy: 'loaded-first',
+      remotes: {
+        remote: {
+          entryGlobalName: 'remote',
+          name: 'remote',
+          type: 'module',
+          entry: 'http://localhost:4174/remoteEntry.js',
+        },
+      },
+    } as never;
+
+    const code = generateRemotes('remote/Button', 'serve', false, 'client', options);
+
+    expect(code).toMatch(/"name":"__mfe_internal__host__mf_owner__\d+__remote"/);
+    expect(code).toContain('"alias":"remote"');
   });
 
   it('skips remote registration when a scoped id matches no configured remote', () => {
