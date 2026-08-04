@@ -16,11 +16,10 @@
  *    module source through Vite's plugin pipeline, avoiding serialisation which
  *    cannot faithfully represent React components or closures.
  *
- *    Dev mode on Vite < 8 is NOT supported — `ModuleRunner` and
- *    `FetchableDevEnvironment` are Vite 8+ APIs. If you need dev-mode SSR on
- *    an older Vite version, implement an alternative loader in `loadSSRRemoteEntry`
- *    for the `isDevSsrEntry` branch and expose a corresponding server endpoint
- *    from `pluginSSRRemoteEntry.configureServer`.
+ *    Dev mode on Vite < 8 is NOT supported by this integration because the
+ *    cross-process `fetchModule` proxy uses Vite 8's environment APIs.
+ *    `ModuleRunner` itself is available in earlier Vite versions, but an older
+ *    remote needs a different transport and server endpoint.
  *
  * Exported as a plain factory function so it can be serialised into the
  * generated runtimePlugins list in virtualRemotes.ts.
@@ -33,6 +32,7 @@ import {
   isSsrFetchBodyTooLargeError,
   readResponseTextBounded,
 } from './fetchWithTimeout';
+import { EXTERNAL_URL_RE } from './buildPaths';
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
@@ -53,14 +53,19 @@ const isNodeServer = (): boolean =>
 // Vite 8+ ModuleRunner path (dev mode only)
 // ---------------------------------------------------------------------------
 
-// Per-origin ModuleRunner instances — one per remote dev server.
-// We cache them so repeated loadEntry calls reuse the same runner and its
-// module evaluation cache, avoiding redundant HTTP round-trips.
+// Per-origin ModuleRunner instances — one per remote dev server and host
+// shared-module map. The transport closes over resolvedShared, so different
+// hosts (or federation instances) must not reuse a runner configured for
+// another host's filesystem.
 const runnerCache = new Map<string, Promise<unknown>>();
 
+function getSortedRecordEntries(record: Record<string, string>): [string, string][] {
+  return Object.entries(record).sort(([left], [right]) => left.localeCompare(right));
+}
+
 /**
- * Load `vite/module-runner`. Returns null on Vite < 8 where the subpath doesn't
- * exist.
+ * Load `vite/module-runner`. Returns null when the installed Vite does not
+ * expose the module-runner entry point.
  */
 async function getModuleRunnerModule(): Promise<{
   ModuleRunner: new (
@@ -101,15 +106,46 @@ async function getModuleRunnerModule(): Promise<{
  * `/__mf_runner__` endpoint. Each HTTP POST carries a `fetchModule` invoke
  * payload; the remote responds with the transformed module source as JSON.
  *
- * This is Vite 8+ only — older versions don't expose `vite/module-runner` or
- * the `/__mf_runner__` proxy endpoint.
+ * The cross-process transport is Vite 8+ only because older versions do not
+ * expose the `/__mf_runner__` environment proxy used here.
  */
+function getRunnerCacheKey(
+  remoteOrigin: string,
+  resolvedShared: Record<string, string>,
+  fetchTimeoutMs: number,
+  fetchMaxBytes: number
+): string {
+  return JSON.stringify([
+    remoteOrigin,
+    fetchTimeoutMs,
+    fetchMaxBytes,
+    getSortedRecordEntries(resolvedShared),
+  ]);
+}
+
+async function resolveSharedExternal(
+  id: unknown,
+  resolvedShared: Record<string, string>
+): Promise<{ externalize: string; type: 'module' } | null> {
+  if (typeof id !== 'string') return null;
+  const resolved = resolvedShared[id];
+  if (!resolved) return null;
+
+  if (EXTERNAL_URL_RE.test(resolved)) {
+    return { externalize: resolved, type: 'module' };
+  }
+
+  const { pathToFileURL } = await _url();
+  return { externalize: pathToFileURL(resolved).href, type: 'module' };
+}
+
 async function getOrCreateRunner(
   remoteOrigin: string,
+  resolvedShared: Record<string, string>,
   fetchTimeoutMs: number,
   fetchMaxBytes: number
 ): Promise<unknown> {
-  const cacheKey = `${fetchTimeoutMs}::${fetchMaxBytes}::${remoteOrigin}`;
+  const cacheKey = getRunnerCacheKey(remoteOrigin, resolvedShared, fetchTimeoutMs, fetchMaxBytes);
   if (runnerCache.has(cacheKey)) return runnerCache.get(cacheKey)!;
   const promise = (async () => {
     const viteRunner = await getModuleRunnerModule();
@@ -124,6 +160,14 @@ async function getOrCreateRunner(
           hmr: false,
           transport: {
             async invoke(payload) {
+              if (payload.data.name === 'fetchModule') {
+                const sharedExternal = await resolveSharedExternal(
+                  payload.data.data[0],
+                  resolvedShared
+                );
+                if (sharedExternal) return { result: sharedExternal };
+              }
+
               const res = await fetchWithTimeout(
                 runnerEndpoint,
                 {
@@ -153,6 +197,7 @@ const _path = () => nodeImport('path') as Promise<typeof import('path')>;
 const _fs = () => nodeImport('fs') as Promise<typeof import('fs')>;
 const _crypto = () => nodeImport('crypto') as Promise<typeof import('crypto')>;
 const _module = () => nodeImport('module') as Promise<typeof import('module')>;
+const _url = () => nodeImport('url') as Promise<typeof import('url')>;
 
 // RemoteInfo mirrors the shape from @module-federation/runtime-core so the
 // loadEntry hook is compatible with the runtime's lifecycle signature.
@@ -592,10 +637,7 @@ function getSsrTransformContextKey(
   resolvedShared: Record<string, string>,
   shareScopeName: string
 ): string {
-  return JSON.stringify([
-    shareScopeName,
-    Object.entries(resolvedShared).sort(([left], [right]) => left.localeCompare(right)),
-  ]);
+  return JSON.stringify([shareScopeName, getSortedRecordEntries(resolvedShared)]);
 }
 
 // Lazily initialised on the server only — avoids evaluating Node APIs in browser.
@@ -909,6 +951,7 @@ async function loadSSRRemoteEntry(
       const remoteOrigin = urlObj.origin;
       const runner = await getOrCreateRunner(
         remoteOrigin,
+        resolvedShared,
         options.fetchTimeoutMs,
         options.fetchMaxBytes
       );
