@@ -1199,24 +1199,28 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
  * freshLoaderWithRunner — like freshLoader but configures Node's createRequire
  * so per-test ModuleRunner behaviour can be injected.
  */
+type RunnerOptions = {
+  transport: {
+    invoke: (payload: unknown) => Promise<unknown>;
+  };
+};
+
 async function freshLoaderWithRunner(
-  runnerFactory: () => { import: (id: string) => Promise<unknown> } | null
+  runnerFactory: (options: RunnerOptions) => { import: (id: string) => Promise<unknown> } | null
 ) {
   vi.resetModules();
-  const impl = runnerFactory();
-  const runnerModule =
-    impl === null
-      ? null
-      : {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ModuleRunner: vi.fn(function (this: any) {
-            return impl;
-          }),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ESModulesEvaluator: vi.fn(function (this: any) {
-            return {};
-          }),
-        };
+  const runnerModule = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ModuleRunner: vi.fn(function (this: any, options: RunnerOptions) {
+      const impl = runnerFactory(options);
+      if (impl === null) throw new Error('module not found');
+      return impl;
+    }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ESModulesEvaluator: vi.fn(function (this: any) {
+      return {};
+    }),
+  };
   vi.doMock('vite/module-runner', () => {
     throw new Error('the transformed dynamic import must not be used');
   });
@@ -1239,7 +1243,7 @@ async function freshLoaderWithRunner(
     return { default: { createHash: vi.fn(() => hash) }, createHash: vi.fn(() => hash) };
   });
   const createRequire = vi.fn(() => (id: string) => {
-    if (id !== 'vite/module-runner' || runnerModule === null) throw new Error('module not found');
+    if (id !== 'vite/module-runner') throw new Error('module not found');
     return runnerModule;
   });
   vi.doMock('module', () => ({ default: { createRequire }, createRequire }));
@@ -1276,6 +1280,58 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
 
     expect(mockImport).toHaveBeenCalledWith('/__mf_ssr__/remoteEntry.ssr.js');
     expect(result).toBe(mockMod);
+  });
+
+  it('resolves host shared modules and isolates runners by host', async () => {
+    const hostReactPaths = [
+      '/host-a/node_modules/react/index.js',
+      '/host-b/node_modules/react/index.js',
+    ];
+    const sharedFetchResults: unknown[] = [];
+
+    const factory = await freshLoaderWithRunner((runnerOptions) => ({
+      import: vi.fn(async () => {
+        sharedFetchResults.push(
+          await runnerOptions.transport.invoke({
+            type: 'custom',
+            event: 'vite:invoke',
+            data: {
+              name: 'fetchModule',
+              data: ['react', '/__mf_ssr__/remoteEntry.ssr.js', { cached: false, startOffset: 2 }],
+            },
+          })
+        );
+        return { init: vi.fn(), get: vi.fn() };
+      }),
+    }));
+
+    const fetch = makeFetchMock({
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    for (const hostReactPath of hostReactPaths) {
+      await factory({ resolvedShared: { react: hostReactPath } }).loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+      });
+    }
+
+    expect(sharedFetchResults).toEqual(
+      hostReactPaths.map((hostReactPath) => ({
+        result: {
+          externalize: `file://${hostReactPath}`,
+          type: 'module',
+        },
+      }))
+    );
+    expectFetchNotCalled(fetch, 'http://localhost:4175/__mf_runner__');
   });
 
   it('returns null when ModuleRunner import throws (no silent fallback)', async () => {
