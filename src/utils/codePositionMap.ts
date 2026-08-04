@@ -35,7 +35,7 @@ export function createCodePositionMap(code: string): boolean[] {
   };
   let canStartRegex = true;
 
-  for (let index = 0; index < code.length; ) {
+  for (let index = 0; index < code.length;) {
     const char = code[index];
     const next = code[index + 1];
 
