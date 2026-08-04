@@ -25,6 +25,7 @@ import {
   fetchWithTimeout,
   readResponseTextBounded,
 } from './fetchWithTimeout';
+import { getCommonSharedSubpaths } from './pathNormalization';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
@@ -100,6 +101,39 @@ interface FederationInstanceLike {
   loadShare?: (name: string) => Promise<false | (() => unknown | undefined) | undefined>;
 }
 
+function findVmSharedKey(
+  specifier: string,
+  shared: Record<string, { scope?: string | string[] } | undefined> | undefined
+): string | undefined {
+  if (!shared) return;
+
+  const keys = Object.keys(shared);
+  if (Object.prototype.hasOwnProperty.call(shared, specifier)) return specifier;
+
+  const vueKey = keys.find((key) =>
+    key.endsWith('/') ? key.slice(0, -1) === 'vue' : key === 'vue'
+  );
+  if (
+    vueKey &&
+    (specifier === 'vue/dist/vue.esm-bundler.js' ||
+      specifier === 'vue/dist/vue.runtime.esm-bundler.js')
+  ) {
+    return vueKey;
+  }
+
+  const commonSubpathKey = keys.find((key) => {
+    const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
+    return getCommonSharedSubpaths(keyBase).includes(specifier);
+  });
+  if (commonSubpathKey) return commonSubpathKey;
+
+  return keys.find((key) => {
+    if (!key.endsWith('/')) return false;
+    const keyBase = key.slice(0, -1);
+    return specifier === keyBase || specifier.startsWith(`${keyBase}/`);
+  });
+}
+
 function getFederationInstances(): FederationInstanceLike[] {
   const federation = (
     globalThis as { __FEDERATION__?: { __INSTANCES__?: FederationInstanceLike[] } }
@@ -118,9 +152,13 @@ async function loadBareModule(specifier: string, options: VmStrategyOptions): Pr
     if (typeof instance?.loadShare !== 'function') continue;
     // Only consult instances that actually declare the package as shared —
     // loadShare on an unknown package can register it as a side effect.
-    const shared = instance.options?.shared?.[specifier];
-    if (!shared) continue;
-    const scopes = Array.isArray(shared.scope) ? shared.scope : [shared.scope ?? 'default'];
+    const shared = instance.options?.shared;
+    const sharedKey = findVmSharedKey(specifier, shared);
+    const shareConfig = sharedKey ? shared?.[sharedKey] : undefined;
+    if (!shareConfig) continue;
+    const scopes = Array.isArray(shareConfig.scope)
+      ? shareConfig.scope
+      : [shareConfig.scope ?? 'default'];
     if (!scopes.includes(options.shareScopeName)) continue;
     try {
       const factory = await instance.loadShare(specifier);
