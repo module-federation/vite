@@ -210,6 +210,9 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'mock-package-cjs-star-entry') {
       return '/repo/apps/remote/node_modules/mock-package-cjs-star-entry/index.mjs';
     }
+    if (pkg === 'mock-package-nested-template-literal') {
+      return '/repo/apps/remote/node_modules/mock-package-nested-template-literal/index.js';
+    }
     if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
       return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
     }
@@ -479,6 +482,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-cjs-star-entry/index.mjs') ||
       filePath.endsWith('node_modules/mock-package-cjs-star-entry/index.cjs') ||
       filePath.endsWith('/mock-package-cjs-star-entry/index.cjs') ||
+      filePath.endsWith('node_modules/mock-package-nested-template-literal/index.js') ||
+      filePath.endsWith('/mock-package-nested-template-literal/index.js') ||
       filePath.endsWith('node_modules/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('/mock-package-dual-shape/dist/browser.js') ||
       filePath.endsWith('node_modules/mock-package-cjs-comment/index.js') ||
@@ -670,6 +675,17 @@ export const buttonBase = 1;`;
     }
     if (filePath.endsWith('node_modules/mock-package-cjs-star-entry/index.cjs')) {
       return 'module.exports = { fromCommonJs: true };';
+    }
+    if (filePath.endsWith('node_modules/mock-package-nested-template-literal/index.js')) {
+      // Markup assembled from template literals nested inside the `${...}`
+      // interpolations of an outer template literal. The `/` of the closing tag
+      // is what makes a desynced scan observable: once a nested backtick is
+      // mistaken for the outer closing backtick, the remaining template text is
+      // scanned as code and that slash opens a regex which never closes.
+      return [
+        "const body = 'text';",
+        'export const injectedHtml = `${`<div>`}${body}${`</div>`}`;',
+      ].join('\n');
     }
     if (
       filePath.endsWith('node_modules/lit/package.json') ||
@@ -2665,6 +2681,10 @@ describe('writeLoadShareModule', () => {
     expect(
       getSharedNamedExports('mock-package-cjs-star-entry', undefined, ['node', 'import', 'default'])
     ).toEqual(['fromCommonJs']);
+  });
+
+  it('detects named exports past a nested template literal interpolation', () => {
+    expect(getSharedNamedExports('mock-package-nested-template-literal')).toEqual(['injectedHtml']);
   });
 
   it('uses worker conditional exports for webworker SSR', () => {

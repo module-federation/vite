@@ -353,6 +353,9 @@ function resolveReExportModule(
   }
 }
 
+/** Marks a template-literal frame whose text (not its interpolation) is being scanned. */
+const TEMPLATE_TEXT = Symbol('templateText');
+
 function hasTopLevelDeclaratorComma(
   source: string,
   start: number,
@@ -362,9 +365,33 @@ function hasTopLevelDeclaratorComma(
   let quote: string | undefined;
   let escaped = false;
   let canStartRegex = true;
+  // Template literals cannot be treated as plain quoted strings: a nested
+  // template inside a `${...}` interpolation would close the outer one early,
+  // after which real template text is scanned as code. That desync miscounts
+  // brace depth and lets constructs like `</Tag>` be read as a regex, so the
+  // scan reports a phantom top-level comma. Track template text and
+  // interpolations explicitly instead. Entries are either TEMPLATE_TEXT or the
+  // brace depth at which an interpolation opened.
+  const templateFrames: (typeof TEMPLATE_TEXT | number)[] = [];
+  const inTemplateText = () => templateFrames[templateFrames.length - 1] === TEMPLATE_TEXT;
 
   for (let index = start; index < source.length; index++) {
     const char = source[index];
+    if (inTemplateText()) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '$' && source[index + 1] === '{') {
+        templateFrames.push(depth);
+        index++;
+        canStartRegex = true;
+      } else if (char === '`') {
+        templateFrames.pop();
+        canStartRegex = false;
+      }
+      continue;
+    }
     if (quote) {
       if (escaped) {
         escaped = false;
@@ -375,7 +402,12 @@ function hasTopLevelDeclaratorComma(
       }
       continue;
     }
-    if (char === '"' || char === "'" || char === '`') {
+    if (char === '`') {
+      templateFrames.push(TEMPLATE_TEXT);
+      canStartRegex = false;
+      continue;
+    }
+    if (char === '"' || char === "'") {
       quote = char;
       canStartRegex = false;
       continue;
@@ -462,12 +494,25 @@ function hasTopLevelDeclaratorComma(
       continue;
     }
     if (char === ')' || char === ']' || char === '}') {
+      // A `}` closing a `${...}` interpolation returns to the template text it
+      // was opened from rather than unwinding the surrounding brace depth.
+      if (
+        char === '}' &&
+        templateFrames.length > 0 &&
+        templateFrames[templateFrames.length - 1] === depth
+      ) {
+        templateFrames.pop();
+        canStartRegex = false;
+        continue;
+      }
       depth = Math.max(0, depth - 1);
       canStartRegex = false;
       continue;
     }
-    if (depth === 0 && char === ',') return true;
-    if (depth === 0 && char === ';') return false;
+    // Commas and semicolons inside an interpolation belong to that expression,
+    // not to the declarator list, even when the brace depth happens to be 0.
+    if (templateFrames.length === 0 && depth === 0 && char === ',') return true;
+    if (templateFrames.length === 0 && depth === 0 && char === ';') return false;
     if (!/\s/.test(char)) {
       canStartRegex = char !== '.';
     }
