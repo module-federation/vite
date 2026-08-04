@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../../utils/buildPaths';
 import { getSharedExportConditions } from '../../utils/sharedExportConditions';
 import {
@@ -27,6 +27,20 @@ const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
 const { hasPackageDependencyMock } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
 }));
+
+const { sideEffectChannels, openLoopKeepingChannel } = vi.hoisted(() => ({
+  sideEffectChannels: [] as MessageChannel[],
+  openLoopKeepingChannel: () => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {};
+    return channel;
+  },
+}));
+
+/** MessagePorts currently counted as keeping this process's event loop alive. */
+function loopKeepingPortCount(): number {
+  return process.getActiveResourcesInfo().filter((type) => type === 'MessagePort').length;
+}
 
 type MockRequire = NodeJS.Require & {
   resolve: NodeJS.RequireResolve;
@@ -925,6 +939,18 @@ vi.mock('module', async (importOriginal) => {
     createRequire: (from: string | URL) => {
       const fromPath = String(from);
       const req = ((pkg: string) => {
+        if (pkg === 'mock-package-side-effect') {
+          // Opens a real loop-keeping handle at require time, the way
+          // react-dom/server.browser does, so containment is exercised rather
+          // than simulated. The onmessage assignment is what refs the port — a
+          // bare MessageChannel does not keep the event loop alive.
+          sideEffectChannels.push(openLoopKeepingChannel());
+          return { sideEffectExport: 1, default: {}, __esModule: true };
+        }
+        if (pkg === 'mock-package-side-effect-throws') {
+          sideEffectChannels.push(openLoopKeepingChannel());
+          throw new Error('side effect ran, then module failed to evaluate');
+        }
         if (pkg === 'mock-package-with-reserved') {
           return {
             delete: 1,
@@ -3831,5 +3857,56 @@ describe('writePreBuildLibPath', () => {
     expect(generatedCode).toContain('__mfApplyHostProvidedExports');
     expect(generatedCode).toContain('__mfModuleCache.share');
     expect(generatedCode).toContain('initPromise.then');
+  });
+});
+
+describe('getRequiredNamedExports side effects', () => {
+  beforeEach(() => {
+    sideEffectChannels.length = 0;
+  });
+
+  afterEach(() => {
+    // Release anything the fixtures opened so one case cannot influence the next.
+    for (const channel of sideEffectChannels) {
+      channel.port1.close();
+      channel.port2.close();
+    }
+    sideEffectChannels.length = 0;
+  });
+
+  it('leaves no port keeping the event loop alive after requiring a side-effectful package', () => {
+    const portsBefore = loopKeepingPortCount();
+
+    getSharedNamedExports('mock-package-side-effect');
+
+    expect(sideEffectChannels).toHaveLength(1);
+    expect(loopKeepingPortCount()).toBe(portsBefore);
+  });
+
+  it('returns the required package named exports unchanged while containing its handles', () => {
+    expect(getSharedNamedExports('mock-package-side-effect')).toEqual(['sideEffectExport']);
+  });
+
+  it('returns undefined and leaves no port alive when the package throws while evaluating', () => {
+    const portsBefore = loopKeepingPortCount();
+
+    expect(getSharedNamedExports('mock-package-side-effect-throws')).toBeUndefined();
+
+    expect(sideEffectChannels).toHaveLength(1);
+    expect(loopKeepingPortCount()).toBe(portsBefore);
+  });
+
+  it('still reports named exports when the undocumented handle list is unavailable', () => {
+    const processWithHandles = process as NodeJS.Process & {
+      _getActiveHandles?: () => unknown[];
+    };
+    const original = processWithHandles._getActiveHandles;
+    delete processWithHandles._getActiveHandles;
+
+    try {
+      expect(getSharedNamedExports('mock-package-side-effect')).toEqual(['sideEffectExport']);
+    } finally {
+      processWithHandles._getActiveHandles = original;
+    }
   });
 });
