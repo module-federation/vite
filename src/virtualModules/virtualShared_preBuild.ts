@@ -542,7 +542,28 @@ function getNamedExportsViaRegex(
   return Array.from(names);
 }
 
+/** `process._getActiveHandles` is undocumented, so it is absent from @types/node. */
+type ProcessWithActiveHandles = NodeJS.Process & {
+  _getActiveHandles?: () => unknown[];
+};
+
+/**
+ * Reading a module's export names runs its top-level code inside the build
+ * process, and getPackageNamedExports deliberately resolves the browser entry.
+ * A browser entry may open a handle Node never closes — react-dom/server.browser
+ * holds a module-scope MessageChannel — and one ref'd handle keeps the event loop
+ * alive forever, so `vite build` writes a correct bundle and then never exits.
+ *
+ * Unref'ing whatever the require created is safe here because the module is
+ * loaded purely to read Object.keys off it and is never used afterwards. The
+ * handle list is undocumented, so its absence degrades to the previous behaviour
+ * rather than failing the build. Side effects that are not handles (an exit
+ * listener, a global mutation) are still not contained.
+ */
 function getRequiredNamedExports(specifier: string): string[] | undefined {
+  const getActiveHandles = (process as ProcessWithActiveHandles)._getActiveHandles;
+  const handlesBeforeRequire =
+    typeof getActiveHandles === 'function' ? new Set(getActiveHandles.call(process)) : undefined;
   try {
     const projectRequire = createRequire(
       pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
@@ -555,6 +576,16 @@ function getRequiredNamedExports(specifier: string): string[] | undefined {
     return runtimeNamedKeys;
   } catch {
     return undefined;
+  } finally {
+    // finally, not after the require, so a module that throws part-way through
+    // its side effects is cleaned up too.
+    if (handlesBeforeRequire && typeof getActiveHandles === 'function') {
+      for (const handle of getActiveHandles.call(process)) {
+        if (handlesBeforeRequire.has(handle)) continue;
+        const unref = (handle as { unref?: () => void } | null)?.unref;
+        if (typeof unref === 'function') unref.call(handle);
+      }
+    }
   }
 }
 
