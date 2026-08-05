@@ -1867,7 +1867,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('export * from "/repo/packages/generic-initializer.ts"');
   });
 
-  it('still detects a real declarator comma after a generic initializer', () => {
+  it('enumerates a later declarator after a generic initializer', () => {
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -1886,8 +1886,8 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('export * from "/repo/packages/generic-and-multi.ts"');
-    expect(generatedCode).not.toContain('__mfApplySharedExports');
+    expectLiveSingletonProxy(generatedCode, pkg, ['first', 'second']);
+    expect(generatedCode).not.toContain('export * from "/repo/packages/generic-and-multi.ts"');
   });
 
   it('does not confuse relational expressions with TypeScript type arguments', () => {
@@ -1909,13 +1909,13 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
+    expectLiveSingletonProxy(generatedCode, pkg, ['first', 'second']);
+    expect(generatedCode).not.toContain(
       'export * from "/repo/packages/relational-multi-declarator.ts"'
     );
-    expect(generatedCode).not.toContain('__mfApplySharedExports');
   });
 
-  it('does not treat multi-declarator exports as complete', () => {
+  it('enumerates simple multi-declarator exports', () => {
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -1934,10 +1934,8 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('let current = __mfLocalShare;');
-    expect(generatedCode).toContain('export * from "/repo/packages/multi-declarator.js"');
-    expect(generatedCode).not.toContain('__mfApplySharedExports');
-    expect(generatedCode).not.toContain('__mf_0 as first');
+    expectLiveSingletonProxy(generatedCode, pkg, ['first', 'second']);
+    expect(generatedCode).not.toContain('export * from "/repo/packages/multi-declarator.js"');
   });
 
   it('detects multi-declarators after postfix division expressions', () => {
@@ -1959,9 +1957,13 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('export * from "/repo/packages/postfix-multi-declarator.js"');
-    expect(generatedCode).not.toContain('__mfApplySharedExports');
-    expect(generatedCode).not.toContain('__mf_0 as first');
+    expectLiveSingletonProxy(generatedCode, pkg, ['second']);
+    expect(generatedCode).toContain(
+      'export { first } from "/repo/packages/postfix-multi-declarator.js";'
+    );
+    expect(generatedCode).not.toContain(
+      'export * from "/repo/packages/postfix-multi-declarator.js"'
+    );
   });
 
   it('does not treat string-named export lists as complete', () => {
