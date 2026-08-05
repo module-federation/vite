@@ -54,8 +54,14 @@ export function stripEmptyPreloadCalls(code: string): string {
   nextCode = nextCode.replace(/import\s*["'][^"']*__loadShare__[^"']*["']\s*;?/g, '');
 
   nextCode = nextCode.replace(helperImportRegex, (statement, local) => {
-    const helperCallRegex = new RegExp(`\\b${local}\\s*\\(`);
-    return helperCallRegex.test(nextCode.replace(statement, '')) ? statement : '';
+    // Only drop the import when the binding is not referenced anywhere else.
+    // Testing for a call (`local(`) is not enough: `import { _ as x } from '...'` is
+    // also how Rollup renders a namespace import that crosses a chunk boundary, and
+    // such a binding is usually referenced as a plain value (e.g. `return x;`) rather
+    // than called. Dropping that import leaves an undeclared free identifier behind,
+    // which throws at runtime while the build still exits successfully.
+    const helperReferenceRegex = new RegExp(`\\b${local}\\b`);
+    return helperReferenceRegex.test(nextCode.replace(statement, '')) ? statement : '';
   });
 
   return nextCode;
