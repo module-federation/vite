@@ -304,9 +304,29 @@ describe('pluginSSRRemoteEntry', () => {
     });
 
     it('externalises user-provided ssrExternals', () => {
-      const base = makeOptions();
-      const options = { ...base, ssrExternals: ['my-server-only-pkg'] };
-      const plugins = pluginSSRRemoteEntry(options);
+      const plugins = pluginSSRRemoteEntry(makeOptions({ ssrExternals: ['my-server-only-pkg'] }));
+      const prePlugin = plugins[0];
+      const ssrId = 'virtual:mf-REMOTE_ENTRY_SSR_ID:__mfe_internal__remote__remoteEntry_js';
+
+      expect(
+        callHook(prePlugin.resolveId, {} as Rollup.PluginContext, 'my-server-only-pkg', ssrId, {
+          isEntry: false,
+        })
+      ).toEqual({ id: 'my-server-only-pkg', external: true });
+
+      expect(
+        callHook(
+          prePlugin.resolveId,
+          {} as Rollup.PluginContext,
+          'my-server-only-pkg/subpath',
+          ssrId,
+          { isEntry: false }
+        )
+      ).toEqual({ id: 'my-server-only-pkg/subpath', external: true });
+    });
+
+    it('does not externalise unconfigured packages by default', () => {
+      const plugins = pluginSSRRemoteEntry(makeOptions());
       const prePlugin = plugins[0];
       const ssrId = 'virtual:mf-REMOTE_ENTRY_SSR_ID:__mfe_internal__remote__remoteEntry_js';
 
@@ -318,7 +338,7 @@ describe('pluginSSRRemoteEntry', () => {
         { isEntry: false }
       );
 
-      expect(result).toEqual({ id: 'my-server-only-pkg', external: true });
+      expect(result).toBeUndefined();
     });
 
     it('does not track bare specifiers into the SSR graph', () => {

@@ -5,6 +5,7 @@
     "lib": ["ES2022"],
     "module": "preserve",
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "noEmit": true,
     "strict": true,
     "noUnusedLocals": true,
