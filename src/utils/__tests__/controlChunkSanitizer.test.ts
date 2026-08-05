@@ -59,6 +59,24 @@ describe('controlChunkSanitizer', () => {
     expect(result).toContain('o(()=>import("./ui.js"),__vite__mapDeps([0]),import.meta.url)');
   });
 
+  it('keeps `_` imports whose binding is referenced as a value instead of called', () => {
+    // Rollup renders `import * as ns from "virtual:..."` as `import { _ as ns } from "<chunk>"`
+    // when the module ends up in another chunk. Such a binding is returned, not called, so a
+    // call-only check would strip the import and leave `ns` as an undeclared free identifier.
+    const code =
+      'import{_ as __vitePreload}from"./assets/preload-helper-CWZBUsdZ.js";' +
+      'import{_ as __mfLocalSharedImportMap}from"./assets/_virtual_mf-localSharedImportMap-CiudmNFF.js";' +
+      'async function getLocalSharedImportMap(){return __mfLocalSharedImportMap}';
+
+    const result = stripEmptyPreloadCalls(code);
+
+    expect(result).toContain(
+      'import{_ as __mfLocalSharedImportMap}from"./assets/_virtual_mf-localSharedImportMap-CiudmNFF.js";'
+    );
+    // the genuinely unused preload helper is still removed
+    expect(result).not.toContain('preload-helper-CWZBUsdZ.js');
+  });
+
   it('detects federation control chunks', () => {
     expect(isFederationControlChunk('remoteEntry.js', 'remoteEntry.js')).toBe(true);
     expect(isFederationControlChunk('assets/hostInit-abc.js', 'remoteEntry.js')).toBe(true);
