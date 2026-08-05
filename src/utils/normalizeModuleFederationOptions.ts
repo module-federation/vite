@@ -805,6 +805,7 @@ export function normalizeModuleFederationOptions(
     moduleParseIdleTimeout: options.moduleParseIdleTimeout,
     varFilename: options.varFilename,
     target: options.target,
+    ssrExternals: options.ssrExternals,
     disableRemote: options.disableRemote,
     disableShared: options.disableShared,
     disableSnapshot: options.disableSnapshot,

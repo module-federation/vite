@@ -55,6 +55,7 @@ describe('normalizeModuleFederationOption', () => {
       moduleParseTimeout: 10,
       moduleParseIdleTimeout: undefined,
       target: undefined,
+      ssrExternals: undefined,
       disableRemote: undefined,
       disableShared: undefined,
       disableSnapshot: undefined,
@@ -65,6 +66,15 @@ describe('normalizeModuleFederationOption', () => {
         ssrMode: undefined,
       },
     });
+  });
+
+  it('preserves ssrExternals for the SSR remote entry', () => {
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrExternals: ['sharp'],
+      }).ssrExternals
+    ).toEqual(['sharp']);
   });
 
   it('normalizes experiments.ssrMode as an explicit island opt-in', () => {
