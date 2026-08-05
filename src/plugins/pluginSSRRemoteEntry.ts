@@ -505,26 +505,17 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         const environmentName = (this as { environment?: { name?: string } }).environment?.name;
         const hasSsrEnvironment = Boolean(viteConfig?.environments?.ssr);
         const isLegacySsrBuild = Boolean(
-          (this as { environment?: { config?: ResolvedConfig } }).environment?.config?.build?.ssr
+          (this as { environment?: { config?: ResolvedConfig } }).environment?.config?.build?.ssr ??
+          viteConfig?.build?.ssr
         );
 
         // Environment API (client + ssr): emit only in the ssr environment so exposes
         // are bundled with the Node SSR graph (nested loadRemote stays on the server).
-        // Nuxt only runs the client Vite graph for federation output (dist/client);
-        // skipping the client pass leaves no remoteEntry.ssr.js in .output/public and
-        // the host falls back to the browser remoteEntry (SourceTextModule errors).
-        if (hasSsrEnvironment) {
-          // Non-Nuxt: SSR entry belongs in the dedicated `ssr` environment build.
-          // Nuxt: federation assets land in `dist/client` only — emit there (or the
-          // unnamed client pass), never in the Nitro `ssr` pass (wrong output dir).
-          if (isNuxtProject) {
-            if (environmentName === 'ssr') return;
-          } else if (environmentName !== 'ssr') {
-            return;
-          }
-        } else if (isLegacySsrBuild) {
-          // Legacy `vite build --ssr` pass (e.g. vue-ssr dual build:server).
-        } else if (environmentName && environmentName !== 'client') {
+        // Emit only for an SSR environment or legacy `vite build --ssr`.
+        if (
+          (hasSsrEnvironment && environmentName !== 'ssr') ||
+          (!hasSsrEnvironment && !isLegacySsrBuild)
+        ) {
           return;
         }
 

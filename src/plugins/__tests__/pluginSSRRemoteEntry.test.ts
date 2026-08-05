@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Rollup, ResolvedConfig } from 'vite';
+import type { Plugin, Rollup, ResolvedConfig } from 'vite';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
@@ -789,11 +789,23 @@ describe('pluginSSRRemoteEntry', () => {
   });
 
   describe('main plugin — buildStart', () => {
+    function configureLegacySsrBuild(plugin: Plugin) {
+      callHook(
+        plugin.configResolved,
+        {} as Rollup.PluginContext,
+        {
+          command: 'build',
+          build: { ssr: true },
+        } as ResolvedConfig
+      );
+    }
+
     it('emits SSR entry as a pre-generated ESM asset for Rollup (avoids code-splitting side effects)', () => {
       getIsRolldownMock.mockReturnValue(false);
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
       const mainPlugin = plugins[1];
+      configureLegacySsrBuild(mainPlugin);
 
       callHook(
         mainPlugin.buildStart,
@@ -817,6 +829,7 @@ describe('pluginSSRRemoteEntry', () => {
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
       const mainPlugin = plugins[1];
+      configureLegacySsrBuild(mainPlugin);
 
       callHook(
         mainPlugin.buildStart,
@@ -904,7 +917,7 @@ describe('pluginSSRRemoteEntry', () => {
       expect(emitFile).not.toHaveBeenCalled();
     });
 
-    it('still emits in the client environment for Nuxt when environments.ssr is configured', () => {
+    it('skips the client environment for Nuxt when environments.ssr is configured', () => {
       isNuxtProjectRootMock.mockReturnValue(true);
       getIsRolldownMock.mockReturnValue(true);
       const emitFile = makeEmitFile();
@@ -926,12 +939,7 @@ describe('pluginSSRRemoteEntry', () => {
         {} as Rollup.NormalizedInputOptions
       );
 
-      expect(emitFile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'chunk',
-          fileName: 'remoteEntry.ssr.js',
-        })
-      );
+      expect(emitFile).not.toHaveBeenCalled();
     });
 
     it('skips emit in the ssr environment when only a client environment exists', () => {
@@ -952,7 +960,7 @@ describe('pluginSSRRemoteEntry', () => {
       expect(emitFile).not.toHaveBeenCalled();
     });
 
-    it('emits in client environment', () => {
+    it('skips client environment', () => {
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
       const mainPlugin = plugins[1];
@@ -967,10 +975,10 @@ describe('pluginSSRRemoteEntry', () => {
         {} as Rollup.NormalizedInputOptions
       );
 
-      expect(emitFile).toHaveBeenCalled();
+      expect(emitFile).not.toHaveBeenCalled();
     });
 
-    it('emits when environment name is absent (Rollup)', () => {
+    it('skips browser build when environment name is absent (Rollup)', () => {
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
       const mainPlugin = plugins[1];
@@ -984,7 +992,7 @@ describe('pluginSSRRemoteEntry', () => {
         {} as Rollup.NormalizedInputOptions
       );
 
-      expect(emitFile).toHaveBeenCalled();
+      expect(emitFile).not.toHaveBeenCalled();
     });
   });
 
@@ -994,6 +1002,15 @@ describe('pluginSSRRemoteEntry', () => {
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
       const mainPlugin = plugins[1];
+
+      callHook(
+        mainPlugin.configResolved,
+        {} as Rollup.PluginContext,
+        {
+          command: 'build',
+          build: { ssr: true },
+        } as ResolvedConfig
+      );
 
       callHook(
         mainPlugin.buildStart,
