@@ -7,6 +7,7 @@
  * adding that package (or `runtime-tools`) as a dependency of this plugin.
  */
 
+import runtimePackage from '@module-federation/runtime/package.json' with { type: 'json' };
 import * as runtimeCore from '@module-federation/runtime/core';
 
 type BeforeInitArgs = {
@@ -18,8 +19,7 @@ type FederationGlobal = Record<string, unknown> & {
   _FEDERATION_RUNTIME_CORE_FROM?: { name: string; version: string };
 };
 
-/** Keep in sync with the `@module-federation/runtime` dependency version. */
-const PLUGIN_VERSION = '2.8.0';
+const PLUGIN_VERSION = runtimePackage.version;
 
 function getFederationGlobal(): FederationGlobal | undefined {
   const globalRef = runtimeCore.Global as FederationGlobal | undefined;
