@@ -934,9 +934,6 @@ export function generateRemoteEntry(
   const hasTreeShakingShared = Object.values(options.shared ?? {}).some(
     (share) => !!share?.shareConfig.treeShaking
   );
-  const hasEagerShared = Object.values(options.shared ?? {}).some(
-    (share) => share?.shareConfig.eager === true && share.shareConfig.import !== false
-  );
   const hasMultipleShareScopes = Array.isArray(options.shareScope);
   const runtimeImports = [
     'init as runtimeInit',
@@ -995,11 +992,6 @@ export function generateRemoteEntry(
   }
   import {${runtimeImports}} from "@module-federation/runtime";
   ${
-    hasEagerShared
-      ? `import * as __mfLocalSharedImportMap from "${getLocalSharedImportMapPath(options)}";`
-      : ''
-  }
-  ${
     runtimeHelperImports.length
       ? `import {${runtimeHelperImports.join(', ')}} from "@module-federation/runtime/helpers";`
       : ''
@@ -1052,16 +1044,11 @@ export function generateRemoteEntry(
   ${needsSharedProviderSelectionHelper ? externalSharedProviderSelectionHelperCode : ''}
 
   async function getLocalSharedImportMap() {
-    ${hasEagerShared ? 'return __mfLocalSharedImportMap;' : ''}
-    ${
-      hasEagerShared
-        ? ''
-        : `if (!localSharedImportMapPromise) {
+    if (!localSharedImportMapPromise) {
       localSharedImportMapPromise = retrySharedInit(() => import("${getLocalSharedImportMapPath(options)}"))
         .catch((e) => { localSharedImportMapPromise = undefined; throw e; });
     }
-    return localSharedImportMapPromise`
-    }
+    return localSharedImportMapPromise
   }
 
   async function getExposesMap() {

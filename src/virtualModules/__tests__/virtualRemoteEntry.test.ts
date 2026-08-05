@@ -1120,7 +1120,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('import {usedShared, usedRemotes} from');
   });
 
-  it('statically includes the local shared map when a local eager share is configured', async () => {
+  it('loads the local shared map dynamically when a local eager share is configured', async () => {
     const mod = await import('../virtualRemoteEntry');
     const eagerShare = {
       name: 'eager-shared',
@@ -1146,10 +1146,9 @@ describe('virtualRemoteEntry', () => {
     );
 
     expect(code).toMatch(
-      /import \* as __mfLocalSharedImportMap from "virtual:mf-localSharedImportMap:__mfe_internal__host__mf_owner__\d+";/
+      /retrySharedInit\(\(\) => import\("virtual:mf-localSharedImportMap:__mfe_internal__host__mf_owner__\d+"\)\)/
     );
-    expect(code).toContain('return __mfLocalSharedImportMap;');
-    expect(code).not.toContain('retrySharedInit(() => import("virtual:mf-localSharedImportMap');
+    expect(code).not.toContain('__mfLocalSharedImportMap');
   });
 
   it('patches server-calc providers from Snapshot and coverage-caches runtime selections', async () => {
