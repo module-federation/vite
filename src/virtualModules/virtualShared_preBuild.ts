@@ -356,11 +356,12 @@ function resolveReExportModule(
 /** Marks a template-literal frame whose text (not its interpolation) is being scanned. */
 const TEMPLATE_TEXT = Symbol('templateText');
 
-function hasTopLevelDeclaratorComma(
+function getAdditionalTopLevelDeclaratorNames(
   source: string,
   start: number,
   codePositions: boolean[]
-): boolean {
+): string[] | undefined {
+  const names: string[] = [];
   let depth = 0;
   let quote: string | undefined;
   let escaped = false;
@@ -414,12 +415,12 @@ function hasTopLevelDeclaratorComma(
     }
     if (char === '/' && source[index + 1] === '/') {
       index = source.indexOf('\n', index + 2);
-      if (index === -1) return false;
+      if (index === -1) return names;
       continue;
     }
     if (char === '/' && source[index + 1] === '*') {
       const commentEnd = source.indexOf('*/', index + 2);
-      if (commentEnd === -1) return true;
+      if (commentEnd === -1) return undefined;
       index = commentEnd + 1;
       continue;
     }
@@ -450,9 +451,9 @@ function hasTopLevelDeclaratorComma(
           while (/[$_\p{ID_Continue}]/u.test(source[index + 1] || '')) index++;
           break;
         }
-        if (regexChar === '\n' || regexChar === '\r') return true;
+        if (regexChar === '\n' || regexChar === '\r') return undefined;
       }
-      if (!closed) return true;
+      if (!closed) return undefined;
       canStartRegex = false;
       continue;
     }
@@ -511,14 +512,25 @@ function hasTopLevelDeclaratorComma(
     }
     // Commas and semicolons inside an interpolation belong to that expression,
     // not to the declarator list, even when the brace depth happens to be 0.
-    if (templateFrames.length === 0 && depth === 0 && char === ',') return true;
-    if (templateFrames.length === 0 && depth === 0 && char === ';') return false;
+    if (templateFrames.length === 0 && depth === 0 && char === ',') {
+      let bindingStart = index + 1;
+      while (/\s/.test(source[bindingStart] || '')) bindingStart++;
+      const binding = source
+        .slice(bindingStart)
+        .match(new RegExp(`^(${JS_IDENTIFIER_PATTERN})`, 'u'));
+      if (!binding || !isValidEsmExportName(binding[1])) return undefined;
+      names.push(binding[1]);
+      index = bindingStart + binding[1].length - 1;
+      canStartRegex = false;
+      continue;
+    }
+    if (templateFrames.length === 0 && depth === 0 && char === ';') return names;
     if (!/\s/.test(char)) {
       canStartRegex = char !== '.';
     }
   }
 
-  return false;
+  return names;
 }
 
 function hasUnsupportedBindingPattern(source: string, start: number): boolean {
@@ -576,15 +588,20 @@ function getNamedExportsViaRegex(
   }
 
   // The declaration matcher above captures only the first binding in
-  // `export const a = 1, b = 2`. Until every declarator is represented by a
-  // live proxy binding, treat that export surface as incomplete.
+  // `export const a = 1, b = 2`; enumerate later simple bindings so every
+  // declarator can be represented by the live proxy.
   const exportedVariableDeclarationRegex = /export\s+(?:const|let|var)\s+/g;
   while ((match = exportedVariableDeclarationRegex.exec(source)) !== null) {
     if (!codePositions[match.index]) continue;
-    if (
-      hasTopLevelDeclaratorComma(source, exportedVariableDeclarationRegex.lastIndex, codePositions)
-    ) {
+    const additionalNames = getAdditionalTopLevelDeclaratorNames(
+      source,
+      exportedVariableDeclarationRegex.lastIndex,
+      codePositions
+    );
+    if (additionalNames === undefined) {
       scanState.complete = false;
+    } else {
+      for (const name of additionalNames) names.add(name);
     }
     if (hasUnsupportedBindingPattern(source, exportedVariableDeclarationRegex.lastIndex)) {
       scanState.complete = false;
