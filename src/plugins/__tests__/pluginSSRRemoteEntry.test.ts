@@ -836,6 +836,53 @@ describe('pluginSSRRemoteEntry', () => {
       );
     });
 
+    // A browser-only remote must not publish `<filename>.ssr.js`: it imports
+    // `@module-federation/runtime` as a bare specifier, which no browser can resolve,
+    // and it lands in the client output directory that gets served to browsers.
+    // Each test pairs a control (flag absent -> emitted) with the treatment
+    // (flag set -> not emitted), so it cannot pass for an unrelated reason such as
+    // the hook bailing out early.
+    it.each([
+      ['Rolldown', true, 'chunk'],
+      ['Rollup', false, 'asset'],
+    ])(
+      'does not emit the node SSR remote entry when disableSsrRemoteEntry is set (%s)',
+      (_label, rolldown, expectedType) => {
+        getIsRolldownMock.mockReturnValue(rolldown as boolean);
+
+        const control = makeEmitFile();
+        callHook(
+          pluginSSRRemoteEntry(makeOptions())[1].buildStart,
+          {
+            meta: makePluginMeta(rolldown as boolean),
+            emitFile: control,
+          } as unknown as Rollup.PluginContext,
+          {} as Rollup.NormalizedInputOptions
+        );
+        // Control: without the flag this configuration really does emit, so the
+        // treatment assertion below is meaningful.
+        expect(control).toHaveBeenCalledWith(
+          expect.objectContaining({ type: expectedType, fileName: 'remoteEntry.ssr.js' })
+        );
+
+        const options = makeOptions({ disableSsrRemoteEntry: true });
+        // Guard: prove the option survived normalization rather than being dropped.
+        expect(options.disableSsrRemoteEntry).toBe(true);
+
+        const emitFile = makeEmitFile();
+        callHook(
+          pluginSSRRemoteEntry(options)[1].buildStart,
+          {
+            meta: makePluginMeta(rolldown as boolean),
+            emitFile,
+          } as unknown as Rollup.PluginContext,
+          {} as Rollup.NormalizedInputOptions
+        );
+
+        expect(emitFile).not.toHaveBeenCalled();
+      }
+    );
+
     it('skips emit when no exposes are configured', () => {
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions({ exposes: {} }));

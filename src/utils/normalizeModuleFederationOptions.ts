@@ -567,6 +567,20 @@ export type ModuleFederationOptions = {
    */
   ssrExternals?: string[];
   /**
+   * Skips emitting the Node SSR remote entry (`<filename>.ssr.js`) entirely.
+   *
+   * The SSR remote entry is Node-targeted: it imports `@module-federation/runtime`
+   * as a bare specifier, which is correct for Node but unresolvable in a browser.
+   * It is otherwise emitted into the client output directory whenever `exposes` is
+   * non-empty, so a browser-only remote publishes a file it can never evaluate —
+   * and, when that output is served by a CDN, a file that is publicly fetchable.
+   *
+   * Enable this for remotes that are only ever consumed by a browser host.
+   *
+   * @default false
+   */
+  disableSsrRemoteEntry?: boolean;
+  /**
    * Experimental Module Federation capabilities.
    *
    * @see https://module-federation.io/configure/experiments
@@ -806,6 +820,7 @@ export function normalizeModuleFederationOptions(
     varFilename: options.varFilename,
     target: options.target,
     ssrExternals: options.ssrExternals,
+    disableSsrRemoteEntry: options.disableSsrRemoteEntry,
     disableRemote: options.disableRemote,
     disableShared: options.disableShared,
     disableSnapshot: options.disableSnapshot,

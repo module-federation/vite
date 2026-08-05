@@ -496,6 +496,10 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       buildStart() {
         // Only emit the SSR entry chunk during vite build — not vite serve.
         if (isServe) return;
+        // Opt-out for remotes that are only ever consumed by a browser host. The SSR
+        // entry imports `@module-federation/runtime` as a bare specifier, so shipping
+        // it to a browser-only deploy publishes a module no browser can evaluate.
+        if (options.disableSsrRemoteEntry) return;
         // `this.meta` is available in Rollup/Rolldown hooks — use it to detect
         // whether we're running under Rolldown (Vite 8+) so we can choose the
         // right output format and file extension.
