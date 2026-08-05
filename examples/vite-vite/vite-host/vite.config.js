@@ -33,7 +33,11 @@ const shared = {
     requiredVersion: '^19.2.4',
   },
   '@vite-vite/shared-consumer': { singleton: true },
-  '@vite-vite/shared-lib': { singleton: true },
+  '@vite-vite/shared-lib': {
+    singleton: false,
+    version: '0.0.1',
+    requiredVersion: '^0.0.1',
+  },
   '@vite-vite/shared-lib/helpers': { singleton: true },
   antd: {
     ...antdShared,

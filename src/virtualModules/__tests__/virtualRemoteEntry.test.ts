@@ -2502,10 +2502,10 @@ describe('virtualRemoteEntry', () => {
     expect(liveProviderRead).toBeLessThan(providerLoad);
     expect(providerLoad).toBeLessThan(latestOwnerRead);
     expect(latestOwnerRead).toBeLessThan(bridgedCacheWrite);
-    expect(bridgeHelperCode).toContain('if (!usedShare.shareConfig?.singleton) return;');
-    expect(bridgeHelperCode.indexOf('if (!usedShare.shareConfig?.singleton) return;')).toBeLessThan(
-      providerLoad
+    expect(bridgeHelperCode).toContain(
+      'if (!usedShare.shareConfig?.singleton && version !== usedShare.version) return;'
     );
+    expect(bridgeHelperCode).not.toContain('if (!usedShare.shareConfig?.singleton) return;');
     expect(bridgeHelperCode).toContain('if (usedShare.canLiveRebind === false) return;');
     expect(bridgeHelperCode.indexOf('if (usedShare.canLiveRebind === false) return;')).toBeLessThan(
       providerLoad

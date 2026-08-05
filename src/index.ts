@@ -1302,9 +1302,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
           if (!useCodeSplitting) {
             // Rollup (Vite 5–7): `codeSplitting` is rejected as an unknown output
-            // option, and the hoisted-preload-helper deadlock is Rolldown-specific,
-            // so keep the original `manualChunks` isolation of runtimeInit/loadShare.
+            // option, so isolate runtimeInit, loadShare, and the preload helper with
+            // `manualChunks`.
             const mfManualChunks = function (id: string) {
+              if (PRELOAD_HELPER_TEST.test(id)) return PRELOAD_HELPER_CHUNK;
               return mfChunkName(id) ?? undefined;
             };
             patchedManualChunks.add(mfManualChunks);

@@ -680,7 +680,6 @@ function generateRuntimeSharedCacheSeedCode(shareStrategy: string) {
         : __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
       if (cachedShare !== undefined) return false;
       if (share.treeShaking || share.shareConfig?.import === false) return true;
-      if (!share.shareConfig?.singleton) return false;
       if (typeof __mfSelectExternalSharedProvider !== 'function') return false;
       return Boolean(__mfSelectExternalSharedProvider(
         initialShared[pkg],
@@ -1521,6 +1520,7 @@ export function generateRemoteEntry(
         if (!providerEntry) return;
         const selectedLocalProvider = __mfMatchesSharedProvider(selectedRuntimeProvider, usedShare);
         const { version } = providerEntry;
+        if (!usedShare.shareConfig?.singleton && version !== usedShare.version) return;
         const passedProvider = passedVersionMap?.[version];
         const resolvedExternalProvider = __mfResolveExternalSharedProvider(
           federationInstances,
@@ -1540,10 +1540,6 @@ export function generateRemoteEntry(
           provider: selectedRuntimeProvider,
           scopeRootProvider: undefined
         };
-        // Non-singleton proxies may have already snapshotted their local exports while
-        // seeding shared dependencies. Late cache replacement is safe only for the
-        // live-bound singleton proxies.
-        if (!usedShare.shareConfig?.singleton) return;
         if (usedShare.canLiveRebind === false) return;
         // Preserve a singleton already selected by another container. The bridge may
         // only replace the provisional local fallback seeded by this container.

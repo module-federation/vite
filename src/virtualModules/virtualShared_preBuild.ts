@@ -1917,7 +1917,7 @@ export function writeLoadShareModule(
     (Array.isArray(shareItem.scope) && shareItem.scope[0] === 'default');
   const usesDeferredSingletonFallback =
     hasCompleteExportCoverage &&
-    (isWorkspaceSingleton ||
+    (isWorkspacePackage ||
       (command !== 'build' &&
         isRemoteOnlyContainer(resolvedOptions) &&
         shareItem.shareConfig.singleton === true) ||
