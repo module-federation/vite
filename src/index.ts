@@ -650,11 +650,13 @@ export default __mfShared.default ?? __mfShared;`,
             }
             for (const subpath of getCommonSharedSubpaths(key)) {
               const canResolveSubpath = canResolveSharedSubpath(subpath, root);
-              if (subpath === 'react/compiler-runtime' && !canResolveSubpath) {
-                // react/compiler-runtime is only exported by newer React
-                // versions. Registering it for React 18 can make a bare import
-                // resolve to an unrelated React version elsewhere in a pnpm
-                // workspace and serve its CommonJS entry directly.
+              if (
+                ['react/compiler-runtime', 'react-dom/client'].includes(subpath) &&
+                !canResolveSubpath
+              ) {
+                // These entry points only exist in newer React versions.
+                // Generating their prebuild wrappers for older versions creates
+                // imports that Vite cannot resolve.
                 optimizeDeps.exclude.push(subpath);
                 continue;
               }
