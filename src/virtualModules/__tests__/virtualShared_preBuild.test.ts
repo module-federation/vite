@@ -3115,6 +3115,31 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('export { __mf_default as default };');
   });
 
+  it('defers non-singleton workspace fallback without top-level await', () => {
+    const pkg = 'workspace-shared-lib';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: false,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
+    expect(generatedCode).toContain('initPromise.then');
+    expect(generatedCode).toContain(
+      'import("/repo/packages/workspace-shared-lib/src/index.tsx").then((mod) => {'
+    );
+    expect(generatedCode).not.toContain('await ');
+  });
+
   it('prepends workspace singleton static import for SSR build loads only', async () => {
     const { prependWorkspaceSingletonSsrImport } = await import('../virtualShared_preBuild');
     const pkg = 'workspace-shared-lib';

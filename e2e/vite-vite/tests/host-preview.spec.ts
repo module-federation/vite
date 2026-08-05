@@ -14,6 +14,26 @@ test.describe('vite-vite host preview', () => {
     await expect(heading).toBeVisible();
   });
 
+  test('downloads a compatible non-singleton fallback once', async ({ page }) => {
+    const scriptResponses: Promise<{ url: string; body: string }>[] = [];
+    page.on('response', (response) => {
+      if (response.request().resourceType() === 'script') {
+        scriptResponses.push(
+          response.text().then((body) => ({ url: response.url(), body }))
+        );
+      }
+    });
+
+    await page.goto('/');
+    await expect(page.getByTestId('shared-counter-[shared-lib] Host')).toBeVisible();
+    await expect(page.getByTestId('shared-counter-[shared-lib] Remote')).toBeVisible();
+
+    const sharedLibResponses = (await Promise.all(scriptResponses)).filter(({ body }) =>
+      body.includes('[Shared Lib] Initialized')
+    );
+    expect(sharedLibResponses.map(({ url }) => url)).toHaveLength(1);
+  });
+
   test('renders Emotion styled component from remote', async ({ page }) => {
     await page.goto('/');
     // EmotionDemo uses `import styled from '@emotion/styled'` (default import).
