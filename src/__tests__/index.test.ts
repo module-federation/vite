@@ -902,6 +902,7 @@ describe('module-federation-esm-shims', () => {
     expect(functionOutput.manualChunks(`/virtual/react${LOAD_SHARE_TAG}chunk.js`)).toBe(
       `react${LOAD_SHARE_TAG}chunk.js`
     );
+    expect(functionOutput.manualChunks('\0vite/preload-helper.js')).toBe('vite-preload-helper');
     // Non-federation modules are left to automatic chunking (and it is not the
     // user's original function, which would have returned 'existing-fn-chunk').
     expect(functionOutput.manualChunks('/src/custom.ts')).toBeUndefined();
