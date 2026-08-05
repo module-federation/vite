@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as runtimeCore from '@module-federation/runtime/core';
+import { createRequire } from 'node:module';
 import injectExternalRuntimeCorePlugin from '../injectExternalRuntimeCorePlugin';
 
 type FederationGlobal = typeof globalThis & {
@@ -8,6 +9,9 @@ type FederationGlobal = typeof globalThis & {
 };
 
 const globalRef = globalThis as FederationGlobal;
+const require = createRequire(import.meta.url);
+const runtimeVersion = (require('@module-federation/runtime/package.json') as { version: string })
+  .version;
 const previousCore = globalRef._FEDERATION_RUNTIME_CORE;
 const previousFrom = globalRef._FEDERATION_RUNTIME_CORE_FROM;
 
@@ -31,8 +35,25 @@ describe('injectExternalRuntimeCorePlugin', () => {
     plugin.beforeInit({ options: { name: 'hostApp' } });
     expect(globalRef._FEDERATION_RUNTIME_CORE).toBe(runtimeCore);
     expect(globalRef._FEDERATION_RUNTIME_CORE_FROM).toEqual({
-      version: '2.8.0',
+      version: runtimeVersion,
       name: 'hostApp',
     });
+    expect(plugin.version).toBe(runtimeVersion);
+  });
+
+  it('does not warn when an existing provider reports the installed runtime version', () => {
+    globalRef._FEDERATION_RUNTIME_CORE_FROM = {
+      version: runtimeVersion,
+      name: 'hostApp',
+    };
+    const plugin = injectExternalRuntimeCorePlugin();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      plugin.beforeInit({ options: { name: 'hostApp' } });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
