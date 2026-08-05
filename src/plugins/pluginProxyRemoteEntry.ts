@@ -13,7 +13,7 @@ import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap'
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
-import { filterId, resolvePublicPath } from '../utils/pathNormalization';
+import { ensureTrailingSlash, filterId, resolvePublicPath } from '../utils/pathNormalization';
 import {
   generateExposes,
   generateHostAutoInitCode,
@@ -36,6 +36,12 @@ function resolveDevHashEntryFileName(fileName: string) {
   const baseName = path.basename(normalized);
 
   return path.extname(baseName) ? normalized : `${normalized}.js`;
+}
+
+function resolveAbsoluteDevRemoteEntryUrl(publicPath: string, fileName: string): string {
+  const base = new URL(publicPath);
+  base.pathname = ensureTrailingSlash(base.pathname);
+  return new URL(fileName, base).href;
 }
 
 export default function ({
@@ -241,9 +247,13 @@ export default function ({
               viteConfig.base,
               originalConfigBase
             );
-            const publicPath = JSON.stringify(
-              (resolvedPublicPath === 'auto' ? '/' : resolvedPublicPath) +
-                resolveDevHashEntryFileName(options.filename)
+            const devPublicPath = resolvedPublicPath === 'auto' ? '/' : resolvedPublicPath;
+            const remoteEntryFileName = resolveDevHashEntryFileName(options.filename);
+            const isAbsolutePublicPath = /^https?:\/\//i.test(devPublicPath);
+            const remoteEntryUrl = JSON.stringify(
+              isAbsolutePublicPath
+                ? resolveAbsoluteDevRemoteEntryUrl(devPublicPath, remoteEntryFileName)
+                : `${ensureTrailingSlash(devPublicPath)}${remoteEntryFileName}`
             );
             const fallbackOrigin = `//${host}:${viteConfig.server?.port}`;
             const ssrRemoteEntry =
@@ -253,7 +263,7 @@ export default function ({
               );
             return `
           const origin = typeof window !== 'undefined' && (${!options.ignoreOrigin}) ? window.origin : ${JSON.stringify(fallbackOrigin)};
-          const remoteEntryImport = typeof window !== 'undefined' ? origin + ${publicPath} : ${JSON.stringify(ssrRemoteEntry)};
+          const remoteEntryImport = typeof window !== 'undefined' ? ${isAbsolutePublicPath ? remoteEntryUrl : `origin + ${remoteEntryUrl}`} : ${JSON.stringify(ssrRemoteEntry)};
           ${generateHostAutoInitCode('remoteEntryImport', 'serve', options)}
         `;
           }

@@ -150,7 +150,7 @@ describe('pluginProxyRemoteEntry', () => {
   it('uses a dev-safe filename for hash-pattern host init remote entry imports', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const plugin = pluginProxyRemoteEntry({
-      options: getDefaultMockOptions({ filename: 'remoteEntry-[hash]' }),
+      options: getDefaultMockOptions({ filename: 'remoteEntry-[hash]', publicPath: '/cdn' }),
       remoteEntryId: 'virtual:mf-remote-entry',
       virtualExposesId: 'virtual:mf-exposes',
     });
@@ -180,8 +180,50 @@ describe('pluginProxyRemoteEntry', () => {
       code: string;
     };
 
-    expect(result.code).toContain('origin + "/remoteEntry.js"');
+    expect(result.code).toContain('origin + "/cdn/remoteEntry.js"');
     expect(result.code).not.toContain('remoteEntry-[hash]');
+  });
+
+  it.each([
+    ['/cdn', 'origin + "/cdn/remoteEntry.js"'],
+    ['/cdn/', 'origin + "/cdn/remoteEntry.js"'],
+    ['/', 'origin + "/remoteEntry.js"'],
+    ['https://cdn.example.com/assets', '"https://cdn.example.com/assets/remoteEntry.js"'],
+    ['https://cdn.example.com/assets/', '"https://cdn.example.com/assets/remoteEntry.js"'],
+  ])('resolves publicPath %s for dev host init', async (publicPath, expected) => {
+    normalizeModuleFederationOptions({ name: 'test' });
+    const plugin = pluginProxyRemoteEntry({
+      options: getDefaultMockOptions({ publicPath }),
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+
+    callHook(
+      plugin.config,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    callHook(
+      plugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        root: '/repo',
+        base: '/',
+        server: { host: '0.0.0.0', port: 4173 },
+      } as unknown as ResolvedConfig
+    );
+
+    const result = (await callHook(
+      plugin.transform,
+      {} as Rollup.TransformPluginContext,
+      '',
+      getHostAutoInitPath()
+    )) as { code: string };
+
+    expect(result.code).toContain(
+      `const remoteEntryImport = typeof window !== 'undefined' ? ${expected}`
+    );
   });
 
   it('uses an explicitly configured Vite base for dev host init', async () => {
