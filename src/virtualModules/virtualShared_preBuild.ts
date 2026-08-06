@@ -13,6 +13,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
+import { createReactMixedModeRuntimeGuard } from '../plugins/pluginReactMixedModeGuard';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import { mfWarn } from '../utils/logger';
 import {
@@ -1941,6 +1942,7 @@ export function writeLoadShareModule(
   const usesEagerWorkspaceFallback =
     hasCompleteExportCoverage && isWorkspaceSingleton && isConsumedByPeerSingleton;
   const usesDeferredTreeShakingFallback = hasCompleteExportCoverage && Boolean(treeShakingConsumer);
+  const reactMixedModeGuard = pkg === 'react' ? createReactMixedModeRuntimeGuard() : '';
   let exportLine: string;
   let initBlock = '';
   if (usesDeferredTreeShakingFallback) {
@@ -1998,6 +2000,7 @@ export function writeLoadShareModule(
       ...namedExportVars.map((name) => `let ${name};`),
     ].join('\n    ');
     const assignments = [
+      ...(reactMixedModeGuard ? [reactMixedModeGuard] : []),
       ...copiedNamedExports.map(
         (name, i) => `${namedExportVars[i]} = mod[${escapeGeneratedStringLiteral(name)}];`
       ),
@@ -2046,6 +2049,7 @@ export function writeLoadShareModule(
   } else if (shareItem.shareConfig.singleton === true) {
     exportLine = `let __mfDefaultExport;
     const __mfApplySharedDefaultExport = (mod) => {
+      ${reactMixedModeGuard}
       __mfDefaultExport = mod.default ?? mod;
     };
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplySharedDefaultExport);
