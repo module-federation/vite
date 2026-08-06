@@ -45,16 +45,23 @@ const VUE_HMR_RUNTIME_GUARD_SCRIPT = `
  * the remote's bindings, so the render throws and Vue falls back to a full
  * reload required warning.
  *
- * Fix: rewrite the remote's emitted `__hmrId` literal to be prefixed with the
- * federation `name`, so the remote's instances live under a distinct key. The
- * accept callback emitted by plugin-vue reads `_sfc_main.__hmrId` /
- * `updated.__hmrId` at runtime, so rewriting the literal once is enough.
+ * Fix: rewrite the remote's emitted HMR id literals to be prefixed with the
+ * federation `name`, so the remote's instances live under a distinct key.
+ * Main SFC modules assign `.__hmrId`; template submodules pass the same id
+ * directly to `__VUE_HMR_RUNTIME__.rerender()`.
  */
-const SFC_HMR_ID_LITERAL_RE = /(\.__hmrId\s*=\s*["'`])([^"'`]+)(["'`])/g;
+const VUE_HMR_ID_LITERAL_RE =
+  /((?:\.__hmrId\s*=|__VUE_HMR_RUNTIME__\.rerender\()\s*["'`])([^"'`]+)(["'`])/g;
 
-function rewriteSfcHmrId(code: string, federationName: string): { code: string; matched: boolean } {
+function rewriteVueHmrIds(
+  code: string,
+  federationName: string
+): {
+  code: string;
+  matched: boolean;
+} {
   let matched = false;
-  const next = code.replace(SFC_HMR_ID_LITERAL_RE, (_match, prefix, id, suffix) => {
+  const next = code.replace(VUE_HMR_ID_LITERAL_RE, (_match, prefix, id, suffix) => {
     matched = true;
     if (id.startsWith(`${federationName}-`)) return `${prefix}${id}${suffix}`;
     return `${prefix}${federationName}-${id}${suffix}`;
@@ -64,15 +71,15 @@ function rewriteSfcHmrId(code: string, federationName: string): { code: string; 
 
 // Sentinel: once tripped, suppresses further warnings for the lifetime of the
 // process. Guards against `@vitejs/plugin-vue` changing its emitted code in a
-// way that breaks `SFC_HMR_ID_LITERAL_RE` without anyone noticing.
+// way that breaks `VUE_HMR_ID_LITERAL_RE` without anyone noticing.
 let pluginVueRegressionWarned = false;
 
 function warnPluginVueRegression() {
   if (pluginVueRegressionWarned) return;
   pluginVueRegressionWarned = true;
   mfWarn(
-    'Detected a Vue SFC module that calls `__VUE_HMR_RUNTIME__.createRecord(` ' +
-      'but no `.__hmrId = "..."` literal could be rewritten. @vitejs/plugin-vue ' +
+    'Detected a Vue SFC module with HMR calls but no HMR id literal could be ' +
+      'rewritten. @vitejs/plugin-vue ' +
       'may have changed its output format — without the rewrite, host and remote ' +
       'SFCs that share a path will collide on the shared HMR runtime. ' +
       'Please report this to @module-federation/vite.'
@@ -98,9 +105,14 @@ export const vueAdapter: HmrAdapter = {
   },
   remote: {
     transform(code, _id, ctx) {
-      if (!code.includes('__VUE_HMR_RUNTIME__.createRecord(')) return;
+      if (
+        !code.includes('__VUE_HMR_RUNTIME__.createRecord(') &&
+        !code.includes('__VUE_HMR_RUNTIME__.rerender(')
+      ) {
+        return;
+      }
 
-      const { code: rewritten, matched } = rewriteSfcHmrId(code, ctx.options.name);
+      const { code: rewritten, matched } = rewriteVueHmrIds(code, ctx.options.name);
       if (!matched) {
         warnPluginVueRegression();
         return undefined;

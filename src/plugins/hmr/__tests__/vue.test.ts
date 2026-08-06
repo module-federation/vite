@@ -83,6 +83,14 @@ describe('vueAdapter', () => {
         '});',
       ].join('\n');
 
+    const templateModule = (hmrIdLiteral: string) =>
+      [
+        'export function render() {}',
+        'import.meta.hot.accept(({ render }) => {',
+        `  __VUE_HMR_RUNTIME__.rerender("${hmrIdLiteral}", render);`,
+        '});',
+      ].join('\n');
+
     it('prefixes _sfc_main.__hmrId with the federation name', () => {
       const result = vueAdapter.remote?.transform?.(
         sfcModule('abc123'),
@@ -105,7 +113,27 @@ describe('vueAdapter', () => {
       expect(result).toBeUndefined();
     });
 
-    it('returns undefined for code without __VUE_HMR_RUNTIME__.createRecord', () => {
+    it('prefixes template submodule rerender ids with the federation name', () => {
+      const result = vueAdapter.remote?.transform?.(
+        templateModule('abc123'),
+        '/Foo.vue?vue&type=template',
+        makeTransformCtx()
+      );
+
+      expect(result).toContain('__VUE_HMR_RUNTIME__.rerender("host-app-abc123", render);');
+    });
+
+    it('does not double-prefix already-prefixed template rerender ids', () => {
+      const result = vueAdapter.remote?.transform?.(
+        templateModule('host-app-abc123'),
+        '/Foo.vue?vue&type=template',
+        makeTransformCtx()
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined for code without Vue HMR calls', () => {
       const code = 'export const x = 1;\n_sfc_main.__hmrId = "abc123";';
       const result = vueAdapter.remote?.transform?.(code, '/some.ts', makeTransformCtx());
       expect(result).toBeUndefined();
