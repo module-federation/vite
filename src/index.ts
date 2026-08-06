@@ -981,6 +981,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       name: 'vite:module-federation-virtual-modules',
       enforce: 'pre',
       resolveId(id: string) {
+        if (id === '@module-federation/vite/ssrEntryLoader') return resolveImportPath(id);
         let virtualModule = VirtualModule.findById(id);
         if (!virtualModule) {
           materializeCachedLoadShareModule({
