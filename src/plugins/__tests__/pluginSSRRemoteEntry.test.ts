@@ -800,7 +800,7 @@ describe('pluginSSRRemoteEntry', () => {
       );
     }
 
-    it('emits SSR entry as a pre-generated ESM asset for Rollup (avoids code-splitting side effects)', () => {
+    it('emits SSR entry as a post-generated ESM asset for Rollup', () => {
       getIsRolldownMock.mockReturnValue(false);
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
@@ -814,6 +814,15 @@ describe('pluginSSRRemoteEntry', () => {
           emitFile,
         } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
+      );
+      expect(emitFile).not.toHaveBeenCalled();
+
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle,
+        false
       );
 
       expect(emitFile).toHaveBeenCalledWith(
@@ -838,6 +847,13 @@ describe('pluginSSRRemoteEntry', () => {
           emitFile,
         } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
+      );
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle,
+        false
       );
 
       expect(emitFile).toHaveBeenCalledWith(
@@ -1017,6 +1033,13 @@ describe('pluginSSRRemoteEntry', () => {
         { meta: makePluginMeta(false), emitFile } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
       );
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle,
+        false
+      );
 
       const call = emitFile.mock.calls[0]?.[0] as { source?: string } | undefined;
       return call?.source ?? '';
@@ -1085,47 +1108,49 @@ describe('pluginSSRRemoteEntry', () => {
 
     it('rewrites Nuxt Rollup SSR asset to import the emitted _nuxt exposes chunk', () => {
       getIsRolldownMock.mockReturnValue(false);
+      vi.mocked(generateRemoteEntrySSR).mockReturnValueOnce(
+        'const map = import("virtual:mf-exposes-ssr:remote");'
+      );
       const plugins = pluginSSRRemoteEntry(makeOptions());
       const mainPlugin = plugins[1];
 
       callHook(
         mainPlugin.configResolved,
         {} as Rollup.PluginContext,
-        { command: 'build', base: '/_nuxt/' } as ResolvedConfig
+        { command: 'build', base: '/_nuxt/', build: { ssr: true } } as ResolvedConfig
       );
+      const emitFile = makeEmitFile();
       callHook(
         mainPlugin.buildStart,
         {
           meta: makePluginMeta(false),
-          emitFile: makeEmitFile(),
+          emitFile,
         } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
       );
 
-      const asset = {
-        type: 'asset' as const,
-        fileName: 'remoteEntry.ssr.js',
-        source: 'const map = import("virtual:mf-exposes-ssr:remote");',
-      };
       const exposesChunk = {
         type: 'chunk' as const,
         fileName: '_nuxt/virtualExposes-abc.js',
         code: 'export default {"./Widget": () => import("./Widget.js")}',
       };
       const bundle = {
-        'remoteEntry.ssr.js': asset,
         '_nuxt/virtualExposes-abc.js': exposesChunk,
       };
 
       callHook(
         mainPlugin.generateBundle,
-        {} as Rollup.PluginContext,
+        { emitFile } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedOutputOptions,
         bundle as unknown as Rollup.OutputBundle,
         false
       );
 
-      expect(asset.source).toBe('const map = import("./_nuxt/virtualExposes-abc.js");');
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'const map = import("./_nuxt/virtualExposes-abc.js");',
+        })
+      );
     });
   });
 
