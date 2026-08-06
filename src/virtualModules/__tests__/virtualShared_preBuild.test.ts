@@ -3140,6 +3140,34 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
+  it('defers non-singleton npm fallback', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: { './App': './src/App.jsx' },
+      shared: { lit: { singleton: false } },
+    });
+    const pkg = 'lit';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: false,
+        strictVersion: false,
+        requiredVersion: '^3.3.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
+    expect(generatedCode).toContain('initPromise.then');
+    expect(generatedCode).toContain('import("mock-import-id").then((mod) => {');
+    expect(generatedCode).not.toContain('await ');
+  });
+
   it('prepends workspace singleton static import for SSR build loads only', async () => {
     const { prependWorkspaceSingletonSsrImport } = await import('../virtualShared_preBuild');
     const pkg = 'workspace-shared-lib';
