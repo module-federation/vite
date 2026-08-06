@@ -11,6 +11,23 @@ const BASIC_REMOTE_MF_OPTIONS = {
 
 describe('build', () => {
   describe('remote', () => {
+    it('emits the SSR remote entry with ssrEmitAssets disabled', async () => {
+      const output = await buildFixture({
+        mfOptions: BASIC_REMOTE_MF_OPTIONS,
+        viteConfig: {
+          build: {
+            ssr: true,
+            ssrEmitAssets: false,
+            rollupOptions: {
+              input: resolve(FIXTURES, 'basic-remote', 'entry.js'),
+            },
+          },
+        },
+      });
+
+      expect(output.output.some((item) => item.fileName === 'remoteEntry.ssr.js')).toBe(true);
+    });
+
     it('remoteEntry contains federation runtime init with correct name', async () => {
       const output = await buildFixture({ mfOptions: BASIC_REMOTE_MF_OPTIONS });
       const remoteEntry = findChunk(output, 'remoteEntry');

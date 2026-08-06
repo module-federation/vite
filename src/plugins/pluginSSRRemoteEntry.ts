@@ -215,6 +215,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   const remoteEntrySSRId = getRemoteEntrySSRId(options);
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
   let isRolldown = false;
+  let shouldEmitSsrEntry = false;
   let ssrOutputFilename = '';
   let ssrOutputFiles = new Set<string>();
   let ssrOutputDir = '';
@@ -494,6 +495,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       },
 
       buildStart() {
+        shouldEmitSsrEntry = false;
         // Only emit the SSR entry chunk during vite build — not vite serve.
         if (isServe) return;
         // `this.meta` is available in Rollup/Rolldown hooks — use it to detect
@@ -520,6 +522,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         }
 
         if (Object.keys(options.exposes).length === 0) return;
+        shouldEmitSsrEntry = true;
 
         if (isRolldown) {
           // Vite 8+ (Rolldown): emit as a proper chunk. Rolldown handles multiple
@@ -531,41 +534,42 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
             fileName: ssrOutputFilename,
             preserveSignature: 'strict',
           });
-        } else {
-          // Vite 5–7 (Rollup): emit as a pre-generated ESM asset instead of a chunk.
-          // Emitting a second Rollup entry chunk that shares transitive deps with
-          // the browser remoteEntry causes Rollup to code-split those deps out of
-          // remoteEntry.js, breaking tests and consuming apps that expect them inlined.
-          // Generating the ESM asset directly avoids touching the browser module graph.
-          this.emitFile({
-            type: 'asset',
-            fileName: ssrOutputFilename,
-            source: generateRemoteEntrySSR(options),
-          });
         }
       },
 
-      generateBundle(_options, bundle) {
-        const exposesChunk = findNuxtExposesChunk(bundle);
-        const ssrAsset = bundle[ssrOutputFilename];
-        if (exposesChunk && ssrAsset?.type === 'asset' && typeof ssrAsset.source === 'string') {
-          ssrAsset.source = ssrAsset.source.replace(
-            /import\("virtual:mf-exposes-ssr:[^"]+"\)/g,
-            `import("./${exposesChunk}")`
-          );
-        }
+      generateBundle: {
+        order: 'post',
+        handler(_options, bundle) {
+          const exposesChunk = findNuxtExposesChunk(bundle);
+          if (!isRolldown && shouldEmitSsrEntry) {
+            let source = generateRemoteEntrySSR(options);
+            if (exposesChunk) {
+              source = source.replace(
+                /import\("virtual:mf-exposes-ssr:[^"]+"\)/g,
+                `import("./${exposesChunk}")`
+              );
+            }
+            // Vite removes SSR assets when `ssrEmitAssets` is false. Emit after its
+            // cleanup hook so this required entry survives without enabling all assets.
+            this.emitFile({
+              type: 'asset',
+              fileName: ssrOutputFilename,
+              source,
+            });
+          }
 
-        if ((this as { environment?: { name?: string } }).environment?.name === 'ssr') {
-          ssrOutputFiles = collectEntryOutputFiles(bundle, ssrOutputFilename);
-        }
+          if ((this as { environment?: { name?: string } }).environment?.name === 'ssr') {
+            ssrOutputFiles = collectEntryOutputFiles(bundle, ssrOutputFilename);
+          }
 
-        // Vite 8+ (Rolldown) only — the chunk was emitted via the chunk path in buildStart.
-        // No post-processing needed; Rolldown emits ESM natively.
-        // On Vite 5–7 the SSR entry was emitted as a pre-generated asset, so nothing to do here.
-        if (!isRolldown) return;
-        const chunk = bundle[ssrOutputFilename];
-        if (!chunk || chunk.type !== 'chunk') return;
-        // Verify the chunk exists and was emitted correctly — no transform needed for Rolldown.
+          // Vite 8+ (Rolldown) only — the chunk was emitted via the chunk path in buildStart.
+          // No post-processing needed; Rolldown emits ESM natively.
+          // On Vite 5–7 the SSR entry was emitted as a pre-generated asset, so nothing to do here.
+          if (!isRolldown) return;
+          const chunk = bundle[ssrOutputFilename];
+          if (!chunk || chunk.type !== 'chunk') return;
+          // Verify the chunk exists and was emitted correctly — no transform needed for Rolldown.
+        },
       },
 
       writeBundle(outputOptions) {
