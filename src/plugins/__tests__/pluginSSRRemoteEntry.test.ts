@@ -958,6 +958,63 @@ describe('pluginSSRRemoteEntry', () => {
       expect(emitFile).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['SSR starts before client', 'ssr-first'],
+      ['client starts before SSR', 'client-first'],
+    ])('keeps SSR emission scoped to its environment (%s)', (_label, order) => {
+      getIsRolldownMock.mockReturnValue(false);
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      const configResolved = mainPlugin.configResolved as (config: ResolvedConfig) => void;
+      configResolved?.({
+        command: 'build',
+        environments: { client: {}, ssr: {} },
+      } as unknown as ResolvedConfig);
+
+      const ssrEmitFile = makeEmitFile();
+      const clientEmitFile = makeEmitFile();
+      const ssrContext = {
+        emitFile: ssrEmitFile,
+        meta: makePluginMeta(false),
+        environment: { name: 'ssr' },
+      } as unknown as Rollup.PluginContext;
+      const clientContext = {
+        emitFile: clientEmitFile,
+        meta: makePluginMeta(false),
+        environment: { name: 'client' },
+      } as unknown as Rollup.PluginContext;
+
+      const startContexts =
+        order === 'ssr-first' ? [ssrContext, clientContext] : [clientContext, ssrContext];
+      for (const context of startContexts) {
+        callHook(mainPlugin.buildStart, context, {} as Rollup.NormalizedInputOptions);
+      }
+
+      callHook(
+        mainPlugin.generateBundle,
+        ssrContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle,
+        false
+      );
+      callHook(
+        mainPlugin.generateBundle,
+        clientContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle,
+        false
+      );
+
+      expect(ssrEmitFile).toHaveBeenCalledTimes(1);
+      expect(ssrEmitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'asset',
+          fileName: 'remoteEntry.ssr.js',
+        })
+      );
+      expect(clientEmitFile).not.toHaveBeenCalled();
+    });
+
     it('skips emit in the ssr environment when only a client environment exists', () => {
       const emitFile = makeEmitFile();
       const plugins = pluginSSRRemoteEntry(makeOptions());
