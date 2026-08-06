@@ -1924,8 +1924,7 @@ export function writeLoadShareModule(
         shareItem.shareConfig.singleton === true) ||
       (command === 'build' &&
         isRemoteOnlyContainer(resolvedOptions) &&
-        shareItem.shareConfig.singleton === true &&
-        !isDefaultShareScope));
+        (shareItem.shareConfig.singleton === true ? !isDefaultShareScope : isDefaultShareScope)));
   const servesRemoteSingletonFallback =
     command !== 'build' &&
     isRemoteOnlyContainer(resolvedOptions) &&
