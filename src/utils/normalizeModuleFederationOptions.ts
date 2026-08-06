@@ -25,12 +25,7 @@ export type RemoteEntryType =
 import * as fs from 'fs';
 import * as path from 'node:path';
 import { createModuleFederationError, mfWarn } from './logger';
-import {
-  getInstalledPackageJson,
-  getPackageDetectionCwd,
-  getPackageName,
-  resolveImportPath,
-} from './packageUtils';
+import { getInstalledPackageJson, getPackageName, resolveImportPath } from './packageUtils';
 import { getCommonSharedSubpaths } from './pathNormalization';
 import { normalizePathForImport } from './buildPaths';
 
@@ -317,32 +312,7 @@ function normalizeShared(
     | undefined
 ): NormalizedShared {
   explicitSharedKeys = new Set();
-  if (!shared) {
-    const result: NormalizedShared = {};
-    const packageJsonPath = path.join(getPackageDetectionCwd(), 'package.json');
-
-    try {
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
-        name?: string;
-        dependencies?: Record<string, string>;
-      };
-      if (packageJson.name === '@module-federation/vite') return result;
-
-      Object.keys(packageJson.dependencies || {})
-        .filter((key) => shouldAutoShareDependency(key))
-        .forEach((key) => {
-          result[key] = normalizeShareItem(key, {
-            name: key,
-            import: undefined,
-            singleton: true,
-          });
-        });
-    } catch {
-      return result;
-    }
-
-    return result;
-  }
+  if (!shared) return {};
   const result: NormalizedShared = {};
   const sourceEntries: Array<[string, string | Record<string, any>]> = [];
   if (Array.isArray(shared)) {
@@ -386,39 +356,6 @@ function normalizeShared(
 
 function isModuleFederationRuntimePackage(key: string): boolean {
   return key === '@module-federation/runtime' || key === '@module-federation/runtime-core';
-}
-
-function shouldAutoShareDependency(key: string): boolean {
-  const installed = getInstalledPackageJson(key);
-  const pkg = installed?.packageJson as
-    | {
-        browser?: unknown;
-        exports?: unknown;
-        module?: string;
-        main?: string;
-      }
-    | undefined;
-
-  if (!pkg) return false;
-  if (!pkg.browser && !pkg.exports && typeof pkg.module !== 'string') return false;
-
-  if (key === '@module-federation/vite' || isModuleFederationRuntimePackage(key)) {
-    return false;
-  }
-
-  const entry = [pkg.module, pkg.main, typeof pkg.exports === 'string' ? pkg.exports : undefined]
-    .find((value): value is string => typeof value === 'string')
-    ?.replace(/\\/g, '/');
-
-  if (key === 'nuxt' || key === 'nuxt-nightly') {
-    return false;
-  }
-
-  if (key.includes('nuxt') && entry?.endsWith('/dist/module.mjs')) {
-    return false;
-  }
-
-  return true;
 }
 
 function normalizeLibrary(library: any): any {
