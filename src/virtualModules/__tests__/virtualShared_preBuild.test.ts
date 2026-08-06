@@ -1477,6 +1477,8 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       '__mfWriteSharedCache(__mfModuleCache.share, {"canonical":"default:react","aliases":["react"]}, exportModule, "test")'
     );
+    expect(generatedCode).toContain('Object.defineProperty(__mfReactInternals, "A"');
+    expect(generatedCode).toContain('typeof next.getOwner !== "function"');
     expect(generatedCode).not.toContain(
       'let exportModule = __mfModuleCache.share["default:react"]'
     );

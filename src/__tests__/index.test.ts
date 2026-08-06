@@ -65,10 +65,6 @@ vi.mock('../utils/logger', async () => {
 });
 
 import { federation } from '../index';
-import {
-  REACT_MIXED_MODE_ESBUILD_PLUGIN,
-  REACT_MIXED_MODE_ROLLDOWN_PLUGIN,
-} from '../plugins/pluginReactMixedModeGuard';
 import VirtualModule from '../utils/VirtualModule';
 import {
   getPreBuildLibImportId,
@@ -1230,69 +1226,33 @@ describe('vite:module-federation-early-init', () => {
   });
 
   it('guards React DEV runtimes for Rolldown dev hosts with remotes', () => {
-    const plugin = (
-      federation({
-        name: 'host',
-        remotes: { remote: 'remote@http://localhost:4174/remoteEntry.js' },
-        shared: { react: { singleton: true } },
-      }) as Plugin[]
-    ).find((entry) => entry.name === 'vite:module-federation-early-init');
-    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
-
-    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
-    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
-
-    const guard = config.optimizeDeps.rolldownOptions.plugins.find(
-      (entry: { name: string }) => entry.name === REACT_MIXED_MODE_ROLLDOWN_PLUGIN
+    const plugins = federation({
+      name: 'host',
+      remotes: { remote: 'remote@http://localhost:4174/remoteEntry.js' },
+      shared: { react: { singleton: true } },
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (entry) => entry.name === 'vite:module-federation-early-init'
     );
-    expect(guard).toBeDefined();
-    expect(
-      guard.transform(
-        'return null === dispatcher ? null : dispatcher.getOwner();',
-        '/repo/node_modules/react/cjs/react-jsx-runtime.development.js'
-      )
-    ).toContain('typeof dispatcher?.getOwner === "function"');
-  });
-
-  it('guards React DEV runtimes for esbuild dev hosts with remotes', () => {
-    const plugin = (
-      federation({
-        name: 'host',
-        remotes: { remote: 'remote@http://localhost:4174/remoteEntry.js' },
-        shared: { react: { singleton: true } },
-      }) as Plugin[]
-    ).find((entry) => entry.name === 'vite:module-federation-early-init');
-    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+    const federationPlugin = plugins.find(
+      (entry) => entry.name === 'module-federation-vite'
+    ) as Plugin & { _options: NormalizedModuleFederationOptions };
+    if (!earlyInitPlugin || !federationPlugin) {
+      throw new Error('module federation plugins not found');
+    }
 
     const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
-    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
+    runConfig(
+      earlyInitPlugin,
+      { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'test' }
+    );
 
-    expect(
-      config.optimizeDeps.esbuildOptions.plugins.some(
-        (entry: { name: string }) => entry.name === REACT_MIXED_MODE_ESBUILD_PLUGIN
-      )
-    ).toBe(true);
-  });
-
-  it('does not install the React mixed-mode guard without remotes', () => {
-    const plugin = getEarlyInitPluginWithReactShared();
-    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
-    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
-
-    expect(
-      config.optimizeDeps.rolldownOptions.plugins.some(
-        (entry: { name: string }) => entry.name === REACT_MIXED_MODE_ROLLDOWN_PLUGIN
-      )
-    ).toBe(false);
+    const loadShareId = getLoadShareModulePath('react', true, federationPlugin._options);
+    expect(VirtualModule.findById(loadShareId)?.code).toContain(
+      'typeof next.getOwner !== "function"'
+    );
   });
 
   it('decouples Rolldown react-dom/client from the react-dom optimizer entry', () => {
