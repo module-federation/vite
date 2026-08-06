@@ -1939,7 +1939,9 @@ export function writeLoadShareModule(
     resolvedOptions.hostInitInjectLocation === 'entry' &&
     isConsumedByPeerSingleton;
   const usesEagerWorkspaceFallback =
-    hasCompleteExportCoverage && isWorkspaceSingleton && isConsumedByPeerSingleton;
+    hasCompleteExportCoverage &&
+    isWorkspaceSingleton &&
+    (isConsumedByPeerSingleton || shareItem.shareConfig.eager === true);
   const usesDeferredTreeShakingFallback = hasCompleteExportCoverage && Boolean(treeShakingConsumer);
   const reactMixedModeGuard = pkg === 'react' ? createReactMixedModeRuntimeGuard() : '';
   let exportLine: string;
