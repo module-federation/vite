@@ -1152,6 +1152,68 @@ describe('pluginSSRRemoteEntry', () => {
         })
       );
     });
+
+    it('caches the base SSR entry across outputs while rewriting Nuxt imports per output', () => {
+      getIsRolldownMock.mockReturnValue(false);
+      vi.mocked(generateRemoteEntrySSR).mockReturnValueOnce(
+        'const map = import("virtual:mf-exposes-ssr:remote");'
+      );
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+
+      callHook(
+        mainPlugin.configResolved,
+        {} as Rollup.PluginContext,
+        { command: 'build', base: '/_nuxt/', build: { ssr: true } } as ResolvedConfig
+      );
+      callHook(
+        mainPlugin.buildStart,
+        { meta: makePluginMeta(false) } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      const firstEmitFile = makeEmitFile();
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile: firstEmitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {
+          '_nuxt/virtualExposes-first.js': {
+            type: 'chunk',
+            fileName: '_nuxt/virtualExposes-first.js',
+            code: 'export default {"./Widget": () => import("./Widget.js")}',
+          },
+        } as unknown as Rollup.OutputBundle,
+        false
+      );
+
+      const secondEmitFile = makeEmitFile();
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile: secondEmitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {
+          '_nuxt/virtualExposes-second.js': {
+            type: 'chunk',
+            fileName: '_nuxt/virtualExposes-second.js',
+            code: 'export default {"./Widget": () => import("./Widget.js")}',
+          },
+        } as unknown as Rollup.OutputBundle,
+        false
+      );
+
+      expect(generateRemoteEntrySSR).toHaveBeenCalledTimes(1);
+      expect(firstEmitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'const map = import("./_nuxt/virtualExposes-first.js");',
+        })
+      );
+      expect(secondEmitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'const map = import("./_nuxt/virtualExposes-second.js");',
+        })
+      );
+    });
   });
 
   describe('main plugin — writeBundle', () => {

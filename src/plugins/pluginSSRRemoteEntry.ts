@@ -214,6 +214,7 @@ function readBoundedRunnerBody(
 export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions): Plugin[] {
   const remoteEntrySSRId = getRemoteEntrySSRId(options);
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
+  let cachedSsrRemoteEntrySource: string | undefined;
   let isRolldown = false;
   let shouldEmitSsrEntry = false;
   let ssrOutputFilename = '';
@@ -249,6 +250,16 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let viteConfig: ResolvedConfig | undefined;
   let isNuxtProject = false;
   let reactIslandExposes: ReadonlySet<string> = new Set();
+
+  // The plugin instance is created for a build and may serve multiple Rollup
+  // outputs. Reuse the stable base source across those outputs; Nuxt-specific
+  // rewrites are intentionally applied to a local copy in generateBundle.
+  const getSsrRemoteEntrySource = () => {
+    if (cachedSsrRemoteEntrySource === undefined) {
+      cachedSsrRemoteEntrySource = generateRemoteEntrySSR(options);
+    }
+    return cachedSsrRemoteEntrySource;
+  };
 
   const findNuxtExposesChunk = (
     bundle: Record<string, { type: string; fileName: string; code?: string }>
@@ -542,7 +553,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         handler(_options, bundle) {
           const exposesChunk = findNuxtExposesChunk(bundle);
           if (!isRolldown && shouldEmitSsrEntry) {
-            let source = generateRemoteEntrySSR(options);
+            let source = getSsrRemoteEntrySource();
             if (exposesChunk) {
               source = source.replace(
                 /import\("virtual:mf-exposes-ssr:[^"]+"\)/g,
