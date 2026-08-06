@@ -591,6 +591,116 @@ describe('normalizeModuleFederationOption', () => {
       }
     });
 
+    it('auto-shares installed peer dependencies from a component remote', () => {
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const fixtureRoot = path.join(require('node:os').tmpdir(), 'mf-vite-peer-auto-share');
+      const reactDir = path.join(fixtureRoot, 'node_modules/react');
+      fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      fs.mkdirSync(reactDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(fixtureRoot, 'package.json'),
+        JSON.stringify({
+          name: 'component-remote',
+          peerDependencies: {
+            react: '^19.0.0',
+            'missing-peer': '^1.0.0',
+          },
+          devDependencies: {
+            react: '19.2.4',
+          },
+        })
+      );
+      fs.writeFileSync(
+        path.join(reactDir, 'package.json'),
+        JSON.stringify({ name: 'react', version: '19.2.4', exports: './index.js' })
+      );
+      fs.writeFileSync(path.join(reactDir, 'index.js'), '');
+
+      setPackageDetectionCwd(fixtureRoot);
+
+      try {
+        const shared = normalizeModuleFederationOptions(minimalOptions).shared;
+
+        expect(shared.react).toMatchObject({
+          name: 'react',
+          version: '19.2.4',
+          shareConfig: {
+            singleton: true,
+            requiredVersion: '^19.0.0',
+          },
+        });
+        expect(shared['missing-peer']).toBeUndefined();
+      } finally {
+        setPackageDetectionCwd(process.cwd());
+        fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      }
+    });
+
+    it('preserves the peer range when a package is also a direct dependency', () => {
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const fixtureRoot = path.join(require('node:os').tmpdir(), 'mf-vite-peer-range-precedence');
+      const reactDir = path.join(fixtureRoot, 'node_modules/react');
+      fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      fs.mkdirSync(reactDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(fixtureRoot, 'package.json'),
+        JSON.stringify({
+          name: 'component-remote',
+          dependencies: {
+            react: '^19.2.0',
+          },
+          peerDependencies: {
+            react: '^19.0.0',
+          },
+        })
+      );
+      fs.writeFileSync(
+        path.join(reactDir, 'package.json'),
+        JSON.stringify({ name: 'react', version: '19.2.4', exports: './index.js' })
+      );
+      fs.writeFileSync(path.join(reactDir, 'index.js'), '');
+
+      setPackageDetectionCwd(fixtureRoot);
+
+      try {
+        const shared = normalizeModuleFederationOptions(minimalOptions).shared;
+
+        expect(shared.react.version).toBe('19.2.4');
+        expect(shared.react.shareConfig.requiredVersion).toBe('^19.0.0');
+      } finally {
+        setPackageDetectionCwd(process.cwd());
+        fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      }
+    });
+
+    it('does not auto-share peer dependencies when shared is explicitly empty', () => {
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const fixtureRoot = path.join(require('node:os').tmpdir(), 'mf-vite-peer-explicit-empty');
+      fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      fs.mkdirSync(fixtureRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(fixtureRoot, 'package.json'),
+        JSON.stringify({
+          name: 'component-remote',
+          peerDependencies: { react: '^19.0.0' },
+        })
+      );
+
+      setPackageDetectionCwd(fixtureRoot);
+
+      try {
+        expect(normalizeModuleFederationOptions({ ...minimalOptions, shared: {} }).shared).toEqual(
+          {}
+        );
+      } finally {
+        setPackageDetectionCwd(process.cwd());
+        fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      }
+    });
+
     it('ignores module federation runtime packages in explicit shared arrays', () => {
       const shared = normalizeModuleFederationOptions({
         ...minimalOptions,

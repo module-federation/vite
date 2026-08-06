@@ -325,18 +325,27 @@ function normalizeShared(
       const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
         name?: string;
         dependencies?: Record<string, string>;
+        peerDependencies?: Record<string, string>;
       };
       if (packageJson.name === '@module-federation/vite') return result;
 
-      Object.keys(packageJson.dependencies || {})
-        .filter((key) => shouldAutoShareDependency(key))
-        .forEach((key) => {
-          result[key] = normalizeShareItem(key, {
-            name: key,
-            import: undefined,
-            singleton: true,
-          });
+      const peerDependencies = packageJson.peerDependencies || {};
+      const dependencyNames = new Set([
+        ...Object.keys(packageJson.dependencies || {}),
+        ...Object.keys(peerDependencies),
+      ]);
+
+      dependencyNames.forEach((key) => {
+        if (!shouldAutoShareDependency(key)) return;
+
+        const peerRequiredVersion = peerDependencies[key];
+        result[key] = normalizeShareItem(key, {
+          name: key,
+          import: undefined,
+          singleton: true,
+          ...(peerRequiredVersion ? { requiredVersion: peerRequiredVersion } : {}),
         });
+      });
     } catch {
       return result;
     }
