@@ -3324,6 +3324,39 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('Promise.resolve().then');
   });
 
+  it('emits eager local exports for an explicitly eager leaf workspace singleton', () => {
+    normalizeModuleFederationOptions({
+      name: 'host',
+      shared: {
+        'workspace-producer': { singleton: true, eager: true },
+      },
+    });
+    const pkg = 'workspace-producer';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        eager: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "/repo/packages/workspace-producer/src/index.ts";'
+    );
+    expect(generatedCode).toContain('const __mfApplyEagerShareExports = (mod) => {');
+    expect(generatedCode).toContain('__mfApplyEagerShareExports(exportModule);');
+    expect(generatedCode).not.toContain('initPromise.then');
+  });
+
   it('does not treat parent package.json name mismatches as workspace package matches', () => {
     const pkg = 'workspace-name-mismatch';
     const mockShareItem: ShareItem = {
