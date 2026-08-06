@@ -52,6 +52,7 @@ vi.mock('../utils/packageUtils', async () => {
   return {
     ...actual,
     hasPackageDependency: hasPackageDependencyMock,
+    resolveImportPath: vi.fn(actual.resolveImportPath),
     setPackageDetectionCwd: vi.fn(),
   };
 });
@@ -65,6 +66,7 @@ vi.mock('../utils/logger', async () => {
 });
 
 import { federation } from '../index';
+import { resolveImportPath } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
 import {
   getPreBuildLibImportId,
@@ -215,6 +217,15 @@ function getModuleFederationVitePlugin(): FederationPlugin {
   return getModuleFederationVitePluginWithOptions({});
 }
 
+function getVirtualModulesPlugin(): FederationPlugin {
+  const plugin = (federation({ name: 'host' }) as Plugin[]).find(
+    (entry) => entry.name === 'vite:module-federation-virtual-modules'
+  );
+
+  if (!plugin) throw new Error('module federation virtual modules plugin not found');
+  return plugin;
+}
+
 function getModuleFederationVitePluginWithOptions(
   overrides: Partial<ModuleFederationOptions>
 ): FederationPlugin {
@@ -346,6 +357,27 @@ describe('federation in test environment', () => {
       filename: 'remoteEntry.js',
     });
     expect(plugins.length).toBeGreaterThan(0);
+  });
+});
+
+describe('virtual module resolution', () => {
+  it('resolves the SSR entry loader from the plugin package', () => {
+    const loaderPath = '/plugin/lib/utils/ssrEntryLoader.js';
+    const resolverMock = vi.mocked(resolveImportPath);
+    const originalImplementation = resolverMock.getMockImplementation();
+    resolverMock.mockReturnValue(loaderPath);
+    try {
+      const resolved = callHook(
+        getVirtualModulesPlugin().resolveId as any,
+        {} as Rollup.PluginContext,
+        '@module-federation/vite/ssrEntryLoader'
+      ) as string;
+
+      expect(resolveImportPath).toHaveBeenCalledWith('@module-federation/vite/ssrEntryLoader');
+      expect(resolved).toBe(loaderPath);
+    } finally {
+      resolverMock.mockImplementation(originalImplementation!);
+    }
   });
 });
 
