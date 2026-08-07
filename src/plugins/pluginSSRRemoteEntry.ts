@@ -214,6 +214,7 @@ function readBoundedRunnerBody(
 export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions): Plugin[] {
   const remoteEntrySSRId = getRemoteEntrySSRId(options);
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
+  let cachedSsrRemoteEntrySource: string | undefined;
   const ssrOutputFilename = getSsrRemoteEntryFileName(options.filename);
   let ssrOutputFiles = new Set<string>();
   let ssrOutputDir = '';
@@ -260,6 +261,16 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         (!hasSsrEnvironment && !isLegacySsrBuild)
       )
     );
+  };
+
+  // The plugin instance is created for a build and may serve multiple Rollup
+  // outputs. Reuse the stable base source across those outputs; Nuxt-specific
+  // rewrites are intentionally applied to a local copy in generateBundle.
+  const getSsrRemoteEntrySource = () => {
+    if (cachedSsrRemoteEntrySource === undefined) {
+      cachedSsrRemoteEntrySource = generateRemoteEntrySSR(options);
+    }
+    return cachedSsrRemoteEntrySource;
   };
 
   const findNuxtExposesChunk = (
@@ -548,7 +559,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           ).environment;
           const exposesChunk = findNuxtExposesChunk(bundle);
           if (!isRolldown && isSsrRemoteEntryBuild(environment)) {
-            let source = generateRemoteEntrySSR(options);
+            let source = getSsrRemoteEntrySource();
             if (exposesChunk) {
               source = source.replace(
                 /import\("virtual:mf-exposes-ssr:[^"]+"\)/g,
