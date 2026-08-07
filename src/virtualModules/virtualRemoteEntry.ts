@@ -37,6 +37,7 @@ import { getTreeShakingExportUsage } from '../utils/treeShaking';
 
 let usedShares: Set<string> = new Set();
 const usedSharesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
+const materializedSharesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 
 function getScopedUsedShares(options: NormalizedModuleFederationOptions) {
   let scoped = usedSharesByOptions.get(options);
@@ -52,6 +53,18 @@ export function getUsedShares(options?: NormalizedModuleFederationOptions) {
   return usedShares;
 }
 export function addUsedShares(pkg: string, options?: NormalizedModuleFederationOptions) {
+  usedShares.add(pkg);
+  if (options) getScopedUsedShares(options).add(pkg);
+  if (options) {
+    let scoped = materializedSharesByOptions.get(options);
+    if (!scoped) {
+      scoped = new Set();
+      materializedSharesByOptions.set(options, scoped);
+    }
+    scoped.add(pkg);
+  }
+}
+export function addConfiguredShare(pkg: string, options?: NormalizedModuleFederationOptions) {
   usedShares.add(pkg);
   if (options) getScopedUsedShares(options).add(pkg);
 }
@@ -139,6 +152,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const useDirectReactImport = shouldUseDirectReactImport();
   const orderedShares = getOrderedUsedShares(options);
+  const sharesToMaterialize = new Set(getMaterializedShares(options));
   const eagerImports = orderedShares
     .map((pkg, index) => {
       const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
@@ -221,6 +235,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
             version: ${JSON.stringify(shareItem.version)},
             scope: [${JSON.stringify(shareItem.scope)}],
             loaded: false,
+            materialize: ${sharesToMaterialize.has(key)},
             eager: ${Boolean(shareItem.shareConfig.eager)},
             from: ${JSON.stringify(resolvedOptions.name)},
             canLiveRebind: ${canLiveRebind},
@@ -307,7 +322,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
 function getOrderedUsedShares(options?: NormalizedModuleFederationOptions) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const shares = new Set(getUsedShares(options));
-  Object.keys(resolvedOptions.shared).forEach((pkg) => {
+  Object.keys(resolvedOptions.shared ?? {}).forEach((pkg) => {
     if (!pkg.endsWith('/')) shares.add(pkg);
   });
   const sorted = Array.from(shares).sort((a, b) => {
@@ -316,6 +331,93 @@ function getOrderedUsedShares(options?: NormalizedModuleFederationOptions) {
     return priority(a) - priority(b) || a.localeCompare(b);
   });
   return orderSharedDependenciesFirst(sorted);
+}
+
+function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
+  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
+  const scopedRegistrations = options ? usedSharesByOptions.get(options) : undefined;
+  const shares = new Set(
+    options && scopedRegistrations?.size
+      ? (materializedSharesByOptions.get(options) ?? [])
+      : usedShares
+  );
+  for (const [pkg, share] of Object.entries(resolvedOptions.shared ?? {})) {
+    if (!pkg.endsWith('/') && share.shareConfig?.eager) shares.add(pkg);
+  }
+  const configured = new Map<string, string>();
+  for (const pkg of getOrderedUsedShares(options)) {
+    const packageName = getPackageName(pkg);
+    if (!configured.has(packageName) || pkg === packageName) configured.set(packageName, pkg);
+  }
+  const pending = [...shares];
+  while (pending.length) {
+    const pkg = pending.pop()!;
+    const packageName = getPackageName(pkg);
+    const packageJson =
+      getInstalledPackageJson(pkg)?.packageJson ??
+      (pkg !== packageName ? getInstalledPackageJson(packageName)?.packageJson : undefined);
+    const dependencies = {
+      ...((packageJson?.dependencies as Record<string, string> | undefined) || {}),
+      ...((packageJson?.peerDependencies as Record<string, string> | undefined) || {}),
+      ...((packageJson?.optionalDependencies as Record<string, string> | undefined) || {}),
+    };
+    for (const dependency of Object.keys(dependencies)) {
+      const sharedDependency = configured.get(dependency);
+      if (sharedDependency && !shares.has(sharedDependency)) {
+        shares.add(sharedDependency);
+        pending.push(sharedDependency);
+      }
+    }
+  }
+  if (hasPackageDependency('vinext')) shares.delete('react');
+  const sorted = [...shares].sort((a, b) => {
+    const priority = (pkg: string) =>
+      pkg === 'react' ? 0 : pkg === 'react-dom' ? 1 : pkg.startsWith('react/') ? 2 : 3;
+    return priority(a) - priority(b) || a.localeCompare(b);
+  });
+  return orderSharedDependenciesFirst(sorted);
+}
+
+function getShareBatches(options?: NormalizedModuleFederationOptions, materializedOnly = true) {
+  const ordered = materializedOnly ? getMaterializedShares(options) : getOrderedUsedShares(options);
+  const levels = new Map<string, number>();
+  const roots = new Map<string, string>();
+  const subpaths = new Map<string, string[]>();
+  for (const pkg of ordered) {
+    const packageName = getPackageName(pkg);
+    if (pkg === packageName) roots.set(packageName, pkg);
+    else subpaths.set(packageName, [...(subpaths.get(packageName) ?? []), pkg]);
+  }
+  for (const pkg of ordered) {
+    const packageName = getPackageName(pkg);
+    const packageJson =
+      getInstalledPackageJson(pkg)?.packageJson ??
+      (pkg !== packageName ? getInstalledPackageJson(packageName)?.packageJson : undefined);
+    const dependencies = {
+      ...((packageJson?.dependencies as Record<string, string> | undefined) || {}),
+      ...((packageJson?.peerDependencies as Record<string, string> | undefined) || {}),
+      ...((packageJson?.optionalDependencies as Record<string, string> | undefined) || {}),
+    };
+    const prerequisites = Object.keys(dependencies)
+      .map((dependency) => roots.get(dependency))
+      .filter((dependency): dependency is string => Boolean(dependency));
+    if (pkg !== packageName && (packageName === 'react' || packageName === 'react-dom')) {
+      const root = roots.get(packageName);
+      if (root) prerequisites.push(root);
+    } else if (pkg === packageName && packageName !== 'react' && packageName !== 'react-dom') {
+      prerequisites.push(...(subpaths.get(packageName) ?? []));
+    }
+    levels.set(
+      pkg,
+      prerequisites.reduce(
+        (level, dependency) => Math.max(level, (levels.get(dependency) ?? 0) + 1),
+        0
+      )
+    );
+  }
+  const batches: string[][] = [];
+  for (const pkg of ordered) (batches[levels.get(pkg) ?? 0] ??= []).push(pkg);
+  return batches.filter(Boolean);
 }
 
 function orderSharedDependenciesFirst(sharedPackages: string[]) {
@@ -575,39 +677,32 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
             return { provider, scopeRootProvider };
           };`;
 
-function generateRuntimeSharedCacheSeedCode(shareStrategy: string) {
+function generateRuntimeSharedCacheSeedCode(
+  shareStrategy: string,
+  options?: NormalizedModuleFederationOptions
+) {
   // Seeding a share evaluates its module graph, and every share proxy hit
   // during that evaluation must already be cached — the proxies defer their
   // local fallback until after init, so an unseeded proxy leaves its named
   // exports undefined at module-evaluation time. Seed dependencies and a
   // package's own subpath shares before the package itself.
-  const seedOrder = getOrderedUsedShares();
+  const seedBatches = getShareBatches(options, false);
   return `
-    const __mfSeedOrder = ${JSON.stringify(seedOrder)};
-    const __mfSeedKeys = __mfSeedOrder.filter((pkg) => usedShared[pkg] !== undefined);
-    const __mfSeedPackageName = (pkg) => pkg.startsWith('@')
-      ? pkg.split('/').slice(0, 2).join('/')
-      : pkg.split('/')[0];
-    for (const pkg of Object.keys(usedShared)) {
-      if (__mfSeedKeys.includes(pkg)) continue;
-      const packageName = __mfSeedPackageName(pkg);
-      const rootIndex = __mfSeedKeys.indexOf(packageName);
-      if (rootIndex === -1) {
-        __mfSeedKeys.push(pkg);
-        continue;
-      }
-      let insertIndex = rootIndex;
-      while (
-        insertIndex > 0 &&
-        __mfSeedPackageName(__mfSeedKeys[insertIndex - 1]) === packageName &&
-        __mfSeedKeys[insertIndex - 1] !== packageName
-      ) {
-        insertIndex--;
-      }
-      __mfSeedKeys.splice(insertIndex, 0, pkg);
-    }
+    const __mfSeedOrder = ${JSON.stringify(seedBatches.flat())};
+    const __mfSeedBatches = ${JSON.stringify(seedBatches)};
+    const __mfSeedKeys = __mfSeedOrder.filter((pkg) => usedShared[pkg] && usedShared[pkg].materialize !== false);
+    __mfModuleCache.providerInit ||= new Map();
+    const __mfInitializeProviderOnce = (key, initialize) => {
+      const existing = __mfModuleCache.providerInit.get(key);
+      if (existing) return existing;
+      const pending = Promise.resolve().then(initialize);
+      __mfModuleCache.providerInit.set(key, pending);
+      pending.catch(() => __mfModuleCache.providerInit.delete(key));
+      return pending;
+    };
     var __mfSeedLocalShared = async (seedKeys) => {
-      for (const pkg of seedKeys) {
+      const requested = new Set(seedKeys);
+      for (const batch of __mfSeedBatches) await Promise.all(batch.filter((pkg) => requested.has(pkg)).map(async (pkg) => {
         const share = usedShared[pkg];
         const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
         if (
@@ -615,7 +710,7 @@ function generateRuntimeSharedCacheSeedCode(shareStrategy: string) {
           Boolean(share.treeShaking) ||
           __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined
         ) {
-          continue;
+          return;
         }
         const singletonCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, true, share.version, share.scope);
         const singletonModule = __mfReadSharedCache(__mfModuleCache.share, singletonCacheDescriptor);
@@ -626,11 +721,14 @@ function generateRuntimeSharedCacheSeedCode(shareStrategy: string) {
             singletonModule,
             __mfReadSharedCacheOwner(__mfModuleCache.share, singletonCacheDescriptor)
           );
-          continue;
+          return;
         }
-        const factory = await share.get();
-        const mod = typeof factory === "function" ? factory() : factory;
-        const resolved = await Promise.resolve(mod);
+        const providerKey = cacheDescriptor.canonical;
+        const resolved = await __mfInitializeProviderOnce(providerKey, async () => {
+          const factory = await share.get();
+          const mod = typeof factory === "function" ? factory() : factory;
+          return Promise.resolve(mod);
+        });
         ${normalizeRuntimeShareCode}
         const normalizedModule = __mfNormalizeRuntimeShare(resolved);
         const exportModule = normalizedModule === resolved ? {...resolved} : normalizedModule;
@@ -639,7 +737,7 @@ function generateRuntimeSharedCacheSeedCode(shareStrategy: string) {
           enumerable: false
         });
         __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, exportModule, mfName);
-      }
+      }));
     };
     const __mfIsRuntimeOnlySharePending = (pkg) => {
       const share = usedShared[pkg];
@@ -709,7 +807,7 @@ function getBrowserImportPath(importPath: string) {
 
 function getHostAutoInitSharedSeedItems(options?: NormalizedModuleFederationOptions) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
-  return getOrderedUsedShares(options)
+  return getMaterializedShares(options)
     .map((pkg) => ({ pkg, shareItem: getShareItemForPreload(pkg, resolvedOptions) }))
     .filter(({ shareItem }) => shareItem?.shareConfig?.import === false)
     .sort((a, b) => {
@@ -934,6 +1032,7 @@ export function generateRemoteEntry(
     (share) => !!share?.shareConfig.treeShaking
   );
   const hasMultipleShareScopes = Array.isArray(options.shareScope);
+  const materializedShareBatches = JSON.stringify(getShareBatches(options, false));
   const runtimeImports = [
     'init as runtimeInit',
     'loadRemote',
@@ -1017,6 +1116,7 @@ export function generateRemoteEntry(
     hasMultipleShareScopes ? options.shareScope[0] : options.shareScope
   )}
   const mfName = ${JSON.stringify(options.name)}
+  const __mfMaterializedShareBatches = ${materializedShareBatches}
   let localSharedImportMapPromise
   let exposesMapPromise
   const shouldRetrySharedInitError = ${command !== 'build'} && ((error) => {
@@ -1602,10 +1702,11 @@ export function generateRemoteEntry(
         console.error('[Module Federation] Failed to bridge external shared module "' + pkg + '"', e)
       }
     };
-    for (const [pkg, usedShare] of Object.entries(usedShared)) {
-      if (usedShare.treeShaking) continue;
+    for (const batch of __mfMaterializedShareBatches) await Promise.all(batch.map(async (pkg) => {
+      const usedShare = usedShared[pkg];
+      if (!usedShare || usedShare.materialize === false || usedShare.treeShaking) return;
       await __mfBridgeMaterializedProvider(pkg, usedShare, initialShared[pkg]);
-    }
+    }));
     for (const [pkg, share] of Object.entries(usedShared)) {
       if (share.treeShaking) continue;
       const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
@@ -1621,12 +1722,13 @@ export function generateRemoteEntry(
         );
       }
     }
-    ${generateRuntimeSharedCacheSeedCode(options.shareStrategy)}
+    ${generateRuntimeSharedCacheSeedCode(options.shareStrategy, options)}
     ${initializeSharingCode}
     // Calling provider.get() marks a provider as loaded. Wait until the Runtime has
     // finalized normal same-version precedence before materializing an external share.
-    for (const [pkg, usedShare] of Object.entries(usedShared)) {
-      if (usedShare.treeShaking) continue;
+    for (const batch of __mfMaterializedShareBatches) await Promise.all(batch.map(async (pkg) => {
+      const usedShare = usedShared[pkg];
+      if (!usedShare || usedShare.materialize === false || usedShare.treeShaking) return;
       await __mfBridgeExternalSharedProvider(
         pkg,
         usedShare,
@@ -1634,7 +1736,7 @@ export function generateRemoteEntry(
         initialShared[pkg],
         undefined
       );
-    }
+    }));
     try {
       const allInstances = globalThis.__FEDERATION__?.__SHARE__;
       const globalVersionsByPackage = Object.create(null);
@@ -1668,7 +1770,9 @@ export function generateRemoteEntry(
           }
         }
       }
-      for (const [pkg, versionMap] of Object.entries(globalVersionsByPackage)) {
+      for (const batch of __mfMaterializedShareBatches) await Promise.all(batch.map(async (pkg) => {
+        const versionMap = globalVersionsByPackage[pkg];
+        if (!versionMap) return;
         await __mfBridgeExternalSharedProvider(
           pkg,
           usedShared[pkg],
@@ -1676,7 +1780,7 @@ export function generateRemoteEntry(
           initialShared[pkg],
           bridgeSelections.get(pkg)
         );
-      }
+      }));
     } catch (e) {
       console.error('[Module Federation] Failed to bridge external shared modules', e)
     }
@@ -1749,6 +1853,7 @@ export function generateRemoteEntry(
     // Resolve runtime-only dependencies and seed local fallbacks in dependency
     // order. Stop at an unresolved provider so its consumers cannot capture an
     // undefined or provisional singleton.
+    const __mfReadyDeferredSeedKeys = [];
     for (const pkg of __mfDeferredSeedKeys) {
       const share = usedShared[pkg];
       if (__mfIsRuntimeOnlySharePending(pkg)) {
@@ -1759,8 +1864,9 @@ export function generateRemoteEntry(
         }
       }
       if (__mfIsRuntimeOnlySharePending(pkg)) break;
-      await __mfSeedLocalShared([pkg]);
+      __mfReadyDeferredSeedKeys.push(pkg);
     }
+    await __mfSeedLocalShared(__mfReadyDeferredSeedKeys);
     initResolve(initRes)
     return initRes
   }
@@ -1837,11 +1943,10 @@ export function generateHostAutoInitCode(
           ${
             shouldPreloadShares
               ? `
-          const __mfHostInitShareOrder = ${hostInitShareOrder}
-            .concat(Object.keys(usedShared).filter((pkg) => !${hostInitShareOrder}.includes(pkg)));
+          const __mfHostInitShareOrder = ${hostInitShareOrder};
           for (const pkg of __mfHostInitShareOrder) {
             const share = usedShared[pkg];
-            if (!share) continue;
+            if (!share || share.materialize === false) continue;
             // remoteEntry.init resolves tree-enabled shares into the
             // coverage-aware cache. Never republish that selected partial under
             // a generic full-module key here.

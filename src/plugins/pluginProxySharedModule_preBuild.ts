@@ -39,6 +39,7 @@ import {
   shouldAnalyzeSharedExports,
 } from '../utils/treeShaking';
 import {
+  addConfiguredShare,
   addUsedShares,
   addTreeShakingGraphQuery,
   getConcreteSharedImportSource,
@@ -219,7 +220,7 @@ function getPackageDependencies(pkg: string): string[] {
  * `@lit/reactive-element` — sharing them separately causes the child modules
  * to load before their parent, resulting in `undefined` class extends errors.
  */
-function excludeSharedSubDependencies(shared: NormalizedShared): void {
+export function excludeSharedSubDependencies(shared: NormalizedShared): void {
   const sharedKeys = new Set(Object.keys(shared));
   const sharedKeyByBase = new Map(
     Object.keys(shared).map((key) => [key.endsWith('/') ? key.slice(0, -1) : key, key])
@@ -395,17 +396,22 @@ export function proxySharedModule(options: {
       configResolved(config) {
         _config = config;
 
-        // Write virtual module files and register shares eagerly.
+        // Write virtual module files and register provider metadata eagerly.
+        // Materialization stays tied to imports observed by resolveId below.
         // The deadlock that previously occurred here (localSharedImportMap
         // referencing prebuild modules → Vite re-optimization → deadlock)
         // is now prevented by adding prebuild IDs to optimizeDeps.include
         // in the config hook (createEarlyVirtualModulesPlugin), so Vite
         // pre-bundles them upfront without triggering re-optimization.
         const isRolldown = getIsRolldown(this);
+        // Build output can emit the shared map before every consumer has been
+        // transformed, so retain its established eager seed set. Dev resolves
+        // imports incrementally and can distinguish configured from consumed.
+        const registerConfiguredShare = _command === 'serve' ? addConfiguredShare : addUsedShares;
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/')) return;
           if (useDirectReactImport && key === 'react') {
-            addUsedShares(key, federationOptions);
+            registerConfiguredShare(key, federationOptions);
             return;
           }
           writeLoadShareModule(key, shared[key], _command, isRolldown, federationOptions);
@@ -414,7 +420,7 @@ export function proxySharedModule(options: {
           if (shared[key].shareConfig.import !== false) {
             writePreBuildLibPath(key, shared[key], federationOptions);
           }
-          addUsedShares(key, federationOptions);
+          registerConfiguredShare(key, federationOptions);
         });
         writeLocalSharedImportMap(federationOptions);
         refreshHostAutoInit(federationOptions);

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'fs';
 import { normalizePathForImport } from '../../utils/buildPaths';
 import { getSharedExportConditions } from '../../utils/sharedExportConditions';
 import {
@@ -2688,7 +2689,17 @@ describe('writeLoadShareModule', () => {
   });
 
   it('detects named exports past a nested template literal interpolation', () => {
+    const readFileSyncMock = vi.mocked(readFileSync);
+    readFileSyncMock.mockClear();
+
     expect(getSharedNamedExports('mock-package-nested-template-literal')).toEqual(['injectedHtml']);
+    expect(getSharedNamedExports('mock-package-nested-template-literal')).toEqual(['injectedHtml']);
+
+    expect(
+      readFileSyncMock.mock.calls.filter(([filePath]) =>
+        String(filePath).endsWith('/mock-package-nested-template-literal/index.js')
+      )
+    ).toHaveLength(1);
   });
 
   it('uses worker conditional exports for webworker SSR', () => {

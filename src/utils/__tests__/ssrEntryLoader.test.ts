@@ -1282,7 +1282,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     expect(result).toBe(mockMod);
   });
 
-  it('resolves host shared modules and isolates runners by host', async () => {
+  it('preserves remote module resolution and isolates runners by host', async () => {
     const hostReactPaths = [
       '/host-a/node_modules/react/index.js',
       '/host-b/node_modules/react/index.js',
@@ -1314,6 +1314,15 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
           },
         },
       },
+      'http://localhost:4175/__mf_runner__': {
+        ok: true,
+        json: {
+          result: {
+            externalize: 'file:///remote/node_modules/react/index.js',
+            type: 'module',
+          },
+        },
+      },
     });
     global.fetch = fetch as unknown as typeof globalThis.fetch;
 
@@ -1324,14 +1333,58 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     }
 
     expect(sharedFetchResults).toEqual(
-      hostReactPaths.map((hostReactPath) => ({
+      hostReactPaths.map(() => ({
         result: {
-          externalize: `file://${hostReactPath}`,
+          externalize: 'file:///remote/node_modules/react/index.js',
           type: 'module',
         },
       }))
     );
-    expectFetchNotCalled(fetch, 'http://localhost:4175/__mf_runner__');
+    expectFetchCalled(fetch, 'http://localhost:4175/__mf_runner__');
+  });
+
+  it('falls back to a host shared module when remote resolution fails', async () => {
+    const sharedFetchResults: unknown[] = [];
+    const factory = await freshLoaderWithRunner((runnerOptions) => ({
+      import: vi.fn(async () => {
+        sharedFetchResults.push(
+          await runnerOptions.transport.invoke({
+            type: 'custom',
+            event: 'vite:invoke',
+            data: { name: 'fetchModule', data: ['react'] },
+          })
+        );
+        return { init: vi.fn(), get: vi.fn() };
+      }),
+    }));
+    const fetch = makeFetchMock({
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:4175/__mf_runner__': {
+        ok: true,
+        json: { error: { message: 'unresolved' } },
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    await factory({ resolvedShared: { react: '/host/node_modules/react/index.js' } }).loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    expect(sharedFetchResults).toEqual([
+      {
+        result: {
+          externalize: 'file:///host/node_modules/react/index.js',
+          type: 'module',
+        },
+      },
+    ]);
   });
 
   it('returns null when ModuleRunner import throws (no silent fallback)', async () => {

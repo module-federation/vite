@@ -997,6 +997,8 @@ describe('pluginProxySharedModule_preBuild', () => {
     // Normal deps should still have prebuild entries
     expect(preBuildShareItemMap.has('react')).toBe(true);
     expect(preBuildShareItemMap.has('vue')).toBe(true);
+    // Configuration registers providers but must not classify them as consumed.
+    expect(addUsedSharesMock).not.toHaveBeenCalled();
   });
 
   it('keeps common shared subpaths when resolving node_modules paths', async () => {

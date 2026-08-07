@@ -105,6 +105,10 @@ type SharedExportInspection = {
   commonJs: boolean;
 };
 
+type CachedNamedExports = { value: string[] | undefined };
+
+const packageNamedExportsCache = new Map<string, CachedNamedExports>();
+
 type NamedExportScanState = {
   complete: boolean;
 };
@@ -815,15 +819,22 @@ function getPackageNamedExports(
     resolveSubpathWithRequire: false,
   });
   if (esmEntryPath) {
+    const cacheKey = !isWorkspaceFilePath(esmEntryPath)
+      ? `${getPackageDetectionCwd()}\0${esmEntryPath}\0${exportConditions.join('\0')}`
+      : undefined;
+    const cached = cacheKey ? packageNamedExportsCache.get(cacheKey) : undefined;
+    if (cached) return cached.value;
+
     const inspection = inspectSharedExportsFromFile(esmEntryPath, exportConditions);
 
     // The selected Vite entry may itself be CommonJS. Requiring that exact file
     // gives us its runtime namespace without substituting a different condition.
-    if (!inspection || inspection.commonJs || path.extname(esmEntryPath) === '.cjs') {
-      return getRequiredNamedExports(esmEntryPath);
-    }
-    if (inspection.namedExports !== undefined) return inspection.namedExports;
-    return undefined;
+    const value =
+      !inspection || inspection.commonJs || path.extname(esmEntryPath) === '.cjs'
+        ? getRequiredNamedExports(esmEntryPath)
+        : inspection.namedExports;
+    if (cacheKey) packageNamedExportsCache.set(cacheKey, { value });
+    return value;
   }
 
   // Resolve from the project root (process.cwd()) so shared packages like React
