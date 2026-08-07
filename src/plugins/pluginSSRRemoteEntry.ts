@@ -248,10 +248,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let isNuxtProject = false;
   let reactIslandExposes: ReadonlySet<string> = new Set();
 
-  const isSsrRemoteEntryBuild = (environment?: {
-    name?: string;
-    config?: ResolvedConfig;
-  }) => {
+  const isSsrRemoteEntryBuild = (environment?: { name?: string; config?: ResolvedConfig }) => {
     const environmentName = environment?.name;
     const hasSsrEnvironment = Boolean(viteConfig?.environments?.ssr);
     const isLegacySsrBuild = Boolean(environment?.config?.build?.ssr ?? viteConfig?.build?.ssr);
@@ -516,9 +513,11 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // whether we're running under Rolldown (Vite 8+) so we can choose the
         // right output format and file extension.
         const isRolldown = getIsRolldown(this);
-        const environment = (this as {
-          environment?: { name?: string; config?: ResolvedConfig };
-        }).environment;
+        const environment = (
+          this as {
+            environment?: { name?: string; config?: ResolvedConfig };
+          }
+        ).environment;
 
         // Environment API (client + ssr): emit only in the ssr environment so exposes
         // are bundled with the Node SSR graph (nested loadRemote stays on the server).
@@ -542,9 +541,11 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         order: 'post',
         handler(_options, bundle) {
           const isRolldown = getIsRolldown(this);
-          const environment = (this as {
-            environment?: { name?: string; config?: ResolvedConfig };
-          }).environment;
+          const environment = (
+            this as {
+              environment?: { name?: string; config?: ResolvedConfig };
+            }
+          ).environment;
           const exposesChunk = findNuxtExposesChunk(bundle);
           if (!isRolldown && isSsrRemoteEntryBuild(environment)) {
             let source = generateRemoteEntrySSR(options);
