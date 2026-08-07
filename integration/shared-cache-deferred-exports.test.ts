@@ -1,6 +1,8 @@
 import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
+import { parseAst } from 'rollup/parseAst';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
+import { isRollupChunk } from './helpers/assertions';
 import { buildFixture, FIXTURES } from './helpers/build';
 import { findChunk, getAllChunkCode, getHtmlAsset } from './helpers/matchers';
 
@@ -47,6 +49,43 @@ const HOST_MF_OPTIONS = {
   },
   dts: false,
 } satisfies Partial<ModuleFederationOptions>;
+
+const FUNCTION_NODE_TYPES = new Set([
+  'ArrowFunctionExpression',
+  'FunctionDeclaration',
+  'FunctionExpression',
+]);
+
+function getTopLevelAwaitOffsets(code: string): number[] {
+  const offsets: number[] = [];
+
+  function visit(node: unknown, functionDepth: number) {
+    if (!node || typeof node !== 'object') return;
+
+    const astNode = node as { type?: string; start?: number; [key: string]: unknown };
+    if (
+      (astNode.type === 'AwaitExpression' ||
+        (astNode.type === 'ForOfStatement' && astNode.await === true)) &&
+      functionDepth === 0
+    ) {
+      offsets.push(astNode.start ?? -1);
+    }
+
+    const nextFunctionDepth =
+      functionDepth + (astNode.type && FUNCTION_NODE_TYPES.has(astNode.type) ? 1 : 0);
+    for (const [key, value] of Object.entries(astNode)) {
+      if (key === 'start' || key === 'end' || key === 'type') continue;
+      if (Array.isArray(value)) {
+        value.forEach((child) => visit(child, nextFunctionDepth));
+      } else {
+        visit(value, nextFunctionDepth);
+      }
+    }
+  }
+
+  visit(parseAst(code), 0);
+  return offsets;
+}
 
 // ── Host bootstrap ─────────────────────────────────────────────────────────
 
@@ -244,5 +283,29 @@ describe('no top-level awaits in generated code', () => {
     const afterIife = iifeEnd >= 0 ? bootstrapCode.slice(iifeEnd + '})().then('.length) : '';
     expect(beforeIife).not.toMatch(/^\s*await /m);
     expect(afterIife).not.toMatch(/^\s*await /m);
+    expect(getTopLevelAwaitOffsets(bootstrapCode)).toEqual([]);
+  });
+
+  it('keeps remote federation chunks TLA-free for Safari', async () => {
+    const output = await buildFixture({
+      fixture: 'shared-remote',
+      mfOptions: {
+        ...REMOTE_MF_OPTIONS,
+        exposes: {
+          './exposed': resolve(FIXTURES, 'shared-remote', 'exposed-module.js'),
+          './secondary': resolve(FIXTURES, 'shared-remote', 'exposed-secondary.js'),
+        },
+      },
+      viteConfig: {
+        build: { target: 'safari14' },
+      },
+    });
+
+    const topLevelAwaitChunks = output.output
+      .filter(isRollupChunk)
+      .map((chunk) => ({ fileName: chunk.fileName, offsets: getTopLevelAwaitOffsets(chunk.code) }))
+      .filter(({ offsets }) => offsets.length > 0);
+
+    expect(topLevelAwaitChunks).toEqual([]);
   });
 });

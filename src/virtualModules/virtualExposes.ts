@@ -24,15 +24,23 @@ export function generateExposes(
   return `
     const cssAssetMap = ${JSON.stringify(options.bundleAllCSS ? EXPOSES_CSS_MAP_PLACEHOLDER : {})};
     const injectedCssHrefs = new Set();
-    let exposeLoadQueue = Promise.resolve();
+    const exposeLoadPromises = new Map();
 
-    async function importExposedModule(loader) {
-      const currentLoad = exposeLoadQueue.then(loader, loader);
-      exposeLoadQueue = currentLoad.then(
-        () => undefined,
-        () => undefined
-      );
-      return currentLoad;
+    // Shared and remote readiness is handled by explicit Promise barriers below
+    // and by remoteEntry's pendingShareLoads barrier. Keep this map scoped to a
+    // single expose: unrelated exposes must stay independent and load in parallel.
+    function loadExposedModule(exposeKey, loader) {
+      let load = exposeLoadPromises.get(exposeKey);
+      if (!load) {
+        load = Promise.resolve()
+          .then(loader)
+          .catch((error) => {
+            exposeLoadPromises.delete(exposeKey);
+            throw error;
+          });
+        exposeLoadPromises.set(exposeKey, load);
+      }
+      return load;
     }
 
     async function injectCssAssets(exposeKey) {
@@ -96,7 +104,8 @@ export function generateExposes(
         ${JSON.stringify(key)}: async () => {
           await injectCssAssets(${JSON.stringify(key)})
           await Promise.all([${remoteDependencyPreloads}])
-          const importModule = await importExposedModule(
+          const importModule = await loadExposedModule(
+            ${JSON.stringify(key)},
             () => import(${JSON.stringify(options.exposes[key].import)})
           )
           const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;

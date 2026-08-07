@@ -101,7 +101,7 @@ describe('virtualExposes', () => {
     expect(code.trimStart()).toMatch(/^const\s/);
   });
 
-  it('injects css once and serializes module imports across concurrent expose loads', async () => {
+  it('injects css once and evaluates independent exposes concurrently', async () => {
     const code = generateExposes(
       getDefaultMockOptions({
         exposes: {
@@ -162,24 +162,48 @@ describe('virtualExposes', () => {
     await flushMicrotasks();
 
     expect(appendedHrefs).toEqual(['file:///repo/style.css']);
-    expect(dynamicImportStarts).toHaveLength(1);
-
-    const firstStartedImport = dynamicImportStarts[0];
-    importResolvers.get(firstStartedImport)?.();
-    await flushMicrotasks();
-
     expect(dynamicImportStarts).toHaveLength(2);
     expect(dynamicImportStarts).toContain('./one.js');
     expect(dynamicImportStarts).toContain('./two.js');
 
-    const secondStartedImport = dynamicImportStarts.find((id) => id !== firstStartedImport)!;
-    importResolvers.get(secondStartedImport)?.();
+    dynamicImportStarts.forEach((id) => importResolvers.get(id)?.());
     const [firstModule, secondModule] = await Promise.all([firstLoad, secondLoad]);
 
     expect(firstModule).toMatchObject({ default: './one.js' });
     expect(secondModule).toMatchObject({ default: './two.js' });
     expect(dynamicImport).toHaveBeenCalledTimes(2);
     expect(document.head.appendChild).toHaveBeenCalledTimes(1);
+  });
+
+  it('deduplicates the same expose and permits retry after a failed load', async () => {
+    const code = generateExposes(
+      getDefaultMockOptions({
+        exposes: {
+          './one': { import: './one.js' } as any,
+        },
+      })
+    );
+    const error = new Error('expose failed');
+    let attempts = 0;
+    const dynamicImport = vi.fn(() => {
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(error) : Promise.resolve({ default: './one.js' });
+    });
+
+    const exposes = await toRunnableModule(code)(
+      undefined,
+      URL,
+      dynamicImport,
+      'file:///repo/remoteEntry.js'
+    );
+
+    const first = exposes['./one']();
+    const second = exposes['./one']();
+    await expect(first).rejects.toBe(error);
+    await expect(second).rejects.toBe(error);
+
+    await expect(exposes['./one']()).resolves.toMatchObject({ default: './one.js' });
+    expect(dynamicImport).toHaveBeenCalledTimes(2);
   });
 
   it('waits for remote dependency pending before resolving an exposed module', async () => {
