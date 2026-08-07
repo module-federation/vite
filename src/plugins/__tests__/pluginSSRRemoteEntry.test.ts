@@ -3,8 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Plugin, Rollup, ResolvedConfig } from 'vite';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Plugin, ResolvedConfig, Rollup } from 'vite';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 
@@ -49,8 +49,8 @@ vi.mock('../../virtualModules/virtualRemoteEntrySSR', () => ({
   }),
 }));
 
-import { pluginSSRRemoteEntry } from '../pluginSSRRemoteEntry';
 import { generateRemoteEntrySSR } from '../../virtualModules/virtualRemoteEntrySSR';
+import { pluginSSRRemoteEntry } from '../pluginSSRRemoteEntry';
 
 function makeOptions(overrides: Record<string, unknown> = {}) {
   return normalizeModuleFederationOptions({
@@ -75,7 +75,10 @@ function makeEmitFile() {
 }
 
 function createMockRequest(method: string, payload?: unknown, rawPayload?: string) {
-  const req = new EventEmitter() as EventEmitter & { method: string; url: string };
+  const req = new EventEmitter() as EventEmitter & {
+    method: string;
+    url: string;
+  };
   req.method = method;
   req.url = '/__mf_runner__';
   queueMicrotask(() => {
@@ -104,14 +107,20 @@ function createMockResponse() {
 
 async function invokeRunnerMiddleware(
   payload: unknown,
-  env: { fetchModule?: unknown; hot?: { handleInvoke?: (payload: unknown) => Promise<unknown> } },
+  env: {
+    fetchModule?: unknown;
+    hot?: { handleInvoke?: (payload: unknown) => Promise<unknown> };
+  },
   rawPayload?: string,
   serverConfig: Record<string, unknown> = { root: '/mock/cwd' },
   method = 'POST'
 ) {
   const plugins = pluginSSRRemoteEntry(makeOptions());
   const mainPlugin = plugins[1];
-  const handlers: { path: string; handler: (req: unknown, res: unknown) => unknown }[] = [];
+  const handlers: {
+    path: string;
+    handler: (req: unknown, res: unknown) => unknown;
+  }[] = [];
 
   callHook(
     mainPlugin.configResolved,
@@ -177,7 +186,12 @@ describe('pluginSSRRemoteEntry', () => {
 
       const config = {
         resolve: {
-          alias: [{ find: '@module-federation/runtime', replacement: '/abs/path/to/runtime.js' }],
+          alias: [
+            {
+              find: '@module-federation/runtime',
+              replacement: '/abs/path/to/runtime.js',
+            },
+          ],
         },
       } as unknown as ResolvedConfig;
 
@@ -192,7 +206,10 @@ describe('pluginSSRRemoteEntry', () => {
         { isEntry: false }
       );
 
-      expect(result).toEqual({ id: '@module-federation/runtime', external: true });
+      expect(result).toEqual({
+        id: '@module-federation/runtime',
+        external: true,
+      });
     });
 
     it('handles regex aliases', () => {
@@ -202,7 +219,10 @@ describe('pluginSSRRemoteEntry', () => {
       const config = {
         resolve: {
           alias: [
-            { find: /^@module-federation\/runtime$/, replacement: '/abs/path/to/runtime.js' },
+            {
+              find: /^@module-federation\/runtime$/,
+              replacement: '/abs/path/to/runtime.js',
+            },
           ],
         },
       } as unknown as ResolvedConfig;
@@ -217,7 +237,10 @@ describe('pluginSSRRemoteEntry', () => {
         { isEntry: false }
       );
 
-      expect(result).toEqual({ id: '@module-federation/runtime', external: true });
+      expect(result).toEqual({
+        id: '@module-federation/runtime',
+        external: true,
+      });
     });
   });
 
@@ -278,7 +301,10 @@ describe('pluginSSRRemoteEntry', () => {
         { isEntry: false }
       );
 
-      expect(result).toEqual({ id: '@module-federation/runtime', external: true });
+      expect(result).toEqual({
+        id: '@module-federation/runtime',
+        external: true,
+      });
     });
 
     it('externalises @module-federation/runtime-core and sdk', () => {
@@ -373,7 +399,9 @@ describe('pluginSSRRemoteEntry', () => {
         { isEntry: false }
       );
 
-      expect(resolveMock).toHaveBeenCalledWith('./assets/helper.js', ssrId, { skipSelf: true });
+      expect(resolveMock).toHaveBeenCalledWith('./assets/helper.js', ssrId, {
+        skipSelf: true,
+      });
     });
   });
 
@@ -462,7 +490,9 @@ describe('pluginSSRRemoteEntry', () => {
       expect(res.statusCode).toBe(200);
       expect(res.headers['Content-Type']).toBe('application/json');
       expect(res.headers['Access-Control-Allow-Origin']).toBeUndefined();
-      expect(JSON.parse(res.body)).toEqual({ result: { code: 'export default 1' } });
+      expect(JSON.parse(res.body)).toEqual({
+        result: { code: 'export default 1' },
+      });
     });
 
     it('leaves CORS and preflight policy to Vite middleware', async () => {
@@ -495,14 +525,20 @@ describe('pluginSSRRemoteEntry', () => {
         {
           type: 'custom',
           event: 'vite:invoke',
-          data: { id: 'send', name: 'fetchModule', data: ['virtual:safe', null, opts] },
+          data: {
+            id: 'send',
+            name: 'fetchModule',
+            data: ['virtual:safe', null, opts],
+          },
         },
         { fetchModule: vi.fn(), hot: { handleInvoke } }
       );
 
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+      expect(JSON.parse(res.body)).toEqual({
+        error: { message: 'Invalid runner invoke' },
+      });
     });
 
     it('accepts bounded supported fetchModule options', async () => {
@@ -543,7 +579,9 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+      expect(JSON.parse(res.body)).toEqual({
+        error: { message: 'Invalid runner invoke' },
+      });
     });
 
     it('rejects invalid runner argument shapes before calling Vite', async () => {
@@ -563,7 +601,9 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+      expect(JSON.parse(res.body)).toEqual({
+        error: { message: 'Invalid runner invoke' },
+      });
     });
 
     it('rejects filesystem escape module ids before calling Vite', async () => {
@@ -592,7 +632,9 @@ describe('pluginSSRRemoteEntry', () => {
 
           expect(handleInvoke).not.toHaveBeenCalled();
           expect(res.statusCode).toBe(400);
-          expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+          expect(JSON.parse(res.body)).toEqual({
+            error: { message: 'Invalid runner invoke' },
+          });
         }
       } finally {
         fs.rmSync(outsideRoot, { force: true });
@@ -610,7 +652,11 @@ describe('pluginSSRRemoteEntry', () => {
           {
             type: 'custom',
             event: 'vite:invoke',
-            data: { id: 'send', name: 'fetchModule', data: [`/@fs/${allowedFile}`] },
+            data: {
+              id: 'send',
+              name: 'fetchModule',
+              data: [`/@fs/${allowedFile}`],
+            },
           },
           {
             fetchModule: vi.fn(),
@@ -622,7 +668,9 @@ describe('pluginSSRRemoteEntry', () => {
 
         expect(handleInvoke).toHaveBeenCalled();
         expect(res.statusCode).toBe(200);
-        expect(JSON.parse(res.body)).toEqual({ result: { code: 'export default 1' } });
+        expect(JSON.parse(res.body)).toEqual({
+          result: { code: 'export default 1' },
+        });
       } finally {
         fs.rmSync(allowedDir, { recursive: true, force: true });
       }
@@ -635,7 +683,11 @@ describe('pluginSSRRemoteEntry', () => {
         {
           type: 'custom',
           event: 'vite:invoke',
-          data: { id: 'send', name: 'fetchModule', data: ['..%2F..%2Foutside-root.txt'] },
+          data: {
+            id: 'send',
+            name: 'fetchModule',
+            data: ['..%2F..%2Foutside-root.txt'],
+          },
         },
         {
           fetchModule: vi.fn(),
@@ -645,7 +697,9 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+      expect(JSON.parse(res.body)).toEqual({
+        error: { message: 'Invalid runner invoke' },
+      });
     });
 
     it('rejects relative traversal module ids before calling Vite', async () => {
@@ -655,7 +709,11 @@ describe('pluginSSRRemoteEntry', () => {
         {
           type: 'custom',
           event: 'vite:invoke',
-          data: { id: 'send', name: 'fetchModule', data: ['../../outside-root.txt'] },
+          data: {
+            id: 'send',
+            name: 'fetchModule',
+            data: ['../../outside-root.txt'],
+          },
         },
         {
           fetchModule: vi.fn(),
@@ -667,7 +725,9 @@ describe('pluginSSRRemoteEntry', () => {
       // forwarded to Vite, otherwise path traversal validation depends on Vite.
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+      expect(JSON.parse(res.body)).toEqual({
+        error: { message: 'Invalid runner invoke' },
+      });
     });
 
     it.each([
@@ -695,7 +755,9 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+      expect(JSON.parse(res.body)).toEqual({
+        error: { message: 'Invalid runner invoke' },
+      });
     });
 
     it('preserves legitimate Vite-encoded internal module ids', async () => {
@@ -738,7 +800,9 @@ describe('pluginSSRRemoteEntry', () => {
       // If decodeURIComponent throws into the outer catch, this becomes a 200.
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+      expect(JSON.parse(res.body)).toEqual({
+        error: { message: 'Invalid runner invoke' },
+      });
     });
 
     it('rejects getBuiltins invokes without the Vite invoke envelope', async () => {
@@ -754,7 +818,9 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid runner invoke' } });
+      expect(JSON.parse(res.body)).toEqual({
+        error: { message: 'Invalid runner invoke' },
+      });
     });
 
     it('returns 400 for invalid JSON before calling Vite', async () => {
@@ -771,7 +837,9 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(handleInvoke).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body)).toEqual({ error: { message: 'Invalid JSON' } });
+      expect(JSON.parse(res.body)).toEqual({
+        error: { message: 'Invalid JSON' },
+      });
     });
 
     it('rejects oversized runner invoke bodies before calling Vite', async () => {
@@ -957,6 +1025,62 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(emitFile).not.toHaveBeenCalled();
     });
+    it.each([
+      ['SSR starts before client', 'ssr-first'],
+      ['client starts before SSR', 'client-first'],
+    ])('keeps SSR emission scoped to its environment (%s)', (_label, order) => {
+      getIsRolldownMock.mockReturnValue(false);
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      const configResolved = mainPlugin.configResolved as (config: ResolvedConfig) => void;
+      configResolved?.({
+        command: 'build',
+        environments: { client: {}, ssr: {} },
+      } as unknown as ResolvedConfig);
+
+      const ssrEmitFile = makeEmitFile();
+      const clientEmitFile = makeEmitFile();
+      const ssrContext = {
+        emitFile: ssrEmitFile,
+        meta: makePluginMeta(false),
+        environment: { name: 'ssr' },
+      } as unknown as Rollup.PluginContext;
+      const clientContext = {
+        emitFile: clientEmitFile,
+        meta: makePluginMeta(false),
+        environment: { name: 'client' },
+      } as unknown as Rollup.PluginContext;
+
+      const startContexts =
+        order === 'ssr-first' ? [ssrContext, clientContext] : [clientContext, ssrContext];
+      for (const context of startContexts) {
+        callHook(mainPlugin.buildStart, context, {} as Rollup.NormalizedInputOptions);
+      }
+
+      callHook(
+        mainPlugin.generateBundle,
+        ssrContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle,
+        false
+      );
+      callHook(
+        mainPlugin.generateBundle,
+        clientContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle,
+        false
+      );
+
+      expect(ssrEmitFile).toHaveBeenCalledTimes(1);
+      expect(ssrEmitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'asset',
+          fileName: 'remoteEntry.ssr.js',
+        })
+      );
+      expect(clientEmitFile).not.toHaveBeenCalled();
+    });
 
     it('skips emit in the ssr environment when only a client environment exists', () => {
       const emitFile = makeEmitFile();
@@ -1030,7 +1154,10 @@ describe('pluginSSRRemoteEntry', () => {
 
       callHook(
         mainPlugin.buildStart,
-        { meta: makePluginMeta(false), emitFile } as unknown as Rollup.PluginContext,
+        {
+          meta: makePluginMeta(false),
+          emitFile,
+        } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
       );
       callHook(
@@ -1060,7 +1187,10 @@ describe('pluginSSRRemoteEntry', () => {
 
       callHook(
         mainPlugin.buildStart,
-        { meta: makePluginMeta(true), emitFile } as unknown as Rollup.PluginContext,
+        {
+          meta: makePluginMeta(true),
+          emitFile,
+        } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
       );
 
@@ -1091,7 +1221,10 @@ describe('pluginSSRRemoteEntry', () => {
 
       callHook(
         mainPlugin.buildStart,
-        { meta: makePluginMeta(false), emitFile } as unknown as Rollup.PluginContext,
+        {
+          meta: makePluginMeta(false),
+          emitFile,
+        } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
       );
 
@@ -1117,7 +1250,11 @@ describe('pluginSSRRemoteEntry', () => {
       callHook(
         mainPlugin.configResolved,
         {} as Rollup.PluginContext,
-        { command: 'build', base: '/_nuxt/', build: { ssr: true } } as ResolvedConfig
+        {
+          command: 'build',
+          base: '/_nuxt/',
+          build: { ssr: true },
+        } as ResolvedConfig
       );
       const emitFile = makeEmitFile();
       callHook(
@@ -1149,6 +1286,68 @@ describe('pluginSSRRemoteEntry', () => {
       expect(emitFile).toHaveBeenCalledWith(
         expect.objectContaining({
           source: 'const map = import("./_nuxt/virtualExposes-abc.js");',
+        })
+      );
+    });
+
+    it('caches the base SSR entry across outputs while rewriting Nuxt imports per output', () => {
+      getIsRolldownMock.mockReturnValue(false);
+      vi.mocked(generateRemoteEntrySSR).mockReturnValueOnce(
+        'const map = import("virtual:mf-exposes-ssr:remote");'
+      );
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+
+      callHook(
+        mainPlugin.configResolved,
+        {} as Rollup.PluginContext,
+        { command: 'build', base: '/_nuxt/', build: { ssr: true } } as ResolvedConfig
+      );
+      callHook(
+        mainPlugin.buildStart,
+        { meta: makePluginMeta(false) } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      const firstEmitFile = makeEmitFile();
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile: firstEmitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {
+          '_nuxt/virtualExposes-first.js': {
+            type: 'chunk',
+            fileName: '_nuxt/virtualExposes-first.js',
+            code: 'export default {"./Widget": () => import("./Widget.js")}',
+          },
+        } as unknown as Rollup.OutputBundle,
+        false
+      );
+
+      const secondEmitFile = makeEmitFile();
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile: secondEmitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {
+          '_nuxt/virtualExposes-second.js': {
+            type: 'chunk',
+            fileName: '_nuxt/virtualExposes-second.js',
+            code: 'export default {"./Widget": () => import("./Widget.js")}',
+          },
+        } as unknown as Rollup.OutputBundle,
+        false
+      );
+
+      expect(generateRemoteEntrySSR).toHaveBeenCalledTimes(1);
+      expect(firstEmitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'const map = import("./_nuxt/virtualExposes-first.js");',
+        })
+      );
+      expect(secondEmitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'const map = import("./_nuxt/virtualExposes-second.js");',
         })
       );
     });
@@ -1189,9 +1388,18 @@ describe('pluginSSRRemoteEntry', () => {
           fileName: 'mf-assets/exposes-map.js',
           source: 'export default { Widget: () => import("./Widget.js") };',
         },
-        'mf-assets/ssr-only.js': { type: 'chunk', fileName: 'mf-assets/ssr-only.js' },
-        'mf-assets/Widget.js': { type: 'chunk', fileName: 'mf-assets/Widget.js' },
-        'mf-assets/shared.js': { type: 'chunk', fileName: 'mf-assets/shared.js' },
+        'mf-assets/ssr-only.js': {
+          type: 'chunk',
+          fileName: 'mf-assets/ssr-only.js',
+        },
+        'mf-assets/Widget.js': {
+          type: 'chunk',
+          fileName: 'mf-assets/Widget.js',
+        },
+        'mf-assets/shared.js': {
+          type: 'chunk',
+          fileName: 'mf-assets/shared.js',
+        },
       } as unknown as Rollup.OutputBundle;
       callHook(
         mainPlugin.generateBundle,
@@ -1273,7 +1481,9 @@ describe('pluginSSRRemoteEntry', () => {
 
         callHook(
           mainPlugin.writeBundle,
-          { environment: { name: 'client' } } as unknown as Rollup.PluginContext,
+          {
+            environment: { name: 'client' },
+          } as unknown as Rollup.PluginContext,
           { dir: clientDir } as Rollup.NormalizedOutputOptions,
           outputBundle
         );

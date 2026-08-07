@@ -214,9 +214,8 @@ function readBoundedRunnerBody(
 export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions): Plugin[] {
   const remoteEntrySSRId = getRemoteEntrySSRId(options);
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
-  let isRolldown = false;
-  let shouldEmitSsrEntry = false;
-  let ssrOutputFilename = '';
+  let cachedSsrRemoteEntrySource: string | undefined;
+  const ssrOutputFilename = getSsrRemoteEntryFileName(options.filename);
   let ssrOutputFiles = new Set<string>();
   let ssrOutputDir = '';
   let clientOutputDir = '';
@@ -249,6 +248,30 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let viteConfig: ResolvedConfig | undefined;
   let isNuxtProject = false;
   let reactIslandExposes: ReadonlySet<string> = new Set();
+
+  const isSsrRemoteEntryBuild = (environment?: { name?: string; config?: ResolvedConfig }) => {
+    const environmentName = environment?.name;
+    const hasSsrEnvironment = Boolean(viteConfig?.environments?.ssr);
+    const isLegacySsrBuild = Boolean(environment?.config?.build?.ssr ?? viteConfig?.build?.ssr);
+
+    return (
+      Object.keys(options.exposes).length > 0 &&
+      !(
+        (hasSsrEnvironment && environmentName !== 'ssr') ||
+        (!hasSsrEnvironment && !isLegacySsrBuild)
+      )
+    );
+  };
+
+  // The plugin instance is created for a build and may serve multiple Rollup
+  // outputs. Reuse the stable base source across those outputs; Nuxt-specific
+  // rewrites are intentionally applied to a local copy in generateBundle.
+  const getSsrRemoteEntrySource = () => {
+    if (cachedSsrRemoteEntrySource === undefined) {
+      cachedSsrRemoteEntrySource = generateRemoteEntrySSR(options);
+    }
+    return cachedSsrRemoteEntrySource;
+  };
 
   const findNuxtExposesChunk = (
     bundle: Record<string, { type: string; fileName: string; code?: string }>
@@ -495,34 +518,22 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       },
 
       buildStart() {
-        shouldEmitSsrEntry = false;
         // Only emit the SSR entry chunk during vite build — not vite serve.
         if (isServe) return;
         // `this.meta` is available in Rollup/Rolldown hooks — use it to detect
         // whether we're running under Rolldown (Vite 8+) so we can choose the
         // right output format and file extension.
-        isRolldown = getIsRolldown(this);
-        ssrOutputFilename = getSsrRemoteEntryFileName(options.filename);
-
-        const environmentName = (this as { environment?: { name?: string } }).environment?.name;
-        const hasSsrEnvironment = Boolean(viteConfig?.environments?.ssr);
-        const isLegacySsrBuild = Boolean(
-          (this as { environment?: { config?: ResolvedConfig } }).environment?.config?.build?.ssr ??
-          viteConfig?.build?.ssr
-        );
+        const isRolldown = getIsRolldown(this);
+        const environment = (
+          this as {
+            environment?: { name?: string; config?: ResolvedConfig };
+          }
+        ).environment;
 
         // Environment API (client + ssr): emit only in the ssr environment so exposes
         // are bundled with the Node SSR graph (nested loadRemote stays on the server).
         // Emit only for an SSR environment or legacy `vite build --ssr`.
-        if (
-          (hasSsrEnvironment && environmentName !== 'ssr') ||
-          (!hasSsrEnvironment && !isLegacySsrBuild)
-        ) {
-          return;
-        }
-
-        if (Object.keys(options.exposes).length === 0) return;
-        shouldEmitSsrEntry = true;
+        if (!isSsrRemoteEntryBuild(environment)) return;
 
         if (isRolldown) {
           // Vite 8+ (Rolldown): emit as a proper chunk. Rolldown handles multiple
@@ -540,9 +551,15 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       generateBundle: {
         order: 'post',
         handler(_options, bundle) {
+          const isRolldown = getIsRolldown(this);
+          const environment = (
+            this as {
+              environment?: { name?: string; config?: ResolvedConfig };
+            }
+          ).environment;
           const exposesChunk = findNuxtExposesChunk(bundle);
-          if (!isRolldown && shouldEmitSsrEntry) {
-            let source = generateRemoteEntrySSR(options);
+          if (!isRolldown && isSsrRemoteEntryBuild(environment)) {
+            let source = getSsrRemoteEntrySource();
             if (exposesChunk) {
               source = source.replace(
                 /import\("virtual:mf-exposes-ssr:[^"]+"\)/g,
