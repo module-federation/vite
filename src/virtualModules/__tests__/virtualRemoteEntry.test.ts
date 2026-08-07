@@ -280,8 +280,8 @@ function getRuntimeSeedCode(code: string) {
 }
 
 function getRuntimeDeferredResolutionCode(code: string) {
-  const start = code.indexOf('for (const pkg of __mfDeferredSeedKeys) {');
-  const endMarker = 'await __mfSeedLocalShared([pkg]);\n    }';
+  const start = code.indexOf('const __mfReadyDeferredSeedKeys = [];');
+  const endMarker = 'await __mfSeedLocalShared(__mfReadyDeferredSeedKeys);';
   const end = code.indexOf(endMarker, start);
   if (start === -1 || end === -1) throw new Error('runtime deferred resolution code not found');
   return code.slice(start, end + endMarker.length);
@@ -627,6 +627,19 @@ describe('virtualRemoteEntry', () => {
     });
   }
 
+  it('does not materialize direct React while preserving React subpaths', async () => {
+    hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'vinext');
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+    mod.addUsedShares('react/jsx-runtime');
+
+    const code = mod.generateLocalSharedImportMap();
+    expect(code).toMatch(/"react": \{[\s\S]*?materialize: false,/);
+    expect(code).toMatch(/"react\/jsx-runtime": \{[\s\S]*?materialize: true,/);
+  });
+
   it('uses configured share import path in localSharedImportMap', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
@@ -695,7 +708,23 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('let pkg = __mfEagerShare_0;');
     expect(code).toContain('let pkg = await import("virtual:prebuild:vue");');
     expect(code).toContain('eager: true');
-    expect(code).toMatch(/loaded: false,\s+eager: true,\s+from: "host"/);
+    expect(code).toMatch(/loaded: false,\s+materialize: true,\s+eager: true,\s+from: "host"/);
+  });
+
+  it('registers configured shares without materializing unused providers', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const options = {
+      internalName: '__mfe_internal__lazy',
+      name: 'lazy',
+      shared: normalizedSharedMock(),
+    } as any;
+    mod.addConfiguredShare('vue', options);
+    mod.addConfiguredShare('react', options);
+    mod.addUsedShares('react', options);
+
+    const code = mod.generateLocalSharedImportMap(options);
+    expect(code).toMatch(/"vue": \{[\s\S]*?materialize: false,/);
+    expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
   });
 
   it('keeps the full getter and emits a separate runtime-infer provider getter', async () => {
@@ -1206,11 +1235,11 @@ describe('virtualRemoteEntry', () => {
       'await __mfBridgeMaterializedProvider(pkg, usedShare, initialShared[pkg]);'
     );
     const materializedPreSeedLoop = code.lastIndexOf(
-      'for (const [pkg, usedShare] of Object.entries(usedShared))',
+      'for (const batch of __mfMaterializedShareBatches)',
       materializedBridgeCall
     );
     expect(code.slice(materializedPreSeedLoop, materializedBridgeCall)).toContain(
-      'if (usedShare.treeShaking) continue;'
+      'if (!usedShare || usedShare.materialize === false || usedShare.treeShaking) return;'
     );
     const aliasCacheLoop = code.indexOf(
       'for (const [pkg, share] of Object.entries(usedShared))',
@@ -1467,8 +1496,9 @@ describe('virtualRemoteEntry', () => {
     // Shared dependencies seed before their consumers (@repro/core depends
     // on @repro/shared-lib).
     expect(seedOrder.indexOf('@repro/shared-lib')).toBeLessThan(seedOrder.indexOf('@repro/core'));
-    // Share keys discovered after codegen still get seeded, after the ordered ones.
-    expect(code).toContain('for (const pkg of Object.keys(usedShared))');
+    expect(code).toContain('const __mfSeedKeys = __mfSeedOrder.filter');
+    expect(code).toContain('for (const batch of __mfSeedBatches) await Promise.all');
+    expect(code).toContain('const providerKey = cacheDescriptor.canonical;');
   });
 
   it('defers consumers of tree-enabled shares until the tree selection is cached', async () => {
@@ -2434,7 +2464,7 @@ describe('virtualRemoteEntry', () => {
     expect(preSeedBridgeCall).toBeLessThan(code.indexOf('const __mfSeedOrder ='));
     const bridgeHelperCode = code.slice(
       code.indexOf('const __mfBridgeExternalSharedProvider ='),
-      code.indexOf('for (const [pkg, usedShare] of Object.entries(usedShared))')
+      code.indexOf('for (const batch of __mfMaterializedShareBatches)')
     );
     expect(code).toContain('const bridgeSelections = new Map();');
     expect(bridgeHelperCode).toContain('passedVersionMap,');
@@ -3914,8 +3944,9 @@ describe('virtualRemoteEntry', () => {
       'if (provider === usedShare || (usedShare.from && provider.from === usedShare.from)) continue;'
     );
     expect(globalBridgeCode).toContain(
-      'for (const [pkg, versionMap] of Object.entries(globalVersionsByPackage))'
+      'for (const batch of __mfMaterializedShareBatches) await Promise.all'
     );
+    expect(globalBridgeCode).toContain('const versionMap = globalVersionsByPackage[pkg];');
     expect(globalBridgeCode.indexOf('for (const [, scopes]')).toBeLessThan(
       globalBridgeCode.indexOf('await __mfBridgeExternalSharedProvider(')
     );

@@ -160,14 +160,6 @@ async function getOrCreateRunner(
           hmr: false,
           transport: {
             async invoke(payload) {
-              if (payload.data.name === 'fetchModule') {
-                const sharedExternal = await resolveSharedExternal(
-                  payload.data.data[0],
-                  resolvedShared
-                );
-                if (sharedExternal) return { result: sharedExternal };
-              }
-
               const res = await fetchWithTimeout(
                 runnerEndpoint,
                 {
@@ -178,7 +170,19 @@ async function getOrCreateRunner(
                 fetchTimeoutMs
               );
               const text = await readResponseTextBounded(res, fetchMaxBytes, runnerEndpoint);
-              return JSON.parse(text) as { result: unknown } | { error: { message: string } };
+              const result = JSON.parse(text) as
+                | { result: unknown }
+                | { error: { message: string } };
+              // Let the remote transform configured shares and resolve local-only
+              // dependencies first. This preserves remote-owned React islands.
+              if ('error' in result && payload.data.name === 'fetchModule') {
+                const sharedExternal = await resolveSharedExternal(
+                  payload.data.data[0],
+                  resolvedShared
+                );
+                if (sharedExternal) return { result: sharedExternal };
+              }
+              return result;
             },
           },
         },

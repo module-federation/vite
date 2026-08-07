@@ -7,6 +7,7 @@ import { writeRuntimeInitStatus } from './virtualRuntimeInitStatus';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 export {
+  addConfiguredShare,
   addUsedShares,
   generateHostAutoInitCode,
   generateLocalSharedImportMap,

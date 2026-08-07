@@ -12,7 +12,11 @@ import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd, { createModuleParseController } from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
 import pluginProxyRemotes from './plugins/pluginProxyRemotes';
-import { findSharedKey, proxySharedModule } from './plugins/pluginProxySharedModule_preBuild';
+import {
+  excludeSharedSubDependencies,
+  findSharedKey,
+  proxySharedModule,
+} from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
@@ -76,7 +80,7 @@ import {
   writeLocalSharedImportMap,
 } from './virtualModules';
 import { getVirtualExposesId } from './virtualModules/virtualExposes';
-import { addUsedShares } from './virtualModules/virtualRemoteEntry';
+import { addConfiguredShare, addUsedShares } from './virtualModules/virtualRemoteEntry';
 import { addUsedRemote } from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
@@ -413,6 +417,74 @@ function includeLinkedSharedEntries(
   optimizeDeps.entries = [...entries];
 }
 
+function stabilizeOptimizeDeps(optimizeDeps: NonNullable<UserConfig['optimizeDeps']>): void {
+  optimizeDeps.include = [...new Set(optimizeDeps.include ?? [])].sort();
+  optimizeDeps.exclude = [...new Set(optimizeDeps.exclude ?? [])].sort();
+}
+
+function registerEntrySharedImports(
+  options: NormalizedModuleFederationOptions,
+  projectRoot: string
+): void {
+  const staticImport = /\b(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s*)?(['"])([^'"]+)\1/g;
+  const dynamicImport = /\b(?:import|require)\s*\(\s*(['"])([^'"]+)\1/g;
+  const sourceExtensions = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.vue', '.svelte'];
+  const root = path.resolve(projectRoot);
+  const pending: string[] = [];
+  const visited = new Set<string>();
+  const enqueue = (request: string, importer = path.join(root, 'index.html')) => {
+    const cleanRequest = request.replace(/[?#].*$/, '');
+    if (
+      !cleanRequest.startsWith('.') &&
+      !cleanRequest.startsWith('/') &&
+      !path.isAbsolute(cleanRequest)
+    )
+      return;
+    const base = cleanRequest.startsWith('/')
+      ? path.resolve(root, `.${cleanRequest}`)
+      : path.resolve(path.dirname(importer), cleanRequest);
+    const relative = path.relative(root, base);
+    if (relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return;
+    const candidates = [
+      base,
+      ...sourceExtensions.map((extension) => `${base}${extension}`),
+      ...sourceExtensions.map((extension) => path.join(base, `index${extension}`)),
+    ];
+    const file = candidates.find((candidate) => existsSync(candidate));
+    if (file && !visited.has(file)) pending.push(file);
+  };
+
+  const htmlEntry = path.join(root, 'index.html');
+  if (existsSync(htmlEntry)) {
+    const html = readFileSync(htmlEntry, 'utf8');
+    for (const match of html.matchAll(/<script\b[^>]*\bsrc=(['"])([^'"]+)\1[^>]*>/gi)) {
+      enqueue(match[2], htmlEntry);
+    }
+  }
+  for (const expose of Object.values(options.exposes ?? {})) {
+    enqueue(expose.import);
+  }
+
+  while (pending.length) {
+    const file = pending.pop()!;
+    if (visited.has(file)) continue;
+    visited.add(file);
+    const code = readFileSync(file, 'utf8');
+    for (const pattern of [staticImport, dynamicImport]) {
+      pattern.lastIndex = 0;
+      for (const match of code.matchAll(pattern)) {
+        const request = match[2];
+        const sharedKey = request && findSharedKey(request, options.shared);
+        if (sharedKey) {
+          addUsedShares(request, options);
+        } else if (request) {
+          enqueue(request, file);
+        }
+      }
+    }
+  }
+}
+
 /**
  * Plugin that runs FIRST to register generated virtual modules in the config hook.
  * This prevents 504 "Outdated Optimize Dep" errors by ensuring ids are known
@@ -461,6 +533,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       // so localSharedImportMap has content on first load in both serve/build.
       if (shared && Object.keys(shared).length > 0) {
         if (_command === 'serve') {
+          excludeSharedSubDependencies(shared);
           config.optimizeDeps = config.optimizeDeps || {};
           config.optimizeDeps.include = config.optimizeDeps.include || [];
           const optimizeDeps = config.optimizeDeps as UserConfig['optimizeDeps'] & {
@@ -520,12 +593,12 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 )
                   return;
                 if (isCommonJsImporter(importer) && !isReactSingleton && !isReactDomRequire) return;
+                if (resolveOptions?.kind !== 'entry-point') addUsedShares(source, options);
                 if (isReactRequire || isReactDomRequire) {
                   writeLoadShareModule(source, shareItem, _command, isRolldown, options);
                   if (shareItem.shareConfig?.import !== false) {
                     writePreBuildLibPath(source, shareItem, options);
                   }
-                  addUsedShares(source, options);
                   return { id: `module-federation:optimized-require-${source}` };
                 }
                 const loadSharePath = getLoadShareModulePath(source, isRolldown, options);
@@ -533,7 +606,6 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 if (shareItem.shareConfig?.import !== false) {
                   writePreBuildLibPath(source, shareItem, options);
                 }
-                addUsedShares(source, options);
                 return { id: loadSharePath, external: true };
               },
             });
@@ -561,6 +633,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                     !isReactDomSelfReference(args.path, args.importer)
                   )
                     return;
+                  addUsedShares(args.path, options);
                   return { path: args.path, namespace: 'mf-shared' };
                 });
                 build.onLoad({ filter: /.*/, namespace: 'mf-shared' }, (args: any) => {
@@ -572,7 +645,6 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (shareItem.shareConfig?.import !== false) {
                     writePreBuildLibPath(args.path, shareItem, options);
                   }
-                  addUsedShares(args.path, options);
                   return {
                     loader: 'js',
                     resolveDir: root,
@@ -604,7 +676,7 @@ export default __mfShared.default ?? __mfShared;`,
             continue;
           }
           if (isVinext && key === 'react') {
-            addUsedShares(key, options);
+            addConfiguredShare(key, options);
             continue;
           }
           getLoadShareModulePath(key, isRolldown, options);
@@ -614,7 +686,7 @@ export default __mfShared.default ?? __mfShared;`,
           if (shareItem.shareConfig?.import !== false) {
             writePreBuildLibPath(key, shareItem, options);
           }
-          addUsedShares(key, options);
+          addConfiguredShare(key, options);
           if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
             const optimizeDeps = (config.optimizeDeps ??= {});
             optimizeDeps.include ??= [];
@@ -650,7 +722,7 @@ export default __mfShared.default ?? __mfShared;`,
               getLoadShareModulePath(subpath, isRolldown, options);
               writeLoadShareModule(subpath, shareItem, _command, isRolldown, options);
               writePreBuildLibPath(subpath, shareItem, options);
-              addUsedShares(subpath, options);
+              addConfiguredShare(subpath, options);
               if (canResolveSubpath) {
                 optimizeDeps.include.push(subpath);
                 // Prevent subpaths like react-dom/client from using a later, incompatible optimizer generation.
@@ -661,6 +733,7 @@ export default __mfShared.default ?? __mfShared;`,
             }
           }
         }
+        if (_command === 'serve') registerEntrySharedImports(options, root);
         writeLocalSharedImportMap(options);
       }
       if (_command === 'serve') {
@@ -672,6 +745,7 @@ export default __mfShared.default ?? __mfShared;`,
           options.exposes,
           config.build?.outDir ?? 'dist'
         );
+        stabilizeOptimizeDeps(config.optimizeDeps);
       }
     },
 

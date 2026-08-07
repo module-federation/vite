@@ -75,6 +75,7 @@ import {
   PREBUILD_TAG,
 } from '../virtualModules';
 import {
+  generateLocalSharedImportMap,
   getLocalSharedImportMapPath,
   getResolvedLocalSharedImportMapId,
   getUsedShares,
@@ -1113,6 +1114,62 @@ describe('module-federation-esm-shims', () => {
 });
 
 describe('vite:module-federation-early-init', () => {
+  it('materializes shares imported by the entry graph but leaves configured-only shares lazy', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-entry-shares-'));
+    mkdirSync(path.join(root, 'src'));
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<script type="module" src="/src/main.ts"></script>'
+    );
+    writeFileSync(path.join(root, 'src/main.ts'), 'import("./App")');
+    writeFileSync(
+      path.join(root, 'src/App.tsx'),
+      'import React from "react"; export default React'
+    );
+
+    try {
+      const plugins = federation({
+        name: 'entry-shares',
+        shared: { react: {}, vue: {} },
+      }) as Plugin[];
+      const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+      const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+        | (Plugin & { _options: NormalizedModuleFederationOptions })
+        | undefined;
+      if (!early || !owner) throw new Error('module federation plugins not found');
+
+      runConfig(early, { meta: {} } as ConfigPluginContext, { root } as UserConfig, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      const code = generateLocalSharedImportMap(owner._options);
+      expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
+      expect(code).toMatch(/"vue": \{[\s\S]*?materialize: false,/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stabilizes optimizer inputs before dependency scanning', () => {
+    const plugin = getEarlyInitPlugin();
+    const config: any = {
+      root: process.cwd(),
+      optimizeDeps: {
+        include: ['z-last', 'vue', 'z-last'],
+        exclude: ['vue', 'a-first', 'a-first'],
+      },
+    };
+
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.include).toEqual([...new Set(config.optimizeDeps.include)].sort());
+    expect(config.optimizeDeps.exclude).toEqual(['a-first', 'remoteApp']);
+  });
+
   it('adds federation generated files to dev server watch ignores in serve', () => {
     const plugin = getEarlyInitPlugin();
     const customIgnored = '**/custom/**';
