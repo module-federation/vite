@@ -438,8 +438,11 @@ describe('pluginSSRRemoteEntry', () => {
       const ssrId = 'virtual:mf-REMOTE_ENTRY_SSR_ID:__mfe_internal__remote__remoteEntry_js';
 
       const result = callHook(mainPlugin.load, {} as Rollup.PluginContext, ssrId);
+      const secondResult = callHook(mainPlugin.load, {} as Rollup.PluginContext, ssrId);
 
       expect(result).toBe('export { init, get }');
+      expect(secondResult).toBe(result);
+      expect(generateRemoteEntrySSR).toHaveBeenCalledTimes(1);
       expect(generateRemoteEntrySSR).toHaveBeenCalledWith(
         expect.objectContaining({
           internalName: '__mfe_internal__remote',
@@ -465,6 +468,54 @@ describe('pluginSSRRemoteEntry', () => {
       expect(
         callHook(mainPlugin.load, {} as Rollup.PluginContext, '/some/other/file.js')
       ).toBeUndefined();
+    });
+  });
+
+  describe('main plugin — configureServer SSR entry', () => {
+    it('reuses the generated SSR entry source across requests', () => {
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      const handlers: { path: string; handler: (req: unknown, res: unknown) => unknown }[] = [];
+
+      callHook(
+        mainPlugin.configResolved,
+        {} as Rollup.PluginContext,
+        { base: '/', root: '/mock/cwd' } as unknown as ResolvedConfig
+      );
+      callHook(
+        mainPlugin.configureServer,
+        {} as Rollup.PluginContext,
+        {
+          config: { root: '/mock/cwd' },
+          environments: {},
+          middlewares: {
+            use(
+              pathOrHandler: string | ((req: unknown, res: unknown) => unknown),
+              handler?: unknown
+            ) {
+              if (typeof pathOrHandler === 'string') {
+                handlers.push({
+                  path: pathOrHandler,
+                  handler: handler as (req: unknown, res: unknown) => unknown,
+                });
+              }
+            },
+          },
+        } as never
+      );
+
+      const entryHandler = handlers.find(
+        (entry) => entry.path === '/__mf_ssr__/remoteEntry.ssr.js'
+      )?.handler;
+      expect(entryHandler).toBeDefined();
+
+      const firstResponse = createMockResponse();
+      const secondResponse = createMockResponse();
+      entryHandler!({}, firstResponse);
+      entryHandler!({}, secondResponse);
+
+      expect(secondResponse.body).toBe(firstResponse.body);
+      expect(generateRemoteEntrySSR).toHaveBeenCalledTimes(1);
     });
   });
 
