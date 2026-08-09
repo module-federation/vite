@@ -43,11 +43,16 @@ async function nodeImport(id: string): Promise<unknown> {
   return importCache.get(id);
 }
 
-// DOM shims can define window/document on the server. Node's version marker is
-// not affected by those shims, and is absent in real browser environments.
-const isNodeServer = (): boolean =>
-  typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions?.node ===
-  'string';
+// Detect whether loadEntry should intercept browser remote loading for SSR.
+// Prefer Vite's realm-specific flag; fall back for direct, untransformed Node usage.
+const isNodeServer = (): boolean => {
+  const viteSsr = (import.meta as ImportMeta & { env?: { SSR?: boolean } }).env?.SSR;
+  return (
+    viteSsr ??
+    typeof (globalThis as { process?: { versions?: { node?: string } } }).process?.versions
+      ?.node === 'string'
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Vite 8+ ModuleRunner path (dev mode only)
