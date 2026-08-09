@@ -87,7 +87,7 @@ function getRealPathIfExists(filePath: string): string | undefined {
   }
 }
 
-function isPathWithinDirectory(filePath: string, directory: string): boolean {
+function isCanonicalPathWithinDirectory(filePath: string, directory: string): boolean {
   const realFilePath = getRealPathIfExists(filePath) ?? path.resolve(filePath);
   const realDirectory = getRealPathIfExists(directory) ?? path.resolve(directory);
   const relative = path.relative(realDirectory, realFilePath);
@@ -101,7 +101,9 @@ function getRunnerAllowedDirectories(config: RunnerValidationConfig): string[] {
 }
 
 function isPathWithinAllowedDirectories(filePath: string, allowedDirectories: string[]): boolean {
-  return allowedDirectories.some((directory) => isPathWithinDirectory(filePath, directory));
+  return allowedDirectories.some((directory) =>
+    isCanonicalPathWithinDirectory(filePath, directory)
+  );
 }
 
 function isSafeRunnerFetchModuleId(id: unknown, config: RunnerValidationConfig): boolean {
@@ -263,7 +265,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
     );
   };
 
-  // The plugin instance is created for a build and may serve multiple Rollup
+  // The shared plugin instance may serve multiple build environments and Rollup
   // outputs. Reuse the stable base source across those outputs; Nuxt-specific
   // rewrites are intentionally applied to a local copy in generateBundle.
   const getSsrRemoteEntrySource = () => {
@@ -578,14 +580,6 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           if ((this as { environment?: { name?: string } }).environment?.name === 'ssr') {
             ssrOutputFiles = collectEntryOutputFiles(bundle, ssrOutputFilename);
           }
-
-          // Vite 8+ (Rolldown) only — the chunk was emitted via the chunk path in buildStart.
-          // No post-processing needed; Rolldown emits ESM natively.
-          // On Vite 5–7 the SSR entry was emitted as a pre-generated asset, so nothing to do here.
-          if (!isRolldown) return;
-          const chunk = bundle[ssrOutputFilename];
-          if (!chunk || chunk.type !== 'chunk') return;
-          // Verify the chunk exists and was emitted correctly — no transform needed for Rolldown.
         },
       },
 
@@ -619,7 +613,10 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
     for (const fileName of ssrOutputFiles) {
       const source = path.resolve(ssrDir, fileName);
       const destination = path.resolve(clientDir, fileName);
-      if (!isWithinDirectory(source, ssrDir) || !isWithinDirectory(destination, clientDir)) {
+      if (
+        !isResolvedPathWithinDirectory(source, ssrDir) ||
+        !isResolvedPathWithinDirectory(destination, clientDir)
+      ) {
         continue;
       }
       if (!fs.existsSync(source) || fs.existsSync(destination)) continue;
@@ -681,7 +678,7 @@ function collectEntryOutputFiles(
   return files;
 }
 
-function isWithinDirectory(filePath: string, directory: string): boolean {
+function isResolvedPathWithinDirectory(filePath: string, directory: string): boolean {
   const relative = path.relative(directory, filePath);
   return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..';
 }
