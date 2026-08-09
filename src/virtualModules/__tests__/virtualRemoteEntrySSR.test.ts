@@ -40,4 +40,34 @@ describe('virtualRemoteEntrySSR', () => {
     expect(code).toContain('initRes.initShareScopeMap(scopeName, scopeShare)');
     expect(code).toContain('initRes.initializeSharing(scopeName');
   });
+
+  it('caches host-provided SSR singletons during container init', () => {
+    const options = getDefaultMockOptions({
+      name: 'remote',
+      shared: {
+        react: {
+          name: 'react',
+          version: '19.0.0',
+          scope: 'default',
+          from: '',
+          shareConfig: { singleton: true, requiredVersion: '^19.0.0' },
+        },
+        lodash: {
+          name: 'lodash',
+          version: '4.17.21',
+          scope: 'default',
+          from: '',
+          shareConfig: { singleton: false, requiredVersion: '^4.17.21' },
+        },
+      },
+    } as any);
+
+    const code = generateRemoteEntrySSR(options);
+
+    expect(code).toContain('const sharedSingletons = {"react"');
+    expect(code).not.toContain('"lodash"');
+    expect(code).toContain('const factory = await initRes.loadShare(pkg');
+    expect(code).toContain("cache[scopeName + ':' + pkg] ??= module");
+    expect(code.slice(0, code.indexOf('async function'))).not.toContain('await ');
+  });
 });
