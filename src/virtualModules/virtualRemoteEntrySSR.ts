@@ -28,10 +28,14 @@ export function getSsrRemoteEntryFileName(browserFilename: string): string {
  */
 export function generateRemoteEntrySSR(options: NormalizedModuleFederationOptions): string {
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
+  const sharedSingletons = Object.fromEntries(
+    Object.entries(options.shared).filter(([, share]) => share.shareConfig.singleton)
+  );
 
   return `
   import { init as runtimeInit } from "@module-federation/runtime";
 
+  const sharedSingletons = ${JSON.stringify(sharedSingletons)};
   let exposesMapPromise;
 
   async function getExposesMap() {
@@ -68,6 +72,18 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
               initScope,
             })
           );
+          for (const [pkg, shareInfo] of Object.entries(sharedSingletons)) {
+            if (shareInfo.scope !== scopeName || !scopeShare[pkg]) continue;
+            const factory = await initRes.loadShare(pkg, {
+              customShareInfo: { ...shareInfo, scope: [scopeName] },
+            });
+            if (typeof factory !== 'function') continue;
+            const module = await factory();
+            const moduleCache = (globalThis.__mf_module_cache__ ||= { share: {}, remote: {} });
+            const cache = (moduleCache.share ||= {});
+            cache[scopeName + ':' + pkg] ??= module;
+            if (scopeName === 'default') cache[pkg] ??= module;
+          }
         } catch (e) {
           console.error('[Module Federation SSR]', e);
         }
