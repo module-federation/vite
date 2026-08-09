@@ -477,7 +477,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         const ssrPath = `${base}/${ssrEntryFileName}`;
         server.middlewares.use(ssrPath, (_req, res) => {
           const exposesUrl = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
-          const code = generateRemoteEntrySSR(options).replace(
+          const code = getSsrRemoteEntrySource().replace(
             JSON.stringify(virtualExposesSSRId),
             JSON.stringify(exposesUrl)
           );
@@ -510,7 +510,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
       load(id) {
         if (id === remoteEntrySSRId || id.startsWith(remoteEntrySSRId)) {
-          return generateRemoteEntrySSR(options);
+          return getSsrRemoteEntrySource();
         }
         if (id === virtualExposesSSRId || id.startsWith(virtualExposesSSRId)) {
           return generateExposesSSR(options, reactIslandExposes);
