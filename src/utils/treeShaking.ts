@@ -178,20 +178,6 @@ export function getTreeShakingExportUsage(
   return getSharedExportUsage(request, shareItem, sharedKey, options);
 }
 
-/**
- * @deprecated Migrate callers to `getTreeShakingExportUsage`. This accessor
- * cannot represent the important distinction between `full` and `unknown`.
- */
-export function getTreeShakingUsedExports(
-  request: string,
-  shareItem?: ShareItem,
-  sharedKey?: string,
-  options?: NormalizedModuleFederationOptions
-): string[] | undefined {
-  const usage = getTreeShakingExportUsage(request, shareItem, sharedKey, options);
-  return usage?.kind === 'exports' && usage.usedExports.length > 0 ? usage.usedExports : undefined;
-}
-
 type AstNode = {
   type?: string;
   [key: string]: unknown;

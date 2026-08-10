@@ -8,7 +8,6 @@ import {
   collectTreeShakingImports,
   getSharedExportUsage,
   getTreeShakingExportUsage,
-  getTreeShakingUsedExports,
   markTreeShakingPackageUnsafe,
   recordTreeShakingExports,
   resetTreeShakingExports,
@@ -330,11 +329,14 @@ describe('tree-shaking export usage state', () => {
     expect(getTreeShakingExportUsage('host-only', hostProvidedShare, 'host-only')).toBeUndefined();
   });
 
-  it('keeps the legacy array accessor for callers that have not migrated yet', () => {
+  it('returns export usage for tree-shaken packages', () => {
     recordTreeShakingExports('antd', ['Button'], 'antd');
-    expect(getTreeShakingUsedExports('antd', antdShare, 'antd')).toEqual(['Button']);
+    expect(getTreeShakingExportUsage('antd', antdShare, 'antd')).toEqual({
+      kind: 'exports',
+      usedExports: ['Button'],
+    });
 
     markTreeShakingPackageUnsafe('antd', 'antd');
-    expect(getTreeShakingUsedExports('antd', antdShare, 'antd')).toBeUndefined();
+    expect(getTreeShakingExportUsage('antd', antdShare, 'antd')).toEqual({ kind: 'full' });
   });
 });
