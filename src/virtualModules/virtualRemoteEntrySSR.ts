@@ -38,6 +38,17 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
   const sharedSingletons = ${JSON.stringify(sharedSingletons)};
   let exposesMapPromise;
 
+  function createShareInitError(errors) {
+    const details = errors.map(({ scopeName, pkg, error }) => {
+      const target = pkg
+        ? \`scope "\${scopeName}" package "\${pkg}"\`
+        : \`scope "\${scopeName}"\`;
+      return \`\${target}: \${error instanceof Error ? error.message : String(error)}\`;
+    });
+    const message = \`[Module Federation SSR] Shared initialization failed: \${details.join('; ')}\`;
+    return new AggregateError(errors.map(({ error }) => error), message);
+  }
+
   async function getExposesMap() {
     exposesMapPromise ??= import(${JSON.stringify(virtualExposesSSRId)}).then((mod) => mod.default ?? mod);
     return exposesMapPromise;
@@ -60,36 +71,56 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
     const shareScopeNames = Array.isArray(${JSON.stringify(options.shareScope)})
       ? ${JSON.stringify(options.shareScope)}
       : [${JSON.stringify(options.shareScope)}];
-    try {
-      for (const scopeName of shareScopeNames) {
+    const shareInitErrors = [];
+    const cacheEntries = [];
+    for (const scopeName of shareScopeNames) {
+      let scopeShare;
+      try {
+        scopeShare = Array.isArray(${JSON.stringify(options.shareScope)})
+          ? shared?.[scopeName] || {}
+          : shared || {};
+        initRes.initShareScopeMap(scopeName, scopeShare);
+        await Promise.all(
+          await initRes.initializeSharing(scopeName, {
+            strategy: ${JSON.stringify(options.shareStrategy ?? 'version-first')},
+            from: 'build',
+            initScope,
+          })
+        );
+      } catch (e) {
+        shareInitErrors.push({ scopeName, pkg: undefined, error: e });
+        continue;
+      }
+
+      for (const [pkg, shareInfo] of Object.entries(sharedSingletons)) {
         try {
-          const scopeShare = Array.isArray(${JSON.stringify(options.shareScope)}) ? (shared?.[scopeName] || {}) : shared;
-          initRes.initShareScopeMap(scopeName, scopeShare);
-          await Promise.all(
-            await initRes.initializeSharing(scopeName, {
-              strategy: ${JSON.stringify(options.shareStrategy ?? 'version-first')},
-              from: 'build',
-              initScope,
-            })
-          );
-          for (const [pkg, shareInfo] of Object.entries(sharedSingletons)) {
-            if (shareInfo.scope !== scopeName || !scopeShare[pkg]) continue;
-            const factory = await initRes.loadShare(pkg, {
-              customShareInfo: { ...shareInfo, scope: [scopeName] },
-            });
-            if (typeof factory !== 'function') continue;
-            const module = await factory();
-            const moduleCache = (globalThis.__mf_module_cache__ ||= { share: {}, remote: {} });
-            const cache = (moduleCache.share ||= {});
-            cache[scopeName + ':' + pkg] ??= module;
-            if (scopeName === 'default') cache[pkg] ??= module;
+          if (shareInfo.scope !== scopeName) continue;
+          if (!scopeShare[pkg]) {
+            throw new Error('No compatible host provider was registered in the share scope');
           }
+          const factory = await initRes.loadShare(pkg, {
+            customShareInfo: { ...shareInfo, scope: [scopeName] },
+          });
+          if (typeof factory !== 'function') {
+            throw new Error('No compatible host provider was selected');
+          }
+          const module = await factory();
+          cacheEntries.push({ scopeName, pkg, module });
         } catch (e) {
-          console.error('[Module Federation SSR]', e);
+          shareInitErrors.push({ scopeName, pkg, error: e });
         }
       }
-    } catch (e) {
-      console.error('[Module Federation SSR]', e);
+    }
+    if (shareInitErrors.length > 0) {
+      throw createShareInitError(shareInitErrors);
+    }
+    if (cacheEntries.length > 0) {
+      const moduleCache = (globalThis.__mf_module_cache__ ||= { share: {}, remote: {} });
+      const cache = (moduleCache.share ||= {});
+      for (const { scopeName, pkg, module } of cacheEntries) {
+        cache[scopeName + ':' + pkg] ??= module;
+        if (scopeName === 'default') cache[pkg] ??= module;
+      }
     }
     return initRes;
   }
