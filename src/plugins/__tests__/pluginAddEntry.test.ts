@@ -510,6 +510,35 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toMatch(/^import "\/virtual\/hostInit\.js";\nimport/m);
   });
 
+  it('wraps React Router v8 default client entry during dev serve', async () => {
+    const [servePlugin] = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(servePlugin, {
+      root: '/repo',
+      base: '/',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    const code = await runTransform(
+      servePlugin,
+      'import { hydrateRoot } from "react-dom/client";\nimport { HydratedRouter } from "react-router/dom";\nhydrateRoot(document, <HydratedRouter />);',
+      '/repo/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx?v=123'
+    );
+
+    expect(code as string).toContain(
+      'import("/repo/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx?v=123&mf-entry-bootstrap")'
+    );
+  });
+
   it('wraps the same dev hydration fallback entry on repeated transforms', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-repeat-hydration-'));
     const plugins = addEntry({
