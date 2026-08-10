@@ -60,7 +60,11 @@ import {
   getRuntimeCapabilityConfigurationWarnings,
 } from './utils/runtimeCapabilityOptimization';
 import { getSharedExportUsage } from './utils/treeShaking';
-import { getSsrCapabilities } from './utils/ssrCapabilities';
+import {
+  getSsrCapabilities,
+  SSR_ENTRY_LOADER_SPECIFIER,
+  SSR_ONLY_RUNTIME_PLUGINS,
+} from './utils/ssrCapabilities';
 import {
   getCommonSharedSubpaths,
   isAssetLikeImport,
@@ -760,7 +764,7 @@ export default __mfShared.default ?? __mfShared;`,
 
       const alreadyInjected = options.runtimePlugins.some((p) => {
         const specifier = typeof p === 'string' ? p : p[0];
-        return specifier === '@module-federation/vite/ssrEntryLoader';
+        return specifier === SSR_ENTRY_LOADER_SPECIFIER;
       });
       if (alreadyInjected) return;
 
@@ -793,7 +797,7 @@ export default __mfShared.default ?? __mfShared;`,
       // Only inject when the built subpath export exists. Integration tests
       // run against src/ before a build, so the lib/ export won't be present.
       // Users can still inject manually via runtimePlugins in that case.
-      const ssrEntryLoaderSpecifier = '@module-federation/vite/ssrEntryLoader';
+      const ssrEntryLoaderSpecifier = SSR_ENTRY_LOADER_SPECIFIER;
       try {
         resolveImportPath(ssrEntryLoaderSpecifier);
         options.runtimePlugins.push([ssrEntryLoaderSpecifier, { resolvedShared }]);
@@ -803,8 +807,6 @@ export default __mfShared.default ?? __mfShared;`,
     },
   };
 }
-
-const SSR_ONLY_PLUGINS = new Set(['@module-federation/vite/ssrEntryLoader']);
 
 type DefineConfig = NonNullable<UserConfig['define']>;
 
@@ -1054,7 +1056,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       name: 'vite:module-federation-virtual-modules',
       enforce: 'pre',
       resolveId(id: string) {
-        if (id === '@module-federation/vite/ssrEntryLoader') return resolveImportPath(id);
+        if (id === SSR_ENTRY_LOADER_SPECIFIER) return resolveImportPath(id);
         let virtualModule = VirtualModule.findById(id);
         if (!virtualModule) {
           materializeCachedLoadShareModule({
@@ -1679,7 +1681,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         // SSR-only plugins import Node modules — exclude them from browser optimisation.
         options.runtimePlugins.forEach((p) => {
           const pluginPath = typeof p === 'string' ? p : p[0];
-          if (SSR_ONLY_PLUGINS.has(pluginPath)) return;
+          if (SSR_ONLY_RUNTIME_PLUGINS.has(pluginPath)) return;
           // Only add bare imports to optimizeDeps
           if (
             pluginPath &&

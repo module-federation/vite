@@ -1,13 +1,13 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
+import { getVirtualModuleScopeKey } from './virtualModuleScope';
 
 const REMOTE_ENTRY_SSR_ID = 'virtual:mf-REMOTE_ENTRY_SSR_ID';
 
 export function getRemoteEntrySSRId(
   options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
 ) {
-  const scopedKey = `${options.internalName}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `${REMOTE_ENTRY_SSR_ID}:${scopedKey}`;
+  return `${REMOTE_ENTRY_SSR_ID}:${getVirtualModuleScopeKey(options)}`;
 }
 
 export function getSsrRemoteEntryFileName(browserFilename: string): string {
