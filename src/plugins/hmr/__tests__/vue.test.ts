@@ -72,6 +72,23 @@ describe('vueAdapter', () => {
     expect(sandbox.__VUE_HMR_RUNTIME__).toEqual({ id: 'host' });
   });
 
+  it('ignores a Vue runtime bundled into vite-plugin-checker', () => {
+    const [tag] = vueAdapter.host?.transformIndexHtml?.(makeCtx()) ?? [];
+    const code = typeof tag.children === 'string' ? tag.children : '';
+    const sandbox: { __VUE_HMR_RUNTIME__?: unknown } = {};
+    new Function('globalThis', code)(sandbox);
+
+    new Function(
+      'globalThis',
+      `globalThis.__VUE_HMR_RUNTIME__ = { id: 'checker' };\n` +
+        '//# sourceURL=/@vite-plugin-checker-runtime'
+    )(sandbox);
+    sandbox.__VUE_HMR_RUNTIME__ = { id: 'host' };
+    sandbox.__VUE_HMR_RUNTIME__ = { id: 'remote-overwrite' };
+
+    expect(sandbox.__VUE_HMR_RUNTIME__).toEqual({ id: 'host' });
+  });
+
   describe('transform', () => {
     const sfcModule = (hmrIdLiteral: string) =>
       [
