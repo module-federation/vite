@@ -578,6 +578,19 @@ const __mfCurrentScript = document.currentScript;
         return getBootstrapSource(initSrc, entrySrc);
       },
       transform(code, id) {
+        // React Router v8 hides its default client entry from rollupOptions.input in dev.
+        // Match the framework entry by its stable hydration signature instead of its version/path.
+        const isReactRouterClientEntry =
+          code.includes('hydrateRoot') && code.includes('HydratedRouter');
+        if (
+          inject === 'entry' &&
+          waitsForInit &&
+          !hasEntryBootstrapParam(id) &&
+          isReactRouterClientEntry
+        ) {
+          const separator = id.includes('?') ? '&' : '?';
+          return getBootstrapSource(devEntryPath, `${id}${separator}${ENTRY_BOOTSTRAP_PARAM}`);
+        }
         if (id.includes('node_modules') || inject !== 'html' || htmlFilePath) {
           return;
         }
