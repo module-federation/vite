@@ -12,10 +12,12 @@ import type { HmrAdapter } from '../pluginDevRemoteHmr';
  * host components lives in the orphaned first runtime, but `reload(hmrId, ...)`
  * goes through the second runtime — the lookup misses and HMR stops working.
  *
- * This guard pins `__VUE_HMR_RUNTIME__` to the first writer (the host's Vue)
+ * This guard pins `__VUE_HMR_RUNTIME__` to the first application Vue runtime
  * via a property trap on `globalThis`. Subsequent writes from remote-side Vue
- * copies are silently dropped. Must execute before any Vue module loads —
- * injected as a plain (non-module) script at `head-prepend`.
+ * copies are silently dropped. vite-plugin-checker bundles its own Vue runtime
+ * and evaluates it before the application, so writes from its virtual runtime
+ * are ignored explicitly. Must execute before any Vue module loads — injected
+ * as a plain (non-module) script at `head-prepend`.
  *
  * `singleton: true` in `shared` is not sufficient: in dev mode MF's share-scope
  * does not actually dedupe Vue across dev servers, so without this guard the
@@ -26,7 +28,11 @@ const VUE_HMR_RUNTIME_GUARD_SCRIPT = `
   var h = null;
   Object.defineProperty(globalThis, '__VUE_HMR_RUNTIME__', {
     get: function () { return h; },
-    set: function (v) { if (h === null) h = v; },
+    set: function (v) {
+      var stack = new Error().stack || '';
+      if (stack.indexOf('@vite-plugin-checker-runtime') !== -1) return;
+      if (h === null) h = v;
+    },
     configurable: true,
     enumerable: true,
   });
