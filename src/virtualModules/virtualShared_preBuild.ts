@@ -1063,6 +1063,10 @@ function tryResolveImportFromPackageRoot(pkg: string, root: string): string | un
  */
 const concreteSharedImportSourceCache = new Map<string, string | undefined>();
 
+export function resetConcreteSharedImportSourceCache() {
+  concreteSharedImportSourceCache.clear();
+}
+
 export function getConcreteSharedImportSource(
   pkg: string,
   shareItem?: ShareItem

@@ -15,6 +15,7 @@ import {
   getTreeShakingGraphToken,
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
+  resetConcreteSharedImportSourceCache,
   stripTreeShakingGraphQuery,
   writeLoadShareModule,
   writePreBuildLibPath,
@@ -2863,16 +2864,20 @@ describe('writeLoadShareModule', () => {
     );
   });
 
-  it('memoizes concrete shared import resolution by package and project root', () => {
+  it('memoizes by package and root and supports lifecycle invalidation', () => {
     const pkg = 'memoized-shared-package';
 
     expect(getConcreteSharedImportSource(pkg)).toBeUndefined();
     expect(getConcreteSharedImportSource(pkg)).toBeUndefined();
     expect(createRequireSpy).toHaveBeenCalledTimes(1);
 
-    packageDetectionCwdMock.mockReturnValue('/repo/apps/other');
+    resetConcreteSharedImportSourceCache();
     expect(getConcreteSharedImportSource(pkg)).toBeUndefined();
     expect(createRequireSpy).toHaveBeenCalledTimes(2);
+
+    packageDetectionCwdMock.mockReturnValue('/repo/apps/other');
+    expect(getConcreteSharedImportSource(pkg)).toBeUndefined();
+    expect(createRequireSpy).toHaveBeenCalledTimes(3);
   });
 
   it('uses project require resolution for package subpath import paths', () => {
