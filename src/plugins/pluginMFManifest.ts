@@ -26,8 +26,8 @@ import {
 } from '../utils/cssModuleHelpers';
 import { resolvePublicPath } from '../utils/pathNormalization';
 import { normalizePathForImport } from '../utils/buildPaths';
+import { DEFAULT_PUBLIC_TYPES_FOLDER } from '../utils/dtsConstants';
 import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
-import { DEFAULT_PUBLIC_TYPES_FOLDER } from './pluginDts';
 
 /**
  * Resolves the build version for the module federation manifest.
