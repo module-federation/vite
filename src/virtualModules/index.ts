@@ -12,7 +12,6 @@ export {
   generateHostAutoInitCode,
   generateLocalSharedImportMap,
   generateRemoteEntry,
-  getHostAutoInitImportId,
   getHostAutoInitPath,
   getLocalSharedImportMapPath,
   getResolvedLocalSharedImportMapId,
@@ -57,7 +56,6 @@ export {
 } from './virtualShared_preBuild';
 
 export {
-  getTreeShakingUsedExports,
   markTreeShakingPackageUnsafe,
   recordTreeShakingExports,
   resetTreeShakingExports,

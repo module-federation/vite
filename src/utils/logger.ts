@@ -32,6 +32,5 @@ export const moduleFederationConsole = {
   },
 };
 
-export const mfLog = moduleFederationConsole.log;
 export const mfWarn = moduleFederationConsole.warn;
 export const mfError = moduleFederationConsole.error;

@@ -68,7 +68,6 @@ import {
 } from './utils/pathNormalization';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
 import {
-  getHostAutoInitImportId,
   getHostAutoInitPath,
   getRemoteEntryId,
   initVirtualModules,
@@ -916,7 +915,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   const moduleParsePlugins = pluginModuleParseEnd(
     (id: string) => {
       return (
-        id.includes(getHostAutoInitImportId(options)) ||
+        id.includes(getHostAutoInitPath(options)) ||
         id.includes(remoteEntryId) ||
         id.includes(virtualExposesId) ||
         id.includes('virtual:mf-localSharedImportMap') ||
