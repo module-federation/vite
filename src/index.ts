@@ -83,7 +83,12 @@ import {
   writeLocalSharedImportMap,
 } from './virtualModules';
 import { getVirtualExposesId } from './virtualModules/virtualExposes';
-import { addConfiguredShare, addUsedShares } from './virtualModules/virtualRemoteEntry';
+import {
+  addConfiguredShare,
+  addUsedShares,
+  HOST_AUTO_INIT_TAG,
+  refreshHostAutoInit,
+} from './virtualModules/virtualRemoteEntry';
 import { addUsedRemote } from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
@@ -1122,6 +1127,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             'not-owned'
         ) {
           return;
+        }
+        // hostAutoInit publishes shared modules into the runtime share cache;
+        // regenerate it per environment so react-server environments write to
+        // their own cache bucket instead of poisoning client/ssr consumers.
+        if (id.includes(HOST_AUTO_INIT_TAG)) {
+          refreshHostAutoInit(
+            options,
+            getLoadHookExportConditions(this as LoadHookContext, loadOptions)
+          );
         }
         const virtualModule = VirtualModule.findById(id);
         if (!virtualModule) return;

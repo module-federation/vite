@@ -261,7 +261,28 @@ export function getSharedCacheKey(pkg: string, shareItem: ShareItem) {
   return getSharedCacheDescriptor(pkg, shareItem).canonical;
 }
 
-export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+// Runtime helpers embedded into generated shared-module code. When the
+// requesting environment resolves with the `react-server` condition, the
+// emitted __mfWriteSharedCache refuses to publish React builds of the wrong
+// flavor: a react-server React (no state hooks) must never enter the default
+// bucket consumed by client/ssr environments, and vice versa. Without this
+// guard, vite-rsc's RSC environment can poison the process-global share cache
+// and SSR renders of federated components crash with React error #419.
+export function getSharedCacheHelperCode(exportConditions?: readonly string[]): string {
+  const isReactServerBucket = Boolean(exportConditions?.includes('react-server'));
+  return `const __mfCacheBucketIsReactServer = ${isReactServerBucket};
+          const __mfSharedReactFlavorMismatch = (descriptor, value) => {
+            const canonical = (descriptor && descriptor.canonical) || "";
+            const pkg = canonical.slice(canonical.indexOf(":") + 1);
+            if (pkg !== "react" && pkg !== "react-dom" && !pkg.startsWith("react/") && !pkg.startsWith("react-dom/")) return false;
+            const mod = value && (value.default ?? value);
+            if (!mod || (typeof mod !== "object" && typeof mod !== "function")) return false;
+            const isServerFlavor = !!mod.__SERVER_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+            const isClientFlavor = !!mod.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE || typeof mod.useState === "function";
+            if (!isServerFlavor && !isClientFlavor) return false;
+            return __mfCacheBucketIsReactServer ? !isServerFlavor : isServerFlavor;
+          };
+          const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
             const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
             const scopeName = normalizedScope || "default";
             const id = singleton || !version ? pkg : pkg + "@" + version;
@@ -318,6 +339,7 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
           const __mfReadSharedCacheOwner = (cache, descriptor) =>
             cache[__mfSharedCacheOwnersKey]?.[descriptor.canonical];
           const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
+            if (__mfSharedReactFlavorMismatch(descriptor, value)) return value;
             cache[descriptor.canonical] = value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {
@@ -407,6 +429,9 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
             byConsumer[consumer] = value;
             return value;
           };`;
+}
+
+export const sharedCacheHelperCode = getSharedCacheHelperCode();
 
 export function getInstalledPackageJson(
   pkg: string,

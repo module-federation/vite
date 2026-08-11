@@ -6,7 +6,18 @@ export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 const runtimeInitModules = new WeakMap<NormalizedModuleFederationOptions, VirtualModule>();
 const runtimeInitOwnerIds = new WeakMap<NormalizedModuleFederationOptions, number>();
 let nextRuntimeInitOwnerId = 1;
-const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
+export const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
+// vite-rsc runs the RSC and SSR server environments in one Node process, but
+// the RSC environment resolves React with the `react-server` condition — a
+// build with no state hooks that must never be shared with client/ssr code.
+// react-server environments therefore get their own share-cache bucket.
+export const REACT_SERVER_MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache_react_server__';
+
+export function getModuleCacheGlobalKey(exportConditions?: readonly string[]): string {
+  return exportConditions?.includes('react-server')
+    ? REACT_SERVER_MODULE_CACHE_GLOBAL_KEY
+    : MODULE_CACHE_GLOBAL_KEY;
+}
 
 function getRuntimeInitOwnerId(options: NormalizedModuleFederationOptions) {
   let ownerId = runtimeInitOwnerIds.get(options);
@@ -153,11 +164,12 @@ export function getRuntimeInitBootstrapCode(
   enableSsrInit = false,
   ownerImportId?: string,
   ssrRemotes?: Array<{ name: string; entry: string; type: string }>,
-  hostInitImportId = ownerImportId
+  hostInitImportId = ownerImportId,
+  exportConditions?: readonly string[]
 ) {
   return `
 const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey(ownerImportId))};
-const moduleCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
+const moduleCacheGlobalKey = ${JSON.stringify(getModuleCacheGlobalKey(exportConditions))};
 globalThis[moduleCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[moduleCacheGlobalKey].share ||= {};
 globalThis[moduleCacheGlobalKey].remote ||= {};
@@ -185,9 +197,9 @@ globalThis[globalKey].moduleCache.remote ||= {};
 `;
 }
 
-export function getRuntimeModuleCacheBootstrapCode() {
+export function getRuntimeModuleCacheBootstrapCode(exportConditions?: readonly string[]) {
   return `
-const __mfCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
+const __mfCacheGlobalKey = ${JSON.stringify(getModuleCacheGlobalKey(exportConditions))};
 globalThis[__mfCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[__mfCacheGlobalKey].share ||= {};
 globalThis[__mfCacheGlobalKey].remote ||= {};

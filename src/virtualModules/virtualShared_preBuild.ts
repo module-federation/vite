@@ -28,15 +28,16 @@ import {
   getPackageDetectionCwd,
   getPackageName,
   getSharedCacheDescriptor,
+  getSharedCacheHelperCode,
   packageNameDecode,
   packageNameEncode,
-  sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import { normalizeNodeModulePath } from '../utils/pathNormalization';
 import { getTreeShakingExportUsage, type TreeShakingExportUsage } from '../utils/treeShaking';
 import { findLikelyTypeArgumentEnd } from '../utils/typeArgumentScanner';
 import VirtualModule, { MF_OWNER_INFIX, normalizeVirtualModuleId } from '../utils/VirtualModule';
 import {
+  getModuleCacheGlobalKey,
   getRuntimeInitPromiseBootstrapCode,
   getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
@@ -1365,8 +1366,8 @@ export function writePreBuildLibPath(
     const reactCacheDescriptor = getSharedCacheDescriptorLiteral('react', reactShareItem);
     preBuildCacheMap[pkg].writeSync(
       `
-    ${sharedCacheHelperCode}
-    const __mfCacheGlobalKey = "__mf_module_cache__";
+    ${getSharedCacheHelperCode(exportConditions)}
+    const __mfCacheGlobalKey = ${JSON.stringify(getModuleCacheGlobalKey(exportConditions))};
     export const c = function(size) {
       const cache = globalThis[__mfCacheGlobalKey]?.share;
       const sharedReact = cache && __mfReadSharedCache(cache, ${reactCacheDescriptor});
@@ -1863,7 +1864,8 @@ export function writeLoadShareModule(
   if (!loadShareCacheMap[pkg]) {
     loadShareCacheMap[pkg] = createScopedSharedVirtualModule(pkg, LOAD_SHARE_TAG, options);
   }
-  let importLine = getRuntimeModuleCacheBootstrapCode();
+  let importLine = getRuntimeModuleCacheBootstrapCode(exportConditions);
+  const sharedCacheHelperCode = getSharedCacheHelperCode(exportConditions);
   const cacheDescriptor = getSharedCacheDescriptorLiteral(pkg, shareItem);
   const cacheOwner = JSON.stringify(resolvedOptions.name);
   const runtimeInitOwnerImportId = options ? getRuntimeInitStatusImportId(options) : undefined;
