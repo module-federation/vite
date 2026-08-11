@@ -14,6 +14,7 @@ import {
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
+import { SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
 import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
 import { getUsedRemotesMap } from './virtualRemotes';
@@ -34,6 +35,7 @@ import {
   hasTreeShakingSharedProvider,
 } from './virtualShared_preBuild';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
+import { getVirtualModuleScopeKey } from './virtualModuleScope';
 
 let usedShares: Set<string> = new Set();
 const usedSharesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
@@ -188,7 +190,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
         .join(',')}
     }
       const usedShared = {
-      ${getOrderedUsedShares(options)
+      ${orderedShares
         .map((key) => {
           const shareItem = getNormalizeShareItem(key, resolvedOptions);
           if (!shareItem) return null;
@@ -486,9 +488,7 @@ function getShareItemForPreload(
   options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
 ) {
   const shared = options.shared;
-  const packageName = pkg.startsWith('@')
-    ? pkg.split('/').slice(0, 2).join('/')
-    : pkg.split('/')[0];
+  const packageName = getPackageName(pkg);
   const wildcardKey = `${packageName}/`;
 
   if (isExplicitSharedKey(pkg, options)) return shared[pkg];
@@ -848,17 +848,15 @@ const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
 export function getRemoteEntryId(
   options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
 ) {
-  const scopedKey = `${options.internalName}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `${REMOTE_ENTRY_ID}:${scopedKey}`;
+  return `${REMOTE_ENTRY_ID}:${getVirtualModuleScopeKey(options)}`;
 }
 // SSR-only plugins import Node.js modules and must not be statically imported
 // in the browser remote entry — doing so causes fileURLToPath / bare-specifier
 // errors in the browser bundle. They are dynamically imported on the server only.
-const SSR_ONLY_PLUGIN_SPECIFIERS = new Set(['@module-federation/vite/ssrEntryLoader']);
 const isSsrOnlyPlugin = (importStatement: string) =>
-  [...SSR_ONLY_PLUGIN_SPECIFIERS].some((s) => importStatement.includes(s));
+  [...SSR_ONLY_RUNTIME_PLUGINS].some((s) => importStatement.includes(s));
 const getSsrOnlyPluginSpecifier = (importStatement: string): string | undefined =>
-  [...SSR_ONLY_PLUGIN_SPECIFIERS].find((s) => importStatement.includes(s));
+  [...SSR_ONLY_RUNTIME_PLUGINS].find((s) => importStatement.includes(s));
 
 function generateTreeShakingSharedResolutionCode(enabled: boolean): string {
   if (!enabled) return 'const __mfResolveTreeShakingShared = async () => {};';
@@ -1100,14 +1098,9 @@ export function generateRemoteEntry(
     .join('\n')}
   ${
     command === 'build'
-      ? getRuntimeInitResolveBootstrapCode(
-          false,
-          options ? getRuntimeInitStatusImportId(options) : undefined
-        )
-      : getRuntimeInitBootstrapCode(
-          false,
-          options ? getRuntimeInitStatusImportId(options) : undefined
-        ) + '\n  const { initResolve } = globalThis[globalKey];'
+      ? getRuntimeInitResolveBootstrapCode(false, getRuntimeInitStatusImportId(options))
+      : getRuntimeInitBootstrapCode(false, getRuntimeInitStatusImportId(options)) +
+        '\n  const { initResolve } = globalThis[globalKey];'
   }
   ${getRuntimeModuleCacheBootstrapCode()}
   const initTokens = {}

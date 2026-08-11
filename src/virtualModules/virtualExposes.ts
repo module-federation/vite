@@ -1,6 +1,7 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { generateReactIslandBrowserDefinition } from '../utils/reactIsland';
 import { getRemoteVirtualModule } from './virtualRemotes';
+import { getVirtualModuleScopeKey } from './virtualModuleScope';
 
 const EXPOSES_CSS_MAP_PLACEHOLDER = '__MF_EXPOSES_CSS_MAP__';
 
@@ -11,8 +12,7 @@ export function getExposesCssMapPlaceholder() {
 export function getVirtualExposesId(
   options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
 ) {
-  const scopedKey = `${options.internalName}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `virtual:mf-exposes:${scopedKey}`;
+  return `virtual:mf-exposes:${getVirtualModuleScopeKey(options)}`;
 }
 
 export function generateExposes(

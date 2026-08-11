@@ -1,9 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { getSsrCapabilities, SERVER_ENV_GUARD } from '../ssrCapabilities';
+import {
+  getSsrCapabilities,
+  SERVER_ENV_GUARD,
+  SSR_ENTRY_LOADER_SPECIFIER,
+  SSR_ONLY_RUNTIME_PLUGINS,
+} from '../ssrCapabilities';
 
 it('uses Vite environment detection for generated SSR guards', () => {
   expect(SERVER_ENV_GUARD).toBe('import.meta.env.SSR');
   expect(SERVER_ENV_GUARD).not.toContain('process');
+});
+
+describe('SSR plugin constants', () => {
+  it('exports the SSR entry loader specifier', () => {
+    expect(SSR_ENTRY_LOADER_SPECIFIER).toBe('@module-federation/vite/ssrEntryLoader');
+  });
+
+  it('tracks SSR-only runtime plugins', () => {
+    expect(SSR_ONLY_RUNTIME_PLUGINS.has(SSR_ENTRY_LOADER_SPECIFIER)).toBe(true);
+    expect(SSR_ONLY_RUNTIME_PLUGINS.size).toBe(1);
+  });
 });
 
 describe('getSsrCapabilities', () => {

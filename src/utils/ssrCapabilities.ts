@@ -7,6 +7,9 @@ export type MfCommand = 'serve' | 'build';
 // resolve through its fallback instead of fetching the browser remote entry.
 export const SERVER_ENV_GUARD = 'import.meta.env.SSR';
 
+export const SSR_ENTRY_LOADER_SPECIFIER = '@module-federation/vite/ssrEntryLoader' as const;
+export const SSR_ONLY_RUNTIME_PLUGINS = new Set<string>([SSR_ENTRY_LOADER_SPECIFIER]);
+
 export interface SsrCapabilities {
   /** Emit server-side MF runtime bootstrap (ssrEntryLoader import) in dev remote wrappers. */
   enableSsrInitBootstrap: boolean;

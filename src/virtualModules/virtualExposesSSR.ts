@@ -1,5 +1,6 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { generateReactIslandSSRDefinition } from '../utils/reactIsland';
+import { getVirtualModuleScopeKey } from './virtualModuleScope';
 
 /**
  * Virtual module ID for the SSR exposes map.
@@ -9,8 +10,7 @@ import { generateReactIslandSSRDefinition } from '../utils/reactIsland';
 export function getVirtualExposesSSRId(
   options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
 ) {
-  const scopedKey = `${options.internalName}__${options.filename}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `virtual:mf-exposes-ssr:${scopedKey}`;
+  return `virtual:mf-exposes-ssr:${getVirtualModuleScopeKey(options)}`;
 }
 
 /**
