@@ -510,35 +510,6 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toMatch(/^import "\/virtual\/hostInit\.js";\nimport/m);
   });
 
-  it('wraps React Router v8 default client entry during dev serve', async () => {
-    const [servePlugin] = addEntry({
-      entryName: 'hostInit',
-      entryPath: '/virtual/hostInit.js',
-      inject: 'entry',
-    });
-
-    runConfig(
-      servePlugin,
-      {} as ConfigPluginContext,
-      {},
-      { command: 'serve', mode: 'development' }
-    );
-    runConfigResolved(servePlugin, {
-      root: '/repo',
-      base: '/',
-      build: { rollupOptions: {} },
-    } as unknown as ResolvedConfig);
-    const code = await runTransform(
-      servePlugin,
-      'import { hydrateRoot } from "react-dom/client";\nimport { HydratedRouter } from "react-router/dom";\nhydrateRoot(document, <HydratedRouter />);',
-      '/repo/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx?v=123'
-    );
-
-    expect(code as string).toContain(
-      'import("/repo/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx?v=123&mf-entry-bootstrap")'
-    );
-  });
-
   it('wraps the same dev hydration fallback entry on repeated transforms', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-repeat-hydration-'));
     const plugins = addEntry({
@@ -586,6 +557,47 @@ describe('pluginAddEntry', () => {
     );
     expect(other).toBeUndefined();
   });
+
+  for (const command of ['serve', 'build'] as const) {
+    it(`wraps only React Router v8's client entry during ${command}`, async () => {
+      const plugins = addEntry({
+        entryName: 'hostInit',
+        entryPath: '/virtual/hostInit.js',
+        inject: 'entry',
+      });
+      const buildPlugin = plugins[1];
+
+      runConfig(
+        buildPlugin,
+        {} as ConfigPluginContext,
+        { build: { rollupOptions: {} } },
+        { command, mode: command === 'serve' ? 'development' : 'production' }
+      );
+      runConfigResolved(buildPlugin, {
+        root: '/repo',
+        base: '/',
+        command,
+        build: { rollupOptions: {} },
+      } as unknown as ResolvedConfig);
+
+      const helper = await runTransform(
+        buildPlugin,
+        'export function hydrate() { hydrateRoot(document, <HydratedRouter />); }',
+        '/repo/app/hydrate-client.tsx'
+      );
+      const entry = (await runTransform(
+        buildPlugin,
+        'import { hydrate } from "./hydrate-client";\nhydrate();',
+        '/repo/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx?v=123'
+      )) as { code: string } | undefined;
+
+      expect(helper).toBeUndefined();
+      expect(entry?.code).toContain('await initHost();');
+      expect(entry?.code).toContain(
+        'import("/repo/node_modules/@react-router/dev/dist/config/defaults/entry.client.tsx?v=123&mf-entry-bootstrap")'
+      );
+    });
+  }
 
   it('does not consume hydration fallback on MF internal virtual share modules', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-mf-virtual-'));
