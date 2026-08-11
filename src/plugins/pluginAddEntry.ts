@@ -415,6 +415,11 @@ const __mfCurrentScript = document.currentScript;
     return normalizePathForImport(id.split('?')[0]);
   }
 
+  function isReactRouterClientEntry(id: string) {
+    const normalized = normalizeModuleId(decodeViteId(id).replace(/^\0+/, ''));
+    return /(?:^|\/)entry\.client\.(?:[cm]?[jt]sx?)$/.test(normalized);
+  }
+
   function resolveProjectId(id: string) {
     if (id.startsWith('\0') || id.startsWith('virtual:')) return normalizeModuleId(id);
     return normalizeModuleId(path.isAbsolute(id) ? id : path.resolve(viteConfig.root, id));
@@ -578,19 +583,6 @@ const __mfCurrentScript = document.currentScript;
         return getBootstrapSource(initSrc, entrySrc);
       },
       transform(code, id) {
-        // React Router v8 hides its default client entry from rollupOptions.input in dev.
-        // Match the framework entry by its stable hydration signature instead of its version/path.
-        const isReactRouterClientEntry =
-          code.includes('hydrateRoot') && code.includes('HydratedRouter');
-        if (
-          inject === 'entry' &&
-          waitsForInit &&
-          !hasEntryBootstrapParam(id) &&
-          isReactRouterClientEntry
-        ) {
-          const separator = id.includes('?') ? '&' : '?';
-          return getBootstrapSource(devEntryPath, `${id}${separator}${ENTRY_BOOTSTRAP_PARAM}`);
-        }
         if (id.includes('node_modules') || inject !== 'html' || htmlFilePath) {
           return;
         }
@@ -893,6 +885,7 @@ const __mfCurrentScript = document.currentScript;
         // entries frequently mount via `app.mount('#app')` while the
         // createApp/createSSRApp call lives in a separate module, so match a
         // selector-string mount on its own as well as a co-located createApp.
+        const isReactRouterEntry = isReactRouterClientEntry(id);
         const isHydrationEntryFallback =
           inject === 'entry' &&
           entryFiles.length === 0 &&
@@ -900,6 +893,7 @@ const __mfCurrentScript = document.currentScript;
           !clientInjected &&
           !isFederationInternalVirtualId(id) &&
           !id.includes('node_modules') &&
+          (!code.includes('HydratedRouter') || isReactRouterEntry) &&
           (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
           (/hydrateRoot|createRoot|ReactDOM\.render/.test(code) ||
             /\.mount\s*\(\s*['"#]/.test(code) ||
@@ -943,6 +937,10 @@ const __mfCurrentScript = document.currentScript;
             // we also match virtual IDs (id.startsWith('\0')) that contain the
             // hydration call.
             isHydrationEntryFallback ||
+            // React Router v8 hides its framework client entry from bundler
+            // inputs. Match the documented entry filename in dev and build;
+            // source matching can select an imported helper and erase exports.
+            (inject === 'entry' && waitsForInit && isReactRouterEntry) ||
             isNuxtClientEntryFallback);
         if (shouldInject) {
           clientInjected = true;
