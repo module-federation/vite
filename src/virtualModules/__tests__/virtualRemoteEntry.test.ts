@@ -993,7 +993,9 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('return [...new Set([...configuredScopes, ...shareScopeNames])]');
     expect(code).toContain('getShareScope(getShareScopeName(pkg, usedShare))');
     expect(code).toContain('for (const shareScopeName of shareScopeNames)');
-    expect(code).toContain('initRes.initShareScopeMap(shareScopeName, scopeShare)');
+    expect(code).toContain(
+      'initRes.initShareScopeMap(\n        shareScopeName,\n        __mfGetRuntimeShareScope(shareScopeName, scopeShare)\n      );'
+    );
     expect(code).toContain('initRes.initializeSharing(shareScopeName');
   });
 
@@ -1136,6 +1138,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('exposesMapPromise = retrySharedInit(() => import("virtual:exposes"))');
     expect(code).toContain('.then((mod) => mod.default ?? mod)');
     expect(code).toContain('const {usedShared, usedRemotes} = await getLocalSharedImportMap()');
+    expect(code).toContain('const __mfGetPendingExternalSharedProvider =');
     expect(code).toContain('const exposesMap = await getExposesMap()');
     expect(code).toContain('const mfName = "host"');
     expect(code).toContain('await Promise.all(__mfModuleCache.pendingShareLoads)');
@@ -2304,7 +2307,7 @@ describe('virtualRemoteEntry', () => {
     );
 
     const runtimeInitCall = code.indexOf('const initRes = runtimeInit({');
-    const initShareScopeMapCall = code.indexOf("initRes.initShareScopeMap('default', shared);");
+    const initShareScopeMapCall = code.indexOf("__mfGetRuntimeShareScope('default', shared)");
     const materializedBridgeCall = code.indexOf(
       'await __mfBridgeMaterializedProvider(pkg, usedShare, initialShared[pkg]);'
     );
@@ -2388,7 +2391,10 @@ describe('virtualRemoteEntry', () => {
     const initializeSharingCall = code.indexOf(
       `await Promise.all(await initRes.initializeSharing('default'`
     );
-    const lateBridgeCall = code.indexOf('await __mfBridgeExternalSharedProvider(\n        pkg');
+    const lateBridgeCall = code.indexOf(
+      'await __mfBridgeExternalSharedProvider(',
+      initializeSharingCall
+    );
 
     expect(localSharedCode).toContain('canLiveRebind: true');
     expect(materializedBridgeCode).toContain(
@@ -2396,6 +2402,9 @@ describe('virtualRemoteEntry', () => {
     );
     expect(initializeSharingCall).toBeGreaterThan(-1);
     expect(lateBridgeCall).toBeGreaterThan(initializeSharingCall);
+    expect(code).toContain('let __mfLateBridgeShared');
+    expect(code).toContain('__mfLateBridgeShared = async () =>');
+    expect(code).toContain('if (__mfLateBridgeShared) await __mfLateBridgeShared()');
   });
 
   it('seeds import:false shared modules in hostAutoInit during serve', async () => {
@@ -2633,12 +2642,15 @@ describe('virtualRemoteEntry', () => {
     expect(bridgeHelperCode).not.toContain('const cacheDescriptor =');
     expect(bridgeHelperCode.match(/__mfWriteSharedCache\(/g)).toHaveLength(1);
     expect(bridgeHelperCode).toContain("Failed to bridge external shared module \"' + pkg + '\"'");
-    const exactBridgeCall = code.indexOf('await __mfBridgeExternalSharedProvider(\n        pkg');
-    expect(code.indexOf('if (initScope.indexOf(initToken) >= 0) return;')).toBeLessThan(
-      exactBridgeCall
-    );
     const initializeSharingCall = code.indexOf(
       `await Promise.all(await initRes.initializeSharing('default'`
+    );
+    const exactBridgeCall = code.indexOf(
+      'await __mfBridgeExternalSharedProvider(',
+      initializeSharingCall
+    );
+    expect(code.indexOf('if (initScope.indexOf(initToken) >= 0) return;')).toBeLessThan(
+      exactBridgeCall
     );
     expect(initializeSharingCall).toBeGreaterThan(-1);
     expect(initializeSharingCall).toBeLessThan(exactBridgeCall);
@@ -2778,6 +2790,82 @@ describe('virtualRemoteEntry', () => {
         'version-first'
       )
     ).toBeUndefined();
+  });
+
+  it('defers only unresolved Webpack providers during remote init', async () => {
+    normalizedSharedMock.mockReturnValue({
+      'react-dom': {
+        name: 'react-dom',
+        from: '',
+        version: '18.3.1',
+        scope: 'default',
+        shareConfig: {
+          singleton: false,
+          requiredVersion: '^18.3.1',
+          strictVersion: false,
+        },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react-dom');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+    const materializedBridgeCode = code.slice(
+      code.indexOf('const __mfBridgeMaterializedProvider ='),
+      code.indexOf('const __mfBridgeExternalSharedProvider =')
+    );
+    const webpackProviderGuard =
+      'if (!directFactory && !scopeRoot && isWebpackProvider(provider)) return;';
+    const lazyProviderAwait =
+      'if (!directFactory && provider.loading) directFactory = await provider.loading;';
+
+    expect(materializedBridgeCode).toContain(webpackProviderGuard);
+    expect(materializedBridgeCode.indexOf(webpackProviderGuard)).toBeLessThan(
+      materializedBridgeCode.indexOf(lazyProviderAwait)
+    );
+
+    const externalBridgeCode = code.slice(
+      code.indexOf('const __mfBridgeExternalSharedProvider ='),
+      code.indexOf('for (const batch of __mfMaterializedShareBatches)')
+    );
+    const externalProviderGuard =
+      'isWebpackProvider(provider) &&\n          !provider.lib &&\n          !provider.loaded';
+    expect(externalBridgeCode).toContain(externalProviderGuard);
+    expect(code).toContain(
+      "const pendingExternalProvider = typeof __mfGetPendingExternalSharedProvider === 'function'"
+    );
+    expect(externalBridgeCode.indexOf(externalProviderGuard)).toBeLessThan(
+      externalBridgeCode.indexOf('const loadedShare = await __mfLoadPinnedRuntimeShare(')
+    );
+
+    const detectorStart = code.indexOf('function isWebpackProvider(provider) {');
+    const detectorEnd = code.indexOf('const __mfGetSharePackageName', detectorStart);
+    const isWebpackProvider = new Function(
+      `${code.slice(detectorStart, detectorEnd)}; return isWebpackProvider;`
+    )() as (provider: unknown) => boolean;
+    const webpackGet = new Function(
+      'return function webpackGet() { return __webpack_require__("react"); };'
+    )();
+
+    expect(isWebpackProvider({ get: webpackGet })).toBe(true);
+    expect(isWebpackProvider({ get: () => Promise.resolve(() => ({})) })).toBe(false);
+    expect(isWebpackProvider({})).toBe(false);
   });
 
   it('restores a plain host provider from the pre-init snapshot after remote registration', async () => {

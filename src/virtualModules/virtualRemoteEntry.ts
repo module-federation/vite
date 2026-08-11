@@ -723,6 +723,12 @@ function generateRuntimeSharedCacheSeedCode(
           );
           return;
         }
+        const pendingExternalProvider = typeof __mfGetPendingExternalSharedProvider === 'function'
+          ? __mfGetPendingExternalSharedProvider(pkg, share)
+          : undefined;
+        if (pendingExternalProvider && !pendingExternalProvider.lib && !pendingExternalProvider.loaded) {
+          return;
+        }
         const providerKey = cacheDescriptor.canonical;
         const resolved = await __mfInitializeProviderOnce(providerKey, async () => {
           const factory = await share.get();
@@ -1112,6 +1118,7 @@ export function generateRemoteEntry(
   const __mfMaterializedShareBatches = ${materializedShareBatches}
   let localSharedImportMapPromise
   let exposesMapPromise
+  let __mfLateBridgeShared
   const shouldRetrySharedInitError = ${command !== 'build'} && ((error) => {
     const message = String((error && error.message) || error || '');
     return message.includes('Importing a module script failed') ||
@@ -1190,6 +1197,30 @@ export function generateRemoteEntry(
           : `instance?.shareScopeMap?.['${options.shareScope}'] === shared`
       }
     );
+    const __mfRuntimeShareScopes = Object.create(null);
+    const __mfCloneShareScope = (hostScope) => {
+      const runtimeScope = Object.create(null);
+      for (const [pkg, versions] of Object.entries(hostScope || {})) {
+        runtimeScope[pkg] = Object.assign(Object.create(null), versions);
+      }
+      return runtimeScope;
+    };
+    const __mfGetRuntimeShareScope = (scopeName, hostScope) => {
+      const runtimeScope = scopeRoot ? hostScope : __mfCloneShareScope(hostScope);
+      __mfRuntimeShareScopes[scopeName] = { host: hostScope, runtime: runtimeScope };
+      return runtimeScope;
+    };
+    const __mfRestoreForeignSharedProviders = () => {
+      if (scopeRoot) return;
+      for (const { host, runtime } of Object.values(__mfRuntimeShareScopes)) {
+        for (const [pkg, versions] of Object.entries(host || {})) {
+          const runtimeVersions = runtime[pkg] ||= Object.create(null);
+          for (const [version, provider] of Object.entries(versions || {})) {
+            runtimeVersions[version] = provider;
+          }
+        }
+      }
+    };
     const initialShared = Object.create(null);
     ${
       hasMultipleShareScopes
@@ -1212,6 +1243,36 @@ export function generateRemoteEntry(
     }`
     }
     const {usedShared, usedRemotes} = await getLocalSharedImportMap()
+    function isWebpackProvider(provider) {
+      if (typeof provider?.get !== 'function') return false;
+      const source = Function.prototype.toString.call(provider.get);
+      return source.includes('__webpack_require__');
+    }
+    const __mfGetSharePackageName = (pkg) => {
+      const parts = pkg.split('/');
+      return pkg.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+    };
+    const __mfGetPendingExternalSharedProvider = (pkg, share) => {
+      if (typeof __mfSelectExternalSharedProvider !== 'function') return undefined;
+      const packageName = __mfGetSharePackageName(pkg);
+      const candidates = packageName === pkg
+        ? [[pkg, share]]
+        : [[pkg, share], [packageName, usedShared[packageName]]];
+      for (const [candidatePkg, candidateShare] of candidates) {
+        if (!candidateShare) continue;
+        const versionMap = ${hasMultipleShareScopes ? 'getShareVersions(candidatePkg, candidateShare)' : 'shared[candidatePkg]'};
+        const provider = __mfSelectExternalSharedProvider(
+          versionMap,
+          candidatePkg,
+          candidateShare,
+          '${options.shareStrategy}'
+        );
+        if (provider && isWebpackProvider(provider) && !provider.lib && !provider.loaded) {
+          return provider;
+        }
+      }
+      return undefined;
+    };
     // handling circular init calls before an external provider can re-enter this container
     ${
       hasMultipleShareScopes
@@ -1260,9 +1321,15 @@ export function generateRemoteEntry(
       hasMultipleShareScopes
         ? `for (const shareScopeName of shareScopeNamesToInitialize) {
       const scopeShare = getShareScope(shareScopeName);
-      initRes.initShareScopeMap(shareScopeName, scopeShare);
+      initRes.initShareScopeMap(
+        shareScopeName,
+        __mfGetRuntimeShareScope(shareScopeName, scopeShare)
+      );
     }`
-        : `initRes.initShareScopeMap('${options.shareScope}', shared);`
+        : `initRes.initShareScopeMap(
+      '${options.shareScope}',
+      __mfGetRuntimeShareScope('${options.shareScope}', shared)
+    );`
     }
     function __mfSharePinLifecyclePlugin() {
       return {
@@ -1542,6 +1609,7 @@ export function generateRemoteEntry(
           // this container's outer initScope. Materialized providers are already active,
           // so resolve them directly and keep remote initialization on the guarded path.
           let directFactory = provider.lib;
+          if (!directFactory && !scopeRoot && isWebpackProvider(provider)) return;
           if (!directFactory && provider.loading) directFactory = await provider.loading;
           if (!directFactory && provider.loaded && typeof provider.get === 'function') {
             directFactory = await provider.get();
@@ -1590,6 +1658,7 @@ export function generateRemoteEntry(
       expectedSelection
     ) => {
       try {
+        if (__mfGetPendingExternalSharedProvider(pkg, usedShare)) return;
         const usedCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, usedShare.shareConfig?.singleton, usedShare.version, usedShare.scope);
         const cachedShare = __mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor);
         const cachedShareOwner = __mfReadSharedCacheOwner(__mfModuleCache.share, usedCacheDescriptor);
@@ -1640,6 +1709,12 @@ export function generateRemoteEntry(
           providerEntry.registered &&
           !scopeRootProvider &&
           !__mfMatchesSharedProvider(liveProvider, provider)
+        ) return;
+        if (
+          !selectedLocalProvider &&
+          isWebpackProvider(provider) &&
+          !provider.lib &&
+          !provider.loaded
         ) return;
         const loadedShare = await __mfLoadPinnedRuntimeShare(
           pkg,
@@ -1710,19 +1785,23 @@ export function generateRemoteEntry(
     }
     ${generateRuntimeSharedCacheSeedCode(options.shareStrategy, options)}
     ${initializeSharingCode}
+    __mfRestoreForeignSharedProviders();
     // Calling provider.get() marks a provider as loaded. Wait until the Runtime has
     // finalized normal same-version precedence before materializing an external share.
-    for (const batch of __mfMaterializedShareBatches) await Promise.all(batch.map(async (pkg) => {
-      const usedShare = usedShared[pkg];
-      if (!usedShare || usedShare.materialize === false || usedShare.treeShaking) return;
-      await __mfBridgeExternalSharedProvider(
-        pkg,
-        usedShare,
-        ${hasMultipleShareScopes ? 'getShareVersions(pkg, usedShare)' : 'shared[pkg]'},
-        initialShared[pkg],
-        undefined
-      );
-    }));
+    __mfLateBridgeShared = async () => {
+      for (const batch of __mfMaterializedShareBatches) await Promise.all(batch.map(async (pkg) => {
+        const usedShare = usedShared[pkg];
+        if (!usedShare || usedShare.materialize === false || usedShare.treeShaking) return;
+        await __mfBridgeExternalSharedProvider(
+          pkg,
+          usedShare,
+          ${hasMultipleShareScopes ? 'getShareVersions(pkg, usedShare)' : 'shared[pkg]'},
+          initialShared[pkg],
+          undefined
+        );
+      }));
+    };
+    await __mfLateBridgeShared();
     try {
       const allInstances = globalThis.__FEDERATION__?.__SHARE__;
       const globalVersionsByPackage = Object.create(null);
@@ -1870,6 +1949,7 @@ export function generateRemoteEntry(
   async function getExposes(moduleName) {
     const exposesMap = await getExposesMap()
     if (!(moduleName in exposesMap)) throw new Error(\`[Module Federation] Module \${moduleName} does not exist in container.\`)
+    if (__mfLateBridgeShared) await __mfLateBridgeShared()
     if (__mfModuleCache.pendingShareLoads) {
       await Promise.all(__mfModuleCache.pendingShareLoads)
     }
