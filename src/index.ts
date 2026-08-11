@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'url';
@@ -421,6 +421,14 @@ function stabilizeOptimizeDeps(optimizeDeps: NonNullable<UserConfig['optimizeDep
   optimizeDeps.exclude = [...new Set(optimizeDeps.exclude ?? [])].sort();
 }
 
+function isFile(candidate: string): boolean {
+  try {
+    return statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function registerEntrySharedImports(
   options: NormalizedModuleFederationOptions,
   projectRoot: string
@@ -449,7 +457,7 @@ function registerEntrySharedImports(
       ...sourceExtensions.map((extension) => `${base}${extension}`),
       ...sourceExtensions.map((extension) => path.join(base, `index${extension}`)),
     ];
-    const file = candidates.find((candidate) => existsSync(candidate));
+    const file = candidates.find(isFile);
     if (file && !visited.has(file)) pending.push(file);
   };
 

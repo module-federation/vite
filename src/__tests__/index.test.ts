@@ -1151,6 +1151,49 @@ describe('vite:module-federation-early-init', () => {
     }
   });
 
+  it('resolves directory imports in the entry graph to their index file', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-entry-dir-import-'));
+    mkdirSync(path.join(root, 'src'));
+    mkdirSync(path.join(root, 'src/provider'));
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<script type="module" src="/src/main.ts"></script>'
+    );
+    // A bare directory request: `src/provider` exists as a directory, so reading
+    // it as source would fail with EISDIR instead of picking up its index file.
+    writeFileSync(path.join(root, 'src/main.ts'), 'import { Provider } from "./provider"');
+    writeFileSync(
+      path.join(root, 'src/provider/index.ts'),
+      'import React from "react"; export const Provider = React'
+    );
+
+    try {
+      const plugins = federation({
+        name: 'entry-dir-import',
+        shared: { react: {}, vue: {} },
+      }) as Plugin[];
+      const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+      const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+        | (Plugin & { _options: NormalizedModuleFederationOptions })
+        | undefined;
+      if (!early || !owner) throw new Error('module federation plugins not found');
+
+      expect(() =>
+        runConfig(early, { meta: {} } as ConfigPluginContext, { root } as UserConfig, {
+          command: 'serve',
+          mode: 'test',
+        })
+      ).not.toThrow();
+
+      // The directory's index file was crawled, so its react import is materialized.
+      const code = generateLocalSharedImportMap(owner._options);
+      expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
+      expect(code).toMatch(/"vue": \{[\s\S]*?materialize: false,/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('stabilizes optimizer inputs before dependency scanning', () => {
     const plugin = getEarlyInitPlugin();
     const config: any = {
