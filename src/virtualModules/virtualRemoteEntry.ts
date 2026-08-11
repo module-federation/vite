@@ -1252,7 +1252,7 @@ export function generateRemoteEntry(
       const parts = pkg.split('/');
       return pkg.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
     };
-    const __mfGetPendingExternalSharedProvider = (pkg, share) => {
+    const __mfGetPendingExternalSharedProvider = (pkg, share, versionMap) => {
       if (typeof __mfSelectExternalSharedProvider !== 'function') return undefined;
       const packageName = __mfGetSharePackageName(pkg);
       const candidates = packageName === pkg
@@ -1260,9 +1260,11 @@ export function generateRemoteEntry(
         : [[pkg, share], [packageName, usedShared[packageName]]];
       for (const [candidatePkg, candidateShare] of candidates) {
         if (!candidateShare) continue;
-        const versionMap = ${hasMultipleShareScopes ? 'getShareVersions(candidatePkg, candidateShare)' : 'shared[candidatePkg]'};
+        const candidateVersionMap = versionMap
+          ? (candidatePkg === pkg ? versionMap : initialShared[candidatePkg])
+          : ${hasMultipleShareScopes ? 'getShareVersions(candidatePkg, candidateShare)' : 'shared[candidatePkg]'};
         const provider = __mfSelectExternalSharedProvider(
-          versionMap,
+          candidateVersionMap,
           candidatePkg,
           candidateShare,
           '${options.shareStrategy}'
@@ -1609,7 +1611,7 @@ export function generateRemoteEntry(
           // this container's outer initScope. Materialized providers are already active,
           // so resolve them directly and keep remote initialization on the guarded path.
           let directFactory = provider.lib;
-          if (!directFactory && !scopeRoot && isWebpackProvider(provider)) return;
+          if (!directFactory && isWebpackProvider(provider)) return;
           if (!directFactory && provider.loading) directFactory = await provider.loading;
           if (!directFactory && provider.loaded && typeof provider.get === 'function') {
             directFactory = await provider.get();
@@ -1856,6 +1858,7 @@ export function generateRemoteEntry(
         ? __mfReadTreeShakingSharedSelection(__mfModuleCache.share, cacheDescriptor, mfName)
         : __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
       if (share.shareConfig?.import !== false || cachedShare !== undefined) return;
+      if (__mfGetPendingExternalSharedProvider(pkg, share, initialShared[pkg])) return;
       ${normalizeRuntimeShareCode}
       const versionMap = ${hasMultipleShareScopes ? 'getShareVersions(pkg, share)' : 'shared?.[pkg]'};
       const provider = __mfSelectSharedProvider(

@@ -2830,8 +2830,7 @@ describe('virtualRemoteEntry', () => {
       code.indexOf('const __mfBridgeMaterializedProvider ='),
       code.indexOf('const __mfBridgeExternalSharedProvider =')
     );
-    const webpackProviderGuard =
-      'if (!directFactory && !scopeRoot && isWebpackProvider(provider)) return;';
+    const webpackProviderGuard = 'if (!directFactory && isWebpackProvider(provider)) return;';
     const lazyProviderAwait =
       'if (!directFactory && provider.loading) directFactory = await provider.loading;';
 
@@ -2849,6 +2848,9 @@ describe('virtualRemoteEntry', () => {
     expect(externalBridgeCode).toContain(externalProviderGuard);
     expect(code).toContain(
       "const pendingExternalProvider = typeof __mfGetPendingExternalSharedProvider === 'function'"
+    );
+    expect(code).toContain(
+      'if (__mfGetPendingExternalSharedProvider(pkg, share, initialShared[pkg])) return;'
     );
     expect(externalBridgeCode.indexOf(externalProviderGuard)).toBeLessThan(
       externalBridgeCode.indexOf('const loadedShare = await __mfLoadPinnedRuntimeShare(')
