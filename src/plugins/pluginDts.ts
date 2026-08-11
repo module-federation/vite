@@ -13,6 +13,7 @@ import { rpc, type DTSManagerOptions } from '@module-federation/dts-plugin/core'
 import * as path from 'node:path';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { normalizePathForImport } from '../utils/buildPaths';
+import { DEFAULT_PUBLIC_TYPES_FOLDER } from '../utils/dtsConstants';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency, resolveImportPath } from '../utils/packageUtils';
 import { createModuleFederationError, mfError } from '../utils/logger';
@@ -34,7 +35,6 @@ const DYNAMIC_HINTS_PLUGIN = '@module-federation/dts-plugin/dynamic-remote-type-
 const getIPv4 = () => process.env['FEDERATION_IPV4'] || '127.0.0.1';
 
 const DEV_TYPES_FOLDER = '.dev-server';
-export const DEFAULT_PUBLIC_TYPES_FOLDER = '@mf-types';
 
 type DevWorkerOptions = DTSManagerOptions & {
   name: string;
