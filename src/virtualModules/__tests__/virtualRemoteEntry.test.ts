@@ -2403,7 +2403,9 @@ describe('virtualRemoteEntry', () => {
     expect(initializeSharingCall).toBeGreaterThan(-1);
     expect(lateBridgeCall).toBeGreaterThan(initializeSharingCall);
     expect(code).toContain('let __mfLateBridgeShared');
-    expect(code).toContain('__mfLateBridgeShared = async () =>');
+    expect(code).toContain('const __mfBridgeSharedProviders = async () =>');
+    expect(code).toContain('if (__mfUsesWebpackShareScope) {');
+    expect(code).toContain('__mfLateBridgeShared = __mfBridgeSharedProviders');
     expect(code).toContain('if (__mfLateBridgeShared) await __mfLateBridgeShared()');
   });
 
@@ -2857,7 +2859,7 @@ describe('virtualRemoteEntry', () => {
     );
 
     const detectorStart = code.indexOf('function isWebpackProvider(provider) {');
-    const detectorEnd = code.indexOf('const __mfGetSharePackageName', detectorStart);
+    const detectorEnd = code.indexOf('const __mfUsesWebpackShareScope', detectorStart);
     const isWebpackProvider = new Function(
       `${code.slice(detectorStart, detectorEnd)}; return isWebpackProvider;`
     )() as (provider: unknown) => boolean;
@@ -2868,6 +2870,12 @@ describe('virtualRemoteEntry', () => {
     expect(isWebpackProvider({ get: webpackGet })).toBe(true);
     expect(isWebpackProvider({ get: () => Promise.resolve(() => ({})) })).toBe(false);
     expect(isWebpackProvider({})).toBe(false);
+    expect(code).toContain('const isWebpackScope = !scopeRoot &&');
+    expect(code).toContain(
+      'const runtimeScope = isWebpackScope ? __mfCloneShareScope(hostScope) : hostScope;'
+    );
+    expect(code).toContain('if (webpackScopes.length === 0) return;');
+    expect(code).toContain('for (const { host, runtime } of webpackScopes)');
   });
 
   it('restores a plain host provider from the pre-init snapshot after remote registration', async () => {

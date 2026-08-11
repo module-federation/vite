@@ -1206,13 +1206,23 @@ export function generateRemoteEntry(
       return runtimeScope;
     };
     const __mfGetRuntimeShareScope = (scopeName, hostScope) => {
-      const runtimeScope = scopeRoot ? hostScope : __mfCloneShareScope(hostScope);
-      __mfRuntimeShareScopes[scopeName] = { host: hostScope, runtime: runtimeScope };
+      const isWebpackScope = !scopeRoot && Object.values(hostScope || {}).some((versions) =>
+        Object.values(versions || {}).some(isWebpackProvider)
+      );
+      const runtimeScope = isWebpackScope ? __mfCloneShareScope(hostScope) : hostScope;
+      __mfRuntimeShareScopes[scopeName] = {
+        host: hostScope,
+        runtime: runtimeScope,
+        isWebpackScope
+      };
       return runtimeScope;
     };
     const __mfRestoreForeignSharedProviders = () => {
-      if (scopeRoot) return;
-      for (const { host, runtime } of Object.values(__mfRuntimeShareScopes)) {
+      const webpackScopes = Object.values(__mfRuntimeShareScopes).filter(
+        ({ isWebpackScope }) => isWebpackScope
+      );
+      if (webpackScopes.length === 0) return;
+      for (const { host, runtime } of webpackScopes) {
         for (const [pkg, versions] of Object.entries(host || {})) {
           const runtimeVersions = runtime[pkg] ||= Object.create(null);
           for (const [version, provider] of Object.entries(versions || {})) {
@@ -1248,6 +1258,9 @@ export function generateRemoteEntry(
       const source = Function.prototype.toString.call(provider.get);
       return source.includes('__webpack_require__');
     }
+    const __mfUsesWebpackShareScope = Object.values(initialShared).some((versions) =>
+      Object.values(versions || {}).some(isWebpackProvider)
+    );
     const __mfGetSharePackageName = (pkg) => {
       const parts = pkg.split('/');
       return pkg.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
@@ -1790,7 +1803,7 @@ export function generateRemoteEntry(
     __mfRestoreForeignSharedProviders();
     // Calling provider.get() marks a provider as loaded. Wait until the Runtime has
     // finalized normal same-version precedence before materializing an external share.
-    __mfLateBridgeShared = async () => {
+    const __mfBridgeSharedProviders = async () => {
       for (const batch of __mfMaterializedShareBatches) await Promise.all(batch.map(async (pkg) => {
         const usedShare = usedShared[pkg];
         if (!usedShare || usedShare.materialize === false || usedShare.treeShaking) return;
@@ -1803,7 +1816,10 @@ export function generateRemoteEntry(
         );
       }));
     };
-    await __mfLateBridgeShared();
+    await __mfBridgeSharedProviders();
+    if (__mfUsesWebpackShareScope) {
+      __mfLateBridgeShared = __mfBridgeSharedProviders;
+    }
     try {
       const allInstances = globalThis.__FEDERATION__?.__SHARE__;
       const globalVersionsByPackage = Object.create(null);
