@@ -434,7 +434,7 @@ function isFile(candidate: string): boolean {
   }
 }
 
-function registerEntrySharedImports(
+function registerEntryImports(
   options: NormalizedModuleFederationOptions,
   projectRoot: string
 ): void {
@@ -442,9 +442,13 @@ function registerEntrySharedImports(
   const dynamicImport = /\b(?:import|require)\s*\(\s*(['"])([^'"]+)\1/g;
   const sourceExtensions = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.vue', '.svelte'];
   const root = path.resolve(projectRoot);
-  const pending: string[] = [];
-  const visited = new Set<string>();
-  const enqueue = (request: string, importer = path.join(root, 'index.html')) => {
+  const pending: Array<{ file: string; preloadRemotes: boolean }> = [];
+  const visited = new Map<string, boolean>();
+  const enqueue = (
+    request: string,
+    importer = path.join(root, 'index.html'),
+    preloadRemotes = false
+  ) => {
     const cleanRequest = request.replace(/[?#].*$/, '');
     if (
       !cleanRequest.startsWith('.') &&
@@ -463,14 +467,16 @@ function registerEntrySharedImports(
       ...sourceExtensions.map((extension) => path.join(base, `index${extension}`)),
     ];
     const file = candidates.find(isFile);
-    if (file && !visited.has(file)) pending.push(file);
+    if (file && (!visited.has(file) || (preloadRemotes && !visited.get(file)))) {
+      pending.push({ file, preloadRemotes });
+    }
   };
 
   const htmlEntry = path.join(root, 'index.html');
   if (existsSync(htmlEntry)) {
     const html = readFileSync(htmlEntry, 'utf8');
     for (const match of html.matchAll(/<script\b[^>]*\bsrc=(['"])([^'"]+)\1[^>]*>/gi)) {
-      enqueue(match[2], htmlEntry);
+      enqueue(match[2], htmlEntry, true);
     }
   }
   for (const expose of Object.values(options.exposes ?? {})) {
@@ -478,19 +484,28 @@ function registerEntrySharedImports(
   }
 
   while (pending.length) {
-    const file = pending.pop()!;
-    if (visited.has(file)) continue;
-    visited.add(file);
+    const { file, preloadRemotes } = pending.pop()!;
+    if (visited.get(file) || (visited.has(file) && !preloadRemotes)) continue;
+    visited.set(file, preloadRemotes);
     const code = readFileSync(file, 'utf8');
     for (const pattern of [staticImport, dynamicImport]) {
+      const isStatic = pattern === staticImport;
       pattern.lastIndex = 0;
       for (const match of code.matchAll(pattern)) {
         const request = match[2];
+        const remoteKey =
+          preloadRemotes && isStatic && request
+            ? Object.keys(options.remotes).find(
+                (name) => request === name || request.startsWith(`${name}/`)
+              )
+            : undefined;
         const sharedKey = request && findSharedKey(request, options.shared);
-        if (sharedKey) {
+        if (remoteKey) {
+          addUsedRemote(remoteKey, request, options);
+        } else if (sharedKey) {
           addUsedShares(request, options);
         } else if (request) {
-          enqueue(request, file);
+          enqueue(request, file, preloadRemotes && isStatic);
         }
       }
     }
@@ -540,6 +555,13 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           // remote namespace fixup path and can resolve same-named packages.
           config.optimizeDeps.exclude.push(...Object.keys(remotes || {}));
         }
+      }
+
+      if (
+        _command === 'serve' &&
+        (Object.keys(shared ?? {}).length > 0 || Object.keys(remotes ?? {}).length > 0)
+      ) {
+        registerEntryImports(options, root);
       }
 
       // Create shared module virtual files EARLY and register shares eagerly
@@ -746,7 +768,6 @@ export default __mfShared.default ?? __mfShared;`,
             }
           }
         }
-        if (_command === 'serve') registerEntrySharedImports(options, root);
         writeLocalSharedImportMap(options);
       }
       if (_command === 'serve') {

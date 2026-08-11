@@ -80,6 +80,7 @@ import {
   getResolvedLocalSharedImportMapId,
   getUsedShares,
 } from '../virtualModules/virtualRemoteEntry';
+import { getUsedRemotesMap } from '../virtualModules/virtualRemotes';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
 const REACT_EXAMPLE_ROOT = path.join(process.cwd(), 'examples/vite-vite/vite-host');
@@ -1189,6 +1190,46 @@ describe('vite:module-federation-early-init', () => {
       const code = generateLocalSharedImportMap(owner._options);
       expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
       expect(code).toMatch(/"vue": \{[\s\S]*?materialize: false,/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('registers nested static remotes before the first dev load', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-entry-static-remote-'));
+    mkdirSync(path.join(root, 'src/store'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<script type="module" src="/src/main.ts"></script>'
+    );
+    writeFileSync(path.join(root, 'src/main.ts'), 'import "./store"; import("./lazy")');
+    writeFileSync(path.join(root, 'src/store/index.ts'), 'import "modules/authSlice"');
+    writeFileSync(path.join(root, 'src/lazy.ts'), 'import "modules/lazy"');
+
+    try {
+      const plugins = federation({
+        name: 'entry-static-remote',
+        remotes: {
+          modules: {
+            name: 'modules',
+            type: 'module',
+            entry: '/modules/assets/remoteEntry.js',
+          },
+        },
+      }) as Plugin[];
+      const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+      const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+        | (Plugin & { _options: NormalizedModuleFederationOptions })
+        | undefined;
+      if (!early || !owner) throw new Error('module federation plugins not found');
+
+      runConfig(early, { meta: {} } as ConfigPluginContext, { root } as UserConfig, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      expect([...getUsedRemotesMap(owner._options).modules]).toContain('modules/authSlice');
+      expect([...getUsedRemotesMap(owner._options).modules]).not.toContain('modules/lazy');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
