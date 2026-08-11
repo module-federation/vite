@@ -25,8 +25,10 @@ const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   mfWarnSpy: vi.fn(),
 }));
 
-const { hasPackageDependencyMock } = vi.hoisted(() => ({
+const { hasPackageDependencyMock, packageDetectionCwdMock, createRequireSpy } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
+  packageDetectionCwdMock: vi.fn(() => '/repo/apps/remote'),
+  createRequireSpy: vi.fn(),
 }));
 
 const { sideEffectChannels, openLoopKeepingChannel } = vi.hoisted(() => ({
@@ -190,7 +192,7 @@ vi.mock('../../utils/packageUtils', () => ({
           };`,
   packageNameEncode: (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, '_'),
   hasPackageDependency: hasPackageDependencyMock,
-  getPackageDetectionCwd: vi.fn(() => '/repo/apps/remote'),
+  getPackageDetectionCwd: packageDetectionCwdMock,
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
   getInstalledPackageEntry: vi.fn((pkg: string, opts?: { cwd?: string; conditions?: string[] }) => {
     if (pkg === 'react/jsx-runtime') {
@@ -954,6 +956,7 @@ vi.mock('module', async (importOriginal) => {
   return {
     ...actual,
     createRequire: (from: string | URL) => {
+      createRequireSpy(from);
       const fromPath = String(from);
       const req = ((pkg: string) => {
         if (pkg === 'mock-package-side-effect') {
@@ -1207,6 +1210,9 @@ describe('writeLoadShareModule', () => {
     mfWarnSpy.mockClear();
     hasPackageDependencyMock.mockReset();
     hasPackageDependencyMock.mockReturnValue(false);
+    packageDetectionCwdMock.mockReset();
+    packageDetectionCwdMock.mockReturnValue('/repo/apps/remote');
+    createRequireSpy.mockClear();
     normalizeModuleFederationOptions({ name: 'test' });
   });
 
@@ -2855,6 +2861,18 @@ describe('writeLoadShareModule', () => {
     expect(getConcreteSharedImportSource('workspace-parent-dual-format')).toBe(
       '/repo/packages/workspace-parent-dual-format/dist/index.js'
     );
+  });
+
+  it('memoizes concrete shared import resolution by package and project root', () => {
+    const pkg = 'memoized-shared-package';
+
+    expect(getConcreteSharedImportSource(pkg)).toBeUndefined();
+    expect(getConcreteSharedImportSource(pkg)).toBeUndefined();
+    expect(createRequireSpy).toHaveBeenCalledTimes(1);
+
+    packageDetectionCwdMock.mockReturnValue('/repo/apps/other');
+    expect(getConcreteSharedImportSource(pkg)).toBeUndefined();
+    expect(createRequireSpy).toHaveBeenCalledTimes(2);
   });
 
   it('uses project require resolution for package subpath import paths', () => {
