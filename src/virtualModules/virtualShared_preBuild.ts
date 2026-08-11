@@ -1055,6 +1055,18 @@ function tryResolveImportFromPackageRoot(pkg: string, root: string): string | un
   }
 }
 
+/**
+ * Resolution walks from the project root up to the filesystem root, probing
+ * every level, and the shared-module resolver asks for the same few packages
+ * tens of thousands of times on a cold dev start. The detection cwd is part of
+ * the key because `setPackageDetectionCwd` can move it between config hooks.
+ */
+const concreteSharedImportSourceCache = new Map<string, string | undefined>();
+
+export function resetConcreteSharedImportSourceCache() {
+  concreteSharedImportSourceCache.clear();
+}
+
 export function getConcreteSharedImportSource(
   pkg: string,
   shareItem?: ShareItem
@@ -1063,6 +1075,16 @@ export function getConcreteSharedImportSource(
   if (typeof configuredImport === 'string') return configuredImport;
 
   const projectRoot = getPackageDetectionCwd();
+  const cacheKey = JSON.stringify([projectRoot, pkg]);
+  if (concreteSharedImportSourceCache.has(cacheKey)) {
+    return concreteSharedImportSourceCache.get(cacheKey);
+  }
+  const resolved = resolveConcreteSharedImportSource(pkg, projectRoot);
+  concreteSharedImportSourceCache.set(cacheKey, resolved);
+  return resolved;
+}
+
+function resolveConcreteSharedImportSource(pkg: string, projectRoot: string): string | undefined {
   if (tryResolveImportFromPackageRoot(pkg, projectRoot)) {
     return undefined;
   }

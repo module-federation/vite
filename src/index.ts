@@ -90,6 +90,7 @@ import {
   getPreBuildLibImportId,
   materializeCachedLoadShareModule,
   prependWorkspaceSingletonSsrImport,
+  resetConcreteSharedImportSourceCache,
   writeLoadShareModule,
   writePreBuildLibPath,
 } from './virtualModules/virtualShared_preBuild';
@@ -507,6 +508,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       if (_command === 'serve') ignoreFederationGeneratedFiles(config, options);
 
       const root = config.root || process.cwd();
+      resetConcreteSharedImportSourceCache();
       setPackageDetectionCwd(root);
       const isVinext = hasPackageDependency('vinext');
 
