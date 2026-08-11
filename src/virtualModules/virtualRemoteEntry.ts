@@ -1850,10 +1850,20 @@ export function generateRemoteEntry(
     for (const pkg of __mfDeferredSeedKeys) {
       const share = usedShared[pkg];
       if (__mfIsRuntimeOnlySharePending(pkg)) {
-        if (share.treeShaking) {
-          await __mfResolveTreeShakingShared(pkg, share);
-        } else if (share.shareConfig?.import === false) {
-          await __mfResolveImportFalseShared(pkg, share);
+        try {
+          if (share.treeShaking) {
+            await __mfResolveTreeShakingShared(pkg, share);
+          } else if (share.shareConfig?.import === false) {
+            await __mfResolveImportFalseShared(pkg, share);
+          }
+        } catch (err) {
+          // A rejected provider is an unresolved provider: stop here as the comment above
+          // prescribes, instead of escalating to a container-wide init() failure.
+          console.error(
+            \`[Module Federation] Failed to resolve runtime-only shared module "\${pkg}"\`,
+            err
+          );
+          break;
         }
       }
       if (__mfIsRuntimeOnlySharePending(pkg)) break;

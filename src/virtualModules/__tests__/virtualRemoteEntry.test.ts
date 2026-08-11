@@ -1789,6 +1789,93 @@ describe('virtualRemoteEntry', () => {
     expect(order).toEqual(['@repro/shared-lib', '@repro/core']);
   });
 
+  it('does not reject init when a runtime-only provider fails to load', async () => {
+    const shareItem = (name: string) => ({
+      name,
+      from: 'remote',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: '^1.0.0',
+        strictVersion: false,
+        import: false as const,
+      },
+    });
+    normalizedSharedMock.mockReturnValue({
+      '@repro/failing': shareItem('@repro/failing'),
+      '@repro/other': shareItem('@repro/other'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('@repro/failing');
+    mod.addUsedShares('@repro/other');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+    const seedCode = getRuntimeSeedCode(code);
+    const deferredResolutionCode = getRuntimeDeferredResolutionCode(code);
+    const attempted: string[] = [];
+    const usedShared = {
+      '@repro/failing': { ...shareItem('@repro/failing'), scope: ['default'] },
+      '@repro/other': { ...shareItem('@repro/other'), scope: ['default'] },
+    };
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // A provider whose chunk fails to load must not escalate to a container-wide failure.
+      await expect(
+        new Function(
+          'usedShared',
+          'attempted',
+          `return (async () => {
+            const __mfModuleCache = { share: {} };
+            const mfName = 'remote';
+            const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+              const scopeName = Array.isArray(scope) ? scope[0] : scope || 'default';
+              return { canonical: scopeName + ':' + (singleton || !version ? pkg : pkg + '@' + version) };
+            };
+            const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+            const __mfReadSharedCacheOwner = () => undefined;
+            const __mfWriteSharedCache = (cache, descriptor, value) => {
+              cache[descriptor.canonical] = value;
+            };
+            const __mfReadTreeShakingSharedSelection = () => undefined;
+            const __mfResolveImportFalseShared = async (pkg) => {
+              attempted.push(pkg);
+              throw Object.assign(new Error('Loading chunk 1 failed.'), { name: 'ChunkLoadError' });
+            };
+            const __mfResolveTreeShakingShared = async () => {};
+            ${seedCode}
+            ${deferredResolutionCode}
+          })();`
+        )(usedShared, attempted)
+      ).resolves.not.toThrow();
+
+      expect(attempted).toEqual(['@repro/failing']);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to resolve runtime-only shared module "@repro/failing"'),
+        expect.anything()
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('bridges a lazy singleton before evaluating shared modules that capture it', async () => {
     const shareItem = (name: string) => ({
       name,
