@@ -506,7 +506,7 @@ describe('module parse wiring', () => {
 
     callHook(parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
 
-    expect(await resolvesQuickly(Promise.resolve(pendingRemoteEntry))).toBe(true);
+    expect(await Promise.resolve(pendingRemoteEntry)).toEqual(expect.any(String));
   });
 
   it('keeps the complete import:false export surface when parse analysis is incomplete', async () => {

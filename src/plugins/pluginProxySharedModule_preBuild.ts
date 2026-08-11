@@ -135,12 +135,18 @@ function getSharedKeyMatcher(shared: NormalizedShared | undefined): SharedKeyMat
 
   for (const key of keys) {
     const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
+    const shareItem = shared[key];
 
     if (!vueKey && keyBase === 'vue') vueKey = key;
     if (key.endsWith('/')) wildcardKeys.push({ key, base: keyBase });
 
-    for (const subpath of getCommonSharedSubpaths(keyBase)) {
-      if (!commonSubpathKeys.has(subpath)) commonSubpathKeys.set(subpath, key);
+    // `import: false` applies to the configured key only. Treating common
+    // subpaths as implicit shares creates unfulfillable runtime-only entries
+    // for hosts which provide the bare package but not every package export.
+    if (shareItem.shareConfig?.import !== false) {
+      for (const subpath of getCommonSharedSubpaths(keyBase)) {
+        if (!commonSubpathKeys.has(subpath)) commonSubpathKeys.set(subpath, key);
+      }
     }
   }
 

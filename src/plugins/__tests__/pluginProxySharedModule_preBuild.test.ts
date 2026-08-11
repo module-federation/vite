@@ -355,6 +355,22 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(findSharedKey('missing-dep/subpath', shared)).toBeUndefined();
       expect(findSharedKey('missing-dep/subpath', shared)).toBeUndefined();
     });
+
+    it('does not implicitly share common subpaths when the package uses import:false', () => {
+      const shared = makeShared();
+      shared.react.shareConfig.import = false;
+
+      expect(findSharedKey('react', shared)).toBe('react');
+      expect(findSharedKey('react/jsx-runtime', shared)).toBeUndefined();
+
+      const explicitlyShared = makeShared();
+      explicitlyShared.react.shareConfig.import = false;
+      explicitlyShared['react/jsx-runtime'] = {
+        ...explicitlyShared.react,
+        name: 'react/jsx-runtime',
+      };
+      expect(findSharedKey('react/jsx-runtime', explicitlyShared)).toBe('react/jsx-runtime');
+    });
   });
 
   beforeEach(() => {
