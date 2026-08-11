@@ -51,5 +51,8 @@ jobs:
           esac
           pnpm add -Dw vite-under-test@npm:${{ matrix.bundler }}
 
+      - name: Build package for source-based integration tests
+        run: pnpm build
+
       - name: Run Integration Tests
         run: MFE_VITE_PACKAGE=vite-under-test pnpm test:integration

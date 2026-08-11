@@ -121,13 +121,15 @@ afterEach(async () => {
 
 async function createDevServer(
   name: string,
-  options: Parameters<typeof federation>[0]
+  options: Parameters<typeof federation>[0],
+  root = fixtureRoot,
+  logLevel: 'silent' | 'info' = 'silent'
 ): Promise<{ origin: string }> {
   const cacheDir = await mkdtemp(path.join(tmpdir(), `mf-vite-${name}-`));
   const viteServer = await createViteServer({
-    root: fixtureRoot,
+    root,
     cacheDir,
-    logLevel: 'silent',
+    logLevel,
     plugins: [federation(options)],
     server: {
       cors: true,
@@ -243,6 +245,86 @@ async function fetchModuleGraph(origin: string, entry: string): Promise<Map<stri
 }
 
 describe(`singleton React dev fallback (Vite ${viteVersion})`, () => {
+  it('boots on first load with a nested static remote import (#1056)', async () => {
+    const remoteRoot = path.join(fixtureRoot, 'issue1056-remote');
+    await mkdir(path.join(fixtureRoot, 'src/store'), { recursive: true });
+    await mkdir(path.join(remoteRoot, 'src'), { recursive: true });
+    await Promise.all([
+      writeFile(
+        path.join(fixtureRoot, 'index.html'),
+        '<script type="module" src="/src/main.js"></script>\n'
+      ),
+      writeFile(path.join(fixtureRoot, 'src/main.js'), "import './store';\n"),
+      writeFile(
+        path.join(fixtureRoot, 'src/store/index.js'),
+        "import value from 'issue1056Remote/value';\nwindow.__issue1056Result = value;\n"
+      ),
+      writeFile(path.join(remoteRoot, 'src/value.js'), "export default 'ready';\n"),
+    ]);
+    const remote = await createDevServer(
+      'issue-1056-remote',
+      {
+        name: 'issue1056Remote',
+        filename: 'remoteEntry.js',
+        exposes: { './value': path.join(remoteRoot, 'src/value.js') },
+        dts: false,
+      },
+      remoteRoot
+    );
+    const host = await createDevServer(
+      'issue-1056-host',
+      {
+        name: 'issue1056Host',
+        remotes: {
+          issue1056Remote: {
+            type: 'module',
+            name: 'issue1056Remote',
+            entry: `${remote.origin}/remoteEntry.js`,
+          },
+        },
+        dts: false,
+      },
+      fixtureRoot,
+      'info'
+    );
+    const browser = await chromium.launch({ channel: 'chrome', headless: true });
+    cleanupTasks.push(() => browser.close());
+    const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    const consoleErrors: string[] = [];
+    const failedRequests: string[] = [];
+    const errorResponses: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') consoleErrors.push(message.text());
+    });
+    page.on('requestfailed', (request) => {
+      failedRequests.push(`${request.url()}: ${request.failure()?.errorText}`);
+    });
+    page.on('response', (response) => {
+      if (response.status() >= 400) {
+        errorResponses.push(`${response.status()} ${response.url()}`);
+      }
+    });
+
+    await page.goto(host.origin, { waitUntil: 'domcontentloaded' });
+    try {
+      await page.waitForFunction(() => window.__issue1056Result === 'ready', undefined, {
+        timeout: 15_000,
+      });
+    } catch (error) {
+      throw new Error(
+        JSON.stringify(
+          { cause: String(error), pageErrors, consoleErrors, failedRequests, errorResponses },
+          null,
+          2
+        )
+      );
+    }
+
+    expect(pageErrors).toEqual([]);
+  }, 60_000);
+
   it('serves an optimized ESM React provider', async () => {
     const { origin } = await createDevServer('issue-913-provider', {
       name: 'issue913Provider',
@@ -446,6 +528,7 @@ window.__issue978Result = {
 
 declare global {
   interface Window {
+    __issue1056Result?: string;
     __issue913HostReact?: unknown;
     __issue913RemoteReact?: unknown;
     __issue978Result?: {
