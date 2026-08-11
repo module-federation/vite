@@ -95,9 +95,7 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
       for (const [pkg, shareInfo] of Object.entries(sharedSingletons)) {
         try {
           if (shareInfo.scope !== scopeName) continue;
-          if (!scopeShare[pkg]) {
-            throw new Error('No compatible host provider was registered in the share scope');
-          }
+          if (!scopeShare[pkg]) continue;
           const factory = await initRes.loadShare(pkg, {
             customShareInfo: { ...shareInfo, scope: [scopeName] },
           });

@@ -158,14 +158,12 @@ describe('virtualRemoteEntrySSR', () => {
     expect(dynamicImport).not.toHaveBeenCalled();
   });
 
-  it('rejects init when a required singleton is absent from the host share scope', async () => {
+  it('allows the SSR local fallback when a singleton is absent from the host share scope', async () => {
     const loadShare = vi.fn();
     const runtimeInit = createRuntime(undefined, loadShare);
     const entry = createEntry(runtimeInit, { shared: { react: singleton('react') } });
 
-    await expect(entry.init({})).rejects.toThrow(
-      'scope "default" package "react": No compatible host provider was registered in the share scope'
-    );
+    await expect(entry.init({})).resolves.toBeDefined();
     expect(loadShare).not.toHaveBeenCalled();
   });
 
