@@ -1,9 +1,5 @@
 import type { UserConfig } from 'vite';
 
-export interface Command {
-  // define command properties here
-}
-
 export default {
   name: 'alias-transform-plugin',
   config: (config: UserConfig) => {

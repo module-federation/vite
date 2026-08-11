@@ -1,9 +1,5 @@
 import type { UserConfig } from 'vite';
 
-export interface Command {
-  command: string;
-}
-
 export default {
   name: 'normalizeOptimizeDeps',
   config: (config: UserConfig) => {

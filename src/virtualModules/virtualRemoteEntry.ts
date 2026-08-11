@@ -1574,17 +1574,10 @@ export function generateRemoteEntry(
         const resolved = loadedShare?.resolved;
         if (resolved === undefined) return;
         if (__mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor) !== undefined) return;
-        ${
-          options.shareStrategy === 'loaded-first'
-            ? `if (
+        if (
           actualSelection.registered &&
           liveVersionMap?.[actualSelection.version] !== actualProvider
-        ) return;`
-            : `if (
-          actualSelection.registered &&
-          liveVersionMap?.[actualSelection.version] !== actualProvider
-        ) return;`
-        }
+        ) return;
         __mfWriteSharedCache(
           __mfModuleCache.share,
           usedCacheDescriptor,
@@ -1982,8 +1975,6 @@ export function generateHostAutoInitCode(
           `
               : ''
           }
-          const __mfRemotePreloads = [];
-          await Promise.all(__mfRemotePreloads);
           return runtime;
         })();
       }
@@ -2014,9 +2005,6 @@ export function refreshHostAutoInit(options?: NormalizedModuleFederationOptions)
     // Some isolated unit tests exercise share/remote plugins without
     // initializing normalized federation options.
   }
-}
-export function getHostAutoInitImportId(options?: NormalizedModuleFederationOptions) {
-  return getHostAutoInitState(options).module.getImportId();
 }
 export function getHostAutoInitPath(options?: NormalizedModuleFederationOptions) {
   return getHostAutoInitState(options).module.getImportId();
