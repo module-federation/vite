@@ -28,6 +28,7 @@ import {
   isDynamicOnlyRemote,
 } from '../virtualModules/virtualRemotes';
 import {
+  getModuleCacheGlobalKey,
   getRuntimeModuleCacheBootstrapCode,
   getRuntimeRemoteCachePrefix,
 } from '../virtualModules/virtualRuntimeInitStatus';
@@ -375,6 +376,10 @@ const __mfCurrentScript = document.currentScript;
     const pendingShareLoadsAwait = `
   if (__mfModuleCache.pendingShareLoads) {
     await Promise.all(__mfModuleCache.pendingShareLoads);
+  }
+  const __mfReactServerModuleCache = globalThis[${JSON.stringify(getModuleCacheGlobalKey(['react-server']))}];
+  if (__mfReactServerModuleCache?.pendingShareLoads) {
+    await Promise.all(__mfReactServerModuleCache.pendingShareLoads);
   }`;
 
     const importCode = `

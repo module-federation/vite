@@ -416,6 +416,9 @@ describe('pluginAddEntry', () => {
 
     expect(result?.code).toContain('__mfModuleCache.pendingShareLoads');
     expect(result?.code).toContain('await Promise.all(__mfModuleCache.pendingShareLoads)');
+    expect(result?.code).toContain(
+      'await Promise.all(__mfReactServerModuleCache.pendingShareLoads)'
+    );
 
     const bootstrap = result?.code ?? '';
     expect(bootstrap.indexOf('await initHost();')).toBeLessThan(
