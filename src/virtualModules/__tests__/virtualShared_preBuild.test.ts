@@ -15,6 +15,7 @@ import {
   getTreeShakingGraphToken,
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
+  refreshTreeShakingModules,
   resetConcreteSharedImportSourceCache,
   stripTreeShakingGraphQuery,
   writeLoadShareModule,
@@ -2735,6 +2736,27 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).toContain('__mf_0 as workerOnly');
     expect(generatedCode).not.toContain('serverOnly');
+  });
+
+  it('preserves react-server conditions when refreshing tree-shaken shares', () => {
+    const options = normalizeModuleFederationOptions({
+      name: 'host',
+      shared: {
+        react: {
+          singleton: true,
+          treeShaking: { mode: 'runtime-infer', usedExports: ['useState'] },
+        },
+      },
+    });
+    const shareItem = options.shared.react;
+
+    writePreBuildLibPath('react', shareItem, options);
+    writeSyncSpy.mockClear();
+    refreshTreeShakingModules(options, 'serve', false, ['react-server']);
+
+    const generatedCode = writeSyncSpy.mock.calls.map(([code]) => code).join('\n');
+    expect(generatedCode).toContain('__mf_module_cache_react_server__');
+    expect(generatedCode).not.toContain('const __mfCacheGlobalKey = "__mf_module_cache__"');
   });
 
   it.each([

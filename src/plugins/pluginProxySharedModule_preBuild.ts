@@ -282,6 +282,16 @@ export function proxySharedModule(options: {
   const hasAnalyzableShares = Object.values(shared).some((share) =>
     shouldAnalyzeSharedExports(share)
   );
+  const getEnvironmentConditions = (context: unknown): string[] | undefined =>
+    (context as { environment?: { config?: { resolve?: { conditions?: string[] } } } }).environment
+      ?.config?.resolve?.conditions;
+  const refreshTreeShakingForEnvironment = (context: unknown) =>
+    refreshTreeShakingModules(
+      federationOptions,
+      _command,
+      getIsRolldown(context),
+      getEnvironmentConditions(context)
+    );
 
   const normalizeTreeShakingOutputPath = (value: string) => {
     const normalized = normalizePathForImport(value);
@@ -360,7 +370,7 @@ export function proxySharedModule(options: {
             // Export analysis is additive across the module graph. Materialize
             // and emit optimized providers only when the shared map itself is
             // finalized, immediately before Rollup discovers their imports.
-            refreshTreeShakingModules(federationOptions);
+            refreshTreeShakingForEnvironment(this);
             const providerPackages = new Set([
               ...Object.keys(shared).filter((pkg) => !pkg.endsWith('/')),
               ...getUsedShares(federationOptions),
@@ -435,7 +445,7 @@ export function proxySharedModule(options: {
         if (_command !== 'build') return;
         resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
-        refreshTreeShakingModules(federationOptions);
+        refreshTreeShakingForEnvironment(this);
       },
       shouldTransformCachedModule() {
         // Watch builds must revisit cached importers after the per-build usage
@@ -456,7 +466,7 @@ export function proxySharedModule(options: {
           (sharedKey, request) =>
             markTreeShakingPackageUnsafe(sharedKey, request, federationOptions)
         );
-        refreshTreeShakingModules(federationOptions);
+        refreshTreeShakingForEnvironment(this);
       },
     },
     {

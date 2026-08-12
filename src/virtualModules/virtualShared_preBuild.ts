@@ -1460,12 +1460,17 @@ export function writePreBuildLibPath(
 }
 
 /** Re-render already materialized wrappers after import analysis discovers exports. */
-export function refreshTreeShakingModules(options?: NormalizedModuleFederationOptions) {
+export function refreshTreeShakingModules(
+  options?: NormalizedModuleFederationOptions,
+  command = 'build',
+  isRolldown = false,
+  exportConditions?: string[]
+) {
   const { preBuildShareItemMap } = getSharedVirtualModuleState(options);
   for (const [pkg, shareItem] of Object.entries(preBuildShareItemMap)) {
     if (!shareItem?.shareConfig.treeShaking) continue;
-    writePreBuildLibPath(pkg, shareItem, options);
-    writeLoadShareModule(pkg, shareItem, 'build', false, options);
+    writePreBuildLibPath(pkg, shareItem, options, exportConditions);
+    writeLoadShareModule(pkg, shareItem, command, isRolldown, options, exportConditions);
   }
 }
 export function getPreBuildLibImportId(
