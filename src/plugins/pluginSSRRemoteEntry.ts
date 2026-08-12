@@ -251,23 +251,30 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let isNuxtProject = false;
   let reactIslandExposes: ReadonlySet<string> = new Set();
 
-  const isSsrRemoteEntryBuild = (environment?: { name?: string; config?: ResolvedConfig }) => {
+  const isSsrRemoteEntryBuild = (
+    environment: { name?: string; config?: ResolvedConfig } | undefined,
+    isRolldown: boolean
+  ) => {
     if (Object.keys(options.exposes).length === 0) return false;
     const environmentName = environment?.name;
     const hasSsrEnvironment = Boolean(viteConfig?.environments?.ssr);
-    const isLegacySsrBuild = Boolean(environment?.config?.build?.ssr ?? viteConfig?.build?.ssr);
 
     // Environment API (client + ssr): emit only in the ssr environment so
     // exposes are bundled with the Node SSR graph (nested loadRemote stays on
     // the server); writeBundle copies the entry into the client output dir.
     if (hasSsrEnvironment) return environmentName === 'ssr';
     // Legacy `vite build --ssr` pass (e.g. vue-ssr dual build:server).
+    const isLegacySsrBuild = Boolean(environment?.config?.build?.ssr ?? viteConfig?.build?.ssr);
     if (isLegacySsrBuild) return true;
     // Client-only remotes (no ssr environment of their own, e.g. a plain SPA
     // remote consumed by an SSR host) ship the SSR entry with their client
-    // assets — the consuming host fetches it over HTTP. Regressed in #1024,
-    // which stopped emitting any SSR entry for these apps.
-    return environmentName === undefined || environmentName === 'client';
+    // assets — the consuming host fetches it over HTTP. Regression (#1024):
+    // emission stopped entirely for these apps. Rolldown only: the Rollup
+    // asset path cannot bundle the SSR exposes graph, so its entry has never
+    // resolved its virtual:mf-exposes-ssr import (verified identical on
+    // 1.20.1) — emitting nothing there keeps Vite <=7 at parity with main
+    // instead of shipping a file that fails at first expose load.
+    return isRolldown && (environmentName === undefined || environmentName === 'client');
   };
 
   // The shared plugin instance may serve multiple build environments and Rollup
@@ -540,7 +547,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Environment API (client + ssr): emit only in the ssr environment so exposes
         // are bundled with the Node SSR graph (nested loadRemote stays on the server).
         // Emit only for an SSR environment or legacy `vite build --ssr`.
-        if (!isSsrRemoteEntryBuild(environment)) return;
+        if (!isSsrRemoteEntryBuild(environment, isRolldown)) return;
 
         if (isRolldown) {
           // Vite 8+ (Rolldown): emit as a proper chunk. Rolldown handles multiple
@@ -565,7 +572,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
             }
           ).environment;
           const exposesChunk = findNuxtExposesChunk(bundle);
-          if (!isRolldown && isSsrRemoteEntryBuild(environment)) {
+          if (!isRolldown && isSsrRemoteEntryBuild(environment, isRolldown)) {
             let source = getSsrRemoteEntrySource();
             if (exposesChunk) {
               source = source.replace(

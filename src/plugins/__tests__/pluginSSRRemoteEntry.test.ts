@@ -1001,6 +1001,42 @@ describe('pluginSSRRemoteEntry', () => {
       expect(emitFile).not.toHaveBeenCalled();
     });
 
+    it('does not emit the client-only SSR entry for Rollup builds', () => {
+      // Regression (#1024) scope note: the Rollup asset path has never produced
+      // a working client-only SSR entry — its virtual:mf-exposes-ssr import is
+      // only rewritten for Nuxt, so the emitted file fails at first expose load
+      // (verified identical on 1.20.1). Emitting nothing preserves main's
+      // behavior on Vite <=7; the restored client-pass emission is Rolldown-only.
+      getIsRolldownMock.mockReturnValue(false);
+      const emitFile = makeEmitFile();
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      const configResolved = mainPlugin.configResolved as (config: ResolvedConfig) => void;
+      configResolved?.({
+        command: 'build',
+        build: {},
+        environments: { client: {} },
+      } as unknown as ResolvedConfig);
+
+      callHook(
+        mainPlugin.buildStart,
+        {
+          meta: makePluginMeta(false),
+          emitFile,
+        } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle,
+        false
+      );
+
+      expect(emitFile).not.toHaveBeenCalled();
+    });
+
     it('emits SSR entry during the client build when no ssr environment exists', () => {
       // A client-only remote (e.g. a vinext/SSR host's federated remote) has no
       // ssr Vite environment of its own — its SSR entry is consumed by the
@@ -1315,10 +1351,13 @@ describe('pluginSSRRemoteEntry', () => {
         {} as Rollup.NormalizedInputOptions
       );
 
+      // No emitFile in the context on purpose: with client-only emission
+      // scoped to Rolldown, this non-Rolldown no-config call must stay a
+      // no-op — reaching for emitFile here would throw and fail the test.
       expect(() =>
         callHook(
           mainPlugin.generateBundle,
-          { emitFile } as unknown as Rollup.PluginContext,
+          {} as Rollup.PluginContext,
           {} as Rollup.NormalizedOutputOptions,
           {} as unknown as Rollup.OutputBundle,
           false
