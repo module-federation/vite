@@ -1001,6 +1001,42 @@ describe('pluginSSRRemoteEntry', () => {
       expect(emitFile).not.toHaveBeenCalled();
     });
 
+    it('emits SSR entry during the client build when no ssr environment exists', () => {
+      // A client-only remote (e.g. a vinext/SSR host's federated remote) has no
+      // ssr Vite environment of its own — its SSR entry is consumed by the
+      // host's server over HTTP, so it must ship with the client assets.
+      // Regressed in #1024: client-only remotes stopped emitting
+      // remoteEntry.ssr.js and SSR hosts fell back to importing the browser
+      // entry (ERR_UNSUPPORTED_ESM_URL_SCHEME).
+      getIsRolldownMock.mockReturnValue(true);
+      const emitFile = makeEmitFile();
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      const configResolved = mainPlugin.configResolved as (config: ResolvedConfig) => void;
+      configResolved?.({
+        command: 'build',
+        build: {},
+        environments: { client: {} },
+      } as unknown as ResolvedConfig);
+
+      callHook(
+        mainPlugin.buildStart,
+        {
+          meta: makePluginMeta(true),
+          emitFile,
+          environment: { name: 'client' },
+        } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'chunk',
+          fileName: 'remoteEntry.ssr.js',
+        })
+      );
+    });
+
     it('emits in the ssr environment when environments.ssr is configured', () => {
       getIsRolldownMock.mockReturnValue(true);
       const emitFile = makeEmitFile();
@@ -1282,7 +1318,7 @@ describe('pluginSSRRemoteEntry', () => {
       expect(() =>
         callHook(
           mainPlugin.generateBundle,
-          {} as Rollup.PluginContext,
+          { emitFile } as unknown as Rollup.PluginContext,
           {} as Rollup.NormalizedOutputOptions,
           {} as unknown as Rollup.OutputBundle,
           false

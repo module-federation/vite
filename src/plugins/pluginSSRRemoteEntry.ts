@@ -252,17 +252,22 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let reactIslandExposes: ReadonlySet<string> = new Set();
 
   const isSsrRemoteEntryBuild = (environment?: { name?: string; config?: ResolvedConfig }) => {
+    if (Object.keys(options.exposes).length === 0) return false;
     const environmentName = environment?.name;
     const hasSsrEnvironment = Boolean(viteConfig?.environments?.ssr);
     const isLegacySsrBuild = Boolean(environment?.config?.build?.ssr ?? viteConfig?.build?.ssr);
 
-    return (
-      Object.keys(options.exposes).length > 0 &&
-      !(
-        (hasSsrEnvironment && environmentName !== 'ssr') ||
-        (!hasSsrEnvironment && !isLegacySsrBuild)
-      )
-    );
+    // Environment API (client + ssr): emit only in the ssr environment so
+    // exposes are bundled with the Node SSR graph (nested loadRemote stays on
+    // the server); writeBundle copies the entry into the client output dir.
+    if (hasSsrEnvironment) return environmentName === 'ssr';
+    // Legacy `vite build --ssr` pass (e.g. vue-ssr dual build:server).
+    if (isLegacySsrBuild) return true;
+    // Client-only remotes (no ssr environment of their own, e.g. a plain SPA
+    // remote consumed by an SSR host) ship the SSR entry with their client
+    // assets — the consuming host fetches it over HTTP. Regressed in #1024,
+    // which stopped emitting any SSR entry for these apps.
+    return environmentName === undefined || environmentName === 'client';
   };
 
   // The shared plugin instance may serve multiple build environments and Rollup
