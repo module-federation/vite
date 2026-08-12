@@ -643,8 +643,13 @@ describe('virtualRemoteEntry', () => {
     const clientInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build', undefined, [
       'browser',
     ]);
+    const workerInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build', undefined, [
+      'worker',
+      'browser',
+    ]);
     expect(serverInit).toContain('const localFactory = await share.get()');
     expect(clientInit).not.toContain('const localFactory = await share.get()');
+    expect(workerInit).toContain('const localFactory = await share.get()');
   });
 
   it('uses configured share import path in localSharedImportMap', async () => {
