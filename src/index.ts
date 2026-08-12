@@ -1129,11 +1129,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         ) {
           return;
         }
-        // hostAutoInit publishes shared modules into the runtime share cache;
-        // regenerate it per environment so react-server environments write to
-        // their own cache bucket instead of poisoning client/ssr consumers.
-        // Ownership check mirrors the loadShare/prebuild 'not-owned' bail:
-        // another instance's id must be left for that instance's hook.
         if (id.includes(HOST_AUTO_INIT_TAG) && isOwnedHostAutoInitId(id, options)) {
           refreshHostAutoInit(
             options,

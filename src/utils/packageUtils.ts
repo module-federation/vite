@@ -3,7 +3,6 @@ import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as path from 'node:path';
 import { createModuleFederationError } from './logger';
-import { isReactServerConditions } from './sharedExportConditions';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 
 type PackageJsonDependencyGroups = {
@@ -262,83 +261,7 @@ export function getSharedCacheKey(pkg: string, shareItem: ShareItem) {
   return getSharedCacheDescriptor(pkg, shareItem).canonical;
 }
 
-// The react-server React flavor only exists in server processes, so the
-// flavor guard below is dead bytes in browser bundles. Undefined conditions
-// come from eager writes that a per-environment refresh later replaces, so
-// they keep the guard.
-export function shouldIncludeReactFlavorGuard(exportConditions?: readonly string[]): boolean {
-  if (!exportConditions) return true;
-  return isReactServerConditions(exportConditions) || !exportConditions.includes('browser');
-}
-
-// Runtime helpers embedded into generated shared-module code. When the
-// requesting environment resolves with the `react-server` condition, the
-// emitted __mfWriteSharedCache refuses to publish React builds of the wrong
-// flavor: a react-server React (no state hooks) must never enter the default
-// bucket consumed by client/ssr environments, and vice versa. Without this
-// guard, vite-rsc's RSC environment can poison the process-global share cache
-// and SSR renders of federated components crash with React error #419.
-export function getSharedCacheHelperCode(exportConditions?: readonly string[]): string {
-  const isReactServerBucket = isReactServerConditions(exportConditions);
-  if (!shouldIncludeReactFlavorGuard(exportConditions)) {
-    // Always define the helper so generated code referencing it (e.g. the
-    // hostAutoInit republish fallback) can never hit a ReferenceError when
-    // the guard is elided from a bundle.
-    return getSharedCacheHelperCodeBody(
-      'const __mfSharedReactFlavorMismatch = () => false;',
-      false
-    );
-  }
-  return getSharedCacheHelperCodeBody(
-    `const __mfCacheBucketIsReactServer = ${isReactServerBucket};
-          const __mfSharedReactFlavorMismatch = (descriptor, value) => {
-            const canonical = (descriptor && descriptor.canonical) || "";
-            let pkg = canonical.slice(canonical.indexOf(":") + 1);
-            // Non-singleton shares key the cache as "<pkg>@<version>"; strip
-            // the version (last "@" past index 0 keeps "@scope/pkg" intact).
-            const versionAt = pkg.lastIndexOf("@");
-            if (versionAt > 0) pkg = pkg.slice(0, versionAt);
-            if (pkg !== "react" && pkg !== "react-dom" && !pkg.startsWith("react/") && !pkg.startsWith("react-dom/")) return false;
-            const mod = value && (value.default ?? value);
-            if (!mod || (typeof mod !== "object" && typeof mod !== "function")) return false;
-            let isServerFlavor = !!mod.__SERVER_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
-            let isClientFlavor = !!mod.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE || typeof mod.useState === "function";
-            if (pkg === "react-dom") {
-              // React 19 ships __DOM_INTERNALS and the preload family in BOTH
-              // react-dom flavors; only createPortal/flushSync identify the
-              // client build, and the react-server build is preload-only.
-              if (typeof mod.createPortal === "function" || typeof mod.flushSync === "function") {
-                isClientFlavor = true;
-              } else if (typeof mod.preload === "function") {
-                isServerFlavor = true;
-              }
-            }
-            if (!isServerFlavor && !isClientFlavor) return false;
-            return __mfCacheBucketIsReactServer ? !isServerFlavor : isServerFlavor;
-          };
-          const __mfFlavorRejectionWarned = new Set();
-          const __mfWarnFlavorRejection = (descriptor) => {
-            if (typeof process === "undefined" || process.env?.NODE_ENV === "production") return;
-            const canonical = (descriptor && descriptor.canonical) || "";
-            if (__mfFlavorRejectionWarned.has(canonical)) return;
-            __mfFlavorRejectionWarned.add(canonical);
-            console.warn(
-              "[Module Federation] Refused to publish a wrong-flavor React build for '" + canonical + "'" +
-              " into the ${isReactServerBucket ? 'react-server' : 'default'} share bucket." +
-              " A sibling Vite environment likely registered its React with the process-global runtime first;" +
-              " consumers fall back to their local provider."
-            );
-          };`,
-    true
-  );
-}
-
-function getSharedCacheHelperCodeBody(flavorGuardPrelude: string, includeGuard: boolean): string {
-  const flavorGuardLine = includeGuard
-    ? 'if (__mfSharedReactFlavorMismatch(descriptor, value)) { __mfWarnFlavorRejection(descriptor); return value; }'
-    : '';
-  return `${flavorGuardPrelude}
-          const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
             const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
             const scopeName = normalizedScope || "default";
             const id = singleton || !version ? pkg : pkg + "@" + version;
@@ -395,7 +318,6 @@ function getSharedCacheHelperCodeBody(flavorGuardPrelude: string, includeGuard: 
           const __mfReadSharedCacheOwner = (cache, descriptor) =>
             cache[__mfSharedCacheOwnersKey]?.[descriptor.canonical];
           const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
-            ${flavorGuardLine}
             cache[descriptor.canonical] = value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {
@@ -485,7 +407,6 @@ function getSharedCacheHelperCodeBody(flavorGuardPrelude: string, includeGuard: 
             byConsumer[consumer] = value;
             return value;
           };`;
-}
 
 export function getInstalledPackageJson(
   pkg: string,

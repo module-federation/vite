@@ -90,8 +90,29 @@ vi.mock('../../utils/logger', () => ({
   mfWarn: mfWarnSpy,
 }));
 
-const { MOCK_SHARED_CACHE_HELPER_CODE } = vi.hoisted(() => ({
-  MOCK_SHARED_CACHE_HELPER_CODE: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+vi.mock('../../utils/packageUtils', () => ({
+  getSharedCacheDescriptor: (
+    pkg: string,
+    shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
+  ) => {
+    const scope = shareItem.scope || 'default';
+    const id =
+      shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`;
+    return {
+      canonical: `${scope}:${id}`,
+      ...(scope === 'default' ? { aliases: [id] } : {}),
+    };
+  },
+  getSharedCacheKey: (
+    pkg: string,
+    shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
+  ) => {
+    const prefix = `${shareItem.scope || 'default'}:`;
+    return shareItem.shareConfig.singleton || !shareItem.version
+      ? `${prefix}${pkg}`
+      : `${prefix}${pkg}@${shareItem.version}`;
+  },
+  sharedCacheHelperCode: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
             const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
             const scopeName = normalizedScope || "default";
             const id = singleton || !version ? pkg : pkg + "@" + version;
@@ -170,32 +191,6 @@ const { MOCK_SHARED_CACHE_HELPER_CODE } = vi.hoisted(() => ({
             }
             return value;
           };`,
-}));
-
-vi.mock('../../utils/packageUtils', () => ({
-  getSharedCacheDescriptor: (
-    pkg: string,
-    shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
-  ) => {
-    const scope = shareItem.scope || 'default';
-    const id =
-      shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`;
-    return {
-      canonical: `${scope}:${id}`,
-      ...(scope === 'default' ? { aliases: [id] } : {}),
-    };
-  },
-  getSharedCacheKey: (
-    pkg: string,
-    shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
-  ) => {
-    const prefix = `${shareItem.scope || 'default'}:`;
-    return shareItem.shareConfig.singleton || !shareItem.version
-      ? `${prefix}${pkg}`
-      : `${prefix}${pkg}@${shareItem.version}`;
-  },
-  getSharedCacheHelperCode: () => MOCK_SHARED_CACHE_HELPER_CODE,
-  shouldIncludeReactFlavorGuard: () => true,
   packageNameEncode: (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, '_'),
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: packageDetectionCwdMock,

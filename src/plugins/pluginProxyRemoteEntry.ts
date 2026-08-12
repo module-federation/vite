@@ -64,9 +64,6 @@ export default function ({
     );
   };
 
-  // Environment resolve conditions of the requesting environment; selects the
-  // share-cache bucket embedded in generated code (react-server environments
-  // must not share React with client/ssr environments).
   const getEnvironmentConditions = (context: unknown): readonly string[] | undefined =>
     (context as { environment?: { config?: { resolve?: { conditions?: string[] } } } }).environment
       ?.config?.resolve?.conditions;

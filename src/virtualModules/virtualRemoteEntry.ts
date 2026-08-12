@@ -9,10 +9,9 @@ import {
   getInstalledPackageJson,
   getPackageName,
   getSharedCacheDescriptor,
-  getSharedCacheHelperCode,
   hasPackageDependency,
-  shouldIncludeReactFlavorGuard,
   packageNameEncode,
+  sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
 import { SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
@@ -1166,7 +1165,7 @@ export function generateRemoteEntry(
   }
 
   async function init(shared = {}, initScope = []) {
-    ${getSharedCacheHelperCode(exportConditions)}
+    ${sharedCacheHelperCode}
     const getShareScope = (scopeName) => ${hasMultipleShareScopes} ? (shared?.[scopeName] || {}) : shared;
     const getShareScopeNames = (share) => {
       const configuredScopes = Array.isArray(share?.scope) ? share.scope : [share?.scope || shareScopeName];
@@ -2031,14 +2030,15 @@ export function generateHostAutoInitCode(
   const shouldPreloadShares = resolvedOptions.shareStrategy !== 'loaded-first';
   const hostInitShareOrder = JSON.stringify(getOrderedUsedShares(options));
   const cacheOwner = JSON.stringify(resolvedOptions.name);
-  const includeReactFlavorGuard = shouldIncludeReactFlavorGuard(exportConditions);
+  const preferLocalVinextReact =
+    hasPackageDependency('vinext') && !exportConditions?.includes('browser');
   return `
     ${getRuntimeModuleCacheBootstrapCode(exportConditions)}
     let hostInitPromise;
     async function initHost() {
       if (!hostInitPromise) {
         hostInitPromise = (async () => {
-          ${getSharedCacheHelperCode(exportConditions)}
+          ${sharedCacheHelperCode}
           ${generateHostAutoInitSharedCacheSeedCode(_command, options)}
           const remoteEntry = await import(${remoteEntryImport});
           const runtime = await remoteEntry.init();
@@ -2063,28 +2063,18 @@ export function generateHostAutoInitCode(
               customShareInfo: { shareConfig: share.shareConfig }
             }).then(async (factory) => {
               const mod = typeof factory === "function" ? factory() : factory;
-              let resolvedShare = __mfNormalizeRuntimeShare(await Promise.resolve(mod));
+              let resolved = __mfNormalizeRuntimeShare(await Promise.resolve(mod));
               ${
-                includeReactFlavorGuard
-                  ? `
-              // The MF runtime registry is process-global; when another Vite
-              // environment (e.g. vite-rsc's react-server environment)
-              // initialized the runtime first, share negotiation can hand back
-              // a React build of the wrong flavor. Publish this environment's
-              // local provider instead so consumers get the same React
-              // instance the local renderer uses. Host-provided shares
-              // (import: false) have no local provider — their generated get()
-              // throws — and any local-load failure must not reject host init:
-              // the write guard drops the wrong-flavor value either way.
-              if (
-                __mfSharedReactFlavorMismatch(cacheDescriptor, resolvedShare) &&
+                preferLocalVinextReact
+                  ? `if (
+                (pkg === "react" || pkg === "react-dom") &&
                 typeof share.get === "function" &&
                 share.shareConfig?.import !== false
               ) {
                 try {
                   const localFactory = await share.get();
-                  const localMod = typeof localFactory === "function" ? localFactory() : localFactory;
-                  resolvedShare = __mfNormalizeRuntimeShare(await Promise.resolve(localMod));
+                  const localModule = typeof localFactory === "function" ? localFactory() : localFactory;
+                  resolved = __mfNormalizeRuntimeShare(await Promise.resolve(localModule));
                 } catch {}
               }`
                   : ''
@@ -2092,7 +2082,7 @@ export function generateHostAutoInitCode(
               __mfWriteSharedCache(
                 __mfModuleCache.share,
                 cacheDescriptor,
-                resolvedShare,
+                resolved,
                 ${cacheOwner}
               );
             });
@@ -2118,9 +2108,6 @@ export function writeHostAutoInit(
   const state = getHostAutoInitState(options);
   state.remoteEntryId = remoteEntryId;
   state.command = command;
-  // Refreshes triggered by share/remote discovery carry no environment
-  // context; reuse the conditions of the environment currently being built so
-  // they don't revert an environment-specific cache bucket.
   if (exportConditions !== undefined) state.exportConditions = exportConditions;
   state.module.writeSync(
     generateHostAutoInitCode(
@@ -2147,11 +2134,7 @@ export function refreshHostAutoInit(
 export function getHostAutoInitPath(options?: NormalizedModuleFederationOptions) {
   return getHostAutoInitState(options).module.getImportId();
 }
-// Every federation instance's load hook fires for every __H_A_I__ id; only
-// the owning instance may refresh, mirroring the loadShare/prebuild
-// 'not-owned' bail so one instance can't shadow another's per-environment
-// refresh in multi-instance configs.
+
 export function isOwnedHostAutoInitId(id: string, options?: NormalizedModuleFederationOptions) {
-  const requestedModule = VirtualModule.findById(id);
-  return requestedModule !== undefined && requestedModule === getHostAutoInitState(options).module;
+  return VirtualModule.findById(id) === getHostAutoInitState(options).module;
 }

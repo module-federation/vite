@@ -7,14 +7,10 @@ export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 const runtimeInitModules = new WeakMap<NormalizedModuleFederationOptions, VirtualModule>();
 const runtimeInitOwnerIds = new WeakMap<NormalizedModuleFederationOptions, number>();
 let nextRuntimeInitOwnerId = 1;
-export const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
-// vite-rsc runs the RSC and SSR server environments in one Node process, but
-// the RSC environment resolves React with the `react-server` condition — a
-// build with no state hooks that must never be shared with client/ssr code.
-// react-server environments therefore get their own share-cache bucket.
-export const REACT_SERVER_MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache_react_server__';
+const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
+const REACT_SERVER_MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache_react_server__';
 
-export function getModuleCacheGlobalKey(exportConditions?: readonly string[]): string {
+export function getModuleCacheGlobalKey(exportConditions?: readonly string[]) {
   return isReactServerConditions(exportConditions)
     ? REACT_SERVER_MODULE_CACHE_GLOBAL_KEY
     : MODULE_CACHE_GLOBAL_KEY;

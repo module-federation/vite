@@ -306,8 +306,35 @@ vi.mock('../../utils/VirtualModule', () => {
   };
 });
 
-const { MOCK_SHARED_CACHE_HELPER_CODE } = vi.hoisted(() => ({
-  MOCK_SHARED_CACHE_HELPER_CODE: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+vi.mock('../../utils/packageUtils', () => {
+  return {
+    getSharedCacheDescriptor: (
+      pkg: string,
+      shareItem: {
+        version?: string;
+        scope?: string | string[];
+        shareConfig: { singleton?: boolean };
+      }
+    ) => {
+      const normalizedScope = Array.isArray(shareItem.scope) ? shareItem.scope[0] : shareItem.scope;
+      const scope = normalizedScope || 'default';
+      const id =
+        shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`;
+      return {
+        canonical: `${scope}:${id}`,
+        ...(scope === 'default' ? { aliases: [id] } : {}),
+      };
+    },
+    getSharedCacheKey: (
+      pkg: string,
+      shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
+    ) => {
+      const prefix = `${shareItem.scope || 'default'}:`;
+      return shareItem.shareConfig.singleton || !shareItem.version
+        ? `${prefix}${pkg}`
+        : `${prefix}${pkg}@${shareItem.version}`;
+    },
+    sharedCacheHelperCode: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
             const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
             const scopeName = normalizedScope || "default";
             const id = singleton || !version ? pkg : pkg + "@" + version;
@@ -386,38 +413,6 @@ const { MOCK_SHARED_CACHE_HELPER_CODE } = vi.hoisted(() => ({
             }
             return value;
           };`,
-}));
-
-vi.mock('../../utils/packageUtils', () => {
-  return {
-    getSharedCacheDescriptor: (
-      pkg: string,
-      shareItem: {
-        version?: string;
-        scope?: string | string[];
-        shareConfig: { singleton?: boolean };
-      }
-    ) => {
-      const normalizedScope = Array.isArray(shareItem.scope) ? shareItem.scope[0] : shareItem.scope;
-      const scope = normalizedScope || 'default';
-      const id =
-        shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`;
-      return {
-        canonical: `${scope}:${id}`,
-        ...(scope === 'default' ? { aliases: [id] } : {}),
-      };
-    },
-    getSharedCacheKey: (
-      pkg: string,
-      shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
-    ) => {
-      const prefix = `${shareItem.scope || 'default'}:`;
-      return shareItem.shareConfig.singleton || !shareItem.version
-        ? `${prefix}${pkg}`
-        : `${prefix}${pkg}@${shareItem.version}`;
-    },
-    getSharedCacheHelperCode: () => MOCK_SHARED_CACHE_HELPER_CODE,
-    shouldIncludeReactFlavorGuard: () => true,
     hasPackageDependency: hasPackageDependencyMock,
     packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
     getPackageName: (packageString: string) => {
@@ -632,12 +627,7 @@ describe('virtualRemoteEntry', () => {
     });
   }
 
-  it('materializes direct React for vinext so server hosts publish their singleton', async () => {
-    // Excluding react from materialization left the share cache without the
-    // host's React instance, so SSR renders of federated components fell back
-    // to the remote's own React copy and crashed on hooks. React-flavor
-    // isolation now guards materialization, so vinext hosts materialize react
-    // like every other app.
+  it('materializes direct React for vinext RSC hosts', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'vinext');
     const mod = await import('../virtualRemoteEntry');
 
@@ -648,6 +638,13 @@ describe('virtualRemoteEntry', () => {
     const code = mod.generateLocalSharedImportMap();
     expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
     expect(code).toMatch(/"react\/jsx-runtime": \{[\s\S]*?materialize: true,/);
+
+    const serverInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+    const clientInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build', undefined, [
+      'browser',
+    ]);
+    expect(serverInit).toContain('const localFactory = await share.get()');
+    expect(clientInit).not.toContain('const localFactory = await share.get()');
   });
 
   it('uses configured share import path in localSharedImportMap', async () => {
@@ -2472,7 +2469,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('const __mfGetSharedCacheDescriptor =');
     expect(code).toContain('__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor)');
     expect(code).toMatch(
-      /__mfWriteSharedCache\(\s*__mfModuleCache\.share,\s*cacheDescriptor,\s*resolvedShare,\s*"host"\s*\)/
+      /__mfWriteSharedCache\(\s*__mfModuleCache\.share,\s*cacheDescriptor,\s*resolved,\s*"host"\s*\)/
     );
     expect(code).not.toContain('__mfModuleCache.share[cacheKey]');
   });

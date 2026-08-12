@@ -69,9 +69,6 @@ export function getSharedExportConditions({
   return [...defaultConditions];
 }
 
-// The `react-server` resolve condition marks environments whose React build
-// has no state hooks. The share-cache bucket selection and the flavor guard
-// both key off this single predicate so they can never disagree.
 export function isReactServerConditions(conditions?: readonly string[]): boolean {
   return Boolean(conditions?.includes('react-server'));
 }
