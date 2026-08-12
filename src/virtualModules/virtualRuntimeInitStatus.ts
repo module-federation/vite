@@ -1,12 +1,20 @@
 import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
+import { isReactServerConditions } from '../utils/sharedExportConditions';
 
 export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 const runtimeInitModules = new WeakMap<NormalizedModuleFederationOptions, VirtualModule>();
 const runtimeInitOwnerIds = new WeakMap<NormalizedModuleFederationOptions, number>();
 let nextRuntimeInitOwnerId = 1;
 const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
+const REACT_SERVER_MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache_react_server__';
+
+export function getModuleCacheGlobalKey(exportConditions?: readonly string[]) {
+  return isReactServerConditions(exportConditions)
+    ? REACT_SERVER_MODULE_CACHE_GLOBAL_KEY
+    : MODULE_CACHE_GLOBAL_KEY;
+}
 
 function getRuntimeInitOwnerId(options: NormalizedModuleFederationOptions) {
   let ownerId = runtimeInitOwnerIds.get(options);
@@ -153,11 +161,12 @@ export function getRuntimeInitBootstrapCode(
   enableSsrInit = false,
   ownerImportId?: string,
   ssrRemotes?: Array<{ name: string; entry: string; type: string }>,
-  hostInitImportId = ownerImportId
+  hostInitImportId = ownerImportId,
+  exportConditions?: readonly string[]
 ) {
   return `
 const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey(ownerImportId))};
-const moduleCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
+const moduleCacheGlobalKey = ${JSON.stringify(getModuleCacheGlobalKey(exportConditions))};
 globalThis[moduleCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[moduleCacheGlobalKey].share ||= {};
 globalThis[moduleCacheGlobalKey].remote ||= {};
@@ -185,9 +194,9 @@ globalThis[globalKey].moduleCache.remote ||= {};
 `;
 }
 
-export function getRuntimeModuleCacheBootstrapCode() {
+export function getRuntimeModuleCacheBootstrapCode(exportConditions?: readonly string[]) {
   return `
-const __mfCacheGlobalKey = ${JSON.stringify(MODULE_CACHE_GLOBAL_KEY)};
+const __mfCacheGlobalKey = ${JSON.stringify(getModuleCacheGlobalKey(exportConditions))};
 globalThis[__mfCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[__mfCacheGlobalKey].share ||= {};
 globalThis[__mfCacheGlobalKey].remote ||= {};

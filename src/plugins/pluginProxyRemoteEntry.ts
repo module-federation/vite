@@ -64,6 +64,10 @@ export default function ({
     );
   };
 
+  const getEnvironmentConditions = (context: unknown): readonly string[] | undefined =>
+    (context as { environment?: { config?: { resolve?: { conditions?: string[] } } } }).environment
+      ?.config?.resolve?.conditions;
+
   function isRemoteImport(source: string): boolean {
     return Object.keys(options.remotes).some(
       (name) => source === name || source.startsWith(name + '/')
@@ -213,7 +217,7 @@ export default function ({
     async load(id: string) {
       if (id === remoteEntryId) {
         return getParsePromise().then((_) =>
-          generateRemoteEntry(options, virtualExposesId, _command)
+          generateRemoteEntry(options, virtualExposesId, _command, getEnvironmentConditions(this))
         );
       }
       if (id === virtualExposesId) {
@@ -229,7 +233,7 @@ export default function ({
         if (!filterId(id)) return;
         if (id.includes(remoteEntryId)) {
           return getParsePromise().then((_) =>
-            generateRemoteEntry(options, virtualExposesId, _command)
+            generateRemoteEntry(options, virtualExposesId, _command, getEnvironmentConditions(this))
           );
         }
         if (id === virtualExposesId) {
@@ -264,7 +268,7 @@ export default function ({
             return `
           const origin = typeof window !== 'undefined' && (${!options.ignoreOrigin}) ? window.origin : ${JSON.stringify(fallbackOrigin)};
           const remoteEntryImport = typeof window !== 'undefined' ? ${isAbsolutePublicPath ? remoteEntryUrl : `origin + ${remoteEntryUrl}`} : ${JSON.stringify(ssrRemoteEntry)};
-          ${generateHostAutoInitCode('remoteEntryImport', 'serve', options)}
+          ${generateHostAutoInitCode('remoteEntryImport', 'serve', options, getEnvironmentConditions(this))}
         `;
           }
           return code;

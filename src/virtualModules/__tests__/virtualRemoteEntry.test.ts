@@ -627,7 +627,7 @@ describe('virtualRemoteEntry', () => {
     });
   }
 
-  it('does not materialize direct React while preserving React subpaths', async () => {
+  it('materializes direct React for vinext RSC hosts', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'vinext');
     const mod = await import('../virtualRemoteEntry');
 
@@ -636,8 +636,15 @@ describe('virtualRemoteEntry', () => {
     mod.addUsedShares('react/jsx-runtime');
 
     const code = mod.generateLocalSharedImportMap();
-    expect(code).toMatch(/"react": \{[\s\S]*?materialize: false,/);
+    expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
     expect(code).toMatch(/"react\/jsx-runtime": \{[\s\S]*?materialize: true,/);
+
+    const serverInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+    const clientInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build', undefined, [
+      'browser',
+    ]);
+    expect(serverInit).toContain('const localFactory = await share.get()');
+    expect(clientInit).not.toContain('const localFactory = await share.get()');
   });
 
   it('uses configured share import path in localSharedImportMap', async () => {
@@ -2462,7 +2469,7 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('const __mfGetSharedCacheDescriptor =');
     expect(code).toContain('__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor)');
     expect(code).toMatch(
-      /__mfWriteSharedCache\(\s*__mfModuleCache\.share,\s*cacheDescriptor,\s*__mfNormalizeRuntimeShare\(resolved\),\s*"host"\s*\)/
+      /__mfWriteSharedCache\(\s*__mfModuleCache\.share,\s*cacheDescriptor,\s*resolved,\s*"host"\s*\)/
     );
     expect(code).not.toContain('__mfModuleCache.share[cacheKey]');
   });

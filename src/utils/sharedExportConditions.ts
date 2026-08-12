@@ -68,3 +68,7 @@ export function getSharedExportConditions({
   }
   return [...defaultConditions];
 }
+
+export function isReactServerConditions(conditions?: readonly string[]): boolean {
+  return Boolean(conditions?.includes('react-server'));
+}

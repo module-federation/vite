@@ -37,6 +37,7 @@ import { getTreeShakingExportUsage, type TreeShakingExportUsage } from '../utils
 import { findLikelyTypeArgumentEnd } from '../utils/typeArgumentScanner';
 import VirtualModule, { MF_OWNER_INFIX, normalizeVirtualModuleId } from '../utils/VirtualModule';
 import {
+  getModuleCacheGlobalKey,
   getRuntimeInitPromiseBootstrapCode,
   getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
@@ -1366,7 +1367,7 @@ export function writePreBuildLibPath(
     preBuildCacheMap[pkg].writeSync(
       `
     ${sharedCacheHelperCode}
-    const __mfCacheGlobalKey = "__mf_module_cache__";
+    const __mfCacheGlobalKey = ${JSON.stringify(getModuleCacheGlobalKey(exportConditions))};
     export const c = function(size) {
       const cache = globalThis[__mfCacheGlobalKey]?.share;
       const sharedReact = cache && __mfReadSharedCache(cache, ${reactCacheDescriptor});
@@ -1863,7 +1864,7 @@ export function writeLoadShareModule(
   if (!loadShareCacheMap[pkg]) {
     loadShareCacheMap[pkg] = createScopedSharedVirtualModule(pkg, LOAD_SHARE_TAG, options);
   }
-  let importLine = getRuntimeModuleCacheBootstrapCode();
+  let importLine = getRuntimeModuleCacheBootstrapCode(exportConditions);
   const cacheDescriptor = getSharedCacheDescriptorLiteral(pkg, shareItem);
   const cacheOwner = JSON.stringify(resolvedOptions.name);
   const runtimeInitOwnerImportId = options ? getRuntimeInitStatusImportId(options) : undefined;

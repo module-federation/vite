@@ -371,7 +371,6 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
       }
     }
   }
-  if (hasPackageDependency('vinext')) shares.delete('react');
   const sorted = [...shares].sort((a, b) => {
     const priority = (pkg: string) =>
       pkg === 'react' ? 0 : pkg === 'react-dom' ? 1 : pkg.startsWith('react/') ? 2 : 3;
@@ -1029,7 +1028,8 @@ function generateTreeShakingSnapshotPluginCode(enabled: boolean): string {
 export function generateRemoteEntry(
   options: NormalizedModuleFederationOptions,
   virtualExposesId = getVirtualExposesId(options),
-  command = 'build'
+  command = 'build',
+  exportConditions?: readonly string[]
 ): string {
   const needsSharedProviderSelectionHelper = Object.keys(options.shared ?? {}).length > 0;
   const hasTreeShakingShared = Object.values(options.shared ?? {}).some(
@@ -1105,10 +1105,15 @@ export function generateRemoteEntry(
   ${
     command === 'build'
       ? getRuntimeInitResolveBootstrapCode(false, getRuntimeInitStatusImportId(options))
-      : getRuntimeInitBootstrapCode(false, getRuntimeInitStatusImportId(options)) +
-        '\n  const { initResolve } = globalThis[globalKey];'
+      : getRuntimeInitBootstrapCode(
+          false,
+          getRuntimeInitStatusImportId(options),
+          undefined,
+          undefined,
+          exportConditions
+        ) + '\n  const { initResolve } = globalThis[globalKey];'
   }
-  ${getRuntimeModuleCacheBootstrapCode()}
+  ${getRuntimeModuleCacheBootstrapCode(exportConditions)}
   const initTokens = {}
   const shareScopeNames = Array.isArray(${JSON.stringify(options.shareScope)}) ? ${JSON.stringify(options.shareScope)} : [${JSON.stringify(options.shareScope)}]
   const shareScopeName = ${JSON.stringify(
@@ -1990,6 +1995,7 @@ interface HostAutoInitState {
   module: VirtualModule;
   remoteEntryId: string;
   command: string;
+  exportConditions?: readonly string[];
 }
 
 const hostAutoInitStates = new WeakMap<NormalizedModuleFederationOptions, HostAutoInitState>();
@@ -2017,14 +2023,17 @@ function getHostAutoInitState(options?: NormalizedModuleFederationOptions) {
 export function generateHostAutoInitCode(
   remoteEntryImport: string,
   _command = 'build',
-  options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  exportConditions?: readonly string[]
 ) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const shouldPreloadShares = resolvedOptions.shareStrategy !== 'loaded-first';
   const hostInitShareOrder = JSON.stringify(getOrderedUsedShares(options));
   const cacheOwner = JSON.stringify(resolvedOptions.name);
+  const preferLocalVinextReact =
+    hasPackageDependency('vinext') && !exportConditions?.includes('browser');
   return `
-    ${getRuntimeModuleCacheBootstrapCode()}
+    ${getRuntimeModuleCacheBootstrapCode(exportConditions)}
     let hostInitPromise;
     async function initHost() {
       if (!hostInitPromise) {
@@ -2052,16 +2061,30 @@ export function generateHostAutoInitCode(
             }
             await runtime.loadShare(pkg, {
               customShareInfo: { shareConfig: share.shareConfig }
-            }).then((factory) => {
+            }).then(async (factory) => {
               const mod = typeof factory === "function" ? factory() : factory;
-              return Promise.resolve(mod).then((resolved) => {
-                __mfWriteSharedCache(
-                  __mfModuleCache.share,
-                  cacheDescriptor,
-                  __mfNormalizeRuntimeShare(resolved),
-                  ${cacheOwner}
-                );
-              });
+              let resolved = __mfNormalizeRuntimeShare(await Promise.resolve(mod));
+              ${
+                preferLocalVinextReact
+                  ? `if (
+                (pkg === "react" || pkg === "react-dom") &&
+                typeof share.get === "function" &&
+                share.shareConfig?.import !== false
+              ) {
+                try {
+                  const localFactory = await share.get();
+                  const localModule = typeof localFactory === "function" ? localFactory() : localFactory;
+                  resolved = __mfNormalizeRuntimeShare(await Promise.resolve(localModule));
+                } catch {}
+              }`
+                  : ''
+              }
+              __mfWriteSharedCache(
+                __mfModuleCache.share,
+                cacheDescriptor,
+                resolved,
+                ${cacheOwner}
+              );
             });
           }
           `
@@ -2079,20 +2102,30 @@ export function generateHostAutoInitCode(
 export function writeHostAutoInit(
   remoteEntryId = REMOTE_ENTRY_ID,
   command = 'build',
-  options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  exportConditions?: readonly string[]
 ) {
   const state = getHostAutoInitState(options);
   state.remoteEntryId = remoteEntryId;
   state.command = command;
+  if (exportConditions !== undefined) state.exportConditions = exportConditions;
   state.module.writeSync(
-    generateHostAutoInitCode(JSON.stringify(remoteEntryId), command, options),
+    generateHostAutoInitCode(
+      JSON.stringify(remoteEntryId),
+      command,
+      options,
+      state.exportConditions
+    ),
     true
   );
 }
-export function refreshHostAutoInit(options?: NormalizedModuleFederationOptions) {
+export function refreshHostAutoInit(
+  options?: NormalizedModuleFederationOptions,
+  exportConditions?: readonly string[]
+) {
   try {
     const state = getHostAutoInitState(options);
-    writeHostAutoInit(state.remoteEntryId, state.command, options);
+    writeHostAutoInit(state.remoteEntryId, state.command, options, exportConditions);
   } catch {
     // Some isolated unit tests exercise share/remote plugins without
     // initializing normalized federation options.
@@ -2100,4 +2133,8 @@ export function refreshHostAutoInit(options?: NormalizedModuleFederationOptions)
 }
 export function getHostAutoInitPath(options?: NormalizedModuleFederationOptions) {
   return getHostAutoInitState(options).module.getImportId();
+}
+
+export function isOwnedHostAutoInitId(id: string, options?: NormalizedModuleFederationOptions) {
+  return VirtualModule.findById(id) === getHostAutoInitState(options).module;
 }

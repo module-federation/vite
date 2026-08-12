@@ -47,6 +47,15 @@ describe('virtualRuntimeInitStatus', () => {
     expect(cache.remote).toBe(remote);
   });
 
+  it('isolates the react-server module cache', async () => {
+    const { getModuleCacheGlobalKey } = await import('../virtualRuntimeInitStatus');
+
+    expect(getModuleCacheGlobalKey()).toBe('__mf_module_cache__');
+    expect(getModuleCacheGlobalKey(['react-server', 'node'])).toBe(
+      '__mf_module_cache_react_server__'
+    );
+  });
+
   it('aliases default-scoped and legacy share cache keys both ways', async () => {
     const { getRuntimeModuleCacheBootstrapCode } = await import('../virtualRuntimeInitStatus');
     const legacyReact = { source: 'legacy-react' };
