@@ -2468,6 +2468,9 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('const __mfGetSharedCacheDescriptor =');
     expect(code).toContain('__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor)');
+    expect(code).toContain(
+      '__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined'
+    );
     expect(code).toMatch(
       /__mfWriteSharedCache\(\s*__mfModuleCache\.share,\s*cacheDescriptor,\s*resolved,\s*"host"\s*\)/
     );

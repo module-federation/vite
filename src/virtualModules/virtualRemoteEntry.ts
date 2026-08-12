@@ -2056,7 +2056,10 @@ export function generateHostAutoInitCode(
             // a generic full-module key here.
             if (share.treeShaking) continue;
             const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
-            if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) {
+            if (
+              __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined &&
+              __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined
+            ) {
               continue;
             }
             await runtime.loadShare(pkg, {
