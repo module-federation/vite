@@ -11,7 +11,7 @@ import {
   getSharedCacheDescriptor,
   getSharedCacheKey,
   resolveImportPath,
-  sharedCacheHelperCode,
+  getSharedCacheHelperCode,
 } from '../packageUtils';
 
 describe('getInstalledPackageJson', () => {
@@ -434,7 +434,7 @@ describe('getSharedCacheKey', () => {
 
   it('promotes default-scope alias cache reads to the canonical key', () => {
     const runtime = new Function(
-      `${sharedCacheHelperCode}
+      `${getSharedCacheHelperCode()}
       return { read: __mfReadSharedCache, write: __mfWriteSharedCache };`
     )() as {
       read: (
@@ -460,7 +460,7 @@ describe('getSharedCacheKey', () => {
 
   it('writes default-scope cache values to the canonical and alias keys', () => {
     const runtime = new Function(
-      `${sharedCacheHelperCode}
+      `${getSharedCacheHelperCode()}
       return { read: __mfReadSharedCache, write: __mfWriteSharedCache };`
     )() as {
       read: (
@@ -491,7 +491,7 @@ describe('getSharedCacheKey', () => {
 
   it('treats reserved aliases as own properties without reading or mutating prototypes', () => {
     const runtime = new Function(
-      `${sharedCacheHelperCode}
+      `${getSharedCacheHelperCode()}
       return { read: __mfReadSharedCache, write: __mfWriteSharedCache };`
     )() as {
       read: (
@@ -549,7 +549,7 @@ describe('getSharedCacheKey', () => {
 
   it('synchronizes aliases and notifies canonical subscribers when cache values change', () => {
     const runtime = new Function(
-      `${sharedCacheHelperCode}
+      `${getSharedCacheHelperCode()}
       return {
         subscribe: __mfSubscribeSharedCache,
         write: __mfWriteSharedCache
@@ -589,7 +589,7 @@ describe('getSharedCacheKey', () => {
 
   it('sets, overwrites, and clears shared cache ownership', () => {
     const runtime = new Function(
-      `${sharedCacheHelperCode}
+      `${getSharedCacheHelperCode()}
       return {
         readOwner: __mfReadSharedCacheOwner,
         write: __mfWriteSharedCache
@@ -631,7 +631,7 @@ describe('getSharedCacheKey', () => {
 
   it('keeps partial modules coverage-aware without poisoning the full-module cache', () => {
     const runtime = new Function(
-      `${sharedCacheHelperCode}
+      `${getSharedCacheHelperCode()}
       return {
         readFull: __mfReadSharedCache,
         writeFull: __mfWriteSharedCache,
@@ -704,7 +704,7 @@ describe('getSharedCacheKey', () => {
 
   it('isolates the selected partial module per consuming container', () => {
     const runtime = new Function(
-      `${sharedCacheHelperCode}
+      `${getSharedCacheHelperCode()}
       return {
         read: __mfReadTreeShakingSharedSelection,
         write: __mfWriteTreeShakingSharedSelection,

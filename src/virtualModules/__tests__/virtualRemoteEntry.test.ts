@@ -416,7 +416,6 @@ vi.mock('../../utils/packageUtils', () => {
         ? `${prefix}${pkg}`
         : `${prefix}${pkg}@${shareItem.version}`;
     },
-    sharedCacheHelperCode: MOCK_SHARED_CACHE_HELPER_CODE,
     getSharedCacheHelperCode: () => MOCK_SHARED_CACHE_HELPER_CODE,
     shouldIncludeReactFlavorGuard: () => true,
     hasPackageDependency: hasPackageDependencyMock,

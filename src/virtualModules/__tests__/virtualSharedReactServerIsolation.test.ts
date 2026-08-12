@@ -11,7 +11,13 @@ import {
   writeLoadShareModule,
   writePreBuildLibPath,
 } from '../virtualShared_preBuild';
-import { generateHostAutoInitCode, generateRemoteEntry } from '../virtualRemoteEntry';
+import {
+  generateHostAutoInitCode,
+  generateRemoteEntry,
+  getHostAutoInitPath,
+  isOwnedHostAutoInitId,
+  writeHostAutoInit,
+} from '../virtualRemoteEntry';
 import {
   MODULE_CACHE_GLOBAL_KEY,
   REACT_SERVER_MODULE_CACHE_GLOBAL_KEY,
@@ -249,9 +255,12 @@ describe('react-server environment share-cache isolation', () => {
 
   it('omits the flavor guard from client bundles', () => {
     // The react-server flavor can never appear in a browser process, so the
-    // guard would be dead bytes in client bundles.
+    // detection logic would be dead bytes in client bundles. Only a one-line
+    // always-false stub remains, so references never break.
     const clientHelperCode = getSharedCacheHelperCode(CLIENT_CONDITIONS);
-    expect(clientHelperCode).not.toContain('__mfSharedReactFlavorMismatch');
+    expect(clientHelperCode).toContain('const __mfSharedReactFlavorMismatch = () => false;');
+    expect(clientHelperCode).not.toContain('__SERVER_INTERNALS_DO_NOT_USE');
+    expect(clientHelperCode).not.toContain('__mfWarnFlavorRejection');
 
     const { write, read } = instantiateCacheHelpers(CLIENT_CONDITIONS);
     const cache: Record<string, unknown> = {};
@@ -265,7 +274,10 @@ describe('react-server environment share-cache isolation', () => {
       options,
       CLIENT_CONDITIONS
     );
-    expect(clientAutoInit).not.toContain('__mfSharedReactFlavorMismatch');
+    // The stub definition rides along via the embedded helper, but the
+    // republish fallback (the only caller) is not emitted for client bundles.
+    expect(clientAutoInit).toContain('const __mfSharedReactFlavorMismatch = () => false;');
+    expect(clientAutoInit).not.toContain('__mfSharedReactFlavorMismatch(cacheDescriptor');
   });
 
   it('keeps the flavor guard for server bundles and unrefreshed writes', () => {
@@ -276,6 +288,107 @@ describe('react-server environment share-cache isolation', () => {
     expect(getSharedCacheHelperCode(REACT_SERVER_CONDITIONS)).toContain(
       '__mfSharedReactFlavorMismatch'
     );
+  });
+
+  it('write helper refuses wrong-flavor react under versioned canonicals', () => {
+    // Non-singleton shares key the cache as "default:react@<version>"; the
+    // guard must strip the version when matching react-family packages.
+    const { write, read } = instantiateCacheHelpers();
+    const cache: Record<string, unknown> = {};
+    const descriptor = { canonical: 'default:react@19.2.8', aliases: ['react@19.2.8'] };
+
+    write(cache, descriptor, serverFlavorReact, 'host');
+    expect(read(cache, descriptor)).toBeUndefined();
+
+    write(cache, descriptor, clientFlavorReact, 'host');
+    expect(read(cache, descriptor)).toBe(clientFlavorReact);
+  });
+
+  it('write helper refuses wrong-flavor react-dom subpaths under versioned canonicals', () => {
+    const { write, read } = instantiateCacheHelpers();
+    const cache: Record<string, unknown> = {};
+    const descriptor = {
+      canonical: 'default:react-dom@19.2.8',
+      aliases: ['react-dom@19.2.8'],
+    };
+    const serverFlavorReactDom = { preload: () => undefined, version: '19.2.8' };
+
+    write(cache, descriptor, serverFlavorReactDom, 'host');
+    expect(read(cache, descriptor)).toBeUndefined();
+  });
+
+  it('write helper keeps caching scoped packages with versioned canonicals', () => {
+    // "@scope/pkg@1.0.0" must not be mangled by version stripping into a
+    // react-family match or an empty name.
+    const { write, read } = instantiateCacheHelpers();
+    const cache: Record<string, unknown> = {};
+    const descriptor = {
+      canonical: 'default:@scope/react-widgets@1.0.0',
+      aliases: ['@scope/react-widgets@1.0.0'],
+    };
+    const mod = { render: () => undefined };
+
+    write(cache, descriptor, mod, 'host');
+    expect(read(cache, descriptor)).toBe(mod);
+  });
+
+  it('defines the flavor-mismatch helper even when the guard is omitted', () => {
+    // Client bundles skip the guard for size, but generated code paths that
+    // reference __mfSharedReactFlavorMismatch must never hit a ReferenceError.
+    const code = getSharedCacheHelperCode(CLIENT_CONDITIONS);
+    const factory = new Function(`${code}; return __mfSharedReactFlavorMismatch;`);
+    const mismatch = factory() as (d: unknown, v: unknown) => boolean;
+    expect(typeof mismatch).toBe('function');
+    expect(mismatch({ canonical: 'default:react' }, serverFlavorReact)).toBe(false);
+  });
+
+  it('warns once per canonical when the guard rejects a write outside production', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const { write } = instantiateCacheHelpers();
+      const cache: Record<string, unknown> = {};
+
+      write(cache, REACT_DESCRIPTOR, serverFlavorReact, 'host');
+      write(cache, REACT_DESCRIPTOR, serverFlavorReact, 'host');
+
+      const flavorWarnings = warnSpy.mock.calls.filter(([message]) =>
+        String(message).includes('react')
+      );
+      expect(flavorWarnings).toHaveLength(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('hostAutoInit republish fallback never runs for host-provided shares', () => {
+    // share.get() for import:false shares is generated to throw; the fallback
+    // must skip them and contain any local-provider failure instead of
+    // rejecting hostInitPromise.
+    const options = makeOptions('rsc-import-false-host');
+
+    const code = generateHostAutoInitCode('"virtual:mf-REMOTE_ENTRY_ID"', 'build', options);
+    expect(code).toContain('share.shareConfig?.import !== false');
+    expect(code).toMatch(/try \{[\s\S]*?await share\.get\(\)[\s\S]*?\} catch/);
+  });
+
+  it('only the owning federation instance refreshes its hostAutoInit module', () => {
+    // Multi-instance configs: every instance's load hook fires for every
+    // __H_A_I__ id. Without an ownership check, instance A's hook would
+    // regenerate A's module when B's id was requested and B's per-environment
+    // refresh would never run (index.ts mirrors the loadShare 'not-owned'
+    // bail using this predicate).
+    const optionsA = makeOptions('hai-owner-a');
+    const optionsB = makeOptions('hai-owner-b');
+    writeHostAutoInit('virtual:mf-REMOTE_ENTRY_ID', 'build', optionsA);
+    writeHostAutoInit('virtual:mf-REMOTE_ENTRY_ID', 'build', optionsB);
+
+    const idA = getHostAutoInitPath(optionsA);
+    const idB = getHostAutoInitPath(optionsB);
+    expect(idA).not.toBe(idB);
+    expect(isOwnedHostAutoInitId(idA, optionsA)).toBe(true);
+    expect(isOwnedHostAutoInitId(idB, optionsA)).toBe(false);
+    expect(isOwnedHostAutoInitId(idB, optionsB)).toBe(true);
+    expect(isOwnedHostAutoInitId('/some/unrelated/module.js', optionsA)).toBe(false);
   });
 
   it('write helper keeps caching non-react shares regardless of flavor markers', () => {

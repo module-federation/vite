@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
 import * as path from 'node:path';
 import { createModuleFederationError } from './logger';
+import { isReactServerConditions } from './sharedExportConditions';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 
 type PackageJsonDependencyGroups = {
@@ -267,7 +268,7 @@ export function getSharedCacheKey(pkg: string, shareItem: ShareItem) {
 // they keep the guard.
 export function shouldIncludeReactFlavorGuard(exportConditions?: readonly string[]): boolean {
   if (!exportConditions) return true;
-  return exportConditions.includes('react-server') || !exportConditions.includes('browser');
+  return isReactServerConditions(exportConditions) || !exportConditions.includes('browser');
 }
 
 // Runtime helpers embedded into generated shared-module code. When the
@@ -278,14 +279,25 @@ export function shouldIncludeReactFlavorGuard(exportConditions?: readonly string
 // guard, vite-rsc's RSC environment can poison the process-global share cache
 // and SSR renders of federated components crash with React error #419.
 export function getSharedCacheHelperCode(exportConditions?: readonly string[]): string {
-  const isReactServerBucket = Boolean(exportConditions?.includes('react-server'));
+  const isReactServerBucket = isReactServerConditions(exportConditions);
   if (!shouldIncludeReactFlavorGuard(exportConditions)) {
-    return getSharedCacheHelperCodeBody('');
+    // Always define the helper so generated code referencing it (e.g. the
+    // hostAutoInit republish fallback) can never hit a ReferenceError when
+    // the guard is elided from a bundle.
+    return getSharedCacheHelperCodeBody(
+      'const __mfSharedReactFlavorMismatch = () => false;',
+      false
+    );
   }
-  return getSharedCacheHelperCodeBody(`const __mfCacheBucketIsReactServer = ${isReactServerBucket};
+  return getSharedCacheHelperCodeBody(
+    `const __mfCacheBucketIsReactServer = ${isReactServerBucket};
           const __mfSharedReactFlavorMismatch = (descriptor, value) => {
             const canonical = (descriptor && descriptor.canonical) || "";
-            const pkg = canonical.slice(canonical.indexOf(":") + 1);
+            let pkg = canonical.slice(canonical.indexOf(":") + 1);
+            // Non-singleton shares key the cache as "<pkg>@<version>"; strip
+            // the version (last "@" past index 0 keeps "@scope/pkg" intact).
+            const versionAt = pkg.lastIndexOf("@");
+            if (versionAt > 0) pkg = pkg.slice(0, versionAt);
             if (pkg !== "react" && pkg !== "react-dom" && !pkg.startsWith("react/") && !pkg.startsWith("react-dom/")) return false;
             const mod = value && (value.default ?? value);
             if (!mod || (typeof mod !== "object" && typeof mod !== "function")) return false;
@@ -303,12 +315,27 @@ export function getSharedCacheHelperCode(exportConditions?: readonly string[]): 
             }
             if (!isServerFlavor && !isClientFlavor) return false;
             return __mfCacheBucketIsReactServer ? !isServerFlavor : isServerFlavor;
-          };`);
+          };
+          const __mfFlavorRejectionWarned = new Set();
+          const __mfWarnFlavorRejection = (descriptor) => {
+            if (typeof process === "undefined" || process.env?.NODE_ENV === "production") return;
+            const canonical = (descriptor && descriptor.canonical) || "";
+            if (__mfFlavorRejectionWarned.has(canonical)) return;
+            __mfFlavorRejectionWarned.add(canonical);
+            console.warn(
+              "[Module Federation] Refused to publish a wrong-flavor React build for '" + canonical + "'" +
+              " into the ${isReactServerBucket ? 'react-server' : 'default'} share bucket." +
+              " A sibling Vite environment likely registered its React with the process-global runtime first;" +
+              " consumers fall back to their local provider."
+            );
+          };`,
+    true
+  );
 }
 
-function getSharedCacheHelperCodeBody(flavorGuardPrelude: string): string {
-  const flavorGuardLine = flavorGuardPrelude
-    ? 'if (__mfSharedReactFlavorMismatch(descriptor, value)) return value;'
+function getSharedCacheHelperCodeBody(flavorGuardPrelude: string, includeGuard: boolean): string {
+  const flavorGuardLine = includeGuard
+    ? 'if (__mfSharedReactFlavorMismatch(descriptor, value)) { __mfWarnFlavorRejection(descriptor); return value; }'
     : '';
   return `${flavorGuardPrelude}
           const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
@@ -459,8 +486,6 @@ function getSharedCacheHelperCodeBody(flavorGuardPrelude: string): string {
             return value;
           };`;
 }
-
-export const sharedCacheHelperCode = getSharedCacheHelperCode();
 
 export function getInstalledPackageJson(
   pkg: string,

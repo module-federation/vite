@@ -2072,14 +2072,20 @@ export function generateHostAutoInitCode(
               // initialized the runtime first, share negotiation can hand back
               // a React build of the wrong flavor. Publish this environment's
               // local provider instead so consumers get the same React
-              // instance the local renderer uses.
+              // instance the local renderer uses. Host-provided shares
+              // (import: false) have no local provider — their generated get()
+              // throws — and any local-load failure must not reject host init:
+              // the write guard drops the wrong-flavor value either way.
               if (
                 __mfSharedReactFlavorMismatch(cacheDescriptor, resolvedShare) &&
-                typeof share.get === "function"
+                typeof share.get === "function" &&
+                share.shareConfig?.import !== false
               ) {
-                const localFactory = await share.get();
-                const localMod = typeof localFactory === "function" ? localFactory() : localFactory;
-                resolvedShare = __mfNormalizeRuntimeShare(await Promise.resolve(localMod));
+                try {
+                  const localFactory = await share.get();
+                  const localMod = typeof localFactory === "function" ? localFactory() : localFactory;
+                  resolvedShare = __mfNormalizeRuntimeShare(await Promise.resolve(localMod));
+                } catch {}
               }`
                   : ''
               }
@@ -2140,4 +2146,12 @@ export function refreshHostAutoInit(
 }
 export function getHostAutoInitPath(options?: NormalizedModuleFederationOptions) {
   return getHostAutoInitState(options).module.getImportId();
+}
+// Every federation instance's load hook fires for every __H_A_I__ id; only
+// the owning instance may refresh, mirroring the loadShare/prebuild
+// 'not-owned' bail so one instance can't shadow another's per-environment
+// refresh in multi-instance configs.
+export function isOwnedHostAutoInitId(id: string, options?: NormalizedModuleFederationOptions) {
+  const requestedModule = VirtualModule.findById(id);
+  return requestedModule !== undefined && requestedModule === getHostAutoInitState(options).module;
 }

@@ -1,6 +1,7 @@
 import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
+import { isReactServerConditions } from '../utils/sharedExportConditions';
 
 export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 const runtimeInitModules = new WeakMap<NormalizedModuleFederationOptions, VirtualModule>();
@@ -14,7 +15,7 @@ export const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
 export const REACT_SERVER_MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache_react_server__';
 
 export function getModuleCacheGlobalKey(exportConditions?: readonly string[]): string {
-  return exportConditions?.includes('react-server')
+  return isReactServerConditions(exportConditions)
     ? REACT_SERVER_MODULE_CACHE_GLOBAL_KEY
     : MODULE_CACHE_GLOBAL_KEY;
 }
