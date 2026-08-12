@@ -32,6 +32,18 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
+    {
+      command: 'pnpm --filter examples-vite-ssr-remote run preview',
+      url: 'http://localhost:5177',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: 'pnpm --filter examples-vite-ssr-host run preview',
+      url: 'http://localhost:5178',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
   ],
   use: {
     trace: 'retain-on-failure',
@@ -70,6 +82,14 @@ export default defineConfig({
       testDir: 'e2e/vite-runtime-register',
       use: {
         baseURL: 'http://localhost:4175',
+        browserName: 'chromium',
+      },
+    },
+    {
+      name: 'vite-ssr',
+      testDir: 'e2e/vite-ssr',
+      use: {
+        baseURL: 'http://localhost:5178',
         browserName: 'chromium',
       },
     },
