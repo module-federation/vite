@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
 import { generateRemoteEntrySSR, getRemoteEntrySSRId } from '../virtualRemoteEntrySSR';
+import { MODULE_CACHE_SHARE_SCOPE_KEY } from '../virtualRuntimeInitStatus';
 
 type SsrEntry = {
   init: (shared?: Record<string, unknown>, initScope?: unknown[]) => Promise<unknown>;
@@ -250,5 +251,29 @@ describe('virtualRemoteEntrySSR', () => {
       'default:react': { marker: 'host-react' },
       react: { marker: 'host-react' },
     });
+  });
+
+  it('writes negotiated singletons only to the requesting environment cache', async () => {
+    const module = { marker: 'react-server' };
+    const environmentCache = { share: {}, remote: {} };
+    const entry = createEntry(
+      createRuntime(
+        undefined,
+        vi.fn(async () => () => module)
+      ),
+      {
+        shared: { react: singleton('react') },
+      }
+    );
+
+    const shared = { react: {} } as Record<PropertyKey, unknown>;
+    shared[Symbol.for(MODULE_CACHE_SHARE_SCOPE_KEY)] = environmentCache;
+    await entry.init(shared as Record<string, unknown>);
+
+    expect(environmentCache.share).toMatchObject({
+      'default:react': module,
+      react: module,
+    });
+    expect((globalThis as any).__mf_module_cache__).toBeUndefined();
   });
 });

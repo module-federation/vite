@@ -9,6 +9,7 @@ const runtimeInitOwnerIds = new WeakMap<NormalizedModuleFederationOptions, numbe
 let nextRuntimeInitOwnerId = 1;
 const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
 const REACT_SERVER_MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache_react_server__';
+export const MODULE_CACHE_SHARE_SCOPE_KEY = 'module-federation.vite-module-cache';
 
 export function getModuleCacheGlobalKey(exportConditions?: readonly string[]) {
   return isReactServerConditions(exportConditions)

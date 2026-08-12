@@ -1,6 +1,7 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
+import { MODULE_CACHE_SHARE_SCOPE_KEY } from './virtualRuntimeInitStatus';
 
 const REMOTE_ENTRY_SSR_ID = 'virtual:mf-REMOTE_ENTRY_SSR_ID';
 
@@ -36,6 +37,7 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
   import { init as runtimeInit } from "@module-federation/runtime";
 
   const sharedSingletons = ${JSON.stringify(sharedSingletons)};
+  const moduleCacheKey = Symbol.for(${JSON.stringify(MODULE_CACHE_SHARE_SCOPE_KEY)});
   let exposesMapPromise;
 
   function createShareInitError(errors) {
@@ -113,7 +115,8 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
       throw createShareInitError(shareInitErrors);
     }
     if (cacheEntries.length > 0) {
-      const moduleCache = (globalThis.__mf_module_cache__ ||= { share: {}, remote: {} });
+      const moduleCache = shared?.[moduleCacheKey] ||
+        (globalThis.__mf_module_cache__ ||= { share: {}, remote: {} });
       const cache = (moduleCache.share ||= {});
       for (const { scopeName, pkg, module } of cacheEntries) {
         cache[scopeName + ':' + pkg] ??= module;

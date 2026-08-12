@@ -168,6 +168,7 @@ describe('generateRemotes', () => {
       true
     );
     expect(remote.code).toContain('__mf_module_cache_react_server__');
+    expect(remote.code).toContain('shareScopes[moduleCacheKey] = __mfModuleCache');
   });
   beforeEach(() => {
     mockOptions.shareStrategy = 'version-first';

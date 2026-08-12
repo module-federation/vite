@@ -13,6 +13,7 @@ import {
   getRuntimeRemoteCachePrefix,
   getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
+  MODULE_CACHE_SHARE_SCOPE_KEY,
 } from './virtualRuntimeInitStatus';
 
 const cacheRemoteMap = new WeakMap<NormalizedModuleFederationOptions, Map<string, VirtualModule>>();
@@ -446,6 +447,12 @@ export function generateRemotes(
         __mfModuleCache.remote[pendingKey] = ${remoteLoadRuntimePromise}
           .then((runtime) => {
             ${registerRemoteCode}
+            const moduleCacheKey = Symbol.for(${JSON.stringify(MODULE_CACHE_SHARE_SCOPE_KEY)});
+            const shareScopes = runtime.shareScopeMap || {};
+            for (const scope of Object.values(shareScopes)) {
+              if (scope && typeof scope === "object") scope[moduleCacheKey] = __mfModuleCache;
+            }
+            shareScopes[moduleCacheKey] = __mfModuleCache;
             return runtime.loadRemote(${JSON.stringify(runtimeRemoteId)});
           })
           .then((mod) => Promise.resolve(mod?.__mf_remote_dependency_pending).then(() => mod))
