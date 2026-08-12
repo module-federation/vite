@@ -16,6 +16,16 @@ import {
 } from './virtualRuntimeInitStatus';
 
 const cacheRemoteMap = new WeakMap<NormalizedModuleFederationOptions, Map<string, VirtualModule>>();
+const remoteModuleMetadata = new WeakMap<
+  VirtualModule,
+  {
+    remote: string;
+    command: string;
+    enableSsrInit: boolean;
+    consumer: RemoteConsumer;
+    options: NormalizedModuleFederationOptions;
+  }
+>();
 const remoteOptionsIds = new WeakMap<NormalizedModuleFederationOptions, number>();
 let nextRemoteOptionsId = 1;
 
@@ -52,9 +62,31 @@ export function getRemoteVirtualModule(
     const virtualName = `${consumerName}${MF_OWNER_INFIX}${getRemoteOptionsId(options)}`;
     const virtual = new VirtualModule(virtualName, LOAD_REMOTE_TAG, '.js', options.internalName);
     virtual.writeSync(generateRemotes(remote, command, enableSsrInit, consumer, options));
+    remoteModuleMetadata.set(virtual, { remote, command, enableSsrInit, consumer, options });
     instanceCache.set(cacheKey, virtual);
   }
   return instanceCache.get(cacheKey)!;
+}
+
+export function refreshRemoteModuleForEnvironment(
+  id: string,
+  options: NormalizedModuleFederationOptions,
+  exportConditions?: readonly string[]
+) {
+  const virtual = VirtualModule.findById(id);
+  const metadata = virtual && remoteModuleMetadata.get(virtual);
+  if (!virtual || !metadata || metadata.options !== options) return false;
+  virtual.write(
+    generateRemotes(
+      metadata.remote,
+      metadata.command,
+      metadata.enableSsrInit,
+      metadata.consumer,
+      options,
+      exportConditions
+    )
+  );
+  return true;
 }
 const usedRemotesMap: Record<string, Set<string>> = {
   // remote1: {remote1/App, remote1, remote1/Button}
@@ -349,7 +381,8 @@ export function generateRemotes(
   command: string,
   enableSsrInit = false,
   consumer: RemoteConsumer = 'unified',
-  options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  exportConditions?: readonly string[]
 ) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const isLoadedFirst = resolvedOptions.shareStrategy === 'loaded-first';
@@ -383,13 +416,14 @@ export function generateRemotes(
     enableSsrInit,
     getRuntimeInitStatusImportId(options),
     ssrRemotes,
-    hostAutoInitPath
+    hostAutoInitPath,
+    exportConditions
   )}
     const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
   const devHostInitLine = command === 'serve' && consumer !== 'server' ? browserHostInitCode : '';
   const importLine =
     command === 'build'
-      ? `${getRuntimeModuleCacheBootstrapCode()}
+      ? `${getRuntimeModuleCacheBootstrapCode(exportConditions)}
     import { hostInitPromise as __mfHostInitPromise } from ${JSON.stringify(hostAutoInitPath)};`
       : `${devRuntimeBootstrap}
     ${devHostInitLine}`;

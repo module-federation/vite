@@ -29,6 +29,7 @@ export {
   getUsedRemotesMap,
   markDynamicRemote,
   markStaticRemote,
+  refreshRemoteModuleForEnvironment,
   LOAD_REMOTE_TAG,
 } from './virtualRemotes';
 

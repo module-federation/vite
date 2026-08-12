@@ -22,6 +22,7 @@ describe('virtualRuntimeInitStatus', () => {
   beforeEach(() => {
     writeSyncSpy.mockClear();
     delete (globalThis as Record<string, unknown>)['__mf_module_cache__'];
+    delete (globalThis as Record<string, unknown>)['__mf_module_cache_react_server__'];
     delete (globalThis as Record<string, unknown>)['__mf_init__virtual:runtimeInit__'];
   });
 
@@ -54,6 +55,23 @@ describe('virtualRuntimeInitStatus', () => {
     expect(getModuleCacheGlobalKey(['react-server', 'node'])).toBe(
       '__mf_module_cache_react_server__'
     );
+  });
+
+  it('selects the current environment cache for an existing owner', async () => {
+    const { getRuntimeInitBootstrapCode } = await import('../virtualRuntimeInitStatus');
+    const owner = 'virtual:owner';
+    const run = (conditions?: string[]) =>
+      runCode<any>(
+        getRuntimeInitBootstrapCode(false, owner, undefined, owner, conditions),
+        'return globalThis[globalKey].moduleCache;'
+      );
+
+    const ssrCache = run(['node']);
+    const reactServerCache = run(['react-server', 'node']);
+
+    expect(reactServerCache).not.toBe(ssrCache);
+    expect(reactServerCache).toBe((globalThis as any).__mf_module_cache_react_server__);
+    delete (globalThis as any)['__mf_init__virtual:owner__'];
   });
 
   it('aliases default-scoped and legacy share cache keys both ways', async () => {

@@ -78,6 +78,7 @@ import {
   LOAD_REMOTE_TAG,
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
+  refreshRemoteModuleForEnvironment,
   TREE_SHAKING_GRAPH_QUERY,
   TREE_SHAKING_PROVIDER_TAG,
   writeLocalSharedImportMap,
@@ -1014,6 +1015,17 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     });
   };
 
+  const refreshLoadRemoteModuleForEnvironment = (
+    id: string,
+    context: LoadHookContext,
+    loadOptions?: LoadHookOptions
+  ) =>
+    refreshRemoteModuleForEnvironment(
+      id,
+      options,
+      getLoadHookExportConditions(context, loadOptions)
+    );
+
   const refreshPreBuildModuleForEnvironment = (
     id: string,
     context: LoadHookContext,
@@ -1114,6 +1126,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         return virtualModule.getResolvedId();
       },
       load(id: string, loadOptions?: LoadHookOptions) {
+        if (
+          id.includes(LOAD_REMOTE_TAG) &&
+          !refreshLoadRemoteModuleForEnvironment(id, this as LoadHookContext, loadOptions)
+        ) {
+          return;
+        }
         if (
           command !== 'build' &&
           id.includes(LOAD_SHARE_TAG) &&
@@ -1525,6 +1543,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           importFalseExportUsage?: ReturnType<typeof getSharedExportUsage>
         ) => {
           if (!id.includes(LOAD_SHARE_TAG) && !id.includes(LOAD_REMOTE_TAG)) return;
+          if (
+            id.includes(LOAD_REMOTE_TAG) &&
+            !refreshLoadRemoteModuleForEnvironment(id, this as LoadHookContext, loadOptions)
+          ) {
+            return;
+          }
           if (
             id.includes(LOAD_SHARE_TAG) &&
             refreshLoadShareModuleForEnvironment(

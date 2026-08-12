@@ -9,6 +9,7 @@ import {
   isDynamicOnlyRemote,
   markDynamicRemote,
   markStaticRemote,
+  refreshRemoteModuleForEnvironment,
   resolveRemoteInitMode,
 } from '../virtualRemotes';
 
@@ -153,6 +154,20 @@ describe('generateRemotes', () => {
     expect(client.getImportId()).not.toBe(server.getImportId());
     expect(client.code).toContain('hostInitPromise');
     expect(server.code).not.toContain('.then(initResolve, initReject)');
+  });
+
+  it('refreshes server wrappers with their environment cache', () => {
+    const options = {
+      internalName: 'host',
+      shareStrategy: 'version-first',
+      remotes: {},
+    } as never;
+    const remote = getRemoteVirtualModule('remote/Button', 'serve', true, 'server', options);
+
+    expect(refreshRemoteModuleForEnvironment(remote.getImportId(), options, ['react-server'])).toBe(
+      true
+    );
+    expect(remote.code).toContain('__mf_module_cache_react_server__');
   });
   beforeEach(() => {
     mockOptions.shareStrategy = 'version-first';

@@ -188,7 +188,7 @@ if (${SERVER_ENV_GUARD} && !globalThis[globalKey].ssrInitStarted) {
 }`
     : ''
 }
-globalThis[globalKey].moduleCache ||= globalThis[moduleCacheGlobalKey];
+globalThis[globalKey].moduleCache = globalThis[moduleCacheGlobalKey];
 globalThis[globalKey].moduleCache.share ||= {};
 globalThis[globalKey].moduleCache.remote ||= {};
 `;
