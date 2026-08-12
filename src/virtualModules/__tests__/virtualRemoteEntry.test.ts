@@ -418,6 +418,7 @@ vi.mock('../../utils/packageUtils', () => {
     },
     sharedCacheHelperCode: MOCK_SHARED_CACHE_HELPER_CODE,
     getSharedCacheHelperCode: () => MOCK_SHARED_CACHE_HELPER_CODE,
+    shouldIncludeReactFlavorGuard: () => true,
     hasPackageDependency: hasPackageDependencyMock,
     packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
     getPackageName: (packageString: string) => {

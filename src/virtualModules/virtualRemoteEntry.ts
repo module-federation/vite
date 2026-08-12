@@ -11,6 +11,7 @@ import {
   getSharedCacheDescriptor,
   getSharedCacheHelperCode,
   hasPackageDependency,
+  shouldIncludeReactFlavorGuard,
   packageNameEncode,
 } from '../utils/packageUtils';
 import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
@@ -2030,6 +2031,7 @@ export function generateHostAutoInitCode(
   const shouldPreloadShares = resolvedOptions.shareStrategy !== 'loaded-first';
   const hostInitShareOrder = JSON.stringify(getOrderedUsedShares(options));
   const cacheOwner = JSON.stringify(resolvedOptions.name);
+  const includeReactFlavorGuard = shouldIncludeReactFlavorGuard(exportConditions);
   return `
     ${getRuntimeModuleCacheBootstrapCode(exportConditions)}
     let hostInitPromise;
@@ -2062,6 +2064,9 @@ export function generateHostAutoInitCode(
             }).then(async (factory) => {
               const mod = typeof factory === "function" ? factory() : factory;
               let resolvedShare = __mfNormalizeRuntimeShare(await Promise.resolve(mod));
+              ${
+                includeReactFlavorGuard
+                  ? `
               // The MF runtime registry is process-global; when another Vite
               // environment (e.g. vite-rsc's react-server environment)
               // initialized the runtime first, share negotiation can hand back
@@ -2075,6 +2080,8 @@ export function generateHostAutoInitCode(
                 const localFactory = await share.get();
                 const localMod = typeof localFactory === "function" ? localFactory() : localFactory;
                 resolvedShare = __mfNormalizeRuntimeShare(await Promise.resolve(localMod));
+              }`
+                  : ''
               }
               __mfWriteSharedCache(
                 __mfModuleCache.share,

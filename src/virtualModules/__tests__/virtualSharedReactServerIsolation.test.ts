@@ -180,6 +180,104 @@ describe('react-server environment share-cache isolation', () => {
     expect(read(cache, REACT_DESCRIPTOR)).toBe(serverFlavorReact);
   });
 
+  it('write helper refuses a react-server flavored react-dom in the default bucket', () => {
+    // React 19 ships __DOM_INTERNALS and the preload family in BOTH react-dom
+    // flavors; only createPortal/flushSync distinguish the client build.
+    const { write, read } = instantiateCacheHelpers();
+    const cache: Record<string, unknown> = {};
+    const descriptor = { canonical: 'default:react-dom', aliases: ['react-dom'] };
+    const serverFlavorReactDom = {
+      __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: {},
+      preload: () => undefined,
+      preinit: () => undefined,
+      version: '19.2.8',
+    };
+    const clientFlavorReactDom = {
+      __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: {},
+      preload: () => undefined,
+      createPortal: () => undefined,
+      flushSync: () => undefined,
+      version: '19.2.8',
+    };
+
+    write(cache, descriptor, serverFlavorReactDom, 'host');
+    expect(read(cache, descriptor)).toBeUndefined();
+
+    write(cache, descriptor, clientFlavorReactDom, 'host');
+    expect(read(cache, descriptor)).toBe(clientFlavorReactDom);
+  });
+
+  it('write helper refuses a client flavored react-dom in the react-server bucket', () => {
+    const { write, read } = instantiateCacheHelpers(REACT_SERVER_CONDITIONS);
+    const cache: Record<string, unknown> = {};
+    const descriptor = { canonical: 'default:react-dom', aliases: ['react-dom'] };
+    const serverFlavorReactDom = {
+      preload: () => undefined,
+      version: '19.2.8',
+    };
+    const clientFlavorReactDom = {
+      preload: () => undefined,
+      createPortal: () => undefined,
+      version: '19.2.8',
+    };
+
+    write(cache, descriptor, clientFlavorReactDom, 'host');
+    expect(read(cache, descriptor)).toBeUndefined();
+
+    write(cache, descriptor, serverFlavorReactDom, 'host');
+    expect(read(cache, descriptor)).toBe(serverFlavorReactDom);
+  });
+
+  it('write helper keeps caching flavor-ambiguous react-dom subpaths', () => {
+    // react-dom/client has no react-server variant; its client build exports
+    // neither createPortal nor preload, so it must stay cacheable everywhere.
+    const { write, read } = instantiateCacheHelpers();
+    const cache: Record<string, unknown> = {};
+    const descriptor = {
+      canonical: 'default:react-dom/client',
+      aliases: ['react-dom/client'],
+    };
+    const reactDomClient = {
+      createRoot: () => undefined,
+      hydrateRoot: () => undefined,
+      version: '19.2.8',
+    };
+
+    write(cache, descriptor, reactDomClient, 'host');
+    expect(read(cache, descriptor)).toBe(reactDomClient);
+  });
+
+  it('omits the flavor guard from client bundles', () => {
+    // The react-server flavor can never appear in a browser process, so the
+    // guard would be dead bytes in client bundles.
+    const clientHelperCode = getSharedCacheHelperCode(CLIENT_CONDITIONS);
+    expect(clientHelperCode).not.toContain('__mfSharedReactFlavorMismatch');
+
+    const { write, read } = instantiateCacheHelpers(CLIENT_CONDITIONS);
+    const cache: Record<string, unknown> = {};
+    write(cache, REACT_DESCRIPTOR, serverFlavorReact, 'host');
+    expect(read(cache, REACT_DESCRIPTOR)).toBe(serverFlavorReact);
+
+    const options = makeOptions('client-autoinit-host');
+    const clientAutoInit = generateHostAutoInitCode(
+      '"virtual:mf-REMOTE_ENTRY_ID"',
+      'build',
+      options,
+      CLIENT_CONDITIONS
+    );
+    expect(clientAutoInit).not.toContain('__mfSharedReactFlavorMismatch');
+  });
+
+  it('keeps the flavor guard for server bundles and unrefreshed writes', () => {
+    expect(getSharedCacheHelperCode()).toContain('__mfSharedReactFlavorMismatch');
+    expect(getSharedCacheHelperCode(['node', 'import', 'default'])).toContain(
+      '__mfSharedReactFlavorMismatch'
+    );
+    expect(getSharedCacheHelperCode(REACT_SERVER_CONDITIONS)).toContain(
+      '__mfSharedReactFlavorMismatch'
+    );
+  });
+
   it('write helper keeps caching non-react shares regardless of flavor markers', () => {
     const { write, read } = instantiateCacheHelpers();
     const cache: Record<string, unknown> = {};
