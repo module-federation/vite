@@ -6,7 +6,9 @@ import { defineConfig } from 'vite';
 // own. Its remoteEntry.ssr.js is consumed by the SSR host's Node server over
 // HTTP, so it must be emitted alongside the client assets.
 export default defineConfig({
-  server: { open: false, port: 5177 },
+  // Dev port differs from preview so a leftover `vite dev` can never be
+  // mistaken for the preview server on 5177 by Playwright's reuseExistingServer.
+  server: { open: false, port: 5179 },
   preview: { port: 5177, strictPort: true },
   plugins: [
     react(),

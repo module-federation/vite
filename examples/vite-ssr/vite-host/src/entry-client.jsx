@@ -6,7 +6,3 @@ import App from './App';
 const { default: RemoteWidget } = await import('ssrRemote/Widget');
 
 hydrateRoot(document.getElementById('root'), <App RemoteWidget={RemoteWidget} />);
-
-// Signals tests that event handlers are attached; clicks before this point
-// would land on inert server-rendered markup.
-document.body.dataset.hydrated = 'true';

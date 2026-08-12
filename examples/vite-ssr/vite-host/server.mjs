@@ -9,12 +9,18 @@ const template = fs.readFileSync(path.resolve(root, 'dist/client/index.html'), '
 // The federation plugin adds its own entries to the SSR build, so the app
 // entry is emitted under assets/ with a content hash.
 const serverAssetsDir = path.resolve(root, 'dist/server/assets');
-const entryFileName = fs
+const entryFileNames = fs
   .readdirSync(serverAssetsDir)
-  .find((file) => file.startsWith('entry-server-') && file.endsWith('.js'));
-if (!entryFileName) {
-  throw new Error(`No entry-server-*.js found in ${serverAssetsDir}`);
+  .filter((file) => file.startsWith('entry-server-') && file.endsWith('.js'));
+if (entryFileNames.length !== 1) {
+  // More than one match means a stale or interrupted build left old hashed
+  // copies behind; loading an arbitrary one would render outdated code.
+  throw new Error(
+    `Expected exactly one entry-server-*.js in ${serverAssetsDir}, ` +
+      `found ${entryFileNames.length}: [${entryFileNames.join(', ')}]`
+  );
 }
+const [entryFileName] = entryFileNames;
 const { render } = await import(
   new URL(`./dist/server/assets/${entryFileName}`, import.meta.url).href
 );
@@ -26,6 +32,14 @@ const CONTENT_TYPES = {
   '.json': 'application/json',
   '.svg': 'image/svg+xml',
 };
+
+function isFile(filePath) {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
 
 const server = http.createServer(async (req, res) => {
   const urlPath = (req.url ?? '/').split('?')[0];
@@ -41,16 +55,31 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (urlPath !== '/') {
-    const filePath = path.resolve(root, 'dist/client', `.${urlPath}`);
-    if (filePath.startsWith(path.resolve(root, 'dist/client')) && fs.existsSync(filePath)) {
+    const clientDir = path.resolve(root, 'dist/client');
+    const filePath = path.resolve(clientDir, `.${urlPath}`);
+    // Compare with a trailing separator so `../` can't escape to sibling
+    // directories that merely share the prefix (e.g. dist/client-extra).
+    if (filePath.startsWith(clientDir + path.sep) && isFile(filePath)) {
       res.setHeader(
         'Content-Type',
         CONTENT_TYPES[path.extname(filePath)] ?? 'application/octet-stream'
       );
-      fs.createReadStream(filePath).pipe(res);
+      const stream = fs.createReadStream(filePath);
+      // A read failure (file replaced mid-stream, EISDIR, ...) must end the
+      // response, not crash the process.
+      stream.on('error', (error) => {
+        console.error('[ssr-host] static read failed:', error);
+        if (!res.headersSent) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'text/plain');
+        }
+        res.end('Internal server error');
+      });
+      stream.pipe(res);
       return;
     }
     res.statusCode = 404;
+    res.setHeader('Content-Type', 'text/plain');
     res.end('Not found');
     return;
   }
@@ -58,12 +87,15 @@ const server = http.createServer(async (req, res) => {
   try {
     const appHtml = await render();
     res.setHeader('Content-Type', 'text/html');
-    res.end(template.replace('<!--ssr-outlet-->', appHtml));
+    // Function replacement so `$`-sequences in the rendered HTML are not
+    // interpreted as replacement patterns.
+    res.end(template.replace('<!--ssr-outlet-->', () => appHtml));
   } catch (error) {
     // Keep the process alive: Playwright's webServer readiness check polls
     // this URL and the remote may still be booting on the first requests.
     console.error('[ssr-host] render failed:', error);
     res.statusCode = 500;
+    res.setHeader('Content-Type', 'text/plain');
     res.end('SSR render failed');
   }
 });
