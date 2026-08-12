@@ -2031,7 +2031,8 @@ export function generateHostAutoInitCode(
   const hostInitShareOrder = JSON.stringify(getOrderedUsedShares(options));
   const cacheOwner = JSON.stringify(resolvedOptions.name);
   const preferLocalVinextReact =
-    hasPackageDependency('vinext') && !exportConditions?.includes('browser');
+    hasPackageDependency('vinext') &&
+    (!exportConditions?.includes('browser') || exportConditions.includes('worker'));
   return `
     ${getRuntimeModuleCacheBootstrapCode(exportConditions)}
     let hostInitPromise;
