@@ -30,6 +30,16 @@ const CONTENT_TYPES = {
 const server = http.createServer(async (req, res) => {
   const urlPath = (req.url ?? '/').split('?')[0];
 
+  // Playwright's webServer readiness probe. Deliberately independent of the
+  // remote: if the readiness URL required a successful render, a missing
+  // remote SSR entry would surface as a 120s webServer timeout instead of
+  // the spec's own assertion failures.
+  if (urlPath === '/healthz') {
+    res.setHeader('Content-Type', 'text/plain');
+    res.end('ok');
+    return;
+  }
+
   if (urlPath !== '/') {
     const filePath = path.resolve(root, 'dist/client', `.${urlPath}`);
     if (filePath.startsWith(path.resolve(root, 'dist/client')) && fs.existsSync(filePath)) {

@@ -40,7 +40,7 @@ export default defineConfig({
     },
     {
       command: 'pnpm --filter examples-vite-ssr-host run preview',
-      url: 'http://localhost:5178',
+      url: 'http://localhost:5178/healthz',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
