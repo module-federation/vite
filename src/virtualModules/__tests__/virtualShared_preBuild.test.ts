@@ -218,6 +218,9 @@ vi.mock('../../utils/packageUtils', () => ({
     if (pkg === 'mock-package-nested-template-literal') {
       return '/repo/apps/remote/node_modules/mock-package-nested-template-literal/index.js';
     }
+    if (pkg === 'mock-package-export-method-call') {
+      return '/repo/apps/remote/node_modules/mock-package-export-method-call/index.js';
+    }
     if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
       return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
     }
@@ -690,6 +693,14 @@ export const buttonBase = 1;`;
       return [
         "const body = 'text';",
         'export const injectedHtml = `${`<div>`}${body}${`</div>`}`;',
+      ].join('\n');
+    }
+    if (filePath.endsWith('node_modules/mock-package-export-method-call/index.js')) {
+      return [
+        'const key = globalThis.crypto.subtle;',
+        'export function toJwk() {',
+        "  return key.export({ format: 'jwk' });",
+        '}',
       ].join('\n');
     }
     if (
@@ -2708,6 +2719,10 @@ describe('writeLoadShareModule', () => {
         String(filePath).endsWith('/mock-package-nested-template-literal/index.js')
       )
     ).toHaveLength(1);
+  });
+
+  it('detects named exports when `export` appears as a method name', () => {
+    expect(getSharedNamedExports('mock-package-export-method-call')).toEqual(['toJwk']);
   });
 
   it('uses worker conditional exports for webworker SSR', () => {
