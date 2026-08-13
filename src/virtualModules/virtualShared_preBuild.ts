@@ -1990,6 +1990,7 @@ export function writeLoadShareModule(
   const usesEagerWorkspaceFallback =
     hasCompleteExportCoverage &&
     isWorkspaceSingleton &&
+    !servesRemoteSingletonFallback &&
     (isConsumedByPeerSingleton || shareItem.shareConfig.eager === true);
   const usesDeferredTreeShakingFallback = hasCompleteExportCoverage && Boolean(treeShakingConsumer);
   const reactMixedModeGuard = pkg === 'react' ? createReactMixedModeRuntimeGuard() : '';
@@ -2004,7 +2005,8 @@ export function writeLoadShareModule(
       cacheOwner,
       treeShakingConsumer,
       command !== 'build' &&
-        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback),
+        !servesRemoteSingletonFallback &&
+        (isWorkspaceSingleton || isWorkspacePackage),
       liveNamedExports
     );
   } else if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
@@ -2025,7 +2027,8 @@ export function writeLoadShareModule(
       cacheOwner,
       treeShakingConsumer,
       command !== 'build' &&
-        (isWorkspaceSingleton || isWorkspacePackage || servesRemoteSingletonFallback),
+        !servesRemoteSingletonFallback &&
+        (isWorkspaceSingleton || isWorkspacePackage),
       liveNamedExports
     );
   } else if (detectedNamedExports === undefined) {
@@ -2124,10 +2127,10 @@ export function writeLoadShareModule(
     usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback
       ? ''
       : usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
-        ? servesRemoteSingletonFallback ||
-          (usesDeferredSingletonFallback &&
-            command !== 'build' &&
-            (isWorkspaceSingleton || isWorkspacePackage))
+        ? !servesRemoteSingletonFallback &&
+          usesDeferredSingletonFallback &&
+          command !== 'build' &&
+          (isWorkspaceSingleton || isWorkspacePackage)
           ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(lazyLocalFallbackSource)};`
           : ''
         : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
