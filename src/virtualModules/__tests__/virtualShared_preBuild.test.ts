@@ -3560,7 +3560,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('import * as __mfLocalShare from "lit";');
+    expect(generatedCode).not.toContain('import * as __mfLocalShare from "lit";');
     expect(generatedCode).toContain('if (import.meta.env.SSR');
     expect(generatedCode).toContain('import("lit").then((mod) => {');
     expect(generatedCode).toContain('export { __mf_default as default };');
@@ -3597,7 +3597,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('import * as __mfLocalShare from "lit";');
+    expect(generatedCode).not.toContain('import * as __mfLocalShare from "lit";');
     expect(generatedCode).toContain('if (import.meta.env.SSR');
     expect(generatedCode).toContain('import("lit").then((mod) => {');
     expect(generatedCode).toContain('export { __mf_default as default };');
@@ -3713,7 +3713,7 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain(
+    expect(generatedCode).not.toContain(
       'import * as __mfLocalShare from "lit/directives/class-map.js";'
     );
     expect(generatedCode).toContain('if (import.meta.env.SSR');
