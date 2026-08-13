@@ -752,10 +752,20 @@ function getNamedExportsViaRegex(
   const exportKeywordRegex = /\bexport\b/g;
   while ((match = exportKeywordRegex.exec(source)) !== null) {
     if (!codePositions[match.index]) continue;
-    if (!recognizedExportStarts.has(match.index)) {
-      scanState.complete = false;
-      break;
+    if (recognizedExportStarts.has(match.index)) continue;
+
+    // A member named `export` is not an export declaration.
+    let previousCodeIndex = match.index - 1;
+    while (
+      previousCodeIndex >= 0 &&
+      (/\s/.test(source[previousCodeIndex]) || !codePositions[previousCodeIndex])
+    ) {
+      previousCodeIndex--;
     }
+    if (source[previousCodeIndex] === '.') continue;
+
+    scanState.complete = false;
+    break;
   }
 
   return Array.from(names);
