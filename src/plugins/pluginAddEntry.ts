@@ -531,6 +531,7 @@ const __mfCurrentScript = document.currentScript;
           }
           if (req.url && req.url.startsWith((viteConfig.base + fileName).replace(/^\/?/, '/'))) {
             req.url = devEntryPath;
+            req.headers['sec-fetch-dest'] = 'script';
           }
           next();
         });
