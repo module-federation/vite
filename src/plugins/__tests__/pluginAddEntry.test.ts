@@ -199,11 +199,12 @@ describe('pluginAddEntry', () => {
       middlewares: { use: (handler: Function) => handlers.push(handler) },
     } as unknown as ViteDevServer);
 
-    const req = { url: '/remoteEntry.js?cache=1' };
+    const req = { url: '/remoteEntry.js?cache=1', headers: { 'sec-fetch-dest': 'document' } };
     const next = vi.fn();
     handlers[0](req, {}, next);
 
     expect(req.url).toBe('/@id/virtual:mf-remote-entry');
+    expect(req.headers['sec-fetch-dest']).toBe('script');
     expect(next).toHaveBeenCalledOnce();
   });
 
