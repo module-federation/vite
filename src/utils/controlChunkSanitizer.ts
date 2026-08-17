@@ -1,3 +1,5 @@
+import { isIdentifierReferenced } from './bundleHelpers';
+
 const FEDERATION_CONTROL_CHUNK_HINTS = [
   'hostInit',
   'virtualExposes',
@@ -5,7 +7,10 @@ const FEDERATION_CONTROL_CHUNK_HINTS = [
 ] as const;
 
 export function stripEmptyPreloadCalls(code: string): string {
-  const helperImportRegex = /import\s*\{\s*_\s*as\s*(\w+)\s*\}\s*from\s*["'][^"']+["']\s*;?/g;
+  // Not `\w+`: that skips the `$`-prefixed aliases minifiers produce, leaving
+  // those imports unprocessed.
+  const helperImportRegex =
+    /import\s*\{\s*_\s*as\s*([A-Za-z_$][\w$]*)\s*\}\s*from\s*["'][^"']+["']\s*;?/g;
   const helperAliases: string[] = [];
   let helperImportMatch: RegExpExecArray | null;
   while ((helperImportMatch = helperImportRegex.exec(code)) !== null) {
@@ -60,8 +65,7 @@ export function stripEmptyPreloadCalls(code: string): string {
     // such a binding is usually referenced as a plain value (e.g. `return x;`) rather
     // than called. Dropping that import leaves an undeclared free identifier behind,
     // which throws at runtime while the build still exits successfully.
-    const helperReferenceRegex = new RegExp(`\\b${local}\\b`);
-    return helperReferenceRegex.test(nextCode.replace(statement, '')) ? statement : '';
+    return isIdentifierReferenced(local, nextCode.replace(statement, '')) ? statement : '';
   });
 
   return nextCode;

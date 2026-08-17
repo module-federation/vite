@@ -77,6 +77,28 @@ describe('controlChunkSanitizer', () => {
     expect(result).not.toContain('preload-helper-CWZBUsdZ.js');
   });
 
+  it('keeps a `$`-prefixed `_` import whose binding is referenced as a value', () => {
+    const code =
+      'import{_ as __vitePreload}from"./assets/preload-helper-CWZBUsdZ.js";' +
+      'import{_ as $8}from"./assets/_virtual_mf-localSharedImportMap-CiudmNFF.js";' +
+      'async function getLocalSharedImportMap(){return $8}';
+
+    const result = stripEmptyPreloadCalls(code);
+
+    expect(result).toContain(
+      'import{_ as $8}from"./assets/_virtual_mf-localSharedImportMap-CiudmNFF.js";'
+    );
+    expect(result).not.toContain('preload-helper-CWZBUsdZ.js');
+  });
+
+  it('still drops a `$`-prefixed `_` import that is genuinely unused', () => {
+    const code =
+      'import{_ as $8}from"./assets/preload-helper-CWZBUsdZ.js";' +
+      'async function noop(){return 1}';
+
+    expect(stripEmptyPreloadCalls(code)).not.toContain('preload-helper-CWZBUsdZ.js');
+  });
+
   it('detects federation control chunks', () => {
     expect(isFederationControlChunk('remoteEntry.js', 'remoteEntry.js')).toBe(true);
     expect(isFederationControlChunk('assets/hostInit-abc.js', 'remoteEntry.js')).toBe(true);
