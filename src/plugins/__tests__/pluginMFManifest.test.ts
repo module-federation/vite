@@ -43,6 +43,8 @@ vi.mock('../../utils/treeShaking', () => ({
 }));
 
 vi.mock('../../virtualModules', () => ({
+  getLocalSharedImportMapPath: ({ internalName }: { internalName: string }) =>
+    `virtual:mf-localSharedImportMap:${internalName}__mf_owner__1`,
   getUsedRemotesMap,
   getUsedShares,
   getPreBuildLibImportId,
@@ -62,7 +64,11 @@ function createRenderedModule(): RenderedModule {
   };
 }
 
-function createChunk(fileName: string, moduleIds: string[], facadeModuleId: string | null = null) {
+function createChunk(
+  fileName: string,
+  moduleIds: string[],
+  facadeModuleId: string | null = null
+): OutputChunk {
   return {
     type: 'chunk',
     fileName,
@@ -185,6 +191,7 @@ async function runGenerateBundleWithManifest(
 ): Promise<Record<string, string>> {
   getNormalizeModuleFederationOptions.mockReturnValue({
     name: 'basicRemote',
+    internalName: 'basicRemote',
     filename: runtime.filename || 'remoteEntry.js',
     getPublicPath: undefined,
     varFilename: runtime.varFilename,
@@ -293,6 +300,103 @@ describe('pluginMFManifest', () => {
     expect(
       stats.buildOutput.find((chunk: { fileName: string }) => chunk.fileName === 'remoteEntry.js')
     ).toBeTruthy();
+  });
+
+  it('includes direct and wrapped container bootstrap closures in expose assets', async () => {
+    const remoteEntry = createChunk('remoteEntry.js', ['/src/remoteEntry.ts']);
+    remoteEntry.imports = ['assets/runtime.js'];
+    remoteEntry.dynamicImports = ['assets/shared-map.js'];
+
+    const runtime = createChunk('assets/runtime.js', ['/src/runtime.ts']);
+    runtime.dynamicImports = ['assets/exposes-map.js', 'assets/unrelated.js'];
+    const sharedMap = createChunk(
+      'assets/shared-map.js',
+      ['/src/generated-shared-map.ts'],
+      '\0virtual:mf-localSharedImportMap:basicRemote__mf_owner__1?commonjs-proxy'
+    );
+    sharedMap.imports = ['assets/shared-dependency.js'];
+    const exposesMap = createChunk('assets/exposes-map.js', [
+      '/@id/__x00__virtual:mf-exposes:basicRemote__remoteEntry_js?commonjs-proxy',
+    ]);
+    exposesMap.imports = ['assets/bootstrap-dependency.js'];
+    exposesMap.dynamicImports = ['assets/not-bootstrap.js'];
+
+    const bundle = {
+      'remoteEntry.js': remoteEntry,
+      'assets/runtime.js': runtime,
+      'assets/shared-map.js': sharedMap,
+      'assets/shared-dependency.js': createChunk('assets/shared-dependency.js', [
+        '/src/shared-dependency.ts',
+      ]),
+      'assets/exposes-map.js': exposesMap,
+      'assets/bootstrap-dependency.js': createChunk('assets/bootstrap-dependency.js', [
+        '/src/bootstrap-dependency.ts',
+      ]),
+      'assets/unrelated.js': createChunk(
+        'assets/unrelated.js',
+        ['/src/unrelated.ts'],
+        '\0virtual:mf-localSharedImportMap:basicRemote__mf_owner__2'
+      ),
+      'assets/not-bootstrap.js': createChunk('assets/not-bootstrap.js', ['/src/not-bootstrap.ts']),
+      'assets/exposed.js': createChunk('assets/exposed.js', ['/src/exposed.js']),
+    } satisfies OutputBundle;
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      exposePaths: { './exposed': { import: './src/exposed.js' } },
+      bundle,
+    });
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    const stats = JSON.parse(emitted['mf-stats.json']);
+    const expectedAssets = {
+      sync: [
+        'assets/runtime.js',
+        'assets/shared-map.js',
+        'assets/shared-dependency.js',
+        'assets/exposes-map.js',
+        'assets/bootstrap-dependency.js',
+        'assets/exposed.js',
+      ],
+      async: [],
+    };
+
+    expect(manifest.exposes[0].assets.js).toEqual(expectedAssets);
+    expect(stats.assetAnalysis['./src/exposed.js'].js).toEqual(expectedAssets);
+  });
+
+  it('expands expose sync and async static closures without crossing dynamic boundaries', async () => {
+    const exposed = createChunk('assets/exposed.js', ['/src/exposed.js']);
+    exposed.imports = ['assets/expose-dependency.js'];
+    exposed.dynamicImports = ['assets/lazy.js', 'assets/expose-dependency.js'];
+    const lazy = createChunk('assets/lazy.js', ['/src/lazy.ts']);
+    lazy.imports = ['assets/lazy-dependency.js'];
+    lazy.dynamicImports = ['assets/not-preloaded.js'];
+
+    const bundle = {
+      'remoteEntry.js': createChunk('remoteEntry.js', ['/src/remoteEntry.ts']),
+      'assets/exposed.js': exposed,
+      'assets/expose-dependency.js': createChunk('assets/expose-dependency.js', [
+        '/src/expose-dependency.ts',
+      ]),
+      'assets/lazy.js': lazy,
+      'assets/lazy-dependency.js': createChunk('assets/lazy-dependency.js', [
+        '/src/lazy-dependency.ts',
+      ]),
+      'assets/not-preloaded.js': createChunk('assets/not-preloaded.js', ['/src/not-preloaded.ts']),
+    } satisfies OutputBundle;
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      exposePaths: { './exposed': { import: './src/exposed.js' } },
+      bundle,
+    });
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    const stats = JSON.parse(emitted['mf-stats.json']);
+    const expectedAssets = {
+      sync: ['assets/exposed.js', 'assets/expose-dependency.js'],
+      async: ['assets/lazy.js', 'assets/lazy-dependency.js'],
+    };
+
+    expect(manifest.exposes[0].assets.js).toEqual(expectedAssets);
+    expect(stats.assetAnalysis['./src/exposed.js'].js).toEqual(expectedAssets);
   });
 
   it('isolates manifest usage and shares across plugin instances', async () => {

@@ -131,6 +131,28 @@ type ChunkAssetAnalysis = {
   dynamicAssets: Array<{ fileName: string; type: AssetType }>;
 };
 
+export const collectStaticChunks = (
+  bundle: Record<string, OutputBundleItem>,
+  roots: string[]
+): OutputChunkWithViteMetadata[] => {
+  const chunks: OutputChunkWithViteMetadata[] = [];
+  const visited = new Set<string>();
+  const queue = [...roots];
+
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
+    const fileName = queue[queueIndex];
+    if (visited.has(fileName)) continue;
+    visited.add(fileName);
+
+    const chunk = bundle[fileName];
+    if (!chunk || chunk.type !== 'chunk') continue;
+    chunks.push(chunk);
+    queue.push(...(chunk.imports ?? []));
+  }
+
+  return chunks;
+};
+
 /**
  * Analyzes assets associated with a chunk without mutating the output map.
  * The static-import traversal is cycle-safe and ignores missing bundle entries.
@@ -141,27 +163,13 @@ const analyzeChunkAssets = (
   chunk: OutputChunkWithViteMetadata
 ): ChunkAssetAnalysis => {
   const dynamicAssets: ChunkAssetAnalysis['dynamicAssets'] = [];
-  const visited = new Set<string>();
-  const queue: string[] = [fileName];
-
-  for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
-    const currentFileName = queue[queueIndex];
-    if (visited.has(currentFileName)) continue;
-    visited.add(currentFileName);
-
-    const currentChunk = bundle[currentFileName];
-    if (!currentChunk || currentChunk.type !== 'chunk') continue;
-
+  for (const currentChunk of collectStaticChunks(bundle, [fileName])) {
     for (const dynamicImport of currentChunk.dynamicImports ?? []) {
       if (!bundle[dynamicImport]) continue;
       dynamicAssets.push({
         fileName: dynamicImport,
         type: isCSSFile(dynamicImport) ? 'css' : 'js',
       });
-    }
-
-    for (const staticImport of currentChunk.imports ?? []) {
-      queue.push(staticImport);
     }
   }
 

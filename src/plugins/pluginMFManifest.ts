@@ -8,6 +8,7 @@ import {
 } from '../utils/normalizeModuleFederationOptions';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
 import {
+  getLocalSharedImportMapPath,
   getUsedRemotesMap,
   getUsedShares,
   TREE_SHAKING_GRAPH_QUERY,
@@ -19,14 +20,19 @@ import {
   addCssAssetsToAllExports,
   buildFileToShareKeyMap,
   collectCssAssets,
+  collectStaticChunks,
   createEmptyAssetMap,
   deduplicateAssets,
+  type OutputBundleItem,
+  type OutputChunkWithViteMetadata,
   type PreloadMap,
   processModuleAssets,
 } from '../utils/cssModuleHelpers';
 import { resolvePublicPath } from '../utils/pathNormalization';
 import { normalizePathForImport } from '../utils/buildPaths';
 import { DEFAULT_PUBLIC_TYPES_FOLDER } from '../utils/dtsConstants';
+import { normalizeVirtualModuleId } from '../utils/VirtualModule';
+import { getVirtualExposesId } from '../virtualModules/virtualExposes';
 import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
 
 /**
@@ -95,6 +101,78 @@ function isTreeShakingProviderChunk(file: Record<string, any>) {
   return Object.keys(file.modules || {}).some(
     (id) => id.includes(TREE_SHAKING_PROVIDER_TAG) || id.includes(TREE_SHAKING_GRAPH_QUERY)
   );
+}
+
+function isContainerBootstrapChunk(
+  chunk: OutputChunkWithViteMetadata,
+  moduleIds: Set<string>
+): boolean {
+  return [chunk.facadeModuleId, ...(chunk.moduleIds ?? [])].some(
+    (id) => typeof id === 'string' && moduleIds.has(normalizeVirtualModuleId(id))
+  );
+}
+
+function expandExposeAssets(
+  filesMap: PreloadMap,
+  exposeModules: string[],
+  bundle: Record<string, OutputBundleItem>,
+  remoteEntryFileName: string | undefined,
+  options: NormalizedModuleFederationOptions
+): void {
+  if (exposeModules.length === 0) return;
+
+  const containerChunks = remoteEntryFileName
+    ? collectStaticChunks(bundle, [remoteEntryFileName])
+    : [];
+  const bootstrapAssets = containerChunks.slice(1).map((chunk) => chunk.fileName);
+  const seen = new Set(containerChunks.map((chunk) => chunk.fileName));
+
+  if (containerChunks.length > 0) {
+    const bootstrapModuleIds = new Set([
+      getLocalSharedImportMapPath(options),
+      getVirtualExposesId(options),
+    ]);
+
+    // Vite 8 can place the container implementation behind a static wrapper.
+    for (const containerChunk of containerChunks) {
+      for (const imported of containerChunk.dynamicImports ?? []) {
+        const importedChunk = bundle[imported];
+        if (
+          !importedChunk ||
+          importedChunk.type !== 'chunk' ||
+          !isContainerBootstrapChunk(importedChunk, bootstrapModuleIds)
+        ) {
+          continue;
+        }
+
+        // These dynamic chunks are init/get prerequisites, but their dynamic imports are not.
+        for (const chunk of collectStaticChunks(bundle, [imported])) {
+          if (seen.has(chunk.fileName)) continue;
+          seen.add(chunk.fileName);
+          bootstrapAssets.push(chunk.fileName);
+        }
+      }
+    }
+  }
+
+  for (const exposeModule of exposeModules) {
+    const assets = filesMap[exposeModule];
+    if (!assets) continue;
+
+    const sync = Array.from(
+      new Set([
+        ...bootstrapAssets,
+        ...collectStaticChunks(bundle, assets.js.sync).map((chunk) => chunk.fileName),
+      ])
+    );
+    const syncSet = new Set(sync);
+    const async = collectStaticChunks(bundle, assets.js.async)
+      .map((chunk) => chunk.fileName)
+      .filter((fileName) => !syncSet.has(fileName));
+
+    assets.js.sync = sync;
+    assets.js.async = async;
+  }
 }
 
 function getTreeShakingBuildInfo(options: ReturnType<typeof getNormalizeModuleFederationOptions>) {
@@ -352,6 +430,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             },
             { root, stripKnownJsExtensions: true }
           );
+          expandExposeAssets(filesMap, exposesModules, bundle, foundRemoteEntryFile, mfOptions);
 
           // Process shared modules
           const fileToShareKey = await buildFileToShareKeyMap(

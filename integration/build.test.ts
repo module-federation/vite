@@ -54,6 +54,16 @@ describe('build', () => {
 
       const parsed = JSON.parse(manifest!.source as string);
       expect(parsed).toHaveProperty('exposes');
+
+      const syncAssets = parsed.exposes[0].assets.js.sync;
+      const chunks = manifestOutput.output.filter((item) => item.type === 'chunk');
+      for (const virtualId of ['virtual:mf-localSharedImportMap:', 'virtual:mf-exposes:']) {
+        const bootstrapChunk = chunks.find((chunk) =>
+          chunk.moduleIds.some((id) => id.includes(virtualId))
+        );
+        expect(bootstrapChunk).toBeDefined();
+        expect(syncAssets).toContain(bootstrapChunk!.fileName);
+      }
     });
 
     it('generates mf-stats.json when manifest is enabled', async () => {
