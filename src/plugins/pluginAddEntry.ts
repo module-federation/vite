@@ -806,7 +806,11 @@ const __mfCurrentScript = document.currentScript;
         }
       },
       closeBundle() {
-        if (_command === 'serve' || skipSvelteKitSsrBuild()) {
+        if (
+          _command === 'serve' ||
+          !hasPackageDependency('@sveltejs/kit') ||
+          skipSvelteKitSsrBuild()
+        ) {
           return;
         }
 
