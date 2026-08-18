@@ -1,7 +1,59 @@
 import { describe, expect, it } from 'vitest';
-import { resolveProxyAlias } from '../src/utils/bundleHelpers';
+import { isIdentifierReferenced, resolveProxyAlias } from '../src/utils/bundleHelpers';
+
+describe('isIdentifierReferenced', () => {
+  it.each(['$8', '$', '$1', '$$0'])('finds `%s` at the start of an identifier', (name) => {
+    expect(isIdentifierReferenced(name, `var n=j3,e=${name},r=PS;`)).toBe(true);
+  });
+
+  it.each(['An', 'd6', 'N4', 'require$$0', 'commonjsGlobal$1'])(
+    'still finds the ordinary name `%s`',
+    (name) => {
+      expect(isIdentifierReferenced(name, `const o=${name}.createElement("div");`)).toBe(true);
+    }
+  );
+
+  it('does not match a longer identifier that merely contains the name', () => {
+    expect(isIdentifierReferenced('$8', 'const x=$80;')).toBe(false);
+    expect(isIdentifierReferenced('$', 'const x=$foo;')).toBe(false);
+    expect(isIdentifierReferenced('r', 'const x=react;')).toBe(false);
+  });
+
+  it('does not match when the name is only a suffix of another identifier', () => {
+    expect(isIdentifierReferenced('$8', 'const x=a$8;')).toBe(false);
+    expect(isIdentifierReferenced('o', 'const x=foo;')).toBe(false);
+  });
+
+  it('reports an absent name as unreferenced', () => {
+    expect(isIdentifierReferenced('$8', 'console.log(other);')).toBe(false);
+  });
+});
 
 describe('resolveProxyAlias', () => {
+  // The `\b` check reported a minified `$8` binding unused, so the import was
+  // rebound to the proxy's export name and its references were left dangling —
+  // a clean build that threw `ReferenceError: $8 is not defined` in the browser.
+  it.each(['$8', '$', '$1'])(
+    'keeps the `%s` alias when it is referenced in the code body',
+    (local) => {
+      const fullImport = `import{r as ${local},c as Zg}from"./proxy-react.mjs_commonjs-proxy-abc.js";`;
+      const code = `${fullImport}var n=j3,e=${local},r=PS;t.exports=r(${local},tI);`;
+
+      const result = resolveProxyAlias({ imported: 'r', local }, 'l', code, fullImport);
+
+      expect(result.local).toBe(local);
+    }
+  );
+
+  it('still restores proxyLocal when a `$`-prefixed alias is genuinely unused', () => {
+    const fullImport = `import{r as $8}from"./proxy-abc.js"`;
+    const code = `${fullImport};console.log(somethingElse);`;
+
+    const result = resolveProxyAlias({ imported: 'r', local: '$8' }, 'l', code, fullImport);
+
+    expect(result.local).toBe('l');
+  });
+
   it('keeps b.local when it is referenced in the code body', () => {
     const fullImport = `import{r as commonjsGlobal$1}from"./proxy-abc.js"`;
     const code = `${fullImport};console.log(commonjsGlobal$1);`;
