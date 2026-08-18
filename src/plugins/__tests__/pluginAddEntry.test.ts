@@ -15,8 +15,10 @@ import type {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toViteEncodedId, VITE_ID_PREFIX } from '../../utils/VirtualModule';
 
+const mockHasPackageDependency = vi.hoisted(() => vi.fn((_pkg: string) => true));
+
 vi.mock('../../utils/packageUtils', () => ({
-  hasPackageDependency: () => true,
+  hasPackageDependency: mockHasPackageDependency,
 }));
 
 const mockMfOptions = vi.hoisted(() => ({
@@ -98,6 +100,11 @@ function runBuildStart(
   callHook(plugin.buildStart, ctx, options);
 }
 
+function runCloseBundle(plugin: AddEntryPlugin): void {
+  if (!plugin.closeBundle) throw new Error(`${plugin.name} closeBundle hook not found`);
+  callHook(plugin.closeBundle, {} as Rollup.PluginContext);
+}
+
 function runGenerateBundle(
   plugin: AddEntryPlugin,
   ctx: Rollup.PluginContext,
@@ -119,8 +126,12 @@ function clearUsedRemotes() {
 describe('pluginAddEntry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockHasPackageDependency.mockImplementation(() => true);
     mockMfOptions.shareStrategy = 'version-first';
     clearUsedRemotes();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   for (const testCase of [
@@ -1948,5 +1959,53 @@ describe('pluginAddEntry', () => {
         /await import\([^)]+\)\.then\(\(\{ initHost \}\) => initHost\(\)\)/g
       )?.length
     ).toBe(1);
+  });
+
+  it('closeBundle does not schedule a retry timer when @sveltejs/kit is absent', () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    mockHasPackageDependency.mockImplementation((pkg: string) => pkg !== '@sveltejs/kit');
+
+    const [, buildPlugin] = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+
+    runCloseBundle(buildPlugin);
+
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('closeBundle patches SvelteKit static HTML on disk after build', () => {
+    vi.useFakeTimers();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-closeBundle-svelte-'));
+    const buildDir = path.join(tempDir, 'build');
+    fs.mkdirSync(buildDir, { recursive: true });
+    fs.writeFileSync(path.join(buildDir, 'hostInit.js'), 'hostInitPromise initHost');
+    fs.writeFileSync(
+      path.join(buildDir, '200.html'),
+      '<html><body><script>{ Promise.all([ import("./start.js") ]).then(([kit, app]) => { kit.start(app, element); }); }</script></body></html>'
+    );
+
+    const [, buildPlugin] = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    runCloseBundle(buildPlugin);
+    vi.runAllTimers();
+
+    const patched = fs.readFileSync(path.join(buildDir, '200.html'), 'utf-8');
+
+    expect(patched).toContain('const __mfCurrentScript = document.currentScript;');
+    expect(patched).toContain('.then(({ initHost }) => initHost());');
+    expect(patched).toContain('kit.start(app, element);');
   });
 });
