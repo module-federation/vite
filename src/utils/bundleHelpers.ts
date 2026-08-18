@@ -20,6 +20,18 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Whether `code` references `name` as a whole identifier.
+ *
+ * Not `\b`: a word boundary needs a `\w` on one side, and `$` is not one, so
+ * `\b$8\b` matches nothing at all. Minifiers assign `$`-prefixed names to any
+ * chunk with more than ~54 module-scope bindings, and a missed match here reads
+ * as "unused", which orphans a still-referenced import.
+ */
+export function isIdentifierReferenced(name: string, code: string): boolean {
+  return new RegExp(`(?<![$\\w])${escapeRegExp(name)}(?![$\\w])`).test(code);
+}
+
 function getProxyBaseName(fileName: string): string {
   return fileName
     .replace(/^.*\//, '')
@@ -27,8 +39,16 @@ function getProxyBaseName(fileName: string): string {
     .replace(/-[A-Za-z0-9_-]+$/, '');
 }
 
+/**
+ * Matches `function <name>(`. Escaped because an unescaped leading `$` is a
+ * regex end-anchor, so the pattern would silently match nothing.
+ */
+function functionDeclarationRegExp(name: string): RegExp {
+  return new RegExp(`function\\s+${escapeRegExp(name)}\\s*\\(`);
+}
+
 function extractFunctionDeclaration(code: string, functionName: string): string | undefined {
-  const funcRe = new RegExp(`function\\s+${functionName}\\s*\\([^)]*\\)\\s*\\{`);
+  const funcRe = new RegExp(`function\\s+${escapeRegExp(functionName)}\\s*\\([^)]*\\)\\s*\\{`);
   const funcStart = code.search(funcRe);
   if (funcStart < 0) return;
 
@@ -55,8 +75,7 @@ export function resolveProxyAlias(
   claimedLocals: Set<string> = new Set()
 ): { imported: string; local: string } {
   const codeWithoutImport = code.replace(fullImport, '');
-  const escapedLocal = binding.local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const localUsedInCode = new RegExp(`\\b${escapedLocal}\\b`).test(codeWithoutImport);
+  const localUsedInCode = isIdentifierReferenced(binding.local, codeWithoutImport);
   const claimedImportLocals = new Set<string>();
   const importRe = /import\s*\{([^}]+)\}\s*from\s*["'][^"']+["']\s*;?/g;
   let match: RegExpExecArray | null;
@@ -132,7 +151,7 @@ export function collectSystemProxyInfos(
       // e.g. getAugmentedNamespace(React4). Prefer the wrapped namespace binding
       // over the helper when both come from the same loadShare chunk.
       for (const [local, exportName] of Object.entries(loadShareBindings).reverse()) {
-        if (new RegExp(`\\b${local}\\b`).test(expression)) {
+        if (isIdentifierReferenced(local, expression)) {
           exportMap[exported] = { type: 'reexport', exportName };
           break;
         }
@@ -198,8 +217,8 @@ export function rewriteEsmProxyConsumers(
         inlineable.push({
           local: b.local,
           funcBody: funcBody.replace(
-            new RegExp(`function\\s+${proxyLocal}\\s*\\(`),
-            `function ${b.local}(`
+            functionDeclarationRegExp(proxyLocal),
+            () => `function ${b.local}(`
           ),
         });
         claimedLocals.add(b.local);
@@ -278,7 +297,7 @@ export function rewriteSystemProxyConsumers(
 
         if (mapped.type === 'helper') {
           helpersToInline.push(
-            mapped.code.replace(new RegExp(`function\\s+${imported}\\s*\\(`), `function ${local}(`)
+            mapped.code.replace(functionDeclarationRegExp(imported), () => `function ${local}(`)
           );
           return '';
         }
