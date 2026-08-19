@@ -1261,7 +1261,12 @@ export function generateRemoteEntry(
     function isWebpackProvider(provider) {
       if (typeof provider?.get !== 'function') return false;
       const source = Function.prototype.toString.call(provider.get);
-      return source.includes('__webpack_require__');
+      // Production minification renames __webpack_require__, but preserves
+      // Webpack's lazy chunk-loading .e(...).then(...) shape.
+      return (
+        source.includes('__webpack_require__') ||
+        /\\.\\s*e\\s*\\([^)]*\\)\\s*\\.then\\s*\\(/.test(source)
+      );
     }
     const __mfUsesWebpackShareScope = Object.values(initialShared).some((versions) =>
       Object.values(versions || {}).some(isWebpackProvider)
