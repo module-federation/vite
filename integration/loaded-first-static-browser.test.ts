@@ -83,7 +83,9 @@ async function createBrowser() {
 const remoteOptions = {
   name: 'remoteApp',
   filename: 'remoteEntry.js',
-  exposes: { './Module': './exposed-module.js' },
+  exposes: {
+    './Module': path.resolve(FIXTURES, 'basic-remote', 'exposed-module.js'),
+  },
   dts: false,
 } satisfies Parameters<typeof federation>[0];
 
