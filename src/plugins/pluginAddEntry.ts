@@ -112,7 +112,7 @@ function resolveDevHashEntryFileName(fileName: string) {
   return path.extname(baseName) ? normalized : `${normalized}.js`;
 }
 
-function getBuildInput(config: any) {
+export function getBuildInput(config: any) {
   return config.build?.rollupOptions?.input ?? config.build?.rolldownOptions?.input;
 }
 

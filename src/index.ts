@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'url';
 import type { ConfigEnv, EnvironmentOptions, Plugin, ResolvedConfig, UserConfig } from 'vite';
 import { version as viteVersion } from 'vite';
-import addEntry from './plugins/pluginAddEntry';
+import addEntry, { getBuildInput } from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
 import pluginExternalRuntimeCore from './plugins/pluginExternalRuntimeCore';
@@ -70,6 +70,7 @@ import {
   isAssetLikeImport,
   isViteOptimizableEntry,
 } from './utils/pathNormalization';
+import { findModuleImportDescriptors } from './utils/htmlEntryUtils';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
 import {
   getHostAutoInitPath,
@@ -91,7 +92,7 @@ import {
   isOwnedHostAutoInitId,
   refreshHostAutoInit,
 } from './virtualModules/virtualRemoteEntry';
-import { addUsedRemote } from './virtualModules/virtualRemotes';
+import { addUsedRemote, markStaticRemote } from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
   findCurrentLoadShareForStaleOwnerId,
@@ -443,10 +444,10 @@ function isFile(candidate: string): boolean {
 
 function registerEntryImports(
   options: NormalizedModuleFederationOptions,
-  projectRoot: string
+  projectRoot: string,
+  recordShared = true,
+  entryFiles: string[] = []
 ): void {
-  const staticImport = /\b(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s*)?(['"])([^'"]+)\1/g;
-  const dynamicImport = /\b(?:import|require)\s*\(\s*(['"])([^'"]+)\1/g;
   const sourceExtensions = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.vue', '.svelte'];
   const root = path.resolve(projectRoot);
   const pending: Array<{ file: string; preloadRemotes: boolean }> = [];
@@ -479,12 +480,29 @@ function registerEntryImports(
     }
   };
 
-  const htmlEntry = path.join(root, 'index.html');
-  if (existsSync(htmlEntry)) {
-    const html = readFileSync(htmlEntry, 'utf8');
-    for (const match of html.matchAll(/<script\b[^>]*\bsrc=(['"])([^'"]+)\1[^>]*>/gi)) {
-      enqueue(match[2], htmlEntry, true);
+  const htmlEntries = entryFiles.filter((file) => file.endsWith('.html'));
+  const htmlEntryPaths = htmlEntries.length
+    ? htmlEntries
+    : entryFiles.length === 0
+      ? [path.join(root, 'index.html')]
+      : [];
+  for (const htmlEntry of htmlEntryPaths) {
+    if (existsSync(htmlEntry)) {
+      const html = readFileSync(htmlEntry, 'utf8');
+      for (const match of html.matchAll(
+        /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=(['"])([^'"]+)\1)[^>]*>/gi
+      )) {
+        enqueue(match[2], htmlEntry, true);
+      }
     }
+  }
+  for (const entry of entryFiles.filter((file) => !file.endsWith('.html'))) {
+    const relativeEntry = path.relative(root, entry);
+    enqueue(
+      relativeEntry.startsWith('.') ? relativeEntry : `./${relativeEntry}`,
+      path.join(root, 'index.html'),
+      true
+    );
   }
   for (const expose of Object.values(options.exposes ?? {})) {
     enqueue(expose.import);
@@ -495,25 +513,22 @@ function registerEntryImports(
     if (visited.get(file) || (visited.has(file) && !preloadRemotes)) continue;
     visited.set(file, preloadRemotes);
     const code = readFileSync(file, 'utf8');
-    for (const pattern of [staticImport, dynamicImport]) {
-      const isStatic = pattern === staticImport;
-      pattern.lastIndex = 0;
-      for (const match of code.matchAll(pattern)) {
-        const request = match[2];
-        const remoteKey =
-          preloadRemotes && isStatic && request
-            ? Object.keys(options.remotes).find(
-                (name) => request === name || request.startsWith(`${name}/`)
-              )
-            : undefined;
-        const sharedKey = request && findSharedKey(request, options.shared);
-        if (remoteKey) {
-          addUsedRemote(remoteKey, request, options);
-        } else if (sharedKey) {
-          addUsedShares(request, options);
-        } else if (request) {
-          enqueue(request, file, preloadRemotes && isStatic);
-        }
+    for (const { source: request, kind, typeOnly } of findModuleImportDescriptors(code)) {
+      const isStatic = kind === 'static' && !typeOnly;
+      const remoteKey =
+        preloadRemotes && isStatic && request
+          ? Object.keys(options.remotes).find(
+              (name) => request === name || request.startsWith(`${name}/`)
+            )
+          : undefined;
+      const sharedKey = !typeOnly && request && findSharedKey(request, options.shared);
+      if (remoteKey) {
+        addUsedRemote(remoteKey, request, options);
+        markStaticRemote(request, options);
+      } else if (sharedKey && recordShared) {
+        addUsedShares(request, options);
+      } else if (request && !typeOnly) {
+        enqueue(request, file, preloadRemotes && isStatic);
       }
     }
   }
@@ -534,6 +549,20 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       if (_command === 'serve') ignoreFederationGeneratedFiles(config, options);
 
       const root = config.root || process.cwd();
+      const buildInput = getBuildInput(config);
+      const configuredEntryFiles =
+        typeof buildInput === 'string'
+          ? [buildInput]
+          : Array.isArray(buildInput)
+            ? buildInput
+            : buildInput && typeof buildInput === 'object'
+              ? Object.values(buildInput)
+              : [];
+      const resolvedConfiguredEntryFiles = configuredEntryFiles
+        .map((entry) => String(entry))
+        .filter((entry) => !/[?&]__react-router-build-client-route(?:[=&]|$)/.test(entry))
+        .map((entry) => entry.split(/[?#]/)[0])
+        .map((entry) => (path.isAbsolute(entry) ? entry : path.resolve(root, entry)));
       resetConcreteSharedImportSourceCache();
       setPackageDetectionCwd(root);
       const isVinext = hasPackageDependency('vinext');
@@ -565,10 +594,14 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       }
 
       if (
-        _command === 'serve' &&
+        !config.build?.ssr &&
         (Object.keys(shared ?? {}).length > 0 || Object.keys(remotes ?? {}).length > 0)
       ) {
-        registerEntryImports(options, root);
+        // The static remote registry is also needed by the production host
+        // bootstrap. Keep share/optimize-deps discovery serve-only, but scan
+        // the same client entry graph during build so the bootstrap can wait
+        // for only the remotes imported synchronously by that graph.
+        registerEntryImports(options, root, _command === 'serve', resolvedConfiguredEntryFiles);
       }
 
       // Create shared module virtual files EARLY and register shares eagerly

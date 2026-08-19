@@ -5,6 +5,7 @@ import {
   addUsedRemote,
   generateRemotes,
   getRemoteVirtualModule,
+  getStaticRemotes,
   getUsedRemotesMap,
   isDynamicOnlyRemote,
   markDynamicRemote,
@@ -20,6 +21,20 @@ it('classifies an expose as dynamic-only until a static import is seen', () => {
 
   markStaticRemote('remote/Card', options);
   expect(isDynamicOnlyRemote('remote/Card', options)).toBe(false);
+});
+
+it('scopes static remote registry by federation options', () => {
+  const first = {} as never;
+  const second = {} as never;
+
+  markStaticRemote('remote/Static', first);
+  markDynamicRemote('remote/Both', first);
+  markStaticRemote('remote/Both', first);
+  markStaticRemote('remote/Other', second);
+
+  expect(getStaticRemotes(first)).toEqual(new Set(['remote/Static', 'remote/Both']));
+  expect(getStaticRemotes(second)).toEqual(new Set(['remote/Other']));
+  expect(getStaticRemotes(first)).not.toBe(getStaticRemotes(second));
 });
 
 const mockOptions = vi.hoisted(() => ({
