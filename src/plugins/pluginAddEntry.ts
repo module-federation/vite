@@ -23,7 +23,9 @@ import {
 } from '../utils/VirtualModule';
 import {
   addUsedRemote,
+  getRemoteRegistration,
   getRuntimeRemoteId,
+  getStaticRemotes,
   getUsedRemotesMap,
   isDynamicOnlyRemote,
 } from '../virtualModules/virtualRemotes';
@@ -301,42 +303,60 @@ const __mfCurrentScript = document.currentScript;
       ? 'import(/* @vite-ignore */ __mfEntryUrl)'
       : importExpression(entrySrc);
 
-    // Eagerly preloading remotes mirrors the federation runtime's own
-    // `version-first` behaviour, where `ShareHandler.initializeSharing()` loads
-    // every remote entry during startup. With `loaded-first` the runtime defers
-    // remote loading until a module is actually requested, so the host must NOT
-    // preload — otherwise an offline remote would block host bootstrap even
-    // though the user explicitly opted into the on-demand strategy.
+    const normalizedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
+    const isLoadedFirstClientBuild =
+      (_command === 'build' || viteConfig?.command === 'build') &&
+      waitsForInit &&
+      !viteConfig?.build?.ssr &&
+      normalizedOptions.shareStrategy === 'loaded-first';
+
+    // `version-first` eagerly loads every used remote, while `loaded-first`
+    // normally defers loading until an export is read. A static ESM import is
+    // different: its namespace must be ready before the importing entry is
+    // evaluated. Preload only those statically imported remotes in the client
+    // production host bootstrap so dynamic-only remotes remain on-demand.
     const shouldPreloadRemotes =
       !options?.skipRemotePreload &&
-      (federationOptions ?? getNormalizeModuleFederationOptions())?.shareStrategy !==
-        'loaded-first';
+      (normalizedOptions.shareStrategy !== 'loaded-first' || isLoadedFirstClientBuild);
+
+    const remoteSources = isLoadedFirstClientBuild
+      ? Array.from(getStaticRemotes(normalizedOptions))
+      : Object.entries(getUsedRemotesMap(federationOptions))
+          .flatMap(([, remotes]) => Array.from(remotes))
+          .filter(
+            (remote) => !federationOptions || !isDynamicOnlyRemote(remote, federationOptions)
+          );
 
     // Bare ids may represent a root (`.`) expose, so preload them too. Failures
-    // remain non-blocking through Promise.allSettled below.
+    // remain non-blocking for version-first through Promise.allSettled below.
     const remotePreloads = shouldPreloadRemotes
-      ? Object.entries(getUsedRemotesMap(federationOptions))
-          .flatMap(([, remotes]) => Array.from(remotes))
-          .filter((remote) => !federationOptions || !isDynamicOnlyRemote(remote, federationOptions))
+      ? remoteSources
           .sort()
-          .map(
-            (remote) =>
-              `__mfPreloadRemote(${JSON.stringify(
-                getRuntimeRemoteId(
-                  remote,
-                  (federationOptions ?? getNormalizeModuleFederationOptions()).remotes,
-                  federationOptions
-                )
-              )}, ${JSON.stringify(remote)})`
-          )
+          .map((remote) => {
+            const registration = isLoadedFirstClientBuild
+              ? getRemoteRegistration(remote, normalizedOptions.remotes, federationOptions)
+              : undefined;
+            return `__mfPreloadRemote(${JSON.stringify(
+              getRuntimeRemoteId(remote, normalizedOptions.remotes, federationOptions)
+            )}, ${JSON.stringify(remote)}${
+              registration ? `, ${JSON.stringify(registration)}` : ''
+            })`;
+          })
           .join(',')
       : '';
     const remoteCachePrefix = getRuntimeRemoteCachePrefix(federationOptions);
+    const preloadRegistrationParameter = isLoadedFirstClientBuild ? ', registration' : '';
+    const preloadRegistrationBlock = isLoadedFirstClientBuild
+      ? `if (registration && typeof runtime.registerRemotes === "function") {
+      runtime.registerRemotes([registration]);
+    }`
+      : '';
 
     const preloadBlock = remotePreloads
       ? `
   const runtime = await initHost();
-  const __mfPreloadRemote = (runtimeRemote, remote) => {
+  const __mfPreloadRemote = (runtimeRemote, remote${preloadRegistrationParameter}) => {
+    ${preloadRegistrationBlock}
     const remoteCacheKey = ${JSON.stringify(remoteCachePrefix)} + remote;
     const pendingKey = "__mf_pending__" + remoteCacheKey;
     if (!__mfModuleCache.remote[pendingKey]) {
@@ -354,7 +374,7 @@ const __mfCurrentScript = document.currentScript;
     return __mfModuleCache.remote[pendingKey];
   };
   const __mfRemotePreloads = [${remotePreloads}];
-  await Promise.allSettled(__mfRemotePreloads);`
+  await ${isLoadedFirstClientBuild ? 'Promise.all' : 'Promise.allSettled'}(__mfRemotePreloads);`
       : `await initHost();`;
 
     // The hostInit chunk's top-level await may be lowered to an emulated
