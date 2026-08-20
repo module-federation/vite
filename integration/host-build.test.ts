@@ -18,6 +18,12 @@ const HOST_BASE_MF_OPTIONS = {
   dts: false,
 } satisfies Partial<ModuleFederationOptions>;
 
+const LOADED_FIRST_STATIC_MF_OPTIONS = {
+  ...HOST_BASE_MF_OPTIONS,
+  shareStrategy: 'loaded-first',
+  hostInitInjectLocation: 'html',
+} satisfies Partial<ModuleFederationOptions>;
+
 const hostInitChunkRegex = /<script\s+type="module"\s+src="[^"]*hostInit[^"]*">/;
 const bootstrapScriptRegex = /<script\s+type="module"[^>]+src="[^"]*mf-entry-bootstrap[^"]*">/;
 
@@ -33,6 +39,48 @@ async function createWorkspaceFixture() {
 }
 
 describe('host build', () => {
+  it.each([
+    ['named', 'loaded-first-static-host'],
+    ['namespace', 'loaded-first-namespace-host'],
+  ])('preloads %s static remotes before a loaded-first host entry', async (_kind, fixture) => {
+    const output = await buildFixture({
+      fixture,
+      mfOptions: LOADED_FIRST_STATIC_MF_OPTIONS,
+    });
+
+    const bootstrapAsset = output.output.find(
+      (item) => item.type === 'asset' && item.fileName.includes('mf-entry-bootstrap')
+    );
+    expect(bootstrapAsset).toBeDefined();
+    const bootstrapCode = (bootstrapAsset as unknown as { source: string }).source;
+    const preloadIndex = bootstrapCode.indexOf('__mfPreloadRemote("');
+    const entryImportIndex = bootstrapCode.indexOf('})().then(() =>');
+
+    expect(preloadIndex).toBeGreaterThanOrEqual(0);
+    expect(bootstrapCode).toContain('"remote1/Module"');
+    expect(bootstrapCode).toContain('await Promise.all(__mfRemotePreloads);');
+    expect(bootstrapCode).not.toContain('Promise.allSettled(__mfRemotePreloads)');
+    expect(bootstrapCode).toContain('runtime.registerRemotes([registration]);');
+    expect(preloadIndex).toBeLessThan(entryImportIndex);
+    expect(bootstrapCode).not.toMatch(/^await /m);
+  });
+
+  it('keeps dynamic-only remotes lazy with loaded-first', async () => {
+    const output = await buildFixture({
+      fixture: 'basic-host',
+      mfOptions: LOADED_FIRST_STATIC_MF_OPTIONS,
+    });
+    const bootstrapAsset = output.output.find(
+      (item) => item.type === 'asset' && item.fileName.includes('mf-entry-bootstrap')
+    );
+
+    expect(bootstrapAsset).toBeDefined();
+    const bootstrapCode = (bootstrapAsset as unknown as { source: string }).source;
+    expect(bootstrapCode).not.toContain('__mfPreloadRemote');
+    expect(bootstrapCode).not.toContain('Promise.all(__mfRemotePreloads)');
+    expect(bootstrapCode).toContain('await initHost();');
+  });
+
   it('transforms remote module imports into federation loadRemote() calls', async () => {
     const output = await buildFixture({
       fixture: 'basic-host',

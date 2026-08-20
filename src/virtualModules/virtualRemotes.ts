@@ -98,6 +98,7 @@ const usedRemotesByOptions = new WeakMap<
 >();
 const dynamicRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 const staticRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
+const EMPTY_STATIC_REMOTES: ReadonlySet<string> = new Set();
 
 function getScopedUsedRemotesMap(options: NormalizedModuleFederationOptions) {
   let scoped = usedRemotesByOptions.get(options);
@@ -148,6 +149,10 @@ export function markStaticRemote(remote: string, options: NormalizedModuleFedera
   remotes.add(remote);
 }
 
+export function getStaticRemotes(options: NormalizedModuleFederationOptions): ReadonlySet<string> {
+  return staticRemotesByOptions.get(options) ?? EMPTY_STATIC_REMOTES;
+}
+
 export function isDynamicOnlyRemote(remote: string, options: NormalizedModuleFederationOptions) {
   return (
     (dynamicRemotesByOptions.get(options)?.has(remote) ?? false) &&
@@ -159,6 +164,24 @@ function getRemoteAliasFromId(id: string, remotes: Record<string, RemoteObjectCo
   return Object.keys(remotes)
     .filter((name) => id === name || id.startsWith(name + '/'))
     .sort((a, b) => b.length - a.length)[0];
+}
+
+export function getRemoteRegistration(
+  id: string,
+  remotes: Record<string, RemoteObjectConfig>,
+  options?: NormalizedModuleFederationOptions
+) {
+  const alias = getRemoteAliasFromId(id, remotes);
+  if (!alias) return undefined;
+  const remote = remotes[alias];
+  return {
+    entryGlobalName: remote.entryGlobalName,
+    name: options ? getRuntimeRemoteAlias(alias, options) : remote.name,
+    alias,
+    type: remote.type,
+    entry: remote.entry,
+    shareScope: remote.shareScope ?? 'default',
+  };
 }
 
 export function getRemoteFromId(id: string, remotes: Record<string, RemoteObjectConfig>) {
@@ -389,20 +412,11 @@ export function generateRemotes(
   const isLoadedFirst = resolvedOptions.shareStrategy === 'loaded-first';
   const initMode = resolveRemoteInitMode(resolvedOptions.shareStrategy, consumer);
   const deferRemoteLoad = shouldDeferRemoteLoad(initMode);
-  const remoteAlias = getRemoteAliasFromId(id, resolvedOptions.remotes);
-  const remote = remoteAlias ? resolvedOptions.remotes[remoteAlias] : undefined;
-  const runtimeRemoteAlias = remoteAlias ? getRuntimeRemoteAlias(remoteAlias, options) : undefined;
   const runtimeRemoteId = getRuntimeRemoteId(id, resolvedOptions.remotes, options);
+  const remoteRegistration = getRemoteRegistration(id, resolvedOptions.remotes, options);
   const registerRemoteCode =
-    isLoadedFirst && remote
-      ? `runtime.registerRemotes([${JSON.stringify({
-          entryGlobalName: remote.entryGlobalName,
-          name: options ? runtimeRemoteAlias : remote.name,
-          alias: remoteAlias,
-          type: remote.type,
-          entry: remote.entry,
-          shareScope: remote.shareScope ?? 'default',
-        })}]);`
+    isLoadedFirst && remoteRegistration
+      ? `runtime.registerRemotes([${JSON.stringify(remoteRegistration)}]);`
       : '';
   const hostAutoInitPath = getHostAutoInitPath(options);
   const ssrRemotes = Object.entries(resolvedOptions.remotes).map(([name, item]) => ({

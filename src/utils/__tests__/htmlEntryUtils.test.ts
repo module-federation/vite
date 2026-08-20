@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  findModuleImportDescriptors,
   findModuleImportSources,
   injectEntryScript,
   rewriteEntryScripts,
@@ -28,6 +29,56 @@ describe('findModuleImportSources', () => {
         import { real } from 'remote';
       `)
     ).toEqual(['remote']);
+  });
+
+  it('ignores type-only imports', () => {
+    expect(
+      findModuleImportSources(`
+        import type { RemoteType } from 'remote/type';
+        export type { ExportedType } from 'remote/export-type';
+        import { value } from 'remote/runtime';
+        const lazy = import('remote/lazy');
+      `)
+    ).toEqual(['remote/runtime', 'remote/lazy']);
+  });
+});
+
+describe('findModuleImportDescriptors', () => {
+  it('separates runtime imports from type-only imports', () => {
+    expect(
+      findModuleImportDescriptors(`
+        import type { RemoteType } from 'remote/type';
+        export type { ExportedType } from 'remote/export-type';
+        export { type NamedType } from 'remote/named-type';
+        import { value } from 'remote/value';
+        import 'remote/side-effect';
+        const lazy = import('remote/lazy');
+      `)
+    ).toEqual([
+      { kind: 'static', syntax: 'import', source: 'remote/type', typeOnly: true },
+      { kind: 'static', syntax: 'import', source: 'remote/export-type', typeOnly: true },
+      { kind: 'static', syntax: 'import', source: 'remote/named-type', typeOnly: true },
+      { kind: 'static', syntax: 'import', source: 'remote/value', typeOnly: false },
+      { kind: 'dynamic', syntax: 'import', source: 'remote/lazy', typeOnly: false },
+      { kind: 'static', syntax: 'import', source: 'remote/side-effect', typeOnly: false },
+    ]);
+  });
+
+  it('keeps CommonJS require calls as dynamic descriptors', () => {
+    expect(findModuleImportDescriptors(`const value = require('remote/commonjs');`)).toEqual([
+      { kind: 'dynamic', syntax: 'require', source: 'remote/commonjs', typeOnly: false },
+    ]);
+  });
+
+  it('ignores import-looking text in comments and strings', () => {
+    expect(
+      findModuleImportDescriptors(`
+        // import { fake } from 'remote/comment';
+        const text = "import('remote/string')";
+        const expression = /import 'remote-import'/;
+        import 'remote/real';
+      `)
+    ).toEqual([{ kind: 'static', syntax: 'import', source: 'remote/real', typeOnly: false }]);
   });
 });
 

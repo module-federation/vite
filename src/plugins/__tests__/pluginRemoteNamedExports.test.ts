@@ -10,6 +10,7 @@ vi.mock('../../utils/packageUtils', () => ({
 }));
 
 import { pluginRemoteNamedExports } from '../pluginRemoteNamedExports';
+import { getStaticRemotes } from '../../virtualModules/virtualRemotes';
 
 const OPTIONS = {
   remotes: {
@@ -349,6 +350,28 @@ describe('pluginRemoteNamedExports', () => {
         true
       );
       expect(result).toBeUndefined();
+    });
+
+    it('does not record type-only or textual imports as static remotes', async () => {
+      const options = {
+        ...OPTIONS,
+        remotes: {
+          ...OPTIONS.remotes,
+        },
+      } as any;
+      await transform(
+        [
+          '// import { ignored } from "remoteApp/comment";',
+          'const text = "import { ignored } from \\"remoteApp/string\\"";',
+          'import type { Foo } from "remoteApp/type";',
+          'import { foo } from "remoteApp/runtime";',
+        ].join('\n'),
+        '/src/app.tsx',
+        false,
+        options
+      );
+
+      expect(getStaticRemotes(options)).toEqual(new Set(['remoteApp/runtime']));
     });
 
     it('skips default-only import via fallback', async () => {

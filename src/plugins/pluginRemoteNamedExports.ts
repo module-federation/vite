@@ -21,6 +21,7 @@
 import type { Plugin } from 'vite';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
+import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import {
   LOAD_REMOTE_TAG,
@@ -82,22 +83,6 @@ interface WalkVisitor {
 
 function isAstNode(value: unknown): value is { type: string; [key: string]: unknown } {
   return !!value && typeof value === 'object' && typeof (value as any).type === 'string';
-}
-
-function findStaticRemoteSources(code: string, isRemoteImport: (source: string) => boolean) {
-  const codePositions = createCodePositionMap(code);
-  const sources = new Set<string>();
-  const patterns = [
-    /\b(?:import|export)\s+[^;]*?\bfrom\s*["']([^"']+)["']/g,
-    /\bimport\s*["']([^"']+)["']/g,
-  ];
-  for (const pattern of patterns) {
-    for (const match of code.matchAll(pattern)) {
-      const source = match[1];
-      if (codePositions[match.index!] && isRemoteImport(source)) sources.add(source);
-    }
-  }
-  return sources;
 }
 
 function walkAST(root: unknown, visitor: WalkVisitor): void {
@@ -554,8 +539,10 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
       // Quick bail-out: does the source mention any remote name?
       if (!remoteNames.some((name) => code.includes(name))) return;
       const matchesRemoteImport = (source: string) => isRemoteImport(source, id);
-      for (const source of findStaticRemoteSources(code, matchesRemoteImport)) {
-        markStaticRemote(source, options);
+      for (const { kind, source, typeOnly } of findModuleImportDescriptors(code)) {
+        if (kind === 'static' && !typeOnly && matchesRemoteImport(source)) {
+          markStaticRemote(source, options);
+        }
       }
 
       let imports: ImportInfo[] | undefined;
