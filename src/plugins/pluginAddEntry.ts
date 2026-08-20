@@ -437,6 +437,27 @@ const __mfCurrentScript = document.currentScript;
     );
   }
 
+  function isWorkspaceSourceId(id: string) {
+    const decoded = decodeViteId(id);
+    const normalized = normalizeModuleId(decoded);
+    if (normalized.startsWith('\0') || normalized.startsWith('virtual:')) return false;
+
+    const filePath = stripQueryAndHash(normalized);
+    if (filePath.startsWith('/@fs/')) return true;
+    if (!path.isAbsolute(filePath)) return false;
+
+    const root = normalizePathForImport(path.resolve(viteConfig.root));
+    const absolutePath = normalizePathForImport(path.resolve(filePath));
+    const relativePath = normalizePathForImport(path.relative(root, absolutePath));
+    const isOutsideRoot =
+      relativePath === '..' || relativePath.startsWith('../') || path.isAbsolute(relativePath);
+
+    // Vite transform IDs for workspace imports are absolute paths. Only classify
+    // existing files outside the app root so virtual/framework IDs remain eligible
+    // for the SSR hydration fallback.
+    return isOutsideRoot && fs.existsSync(absolutePath);
+  }
+
   function addEntryFile(file: string) {
     const normalized = normalizeModuleId(file);
     if (!entryFiles.includes(normalized)) entryFiles.push(normalized);
@@ -903,6 +924,7 @@ const __mfCurrentScript = document.currentScript;
           !clientInjected &&
           !isFederationInternalVirtualId(id) &&
           !id.includes('node_modules') &&
+          !isWorkspaceSourceId(id) &&
           (!code.includes('HydratedRouter') || isReactRouterEntry) &&
           (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
           (/hydrateRoot|createRoot|ReactDOM\.render/.test(code) ||
