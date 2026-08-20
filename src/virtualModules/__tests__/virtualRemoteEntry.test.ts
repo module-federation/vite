@@ -2881,8 +2881,10 @@ describe('virtualRemoteEntry', () => {
     const webpackGet = new Function(
       'return function webpackGet() { return __webpack_require__("react"); };'
     )();
+    const minifiedWebpackGet = new Function('return ()=>i.e(796).then((()=>()=>i(796)))')();
 
     expect(isWebpackProvider({ get: webpackGet })).toBe(true);
+    expect(isWebpackProvider({ get: minifiedWebpackGet })).toBe(true);
     expect(isWebpackProvider({ get: () => Promise.resolve(() => ({})) })).toBe(false);
     expect(isWebpackProvider({})).toBe(false);
     expect(code).toContain('const isWebpackScope = !scopeRoot &&');
