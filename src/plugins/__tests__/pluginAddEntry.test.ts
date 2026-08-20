@@ -579,6 +579,119 @@ describe('pluginAddEntry', () => {
     expect(other).toBeUndefined();
   });
 
+  it('does not consume hydration fallback for Vite /@fs workspace source IDs', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-fs-workspace-'));
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = await runTransform(
+      buildPlugin,
+      'export const useI18n = () => undefined;\ncreateRoot(document);',
+      '/@fs//workspace/packages/i18n/src/index.ts'
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it('does not consume hydration fallback for an existing source outside the app root', async () => {
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-app-root-'));
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-workspace-root-'));
+    const sourcePath = path.join(workspaceRoot, 'packages/i18n/src/index.ts');
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.writeFileSync(sourcePath, '');
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: appRoot,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = await runTransform(
+      buildPlugin,
+      'export const useI18n = () => undefined;\ncreateRoot(document);',
+      `${sourcePath}?v=123`
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it('still wraps an app-root hydration entry and virtual hydration entry', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-hydration-entries-'));
+    const entryPath = path.join(tempDir, 'src/entry-client.tsx');
+    fs.mkdirSync(path.dirname(entryPath), { recursive: true });
+    fs.writeFileSync(entryPath, '');
+
+    const createPlugin = () => {
+      const plugins = addEntry({
+        entryName: 'hostInit',
+        entryPath: '/virtual/hostInit.js',
+        inject: 'entry',
+      });
+      const buildPlugin = plugins[1];
+      runConfig(
+        buildPlugin,
+        {} as ConfigPluginContext,
+        { build: { rollupOptions: {} } },
+        { command: 'serve', mode: 'development' }
+      );
+      runConfigResolved(buildPlugin, {
+        root: tempDir,
+        base: '/',
+        command: 'serve',
+        build: { rollupOptions: {} },
+      } as unknown as ResolvedConfig);
+      return buildPlugin;
+    };
+
+    const entryResult = (await runTransform(
+      createPlugin(),
+      'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);',
+      entryPath
+    )) as { code: string } | undefined;
+    const virtualResult = (await runTransform(
+      createPlugin(),
+      'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);',
+      '\0app-client-entry.tsx'
+    )) as { code: string } | undefined;
+
+    expect(entryResult?.code).toContain('await initHost();');
+    expect(entryResult?.code).toContain(
+      `})().then(() => import(${JSON.stringify(`${entryPath}?mf-entry-bootstrap`)}));`
+    );
+    expect(virtualResult?.code).toContain('await initHost();');
+  });
+
   for (const command of ['serve', 'build'] as const) {
     it(`wraps only React Router v8's client entry during ${command}`, async () => {
       const plugins = addEntry({
