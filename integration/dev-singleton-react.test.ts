@@ -111,12 +111,17 @@ export default {
 });
 
 afterEach(async () => {
-  await Promise.all(
-    cleanupTasks
-      .splice(0)
-      .reverse()
-      .map((cleanup) => cleanup())
+  const cleanups = cleanupTasks.splice(0).reverse();
+  // The fixture cleanup is registered first and must run after all servers close.
+  const cleanupFixture = cleanups.pop();
+  const cleanupResults = await Promise.allSettled(cleanups.map((cleanup) => cleanup()));
+
+  await cleanupFixture?.();
+
+  const failedCleanup = cleanupResults.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected'
   );
+  if (failedCleanup) throw failedCleanup.reason;
 });
 
 async function createDevServer(
