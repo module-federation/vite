@@ -66,7 +66,7 @@ export function findModuleImportSources(code: string): string[] {
   return Array.from(
     new Set(
       findModuleImportDescriptors(code)
-        .filter(({ syntax }) => syntax === 'import')
+        .filter(({ syntax, typeOnly }) => syntax === 'import' && !typeOnly)
         .map(({ source }) => source)
     )
   );

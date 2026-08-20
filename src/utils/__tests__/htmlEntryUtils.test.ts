@@ -30,6 +30,17 @@ describe('findModuleImportSources', () => {
       `)
     ).toEqual(['remote']);
   });
+
+  it('ignores type-only imports', () => {
+    expect(
+      findModuleImportSources(`
+        import type { RemoteType } from 'remote/type';
+        export type { ExportedType } from 'remote/export-type';
+        import { value } from 'remote/runtime';
+        const lazy = import('remote/lazy');
+      `)
+    ).toEqual(['remote/runtime', 'remote/lazy']);
+  });
 });
 
 describe('findModuleImportDescriptors', () => {
