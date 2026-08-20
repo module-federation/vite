@@ -80,7 +80,7 @@ import {
   getResolvedLocalSharedImportMapId,
   getUsedShares,
 } from '../virtualModules/virtualRemoteEntry';
-import { getUsedRemotesMap } from '../virtualModules/virtualRemotes';
+import { getStaticRemotes, getUsedRemotesMap } from '../virtualModules/virtualRemotes';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
 const REACT_EXAMPLE_ROOT = path.join(process.cwd(), 'examples/vite-vite/vite-host');
@@ -1230,6 +1230,62 @@ describe('vite:module-federation-early-init', () => {
 
       expect([...getUsedRemotesMap(owner._options).modules]).toContain('modules/authSlice');
       expect([...getUsedRemotesMap(owner._options).modules]).not.toContain('modules/lazy');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('scans only the configured client entry and ignores type-only or textual imports', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-entry-static-build-'));
+    const entry = path.join(root, 'src/entry.ts');
+    mkdirSync(path.dirname(entry), { recursive: true });
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<script type="module" src="/src/unused.ts"></script>'
+    );
+    writeFileSync(path.join(root, 'src/unused.ts'), 'import "remote/only-in-index-html";');
+    writeFileSync(
+      entry,
+      [
+        '// import "remote/comment";',
+        'const text = "import \'remote/string\'";',
+        'import type { RemoteType } from "remote/type";',
+        'import "remote/runtime";',
+        'const lazy = require("remote/commonjs");',
+      ].join('\n')
+    );
+
+    try {
+      const plugins = federation({
+        name: 'entry-static-build',
+        remotes: {
+          remote: {
+            name: 'remote',
+            type: 'module',
+            entry: '/modules/assets/remoteEntry.js',
+          },
+        },
+      }) as Plugin[];
+      const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+      const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+        | (Plugin & { _options: NormalizedModuleFederationOptions })
+        | undefined;
+      if (!early || !owner) throw new Error('module federation plugins not found');
+
+      runConfig(
+        early,
+        { meta: {} } as ConfigPluginContext,
+        {
+          root,
+          build: { rollupOptions: { input: entry } },
+        } as UserConfig,
+        {
+          command: 'build',
+          mode: 'production',
+        }
+      );
+
+      expect(getStaticRemotes(owner._options)).toEqual(new Set(['remote/runtime']));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

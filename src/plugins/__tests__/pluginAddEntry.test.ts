@@ -19,6 +19,7 @@ const mockHasPackageDependency = vi.hoisted(() => vi.fn((_pkg: string) => true))
 
 vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: mockHasPackageDependency,
+  packageNameEncode: (name: string) => name,
 }));
 
 const mockMfOptions = vi.hoisted(() => ({
@@ -42,7 +43,12 @@ vi.mock('../../utils/normalizeModuleFederationOptions', async () => {
 });
 
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
-import { addUsedRemote, getUsedRemotesMap } from '../../virtualModules/virtualRemotes';
+import {
+  addUsedRemote,
+  getUsedRemotesMap,
+  markDynamicRemote,
+  markStaticRemote,
+} from '../../virtualModules/virtualRemotes';
 import addEntry from '../pluginAddEntry';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
@@ -1127,6 +1133,102 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('__mfRemotePreloads');
     expect(result?.code).toContain('await initHost();');
     expect(result?.code).toContain('})().then(() => import("/src/main.ts?mf-entry-bootstrap"));');
+  });
+
+  it('preloads static remotes before a loaded-first production host entry', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-loaded-first-build-'));
+    const federationOptions = {
+      internalName: 'host',
+      name: 'host',
+      shareStrategy: 'loaded-first',
+      shared: {},
+      remotes: {
+        employees: {
+          entry: 'http://localhost:4174/remoteEntry.js',
+          entryGlobalName: 'employees',
+          name: 'employees',
+          type: 'module',
+          shareScope: 'default',
+        },
+      },
+    } as any;
+    markStaticRemote('employees/staff', federationOptions);
+    markDynamicRemote('employees/lazy', federationOptions);
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      federationOptions,
+    });
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'build', mode: 'production' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: { input: '/src/main.ts' } },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(buildPlugin, 'export const app = true;', '/src/main.ts')) as
+      | { code: string }
+      | undefined;
+
+    expect(result?.code).toContain('__mfPreloadRemote(');
+    expect(result?.code).toContain('employees/staff');
+    expect(result?.code).not.toContain('employees/lazy');
+    expect(result?.code).toContain('await Promise.all(__mfRemotePreloads);');
+    expect(result?.code).not.toContain('Promise.allSettled(__mfRemotePreloads)');
+    expect(result?.code).toContain('runtime.registerRemotes([registration]);');
+    expect(result?.code).toContain('throw error;');
+    expect(result?.code).toContain('})().then(() => import(');
+  });
+
+  it('does not preload a dynamic-only remote in a loaded-first production host entry', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-loaded-first-dynamic-'));
+    const federationOptions = {
+      internalName: 'host',
+      name: 'host',
+      shareStrategy: 'loaded-first',
+      shared: {},
+      remotes: {
+        employees: {
+          entry: 'http://localhost:4174/remoteEntry.js',
+          entryGlobalName: 'employees',
+          name: 'employees',
+          type: 'module',
+          shareScope: 'default',
+        },
+      },
+    } as any;
+    markDynamicRemote('employees/lazy', federationOptions);
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      federationOptions,
+    });
+    const buildPlugin = plugins[1];
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: { input: '/src/main.ts' } },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(buildPlugin, 'export const app = true;', '/src/main.ts')) as
+      | { code: string }
+      | undefined;
+
+    expect(result?.code).not.toContain('__mfPreloadRemote');
+    expect(result?.code).toContain('await initHost();');
   });
 
   it('rewrites dev html entry scripts to external proxy modules instead of inline scripts', async () => {

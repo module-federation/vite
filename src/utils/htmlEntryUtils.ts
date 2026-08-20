@@ -1,20 +1,75 @@
 import { createCodePositionMap } from './codePositionMap';
 
-export function findModuleImportSources(code: string): string[] {
-  const codePositions = createCodePositionMap(code);
-  const sources = new Set<string>();
-  const patterns = [
-    /\b(?:import|export)\s+[^;]*?\bfrom\s*["']([^"']+)["']/g,
-    /\bimport\s*\(\s*["']([^"']+)["']/g,
-    /\bimport\s*["']([^"']+)["']/g,
-  ];
+export interface ModuleImportDescriptor {
+  kind: 'static' | 'dynamic';
+  syntax: 'import' | 'require';
+  source: string;
+  typeOnly: boolean;
+}
 
-  for (const pattern of patterns) {
-    for (const match of code.matchAll(pattern)) {
-      if (codePositions[match.index!]) sources.add(match[1]);
-    }
+function isTypeOnlyClause(clause: string): boolean {
+  const normalized = clause.trim();
+  if (/^type\b/.test(normalized)) return true;
+
+  const namedSpecifiers = normalized.match(/^\{([\s\S]*)\}$/)?.[1];
+  if (!namedSpecifiers) return false;
+
+  const specifiers = namedSpecifiers
+    .split(',')
+    .map((specifier) => specifier.trim())
+    .filter(Boolean);
+  return specifiers.length > 0 && specifiers.every((specifier) => /^type\b/.test(specifier));
+}
+
+/**
+ * Finds module imports while ignoring comments, strings, and regular expressions.
+ * The descriptor keeps enough information for callers to distinguish runtime
+ * static imports from type-only imports without introducing a parser dependency.
+ */
+export function findModuleImportDescriptors(code: string): ModuleImportDescriptor[] {
+  const codePositions = createCodePositionMap(code);
+  const descriptors: ModuleImportDescriptor[] = [];
+  const staticFromPattern = /\b(?:import|export)\s+([\s\S]*?)\s+from\s*(["'])([^"']+)\2/g;
+  const dynamicPattern = /\bimport\s*\(\s*(?:\/\*[\s\S]*?\*\/\s*)?(["'])([^"']+)\1\s*\)/g;
+  const requirePattern = /\brequire\s*\(\s*(["'])([^"']+)\1\s*\)/g;
+  const sideEffectPattern = /\bimport\s*(["'])([^"']+)\1/g;
+
+  for (const match of code.matchAll(staticFromPattern)) {
+    if (!codePositions[match.index!]) continue;
+    descriptors.push({
+      kind: 'static',
+      syntax: 'import',
+      source: match[3],
+      typeOnly: isTypeOnlyClause(match[1]),
+    });
   }
-  return Array.from(sources);
+
+  for (const match of code.matchAll(dynamicPattern)) {
+    if (!codePositions[match.index!]) continue;
+    descriptors.push({ kind: 'dynamic', syntax: 'import', source: match[2], typeOnly: false });
+  }
+
+  for (const match of code.matchAll(requirePattern)) {
+    if (!codePositions[match.index!]) continue;
+    descriptors.push({ kind: 'dynamic', syntax: 'require', source: match[2], typeOnly: false });
+  }
+
+  for (const match of code.matchAll(sideEffectPattern)) {
+    if (!codePositions[match.index!]) continue;
+    descriptors.push({ kind: 'static', syntax: 'import', source: match[2], typeOnly: false });
+  }
+
+  return descriptors;
+}
+
+export function findModuleImportSources(code: string): string[] {
+  return Array.from(
+    new Set(
+      findModuleImportDescriptors(code)
+        .filter(({ syntax, typeOnly }) => syntax === 'import' && !typeOnly)
+        .map(({ source }) => source)
+    )
+  );
 }
 
 export function sanitizeDevEntryPath(devEntryPath: string): string {
