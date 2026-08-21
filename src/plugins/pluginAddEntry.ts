@@ -29,6 +29,11 @@ import {
   getUsedRemotesMap,
   isDynamicOnlyRemote,
 } from '../virtualModules/virtualRemotes';
+import { getUsedShares } from '../virtualModules/virtualRemoteEntry';
+import {
+  getLoadShareModulePath,
+  getProjectResolvedImportPath,
+} from '../virtualModules/virtualShared_preBuild';
 import {
   getModuleCacheGlobalKey,
   getRuntimeModuleCacheBootstrapCode,
@@ -344,6 +349,42 @@ const __mfCurrentScript = document.currentScript;
           })
           .join(',')
       : '';
+
+    const sharedPreloadSources =
+      _command === 'serve' &&
+      waitsForInit &&
+      Object.keys(normalizedOptions.exposes || {}).length > 0 &&
+      Object.keys(normalizedOptions.remotes || {}).length === 0 &&
+      federationOptions
+        ? Array.from(getUsedShares(federationOptions))
+            .filter((pkg) => !pkg.endsWith('/'))
+            .filter((pkg) => {
+              const shareItem =
+                federationOptions.shared[pkg] ||
+                Object.entries(federationOptions.shared).find(
+                  ([key]) => key.endsWith('/') && pkg.startsWith(key)
+                )?.[1];
+              const isExplicitShare = Object.prototype.hasOwnProperty.call(
+                federationOptions.shared,
+                pkg
+              );
+              return (
+                shareItem?.shareConfig?.singleton === true &&
+                shareItem?.shareConfig?.import !== false &&
+                !shareItem?.shareConfig?.treeShaking &&
+                (isExplicitShare ||
+                  typeof shareItem?.shareConfig?.import === 'string' ||
+                  Boolean(getProjectResolvedImportPath(pkg)))
+              );
+            })
+            .map((pkg) => toViteEncodedId(getLoadShareModulePath(pkg, false, federationOptions)))
+        : [];
+    const sharedPreloadBlock =
+      sharedPreloadSources.length > 0
+        ? `
+  const __mfSharedPreloadUrls = ${JSON.stringify(sharedPreloadSources)};
+  await Promise.all(__mfSharedPreloadUrls.map((src) => import(/* @vite-ignore */ src)));`
+        : '';
     const remoteCachePrefix = getRuntimeRemoteCachePrefix(federationOptions);
     const preloadRegistrationParameter = isLoadedFirstClientBuild ? ', registration' : '';
     const preloadRegistrationBlock = isLoadedFirstClientBuild
@@ -407,7 +448,7 @@ const __mfCurrentScript = document.currentScript;
   const __mfHostInit = await ${importExpression(initSrc)};
   await __mfHostInit.__tla;
   const { initHost } = __mfHostInit;
-  ${preloadBlock}${pendingShareLoadsAwait}
+  ${preloadBlock}${sharedPreloadBlock}${pendingShareLoadsAwait}
 })().then(() => ${entryImportExpression});
 `;
 
