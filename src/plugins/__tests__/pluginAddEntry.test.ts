@@ -17,10 +17,16 @@ import { toViteEncodedId, VITE_ID_PREFIX } from '../../utils/VirtualModule';
 
 const mockHasPackageDependency = vi.hoisted(() => vi.fn((_pkg: string) => true));
 
-vi.mock('../../utils/packageUtils', () => ({
-  hasPackageDependency: mockHasPackageDependency,
-  packageNameEncode: (name: string) => name,
-}));
+vi.mock('../../utils/packageUtils', async () => {
+  const actual = await vi.importActual<typeof import('../../utils/packageUtils')>(
+    '../../utils/packageUtils'
+  );
+  return {
+    ...actual,
+    hasPackageDependency: mockHasPackageDependency,
+    packageNameEncode: (name: string) => name,
+  };
+});
 
 const mockMfOptions = vi.hoisted(() => ({
   shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
@@ -49,6 +55,7 @@ import {
   markDynamicRemote,
   markStaticRemote,
 } from '../../virtualModules/virtualRemotes';
+import { addUsedShares } from '../../virtualModules/virtualRemoteEntry';
 import addEntry from '../pluginAddEntry';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
@@ -444,6 +451,78 @@ describe('pluginAddEntry', () => {
     );
     expect(bootstrap.indexOf('__mfModuleCache.pendingShareLoads')).toBeLessThan(
       bootstrap.indexOf('.then(() => import(')
+    );
+  });
+
+  it('preloads remote-only dev shared wrappers before importing the entry', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-shared-preload-'));
+    fs.writeFileSync(
+      path.join(tempDir, 'index.html'),
+      '<script type="module" src="/src/main.tsx"></script>'
+    );
+    const federationOptions = {
+      name: 'remote',
+      internalName: 'remote',
+      shareStrategy: 'version-first' as const,
+      exposes: { './App': './src/App.jsx' },
+      remotes: {},
+      shared: {
+        react: { shareConfig: { import: true, singleton: true, treeShaking: undefined } },
+        'react/jsx-dev-runtime': {
+          shareConfig: { import: true, singleton: true, treeShaking: undefined },
+        },
+        'non-singleton-share': {
+          shareConfig: { import: true, singleton: false, treeShaking: undefined },
+        },
+      },
+    } as any;
+    addUsedShares('react', federationOptions);
+    addUsedShares('react/jsx-dev-runtime', federationOptions);
+    addUsedShares('non-singleton-share', federationOptions);
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      federationOptions,
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'serve',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(
+      buildPlugin,
+      'export const browserEntry = true;',
+      '/src/main.tsx'
+    )) as { code: string };
+    const code = result.code;
+
+    expect(code).toContain('const __mfSharedPreloadUrls =');
+    expect(code).toContain('import(/* @vite-ignore */ src)');
+    expect(code).not.toContain('non-singleton-share');
+    expect(code.indexOf('const __mfSharedPreloadUrls =')).toBeLessThan(
+      code.indexOf('const __mfReactServerModuleCache')
+    );
+    expect(code.indexOf('const __mfReactServerModuleCache')).toBeLessThan(
+      code.indexOf('.then(() => import(')
     );
   });
 

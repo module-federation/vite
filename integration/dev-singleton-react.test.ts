@@ -330,6 +330,51 @@ describe(`singleton React dev fallback (Vite ${viteVersion})`, () => {
     expect(pageErrors).toEqual([]);
   }, 60_000);
 
+  it('boots on first load when a remote-only singleton imports jsx-dev-runtime (#1104)', async () => {
+    const exposedEntry = path.join(fixtureRoot, 'src/Issue1104App.js');
+    await Promise.all([
+      writeFile(
+        path.join(fixtureRoot, 'src/main.js'),
+        `import { jsxDEV } from 'react/jsx-dev-runtime';
+
+const element = jsxDEV('div', { children: 'ready' }, undefined, false, undefined, undefined);
+window.__issue1104Result = element.type === 'div' ? 'ready' : 'invalid';
+document.body.textContent = window.__issue1104Result;
+`
+      ),
+      writeFile(exposedEntry, 'export default function Issue1104App() { return null; }\n'),
+    ]);
+
+    const host = await createDevServer(
+      'issue-1104-host',
+      {
+        name: 'issue1104Host',
+        exposes: { './App': exposedEntry },
+        dts: false,
+        shared: {
+          react: { singleton: true },
+        },
+      },
+      fixtureRoot
+    );
+    const browser = await chromium.launch({ channel: 'chrome', headless: true });
+    cleanupTasks.push(() => browser.close());
+    const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+
+    await page.goto(host.origin, { waitUntil: 'domcontentloaded' });
+    try {
+      await page.waitForFunction(() => window.__issue1104Result === 'ready', undefined, {
+        timeout: 15_000,
+      });
+    } catch (error) {
+      throw new Error(JSON.stringify({ cause: String(error), pageErrors }, null, 2));
+    }
+
+    expect(pageErrors).toEqual([]);
+  }, 60_000);
+
   it('serves an optimized ESM React provider', async () => {
     const { origin } = await createDevServer('issue-913-provider', {
       name: 'issue913Provider',
@@ -534,6 +579,7 @@ window.__issue978Result = {
 declare global {
   interface Window {
     __issue1056Result?: string;
+    __issue1104Result?: string;
     __issue913HostReact?: unknown;
     __issue913RemoteReact?: unknown;
     __issue978Result?: {
