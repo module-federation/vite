@@ -1339,7 +1339,7 @@ export function generateRemoteEntry(
       name: mfName,
       remotes: ${options.shareStrategy === 'loaded-first' ? '[]' : 'usedRemotes'},
       shared: usedShared,
-      plugins: [__mfSharePinLifecyclePlugin(), ${hasTreeShakingShared ? '__mfTreeShakingSnapshotPlugin(),' : ''} ...__browserPlugins, ...__ssrPlugins],
+      plugins: [__mfSharePinLifecyclePlugin(), __mfRealNameSnapshotPlugin(), ${hasTreeShakingShared ? '__mfTreeShakingSnapshotPlugin(),' : ''} ...__browserPlugins, ...__ssrPlugins],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
     ${
@@ -1371,6 +1371,29 @@ export function generateRemoteEntry(
             return defaultResolver(...resolverArgs);
           };
           lifecycle.pinned.reveal();
+          return args;
+        }
+      };
+    }
+    function __mfRealNameSnapshotPlugin() {
+      return {
+        name: "vite-real-name-snapshot-plugin",
+        afterLoadSnapshot(args) {
+          // Remotes are registered under an owner-scoped runtime name, so the
+          // global snapshot only ever holds that name. Containers built by other
+          // bundlers ask for the same remote by its real container name, miss, and
+          // fall back to that container's own entry, whose remoteEntry is empty
+          // (RUNTIME-011). Mirroring the resolved snapshot under the real name
+          // keeps the primary lookup off that fallback.
+          const snapshot = args && args.remoteSnapshot;
+          const globalName = snapshot && snapshot.globalName;
+          const version = snapshot && snapshot.version;
+          if (!globalName || !version || !snapshot.remoteEntry) return args;
+          const moduleInfo = globalThis.__FEDERATION__ && globalThis.__FEDERATION__.moduleInfo;
+          const realNameKey = globalName + ":" + version;
+          if (moduleInfo && !moduleInfo[realNameKey]) {
+            moduleInfo[realNameKey] = snapshot;
+          }
           return args;
         }
       };

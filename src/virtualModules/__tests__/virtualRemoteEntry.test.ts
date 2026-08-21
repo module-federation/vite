@@ -1011,6 +1011,67 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('initRes.initializeSharing(shareScopeName');
   });
 
+  it('mirrors resolved manifest snapshots under the real container name', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'loaded-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    const pluginCode = code.slice(
+      code.indexOf('function __mfRealNameSnapshotPlugin()'),
+      code.indexOf('const runtimeResolveShareHook =')
+    );
+    const plugin = new Function(`${pluginCode}; return __mfRealNameSnapshotPlugin();`)() as {
+      afterLoadSnapshot: (args: { remoteSnapshot: Record<string, string> }) => unknown;
+    };
+
+    const manifestUrl = 'https://cdn.invalid/provider/mf-manifest.json';
+    const moduleInfo: Record<string, unknown> = {
+      [`__mfe_internal__host__mf_owner__1__alias:${manifestUrl}`]: {},
+      // The provider's own entry, which shadows a real-name lookup.
+      provider: { version: manifestUrl, remoteEntry: '' },
+    };
+    const federationGlobal = globalThis as { __FEDERATION__?: unknown };
+    const hadFederationGlobal = '__FEDERATION__' in federationGlobal;
+    const previous = federationGlobal.__FEDERATION__;
+    federationGlobal.__FEDERATION__ = { moduleInfo };
+
+    try {
+      const remoteSnapshot = {
+        globalName: 'provider',
+        version: manifestUrl,
+        remoteEntry: 'remoteEntry.js',
+      };
+      plugin.afterLoadSnapshot({ remoteSnapshot });
+      expect(moduleInfo[`provider:${manifestUrl}`]).toBe(remoteSnapshot);
+
+      plugin.afterLoadSnapshot({
+        remoteSnapshot: { globalName: 'other', version: manifestUrl, remoteEntry: '' },
+      });
+      expect(`other:${manifestUrl}` in moduleInfo).toBe(false);
+
+      plugin.afterLoadSnapshot({ remoteSnapshot: { ...remoteSnapshot } });
+      expect(moduleInfo[`provider:${manifestUrl}`]).toBe(remoteSnapshot);
+    } finally {
+      if (hadFederationGlobal) {
+        federationGlobal.__FEDERATION__ = previous;
+      } else {
+        delete federationGlobal.__FEDERATION__;
+      }
+    }
+  });
+
   it('inlines a dedicated build-only initResolve bootstrap into remoteEntry', async () => {
     const mod = await import('../virtualRemoteEntry');
 
@@ -1264,7 +1325,7 @@ describe('virtualRemoteEntry', () => {
       'if (share.treeShaking) continue;'
     );
     expect(code).toContain(
-      'plugins: [__mfSharePinLifecyclePlugin(), __mfTreeShakingSnapshotPlugin(),'
+      'plugins: [__mfSharePinLifecyclePlugin(), __mfRealNameSnapshotPlugin(), __mfTreeShakingSnapshotPlugin(),'
     );
   });
 
