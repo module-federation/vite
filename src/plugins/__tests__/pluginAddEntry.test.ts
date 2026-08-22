@@ -13,6 +13,7 @@ import type {
   ViteDevServer,
 } from 'vite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { toSafeJsLiteral } from '../../utils/serializeRuntimeOptions';
 import { toViteEncodedId, VITE_ID_PREFIX } from '../../utils/VirtualModule';
 
 const mockHasPackageDependency = vi.hoisted(() => vi.fn((_pkg: string) => true));
@@ -766,7 +767,7 @@ describe('pluginAddEntry', () => {
 
     expect(entryResult?.code).toContain('await initHost();');
     expect(entryResult?.code).toContain(
-      `})().then(() => import(${JSON.stringify(`${entryPath}?mf-entry-bootstrap`)}));`
+      `})().then(() => import(${toSafeJsLiteral(`${entryPath}?mf-entry-bootstrap`)}));`
     );
     expect(virtualResult?.code).toContain('await initHost();');
   });
@@ -949,7 +950,7 @@ describe('pluginAddEntry', () => {
 
     expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
     expect(result?.code).toContain(
-      `})().then(() => import(${JSON.stringify(`${entryFile}?mf-entry-bootstrap`)}));`
+      `})().then(() => import(${toSafeJsLiteral(`${entryFile}?mf-entry-bootstrap`)}));`
     );
   });
 

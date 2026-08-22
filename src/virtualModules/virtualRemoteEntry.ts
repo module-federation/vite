@@ -689,7 +689,11 @@ function generateRuntimeSharedCacheSeedCode(
   return `
     const __mfSeedOrder = ${toSafeJsLiteral(seedBatches.flat())};
     const __mfSeedBatches = ${toSafeJsLiteral(seedBatches)};
-    const __mfSeedKeys = __mfSeedOrder.filter((pkg) => usedShared[pkg] && usedShared[pkg].materialize !== false);
+    // A share is normally skipped here until the dev scanner has observed a real
+    // import and set materialize. An import:false share has no local fallback
+    // though, so on a cold request (materialize not set yet) it must still be
+    // attempted here, or it is never seeded and its consumer reads it undefined.
+    const __mfSeedKeys = __mfSeedOrder.filter((pkg) => usedShared[pkg] && (usedShared[pkg].materialize !== false || usedShared[pkg].shareConfig?.import === false));
     __mfModuleCache.providerInit ||= new Map();
     const __mfInitializeProviderOnce = (key, initialize) => {
       const existing = __mfModuleCache.providerInit.get(key);
