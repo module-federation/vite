@@ -2,6 +2,7 @@ import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
 import { isReactServerConditions } from '../utils/sharedExportConditions';
+import { toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 
 export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 const runtimeInitModules = new WeakMap<NormalizedModuleFederationOptions, VirtualModule>();
@@ -87,7 +88,7 @@ function getSsrNoopResolveCode(
   if (!enableSsrInit) return '';
 
   const hostInitResolveCode = hostInitImportId
-    ? `import(${JSON.stringify(hostInitImportId)})
+    ? `import(${toSafeJsLiteral(hostInitImportId)})
       .then(function(mod) { return mod.hostInitPromise; })
       .then(function(runtime) {
         ${initResolveExpression}(runtime);
@@ -107,7 +108,7 @@ function getSsrNoopResolveCode(
   // dep optimization or client-bundle inclusion — they only run server-side.
   //
   // Falls back to noops if the runtime is unavailable.
-  const remotesJson = JSON.stringify(ssrRemotes);
+  const remotesJson = toSafeJsLiteral(ssrRemotes);
   return `if (${SERVER_ENV_GUARD}) {
     var _noop = { loadRemote: function() { return Promise.resolve(undefined); }, loadShare: function() { return Promise.resolve(undefined); } };
     ${hostInitResolveCode}.then(function(resolved) {
@@ -138,7 +139,7 @@ function getRuntimeInitStateBootstrapCode(options: {
   ssrRemotes?: Array<{ name: string; entry: string; type: string }>;
 }) {
   return `
-const ${options.globalKeyVar} = ${JSON.stringify(getRuntimeInitGlobalKey(options.ownerImportId))};
+const ${options.globalKeyVar} = ${toSafeJsLiteral(getRuntimeInitGlobalKey(options.ownerImportId))};
 let ${options.stateVar} = globalThis[${options.globalKeyVar}];
 if (!${options.stateVar}) {
   ${getDeferredInitPromiseCode()}
@@ -166,8 +167,8 @@ export function getRuntimeInitBootstrapCode(
   exportConditions?: readonly string[]
 ) {
   return `
-const globalKey = ${JSON.stringify(getRuntimeInitGlobalKey(ownerImportId))};
-const moduleCacheGlobalKey = ${JSON.stringify(getModuleCacheGlobalKey(exportConditions))};
+const globalKey = ${toSafeJsLiteral(getRuntimeInitGlobalKey(ownerImportId))};
+const moduleCacheGlobalKey = ${toSafeJsLiteral(getModuleCacheGlobalKey(exportConditions))};
 globalThis[moduleCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[moduleCacheGlobalKey].share ||= {};
 globalThis[moduleCacheGlobalKey].remote ||= {};
@@ -197,7 +198,7 @@ globalThis[globalKey].moduleCache.remote ||= {};
 
 export function getRuntimeModuleCacheBootstrapCode(exportConditions?: readonly string[]) {
   return `
-const __mfCacheGlobalKey = ${JSON.stringify(getModuleCacheGlobalKey(exportConditions))};
+const __mfCacheGlobalKey = ${toSafeJsLiteral(getModuleCacheGlobalKey(exportConditions))};
 globalThis[__mfCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[__mfCacheGlobalKey].share ||= {};
 globalThis[__mfCacheGlobalKey].remote ||= {};

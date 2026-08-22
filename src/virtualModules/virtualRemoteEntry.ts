@@ -13,7 +13,7 @@ import {
   packageNameEncode,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
-import { serializeRuntimeOptions } from '../utils/serializeRuntimeOptions';
+import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import { SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
 import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
@@ -159,7 +159,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
     .map((pkg, index) => {
       const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
       if (!shareItem?.shareConfig.eager || shareItem.shareConfig.import === false) return '';
-      return `import * as __mfEagerShare_${index} from ${JSON.stringify(
+      return `import * as __mfEagerShare_${index} from ${toSafeJsLiteral(
         getLocalSharedPackagePath(pkg, shareItem, options)
       )};`;
     })
@@ -174,14 +174,14 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
         .map((pkg, index) => {
           const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
           return `
-        ${JSON.stringify(pkg)}: async () => {
+        ${toSafeJsLiteral(pkg)}: async () => {
           ${
             shareItem?.shareConfig.import === false
-              ? `throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(pkg)}}' must be provided by host\`);`
+              ? `throw new Error(\`[Module Federation] Shared module '\${${toSafeJsLiteral(pkg)}}' must be provided by host\`);`
               : shareItem?.shareConfig.eager
                 ? `let pkg = __mfEagerShare_${index};
             return pkg;`
-                : `let pkg = await import(${JSON.stringify(getLocalSharedPackagePath(pkg, shareItem, options))});
+                : `let pkg = await import(${toSafeJsLiteral(getLocalSharedPackagePath(pkg, shareItem, options))});
             return pkg;`
           }
         }
@@ -232,23 +232,23 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
               ? 0
               : 1;
           return `
-          ${JSON.stringify(key)}: {
-            name: ${JSON.stringify(key)},
-            version: ${JSON.stringify(shareItem.version)},
-            scope: [${JSON.stringify(shareItem.scope)}],
+          ${toSafeJsLiteral(key)}: {
+            name: ${toSafeJsLiteral(key)},
+            version: ${toSafeJsLiteral(shareItem.version)},
+            scope: [${toSafeJsLiteral(shareItem.scope)}],
             loaded: false,
             materialize: ${sharesToMaterialize.has(key)},
             eager: ${Boolean(shareItem.shareConfig.eager)},
-            from: ${JSON.stringify(resolvedOptions.name)},
+            from: ${toSafeJsLiteral(resolvedOptions.name)},
             canLiveRebind: ${canLiveRebind},
             async get () {
               if (${shareItem.shareConfig.import === false}) {
-                throw new Error(\`[Module Federation] Shared module '\${${JSON.stringify(key)}}' must be provided by host\`);
+                throw new Error(\`[Module Federation] Shared module '\${${toSafeJsLiteral(key)}}' must be provided by host\`);
               }
-              usedShared[${JSON.stringify(key)}].loaded = true
-              const {${JSON.stringify(key)}: pkgDynamicImport} = importMap
+              usedShared[${toSafeJsLiteral(key)}].loaded = true
+              const {${toSafeJsLiteral(key)}: pkgDynamicImport} = importMap
               const res = await pkgDynamicImport()
-              const exportModule = ${JSON.stringify(useDirectReactImport)} && ${JSON.stringify(key)} === "react"
+              const exportModule = ${toSafeJsLiteral(useDirectReactImport)} && ${toSafeJsLiteral(key)} === "react"
                 ? (res?.default ?? res)
                 : {...res}
               // All npm packages pre-built by vite will be converted to esm
@@ -264,7 +264,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
             },
             shareConfig: {
               singleton: ${shareItem.shareConfig.singleton},
-              requiredVersion: ${JSON.stringify(shareItem.shareConfig.requiredVersion)},
+              requiredVersion: ${toSafeJsLiteral(shareItem.shareConfig.requiredVersion)},
               strictVersion: ${shareItem.shareConfig.strictVersion},
               eager: ${Boolean(shareItem.shareConfig.eager)},
               ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
@@ -272,14 +272,14 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
             ${
               treeShakingConfig
                 ? `treeShaking: {
-              mode: ${JSON.stringify(treeShakingConfig.mode)},
-              usedExports: ${JSON.stringify(treeShakingUsedExports)},
-              providedExports: ${JSON.stringify(treeShakingProviderExports)},
+              mode: ${toSafeJsLiteral(treeShakingConfig.mode)},
+              usedExports: ${toSafeJsLiteral(treeShakingUsedExports)},
+              providedExports: ${toSafeJsLiteral(treeShakingProviderExports)},
               status: ${treeShakingStatus},
               ${
                 treeShakingProviderImportId
                   ? `async get() {
-                const container = await import(${JSON.stringify(treeShakingProviderImportId)});
+                const container = await import(${toSafeJsLiteral(treeShakingProviderImportId)});
                 if (typeof container.init === "function") await container.init();
                 return container.get();
               },`
@@ -300,14 +300,14 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           if (!remote) return null;
           return `
                 {
-                  alias: ${JSON.stringify(key)},
-                  entryGlobalName: ${JSON.stringify(remote.entryGlobalName)},
-                  name: ${JSON.stringify(
+                  alias: ${toSafeJsLiteral(key)},
+                  entryGlobalName: ${toSafeJsLiteral(remote.entryGlobalName)},
+                  name: ${toSafeJsLiteral(
                     options ? getRuntimeRemoteAlias(key, options) : remote.name
                   )},
-                  type: ${JSON.stringify(remote.type)},
-                  entry: ${JSON.stringify(remote.entry)},
-                  shareScope: ${JSON.stringify(remote.shareScope ?? 'default')},
+                  type: ${toSafeJsLiteral(remote.type)},
+                  entry: ${toSafeJsLiteral(remote.entry)},
+                  shareScope: ${toSafeJsLiteral(remote.shareScope ?? 'default')},
                 }
           `;
         })
@@ -503,8 +503,8 @@ function generateSharedCacheSeedItem(
 ) {
   const cacheDescriptor = getSharedCacheDescriptor(pkg, shareItem);
   const cacheOwner = options.name;
-  return `if (__mfReadSharedCache(__mfModuleCache.share, ${JSON.stringify(cacheDescriptor)}) === undefined) {
-        const mod = await import(${JSON.stringify(importPath)});
+  return `if (__mfReadSharedCache(__mfModuleCache.share, ${toSafeJsLiteral(cacheDescriptor)}) === undefined) {
+        const mod = await import(${toSafeJsLiteral(importPath)});
         ${normalizeRuntimeShareCode}
         const normalizedModule = __mfNormalizeRuntimeShare(mod);
         const exportModule = normalizedModule === mod ? {...mod} : normalizedModule;
@@ -512,7 +512,7 @@ function generateSharedCacheSeedItem(
           value: true,
           enumerable: false
         });
-        __mfWriteSharedCache(__mfModuleCache.share, ${JSON.stringify(cacheDescriptor)}, exportModule, ${JSON.stringify(cacheOwner)});
+        __mfWriteSharedCache(__mfModuleCache.share, ${toSafeJsLiteral(cacheDescriptor)}, exportModule, ${toSafeJsLiteral(cacheOwner)});
       }`;
 }
 
@@ -687,8 +687,8 @@ function generateRuntimeSharedCacheSeedCode(
   // package's own subpath shares before the package itself.
   const seedBatches = getShareBatches(options, false);
   return `
-    const __mfSeedOrder = ${JSON.stringify(seedBatches.flat())};
-    const __mfSeedBatches = ${JSON.stringify(seedBatches)};
+    const __mfSeedOrder = ${toSafeJsLiteral(seedBatches.flat())};
+    const __mfSeedBatches = ${toSafeJsLiteral(seedBatches)};
     const __mfSeedKeys = __mfSeedOrder.filter((pkg) => usedShared[pkg] && usedShared[pkg].materialize !== false);
     __mfModuleCache.providerInit ||= new Map();
     const __mfInitializeProviderOnce = (key, initialize) => {
@@ -788,7 +788,7 @@ function generateRuntimeSharedCacheSeedCode(
         initialShared[pkg],
         pkg,
         share,
-        ${JSON.stringify(shareStrategy)}
+        ${toSafeJsLiteral(shareStrategy)}
       ));
     };
     const __mfFirstRuntimeSeedBarrierIndex = __mfSeedKeys.findIndex(
@@ -1036,7 +1036,7 @@ export function generateRemoteEntry(
     (share) => !!share?.shareConfig.treeShaking
   );
   const hasMultipleShareScopes = Array.isArray(options.shareScope);
-  const materializedShareBatches = JSON.stringify(getShareBatches(options, false));
+  const materializedShareBatches = toSafeJsLiteral(getShareBatches(options, false));
   const runtimeImports = [
     'init as runtimeInit',
     'loadRemote',
@@ -1115,11 +1115,11 @@ export function generateRemoteEntry(
   }
   ${getRuntimeModuleCacheBootstrapCode(exportConditions)}
   const initTokens = {}
-  const shareScopeNames = Array.isArray(${JSON.stringify(options.shareScope)}) ? ${JSON.stringify(options.shareScope)} : [${JSON.stringify(options.shareScope)}]
-  const shareScopeName = ${JSON.stringify(
+  const shareScopeNames = Array.isArray(${toSafeJsLiteral(options.shareScope)}) ? ${toSafeJsLiteral(options.shareScope)} : [${toSafeJsLiteral(options.shareScope)}]
+  const shareScopeName = ${toSafeJsLiteral(
     hasMultipleShareScopes ? options.shareScope[0] : options.shareScope
   )}
-  const mfName = ${JSON.stringify(options.name)}
+  const mfName = ${toSafeJsLiteral(options.name)}
   const __mfMaterializedShareBatches = ${materializedShareBatches}
   let localSharedImportMapPromise
   let exposesMapPromise
@@ -1327,7 +1327,7 @@ export function generateRemoteEntry(
         .map((item) => {
           const specifier = getSsrOnlyPluginSpecifier(item[1])!;
           const opts = item[2];
-          return `import(${JSON.stringify(specifier)}).then(m => (m.default ?? m)(${opts}))`;
+          return `import(${toSafeJsLiteral(specifier)}).then(m => (m.default ?? m)(${opts}))`;
         })
         .join(', ')}])
       : [];
@@ -1430,7 +1430,7 @@ export function generateRemoteEntry(
       if (!versionMap || versionMap[version] !== currentProvider) return undefined;
       const pinnedProvider = Object.assign({}, provider, {
         version: provider.version ?? version,
-        scope: provider.scope ?? currentProvider?.scope ?? ${JSON.stringify(
+        scope: provider.scope ?? currentProvider?.scope ?? ${toSafeJsLiteral(
           hasMultipleShareScopes ? options.shareScope : [options.shareScope]
         )},
         strategy: 'loaded-first'
@@ -2060,8 +2060,8 @@ export function generateHostAutoInitCode(
 ) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const shouldPreloadShares = resolvedOptions.shareStrategy !== 'loaded-first';
-  const hostInitShareOrder = JSON.stringify(getOrderedUsedShares(options));
-  const cacheOwner = JSON.stringify(resolvedOptions.name);
+  const hostInitShareBatches = toSafeJsLiteral(getShareBatches(options, false));
+  const cacheOwner = toSafeJsLiteral(resolvedOptions.name);
   const preferLocalVinextReact =
     hasPackageDependency('vinext') &&
     (!exportConditions?.includes('browser') || exportConditions.includes('worker'));
@@ -2080,48 +2080,50 @@ export function generateHostAutoInitCode(
           ${
             shouldPreloadShares
               ? `
-          const __mfHostInitShareOrder = ${hostInitShareOrder};
-          for (const pkg of __mfHostInitShareOrder) {
-            const share = usedShared[pkg];
-            if (!share || share.materialize === false) continue;
-            // remoteEntry.init resolves tree-enabled shares into the
-            // coverage-aware cache. Never republish that selected partial under
-            // a generic full-module key here.
-            if (share.treeShaking) continue;
-            const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
-            if (
-              __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined &&
-              __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined
-            ) {
-              continue;
-            }
-            await runtime.loadShare(pkg, {
-              customShareInfo: { shareConfig: share.shareConfig }
-            }).then(async (factory) => {
-              const mod = typeof factory === "function" ? factory() : factory;
-              let resolved = __mfNormalizeRuntimeShare(await Promise.resolve(mod));
-              ${
-                preferLocalVinextReact
-                  ? `if (
-                (pkg === "react" || pkg === "react-dom") &&
-                typeof share.get === "function" &&
-                share.shareConfig?.import !== false
+          const __mfHostInitShareBatches = ${hostInitShareBatches};
+          for (const __mfHostInitShareBatch of __mfHostInitShareBatches) {
+            await Promise.all(__mfHostInitShareBatch.map(async (pkg) => {
+              const share = usedShared[pkg];
+              if (!share || share.materialize === false) return;
+              // remoteEntry.init resolves tree-enabled shares into the
+              // coverage-aware cache. Never republish that selected partial under
+              // a generic full-module key here.
+              if (share.treeShaking) return;
+              const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+              if (
+                __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined &&
+                __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined
               ) {
-                try {
-                  const localFactory = await share.get();
-                  const localModule = typeof localFactory === "function" ? localFactory() : localFactory;
-                  resolved = __mfNormalizeRuntimeShare(await Promise.resolve(localModule));
-                } catch {}
-              }`
-                  : ''
+                return;
               }
-              __mfWriteSharedCache(
-                __mfModuleCache.share,
-                cacheDescriptor,
-                resolved,
-                ${cacheOwner}
-              );
-            });
+              await runtime.loadShare(pkg, {
+                customShareInfo: { shareConfig: share.shareConfig }
+              }).then(async (factory) => {
+                const mod = typeof factory === "function" ? factory() : factory;
+                let resolved = __mfNormalizeRuntimeShare(await Promise.resolve(mod));
+                ${
+                  preferLocalVinextReact
+                    ? `if (
+                  (pkg === "react" || pkg === "react-dom") &&
+                  typeof share.get === "function" &&
+                  share.shareConfig?.import !== false
+                ) {
+                  try {
+                    const localFactory = await share.get();
+                    const localModule = typeof localFactory === "function" ? localFactory() : localFactory;
+                    resolved = __mfNormalizeRuntimeShare(await Promise.resolve(localModule));
+                  } catch {}
+                }`
+                    : ''
+                }
+                __mfWriteSharedCache(
+                  __mfModuleCache.share,
+                  cacheDescriptor,
+                  resolved,
+                  ${cacheOwner}
+                );
+              });
+            }));
           }
           `
               : ''
@@ -2147,7 +2149,7 @@ export function writeHostAutoInit(
   if (exportConditions !== undefined) state.exportConditions = exportConditions;
   state.module.writeSync(
     generateHostAutoInitCode(
-      JSON.stringify(remoteEntryId),
+      toSafeJsLiteral(remoteEntryId),
       command,
       options,
       state.exportConditions
