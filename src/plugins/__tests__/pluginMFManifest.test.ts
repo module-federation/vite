@@ -399,6 +399,41 @@ describe('pluginMFManifest', () => {
     expect(stats.assetAnalysis['./src/exposed.js'].js).toEqual(expectedAssets);
   });
 
+  it('includes CSS carried by an expose dependency chunk, not just the expose chunk itself', async () => {
+    const exposed = createChunk('assets/exposed.js', ['/src/exposed.js']);
+    exposed.imports = ['assets/expose-dependency.js'];
+    exposed.dynamicImports = ['assets/lazy.js'];
+    const dependency = createChunk('assets/expose-dependency.js', ['/src/expose-dependency.ts']);
+    // Vite only folds a dependency's CSS onto the importer when that dependency is a
+    // CSS-only chunk; a real JS chunk keeps its CSS on its own viteMetadata, so this
+    // proves the expose closure walk (not just processModuleAssets) picks it up.
+    (dependency as OutputChunk & { viteMetadata: unknown }).viteMetadata = {
+      importedCss: new Set(['assets/dependency.css']),
+    };
+    const lazy = createChunk('assets/lazy.js', ['/src/lazy.ts']);
+    (lazy as OutputChunk & { viteMetadata: unknown }).viteMetadata = {
+      importedCss: new Set(['assets/lazy.css']),
+    };
+
+    const bundle = {
+      'remoteEntry.js': createChunk('remoteEntry.js', ['/src/remoteEntry.ts']),
+      'assets/exposed.js': exposed,
+      'assets/expose-dependency.js': dependency,
+      'assets/lazy.js': lazy,
+    } satisfies OutputBundle;
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      exposePaths: { './exposed': { import: './src/exposed.js' } },
+      bundle,
+    });
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+
+    expect(manifest.exposes[0].assets.css).toEqual({
+      sync: ['assets/dependency.css'],
+      async: ['assets/lazy.css'],
+    });
+  });
+
   it('isolates manifest usage and shares across plugin instances', async () => {
     const makeOptions = (owner: 'a' | 'b') =>
       ({

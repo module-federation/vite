@@ -1391,6 +1391,10 @@ export function generateRemoteEntry(
           if (!globalName || !version || !snapshot.remoteEntry) return args;
           const moduleInfo = globalThis.__FEDERATION__ && globalThis.__FEDERATION__.moduleInfo;
           const realNameKey = globalName + ":" + version;
+          // Stores the same object, not a copy, so a later mutation (e.g. runtime-core
+          // normalizing fields) stays consistent across both keys. Never overwrites an
+          // existing entry: a different owner may have already resolved this real name
+          // to its own snapshot, and this mirror must not shadow that one.
           if (moduleInfo && !moduleInfo[realNameKey]) {
             moduleInfo[realNameKey] = snapshot;
           }

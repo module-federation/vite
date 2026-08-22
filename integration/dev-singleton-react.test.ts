@@ -15,6 +15,7 @@ const VITE_CLI = path.join(REPO_ROOT, 'node_modules/vite/bin/vite.js');
 
 const cleanupTasks: Array<() => Promise<void>> = [];
 let fixtureRoot: string;
+let cleanupFixture: (() => Promise<void>) | undefined;
 
 beforeEach(async () => {
   fixtureRoot = await mkdtemp(path.join(FIXTURE_PARENT, '.issue-913-'));
@@ -107,16 +108,17 @@ export default {
 `
     ),
   ]);
-  cleanupTasks.push(() => rm(fixtureRoot, { recursive: true }));
+  cleanupFixture = () => rm(fixtureRoot, { recursive: true });
 });
 
 afterEach(async () => {
+  // The fixture root must be removed only after all servers/processes close,
+  // so it isn't part of the concurrently-run cleanupTasks below.
   const cleanups = cleanupTasks.splice(0).reverse();
-  // The fixture cleanup is registered first and must run after all servers close.
-  const cleanupFixture = cleanups.pop();
   const cleanupResults = await Promise.allSettled(cleanups.map((cleanup) => cleanup()));
 
   await cleanupFixture?.();
+  cleanupFixture = undefined;
 
   const failedCleanup = cleanupResults.find(
     (result): result is PromiseRejectedResult => result.status === 'rejected'
