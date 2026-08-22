@@ -161,7 +161,11 @@ vi.mock('../../utils/VirtualModule', () => ({
   }),
 }));
 
-import { findSharedKey, proxySharedModule } from '../pluginProxySharedModule_preBuild';
+import {
+  excludeSharedSubDependencies,
+  findSharedKey,
+  proxySharedModule,
+} from '../pluginProxySharedModule_preBuild';
 import {
   getResolvedLocalSharedImportMapId,
   getUsedShares,
@@ -370,6 +374,57 @@ describe('pluginProxySharedModule_preBuild', () => {
         name: 'react/jsx-runtime',
       };
       expect(findSharedKey('react/jsx-runtime', explicitlyShared)).toBe('react/jsx-runtime');
+    });
+
+    // findSharedKey memoizes its matcher per `shared` object reference. If
+    // something (e.g. the entry-import scanner) resolves a source through the
+    // matcher before excludeSharedSubDependencies deletes that key from the
+    // same (in-place mutated) `shared` object, a later lookup must not keep
+    // resolving the now-deleted key from the stale cached matcher — otherwise
+    // callers downstream (e.g. writeLoadShareModule) dereference an undefined
+    // shareItem and crash.
+    it('stops resolving a key excludeSharedSubDependencies deletes, even if already cached', () => {
+      hasPackageDependencyMock.mockReturnValue(false);
+      existsSyncMock.mockImplementation(
+        (p: string) => p === '/repo/apps/remote/node_modules/pkg-a/package.json'
+      );
+      readFileSyncMock.mockImplementation((p: string) => {
+        if (p === '/repo/apps/remote/node_modules/pkg-a/package.json') {
+          return JSON.stringify({ name: 'pkg-a', dependencies: { 'pkg-b': '^1.0.0' } });
+        }
+        return '{}';
+      });
+
+      const shared: NormalizedShared = {
+        'pkg-a': {
+          name: 'pkg-a',
+          from: '',
+          version: '1.0.0',
+          scope: 'default',
+          shareConfig: { singleton: true, requiredVersion: '^1.0.0', strictVersion: false },
+        },
+        'pkg-b': {
+          name: 'pkg-b',
+          from: '',
+          version: '1.0.0',
+          scope: 'default',
+          shareConfig: { singleton: false, requiredVersion: '^1.0.0', strictVersion: false },
+        },
+      };
+
+      // Prime findSharedKey's cached matcher for this `shared` object, as the
+      // entry-import scanner does before excludeSharedSubDependencies runs.
+      expect(findSharedKey('pkg-b', shared)).toBe('pkg-b');
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      excludeSharedSubDependencies(shared);
+      warnSpy.mockRestore();
+
+      expect(shared).not.toHaveProperty('pkg-b');
+      expect(findSharedKey('pkg-b', shared)).toBeUndefined();
+
+      existsSyncMock.mockReset().mockReturnValue(false);
+      readFileSyncMock.mockReset().mockReturnValue('{}');
     });
   });
 
