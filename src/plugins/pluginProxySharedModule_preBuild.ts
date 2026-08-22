@@ -253,6 +253,9 @@ export function excludeSharedSubDependencies(shared: NormalizedShared): void {
         delete shared[depKey];
         sharedKeys.delete(depKey);
         sharedKeyByBase.delete(dep);
+        // A matcher cached before this deletion would keep resolving the
+        // removed key and hand callers an undefined shareItem.
+        sharedKeyMatcherCache.delete(shared);
       }
     }
   }
