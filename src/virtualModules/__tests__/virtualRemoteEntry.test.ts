@@ -1865,6 +1865,89 @@ describe('virtualRemoteEntry', () => {
     expect(order).toEqual(['@repro/shared-lib', '@repro/core']);
   });
 
+  it('resolves an import:false share during init even before the dev scanner has materialized it (#1090)', async () => {
+    // Dev-only cold start: a cross-origin host requests remoteEntry.js before Vite's
+    // resolveId has ever processed the exposed module's own import of the share, so
+    // the share is configured but not yet materialized when this remoteEntry.js is
+    // generated. Because import:false shares have no local fallback, init() must
+    // still attempt to resolve them — otherwise the share is never seeded, and the
+    // exposed module reads its still-undefined export at evaluation time.
+    const shareItem = (name: string) => ({
+      name,
+      from: 'remote',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: '^1.0.0',
+        strictVersion: false,
+        import: false as const,
+      },
+    });
+    normalizedSharedMock.mockReturnValue({
+      '@repro/host-only': shareItem('@repro/host-only'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addConfiguredShare('@repro/host-only');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    const seedCode = getRuntimeSeedCode(code);
+    const deferredResolutionCode = getRuntimeDeferredResolutionCode(code);
+    const resolved: string[] = [];
+    const usedShared = {
+      '@repro/host-only': {
+        ...shareItem('@repro/host-only'),
+        scope: ['default'],
+        materialize: false,
+      },
+    };
+
+    await new Function(
+      'usedShared',
+      'resolved',
+      `return (async () => {
+        const __mfModuleCache = { share: {} };
+        const mfName = 'remote';
+        const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+          const scopeName = Array.isArray(scope) ? scope[0] : scope || 'default';
+          return { canonical: scopeName + ':' + (singleton || !version ? pkg : pkg + '@' + version) };
+        };
+        const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+        const __mfReadSharedCacheOwner = () => undefined;
+        const __mfWriteSharedCache = (cache, descriptor, value) => {
+          cache[descriptor.canonical] = value;
+        };
+        const __mfReadTreeShakingSharedSelection = () => undefined;
+        const __mfResolveTreeShakingShared = async () => {};
+        const __mfResolveImportFalseShared = async (pkg) => {
+          resolved.push(pkg);
+          __mfModuleCache.share['default:' + pkg] = { value: 'host-provided' };
+        };
+        ${seedCode}
+        ${deferredResolutionCode}
+      })();`
+    )(usedShared, resolved);
+
+    expect(resolved).toEqual(['@repro/host-only']);
+  });
+
   it('does not reject init when a runtime-only provider fails to load', async () => {
     const shareItem = (name: string) => ({
       name,
