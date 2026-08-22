@@ -442,6 +442,13 @@ function isFile(candidate: string): boolean {
   }
 }
 
+// React Router's build plugin appends a synthetic `?__react-router-build-client-route`
+// entry per route that isn't a real module on disk, so it must be excluded before this
+// scan tries to read it as a source file.
+function isReactRouterBuildClientRouteInput(entry: string): boolean {
+  return /[?&]__react-router-build-client-route(?:[=&]|$)/.test(entry);
+}
+
 function registerEntryImports(
   options: NormalizedModuleFederationOptions,
   projectRoot: string,
@@ -560,7 +567,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
               : [];
       const resolvedConfiguredEntryFiles = configuredEntryFiles
         .map((entry) => String(entry))
-        .filter((entry) => !/[?&]__react-router-build-client-route(?:[=&]|$)/.test(entry))
+        .filter((entry) => !isReactRouterBuildClientRouteInput(entry))
         .map((entry) => entry.split(/[?#]/)[0])
         .map((entry) => (path.isAbsolute(entry) ? entry : path.resolve(root, entry)));
       resetConcreteSharedImportSourceCache();

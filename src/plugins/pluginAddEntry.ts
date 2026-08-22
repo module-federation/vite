@@ -383,7 +383,7 @@ const __mfCurrentScript = document.currentScript;
       sharedPreloadSources.length > 0
         ? `
   const __mfSharedPreloadUrls = ${JSON.stringify(sharedPreloadSources)};
-  await Promise.all(__mfSharedPreloadUrls.map((src) => import(/* @vite-ignore */ src)));`
+  await Promise.all(__mfSharedPreloadUrls.map((src) => import(/* @vite-ignore */ src).catch((err) => console.warn("[module-federation] shared preload failed:", src, err))));`
         : '';
     const remoteCachePrefix = getRuntimeRemoteCachePrefix(federationOptions);
     const preloadRegistrationParameter = isLoadedFirstClientBuild ? ', registration' : '';
@@ -504,6 +504,9 @@ const __mfCurrentScript = document.currentScript;
     if (normalized.startsWith('\0') || normalized.startsWith('virtual:')) return false;
 
     const filePath = stripQueryAndHash(normalized);
+    // /@fs/ is Vite's own marker for "this id is a real filesystem path", so unlike
+    // the branch below it needs no existsSync check — a virtual/framework id would
+    // never carry this prefix in the first place.
     if (filePath.startsWith('/@fs/')) return true;
     if (!path.isAbsolute(filePath)) return false;
 
@@ -985,12 +988,14 @@ const __mfCurrentScript = document.currentScript;
           !clientInjected &&
           !isFederationInternalVirtualId(id) &&
           !id.includes('node_modules') &&
-          !isWorkspaceSourceId(id) &&
           (!code.includes('HydratedRouter') || isReactRouterEntry) &&
           (id.startsWith('\0') || /\.(js|ts|mjs|vue|jsx|tsx)(\?|$)/.test(id)) &&
           (/hydrateRoot|createRoot|ReactDOM\.render/.test(code) ||
             /\.mount\s*\(\s*['"#]/.test(code) ||
-            (/\.mount\s*\(/.test(code) && /createSSRApp|createApp/.test(code)));
+            (/\.mount\s*\(/.test(code) && /createSSRApp|createApp/.test(code))) &&
+          // Cheapest-last: this can do a synchronous fs.existsSync, so only pay
+          // for it once every other, cheaper candidacy check has already passed.
+          !isWorkspaceSourceId(id);
 
         const isNuxtEntryAsyncModule =
           /(?:^|\/)nuxt\/dist\/app\/entry\.async\.js(?:\?|$)/.test(id) && code.includes('entry();');

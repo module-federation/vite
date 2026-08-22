@@ -112,6 +112,14 @@ function isContainerBootstrapChunk(
   );
 }
 
+function collectImportedCss(chunks: OutputChunkWithViteMetadata[]): string[] {
+  const css = new Set<string>();
+  for (const chunk of chunks) {
+    for (const cssFile of chunk.viteMetadata?.importedCss ?? []) css.add(cssFile);
+  }
+  return Array.from(css);
+}
+
 function expandExposeAssets(
   filesMap: PreloadMap,
   exposeModules: string[],
@@ -124,7 +132,7 @@ function expandExposeAssets(
   const containerChunks = remoteEntryFileName
     ? collectStaticChunks(bundle, [remoteEntryFileName])
     : [];
-  const bootstrapAssets = containerChunks.slice(1).map((chunk) => chunk.fileName);
+  const bootstrapChunks = containerChunks.slice(1);
   const seen = new Set(containerChunks.map((chunk) => chunk.fileName));
 
   if (containerChunks.length > 0) {
@@ -149,29 +157,46 @@ function expandExposeAssets(
         for (const chunk of collectStaticChunks(bundle, [imported])) {
           if (seen.has(chunk.fileName)) continue;
           seen.add(chunk.fileName);
-          bootstrapAssets.push(chunk.fileName);
+          bootstrapChunks.push(chunk);
         }
       }
     }
   }
 
+  const bootstrapAssets = bootstrapChunks.map((chunk) => chunk.fileName);
+  // A chunk's own viteMetadata.importedCss only reflects CSS statically imported by
+  // that chunk's own modules, not CSS carried by other JS chunks it merely imports
+  // (Vite folds a dependency's CSS in only when that dependency is a CSS-only chunk).
+  // So the JS closure above and its CSS need the same static-import traversal.
+  const bootstrapCss = collectImportedCss(bootstrapChunks);
+
   for (const exposeModule of exposeModules) {
     const assets = filesMap[exposeModule];
     if (!assets) continue;
 
+    const syncChunks = collectStaticChunks(bundle, assets.js.sync);
     const sync = Array.from(
-      new Set([
-        ...bootstrapAssets,
-        ...collectStaticChunks(bundle, assets.js.sync).map((chunk) => chunk.fileName),
-      ])
+      new Set([...bootstrapAssets, ...syncChunks.map((chunk) => chunk.fileName)])
     );
     const syncSet = new Set(sync);
-    const async = collectStaticChunks(bundle, assets.js.async)
+    const asyncChunks = collectStaticChunks(bundle, assets.js.async);
+    const async = asyncChunks
       .map((chunk) => chunk.fileName)
       .filter((fileName) => !syncSet.has(fileName));
 
     assets.js.sync = sync;
     assets.js.async = async;
+
+    const syncCss = Array.from(
+      new Set([...assets.css.sync, ...bootstrapCss, ...collectImportedCss(syncChunks)])
+    );
+    const syncCssSet = new Set(syncCss);
+    const asyncCss = Array.from(
+      new Set([...assets.css.async, ...collectImportedCss(asyncChunks)])
+    ).filter((fileName) => !syncCssSet.has(fileName));
+
+    assets.css.sync = syncCss;
+    assets.css.async = asyncCss;
   }
 }
 
