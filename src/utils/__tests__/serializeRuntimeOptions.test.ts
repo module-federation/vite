@@ -1,4 +1,37 @@
-import { serializeRuntimeOptions } from '../serializeRuntimeOptions';
+import { serializeRuntimeOptions, toSafeJsLiteral } from '../serializeRuntimeOptions';
+
+describe('toSafeJsLiteral', () => {
+  it('matches JSON.stringify for ordinary values', () => {
+    expect(toSafeJsLiteral('react')).toBe(String.raw`"react"`);
+    expect(toSafeJsLiteral(42)).toBe('42');
+    expect(toSafeJsLiteral(['a', 'b/c'])).toBe(String.raw`["a","b/c"]`);
+    expect(toSafeJsLiteral({ name: 'host' })).toBe(String.raw`{"name":"host"}`);
+  });
+
+  it('embeds undefined as the bare keyword, matching template-literal interpolation of JSON.stringify(undefined)', () => {
+    expect(toSafeJsLiteral(undefined)).toBe('undefined');
+  });
+
+  it(String.raw`escapes a literal "<" so a string value cannot form "</script>"`, () => {
+    const escaped = toSafeJsLiteral('</script>');
+    expect(escaped).not.toContain('<');
+    expect(JSON.parse(escaped)).toBe('</script>');
+  });
+
+  it('escapes U+2028/U+2029 so the result stays a single valid string literal', () => {
+    const value = 'line\u2028sep\u2029break';
+    const escaped = toSafeJsLiteral(value);
+    expect(escaped).not.toContain('\u2028');
+    expect(escaped).not.toContain('\u2029');
+    expect(new Function(`return ${escaped};`)()).toBe(value);
+  });
+
+  it('produces a value that evaluates back to the original when embedded in generated code', () => {
+    const original = { pkg: '</script>', note: 'a\u2028b' };
+    const roundTripped = new Function(`return ${toSafeJsLiteral(original)};`)();
+    expect(roundTripped).toEqual(original);
+  });
+});
 
 describe('generateRuntimePluginOption - safe JS literal', () => {
   it('should serialize complex megaObject', () => {

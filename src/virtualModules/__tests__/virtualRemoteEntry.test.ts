@@ -884,7 +884,9 @@ describe('virtualRemoteEntry', () => {
     const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
     expect(localMap.indexOf('"react":')).toBeLessThan(localMap.indexOf('"@repro/react-consumer":'));
-    expect(hostInit).toContain('const __mfHostInitShareOrder = ["react","@repro/react-consumer"]');
+    expect(hostInit).toContain(
+      'const __mfHostInitShareBatches = [["react"],["@repro/react-consumer"]]'
+    );
   });
 
   it('orders React package roots before their subpath shares', async () => {
@@ -909,19 +911,22 @@ describe('virtualRemoteEntry', () => {
     mod.addUsedShares('react-dom');
 
     const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
-    const orderMarker = 'const __mfHostInitShareOrder = ';
-    const orderStart = hostInit.indexOf(orderMarker);
-    const orderLineEnd = hostInit.indexOf('\n', orderStart);
-    const orderSource =
-      orderStart === -1 || orderLineEnd === -1
+    const batchesMarker = 'const __mfHostInitShareBatches = ';
+    const batchesStart = hostInit.indexOf(batchesMarker);
+    const batchesLineEnd = hostInit.indexOf('\n', batchesStart);
+    const batchesSource =
+      batchesStart === -1 || batchesLineEnd === -1
         ? '[]'
-        : hostInit.slice(orderStart + orderMarker.length, orderLineEnd).trim();
-    const order = JSON.parse(
-      orderSource.endsWith(';') ? orderSource.slice(0, -1) : orderSource
-    ) as string[];
+        : hostInit.slice(batchesStart + batchesMarker.length, batchesLineEnd).trim();
+    const batches = JSON.parse(
+      batchesSource.endsWith(';') ? batchesSource.slice(0, -1) : batchesSource
+    ) as string[][];
+    const order = batches.flat();
 
     expect(order.indexOf('react')).toBeLessThan(order.indexOf('react/jsx-runtime'));
     expect(order.indexOf('react-dom')).toBeLessThan(order.indexOf('react-dom/client'));
+    // react and react-dom have no dependency relationship, so they batch together.
+    expect(batches[0]).toEqual(expect.arrayContaining(['react', 'react-dom']));
   });
 
   it('uses auto-detected workspace import path in localSharedImportMap', async () => {
@@ -1464,7 +1469,7 @@ describe('virtualRemoteEntry', () => {
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
-    expect(code).toContain('const __mfHostInitShareOrder');
+    expect(code).toContain('const __mfHostInitShareBatches');
     expect(code).toContain('"lit/decorators.js"');
   });
 
@@ -1516,7 +1521,86 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain(
       'const {usedShared} = await import("virtual:mf-localSharedImportMap:__mfe_internal__host")'
     );
-    expect(code).toContain('for (const pkg of __mfHostInitShareOrder)');
+    expect(code).toContain('for (const __mfHostInitShareBatch of __mfHostInitShareBatches)');
+  });
+
+  it('preloads independent shared packages in parallel during host auto init', async () => {
+    const share = (name: string) => ({
+      name,
+      from: '',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { singleton: true, requiredVersion: '^1.0.0', strictVersion: false },
+    });
+    normalizedSharedMock.mockReturnValue({
+      'pkg-a': share('pkg-a'),
+      'pkg-b': share('pkg-b'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('pkg-a');
+    mod.addUsedShares('pkg-b');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+
+    const batchesMarker = 'const __mfHostInitShareBatches = ';
+    const batchesStart = code.indexOf(batchesMarker);
+    expect(batchesStart).not.toBe(-1);
+    const loopEnd = code.indexOf('return runtime;', batchesStart);
+    const loopCode = code.slice(batchesStart, loopEnd);
+
+    // pkg-a and pkg-b have no dependency relationship, so they must sit in
+    // the same batch and load concurrently instead of one after another.
+    expect(loopCode).toContain('await Promise.all(');
+
+    const order: string[] = [];
+    const resolvers: Record<string, (factory: () => unknown) => void> = {};
+    const runtime = {
+      loadShare: (pkg: string) => {
+        order.push(`start:${pkg}`);
+        return new Promise((resolve) => {
+          resolvers[pkg] = resolve;
+        }).then((factory) => {
+          order.push(`end:${pkg}`);
+          return factory;
+        });
+      },
+    };
+
+    const run = new Function(
+      'usedShared',
+      'runtime',
+      '__mfModuleCache',
+      '__mfGetSharedCacheDescriptor',
+      '__mfReadSharedCache',
+      '__mfReadSharedCacheOwner',
+      '__mfWriteSharedCache',
+      '__mfNormalizeRuntimeShare',
+      `return (async () => { ${loopCode} })();`
+    );
+
+    const donePromise = run(
+      { 'pkg-a': share('pkg-a'), 'pkg-b': share('pkg-b') },
+      runtime,
+      { share: {} },
+      (pkg: string) => ({ canonical: pkg }),
+      () => undefined,
+      () => undefined,
+      () => {},
+      (m: unknown) => m
+    );
+
+    // Let both loadShare calls start before resolving either.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toEqual(['start:pkg-a', 'start:pkg-b']);
+
+    resolvers['pkg-a'](() => ({}));
+    resolvers['pkg-b'](() => ({}));
+    await donePromise;
+
+    expect(order).toEqual(['start:pkg-a', 'start:pkg-b', 'end:pkg-a', 'end:pkg-b']);
   });
 
   it('seeds package subpath shares and shared dependencies before their consumers', async () => {
