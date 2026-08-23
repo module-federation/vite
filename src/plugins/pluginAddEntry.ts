@@ -350,6 +350,38 @@ const __mfCurrentScript = document.currentScript;
           .join(',')
       : '';
 
+    // The remote entry fetch is independent of host init, but loadRemote() only
+    // runs after `await initHost()` finishes its shared preloads, so remote
+    // entries otherwise queue behind every shared chunk (staircase waterfall).
+    // Warm the module-type entry URLs up front: the browser dedupes the
+    // later loadRemote() import of the same URL against the in-flight request.
+    const remoteEntryPrefetchUrls = shouldPreloadRemotes
+      ? Array.from(
+          new Set(
+            remoteSources.flatMap((remote) => {
+              const registration = getRemoteRegistration(
+                remote,
+                normalizedOptions.remotes,
+                federationOptions
+              );
+              return registration &&
+                (registration.type === 'module' || registration.type === 'esm') &&
+                /^(?:https?:)?\/\//.test(registration.entry)
+                ? [registration.entry]
+                : [];
+            })
+          )
+        )
+      : [];
+    const remoteEntryPrefetchBlock =
+      remoteEntryPrefetchUrls.length > 0
+        ? `const __mfRemoteEntryPrefetchUrls = ${JSON.stringify(remoteEntryPrefetchUrls)};
+for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
+  import(/* @vite-ignore */ __mfRemoteEntryPrefetchUrl).catch(() => {});
+}
+`
+        : '';
+
     const sharedPreloadSources =
       _command === 'serve' &&
       waitsForInit &&
@@ -456,6 +488,7 @@ const __mfCurrentScript = document.currentScript;
       getRuntimeModuleCacheBootstrapCode(),
       importHelper,
       entryImportDeclaration,
+      remoteEntryPrefetchBlock,
       importCode,
     ].join('\n');
   }
