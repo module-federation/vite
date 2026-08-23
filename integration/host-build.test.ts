@@ -81,6 +81,30 @@ describe('host build', () => {
     expect(bootstrapCode).toContain('await initHost();');
   });
 
+  it('prefetches module remote entries before host init for version-first', async () => {
+    const output = await buildFixture({
+      fixture: 'loaded-first-static-host',
+      mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: 'html' },
+    });
+    const bootstrapAsset = output.output.find(
+      (item) => item.type === 'asset' && item.fileName.includes('mf-entry-bootstrap')
+    );
+
+    expect(bootstrapAsset).toBeDefined();
+    const bootstrapCode = (bootstrapAsset as unknown as { source: string }).source;
+    const prefetchIndex = bootstrapCode.indexOf('"http://localhost:3001/remoteEntry.js"');
+
+    // The remote entry download must start before initHost() so it overlaps
+    // the shared preloads instead of queueing behind them.
+    expect(prefetchIndex).toBeGreaterThanOrEqual(0);
+    expect(bootstrapCode).toContain(
+      'import(/* @vite-ignore */ __mfRemoteEntryPrefetchUrl).catch(() => {});'
+    );
+    expect(prefetchIndex).toBeLessThan(bootstrapCode.indexOf('await initHost()'));
+    expect(bootstrapCode).toContain('__mfPreloadRemote(');
+    expect(bootstrapCode).not.toMatch(/^await /m);
+  });
+
   it('transforms remote module imports into federation loadRemote() calls', async () => {
     const output = await buildFixture({
       fixture: 'basic-host',

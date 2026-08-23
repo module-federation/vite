@@ -1160,6 +1160,71 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('Promise.all(__mfRemotePreloads)');
   });
 
+  it('prefetches module-type remote entries before host init for version-first', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-entry-prefetch-'));
+    const federationOptions = {
+      internalName: 'host',
+      name: 'host',
+      shareStrategy: 'version-first',
+      shared: {},
+      remotes: {
+        remote: {
+          entry: 'http://localhost:5001/remoteEntry.js',
+          entryGlobalName: 'remote',
+          name: 'remote',
+          type: 'module',
+          shareScope: 'default',
+        },
+        legacy: {
+          entry: 'http://localhost:5002/remoteEntry.js',
+          entryGlobalName: 'legacy',
+          name: 'legacy',
+          type: 'var',
+          shareScope: 'default',
+        },
+      },
+    } as any;
+    addUsedRemote('remote', 'remote/Route', federationOptions);
+    addUsedRemote('remote', 'remote/Button', federationOptions);
+    addUsedRemote('legacy', 'legacy/Widget', federationOptions);
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      federationOptions,
+    });
+    const buildPlugin = plugins[1];
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: { input: '/src/main.ts' } },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(buildPlugin, 'export const app = true;', '/src/main.ts')) as
+      | { code: string }
+      | undefined;
+    const code = result?.code ?? '';
+
+    // Deduped across remote modules; script-loaded (var) remotes are excluded.
+    expect(code).toContain(
+      'const __mfRemoteEntryPrefetchUrls = ["http://localhost:5001/remoteEntry.js"];'
+    );
+    expect(code).not.toContain('http://localhost:5002/remoteEntry.js');
+    // A prefetch failure must stay silent; loadRemote reports real errors later.
+    expect(code).toContain(
+      'import(/* @vite-ignore */ __mfRemoteEntryPrefetchUrl).catch(() => {});'
+    );
+    // The prefetch must start before host init so entry downloads overlap
+    // shared preloads instead of queueing behind them.
+    const prefetchIndex = code.indexOf('__mfRemoteEntryPrefetchUrls');
+    expect(prefetchIndex).toBeGreaterThanOrEqual(0);
+    expect(prefetchIndex).toBeLessThan(code.indexOf('(async () => {'));
+    expect(prefetchIndex).toBeLessThan(code.indexOf('await initHost();'));
+    expect(code).not.toMatch(/^await /m);
+  });
+
   it('skips remote preload in the host bootstrap when shareStrategy is loaded-first', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-loaded-first-'));
     fs.writeFileSync(
@@ -1211,6 +1276,7 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('__mfPreloadRemote');
     expect(result?.code).not.toContain('loadRemote');
     expect(result?.code).not.toContain('__mfRemotePreloads');
+    expect(result?.code).not.toContain('__mfRemoteEntryPrefetchUrls');
     expect(result?.code).toContain('await initHost();');
     expect(result?.code).toContain('})().then(() => import("/src/main.ts?mf-entry-bootstrap"));');
   });
