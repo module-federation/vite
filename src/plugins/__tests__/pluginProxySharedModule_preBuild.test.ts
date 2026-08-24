@@ -6,6 +6,9 @@ import type {
   UserConfig,
 } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import * as path from 'node:path';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizePathForImport } from '../../utils/buildPaths';
 
@@ -1738,5 +1741,88 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     expect(resolution).not.toBe('timeout');
     expect((resolution as { id: string }).id).toBe('/vite/deps/react.js');
+  });
+
+  it('adopts the resolved project file as import source for app-local shared keys', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    // Downstream helpers stat the adopted file, so use a real one.
+    const storeDir = mkdtempSync(path.join(tmpdir(), 'mf-app-store-'));
+    const storePath = path.join(storeDir, 'store.ts');
+    writeFileSync(storePath, 'export const state = {};\nexport default () => state;\n');
+    existsSyncMock.mockImplementation((filePath: string) => filePath === storePath);
+    readFileSyncMock.mockImplementation((filePath: string) =>
+      filePath === storePath ? 'export const state = {};\nexport default () => state;\n' : ''
+    );
+
+    const shared: NormalizedShared = {
+      'app/store': {
+        name: 'app/store',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '1.0.0', strictVersion: true },
+      },
+    };
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const resolve = async (id: string) => ({
+      id: id === 'app/store' ? storePath : `/resolved/${id}`,
+    });
+
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta(), resolve } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve } as any,
+      'app/store',
+      '/project/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect((resolution as { id: string }).id).toBeDefined();
+    expect(shared['app/store'].shareConfig.import).toBe(storePath);
+    expect(writeLoadShareModuleMock).toHaveBeenCalledWith(
+      'app/store',
+      shared['app/store'],
+      'build',
+      expect.anything()
+    );
+  });
+
+  it('keeps installed packages untouched when adopting app-local shared keys', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg: string) =>
+      pkg === 'vue' ? '/project/node_modules/vue/index.mjs' : undefined
+    );
+
+    const shared = makeShared();
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const resolve = async (id: string) => ({ id: `/resolved/${id}` });
+
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta(), resolve } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+    await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve } as any,
+      'vue',
+      '/project/src/main.ts',
+      {
+        isEntry: false,
+      }
+    );
+
+    expect(shared.vue.shareConfig.import).toBeUndefined();
   });
 });

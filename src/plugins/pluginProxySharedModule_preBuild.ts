@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
@@ -80,6 +81,43 @@ function tryResolveFromProjectRoot(source: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+type SharedResolveContext = {
+  resolve: (
+    source: string,
+    importer?: string,
+    options?: { skipSelf?: boolean }
+  ) => Promise<{ id: string; external?: boolean | 'absolute' | 'relative' } | null>;
+};
+
+/**
+ * A shared key that is not an installed package (an application module such as
+ * `app/store`, made resolvable by a user resolver plugin) has no package entry to
+ * inspect, so the generated loadShare module silently falls back to the local
+ * copy and every consumer ends up with its own instance. Resolve the key through
+ * Vite and adopt the resolved project file as the `import` source, which is
+ * exactly what `shared: { 'app/store': { import: './src/store' } }` configures.
+ */
+async function adoptResolvedLocalSharedImport(
+  ctx: SharedResolveContext,
+  source: string,
+  importer: string | undefined,
+  key: string,
+  shareItem: ShareItem
+): Promise<void> {
+  const { shareConfig } = shareItem;
+  if (typeof shareConfig.import === 'string' || shareConfig.import === false) return;
+  // Only bare keys: subpath and node_modules sources always belong to packages.
+  if (source !== key || isNodeModulePath(source)) return;
+  if (tryResolveFromProjectRoot(source)) return;
+  const resolved = await ctx.resolve(source, importer, { skipSelf: true });
+  if (!resolved || resolved.external) return;
+  const id = resolved.id.split('?')[0];
+  if (id.startsWith('\0') || !path.isAbsolute(id) || isNodeModulePath(id) || !existsSync(id)) {
+    return;
+  }
+  shareConfig.import = id;
 }
 
 function isBuildConfigImporter(importer: string | undefined): boolean {
@@ -570,6 +608,7 @@ export function proxySharedModule(options: {
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {
           materializedLoadShareSources.add(shareSource);
+          await adoptResolvedLocalSharedImport(this, source, importer, key, shared[key]);
           writeLoadShareModule(shareSource, shared[key], _command, useRolldown, federationOptions);
           if (shared[key].shareConfig.import !== false) {
             writePreBuildLibPath(shareSource, shared[key], federationOptions);
