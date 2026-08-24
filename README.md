@@ -135,6 +135,22 @@ export default defineConfig({
 In this remote app configuration, we define a remoteEntry.js file that will expose the App component.
 The shared property ensures that both host and remote applications use the same vue library.
 
+### Host-only shared dependencies
+
+Use `import: false` when a dependency must be provided by the host and should not be bundled as a local fallback. If it is intentionally not installed locally, the named-export detection warning can be suppressed:
+
+```ts
+shared: {
+  "@pos-dashboard/host": {
+    singleton: true,
+    import: false,
+    suppressMissingImportWarning: true,
+  },
+},
+```
+
+`suppressMissingImportWarning` defaults to `false`. Enable it only when the host is guaranteed to provide the dependency and local named-export detection is unnecessary.
+
 ## The Host Application configuration
 
 file **host/vite.config.ts**
