@@ -2691,7 +2691,7 @@ describe('virtualRemoteEntry', () => {
     );
   });
 
-  it('refreshes the host cache from the runtime-selected version-first share in builds', async () => {
+  it('refreshes external shares while preserving the host-owned cache in builds', async () => {
     const mod = await import('../virtualRemoteEntry');
 
     mod.getUsedShares().clear();
@@ -2700,7 +2700,9 @@ describe('virtualRemoteEntry', () => {
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
     expect(code).toContain('const __mfGetSharedCacheDescriptor =');
-    expect(code).toContain('await runtime.loadShare(pkg, {');
+    expect(code).toContain(
+      '__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) === "host"'
+    );
     expect(code).not.toContain(
       '__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined'
     );
