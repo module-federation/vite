@@ -2965,6 +2965,61 @@ describe('writeLoadShareModule', () => {
     );
   });
 
+  it('warns once when rewriting a missing import: false dependency', () => {
+    const pkg = 'host-only-dep';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    expect(mfWarnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns by default for a missing import: false dependency', () => {
+    const options = normalizeModuleFederationOptions({
+      name: 'default-warning',
+      shared: {
+        'host-only-dep': {
+          import: false,
+          singleton: true,
+        },
+      },
+    });
+
+    writeLoadShareModule('host-only-dep', options.shared['host-only-dep'], 'serve', false, options);
+
+    expect(options.shared['host-only-dep'].shareConfig.suppressMissingImportWarning).toBeFalsy();
+    expect(mfWarnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('suppresses missing import: false dependency warnings when configured', () => {
+    const options = normalizeModuleFederationOptions({
+      name: 'suppressed-warning',
+      shared: {
+        'host-only-dep': {
+          import: false,
+          singleton: true,
+          suppressMissingImportWarning: true,
+        },
+      },
+    });
+
+    writeLoadShareModule('host-only-dep', options.shared['host-only-dep'], 'serve', false, options);
+
+    expect(mfWarnSpy).not.toHaveBeenCalled();
+  });
+
   it('auto-detects workspace package entry when the shared dep is not directly resolvable', () => {
     const pkg = 'transitive-pkg';
     const mockShareItem: ShareItem = {
