@@ -1714,7 +1714,6 @@ export function generateRemoteEntry(
       expectedSelection
     ) => {
       try {
-        if (__mfGetPendingExternalSharedProvider(pkg, usedShare)) return;
         const usedCacheDescriptor = __mfGetSharedCacheDescriptor(pkg, usedShare.shareConfig?.singleton, usedShare.version, usedShare.scope);
         const cachedShare = __mfReadSharedCache(__mfModuleCache.share, usedCacheDescriptor);
         const cachedShareOwner = __mfReadSharedCacheOwner(__mfModuleCache.share, usedCacheDescriptor);
@@ -1765,12 +1764,6 @@ export function generateRemoteEntry(
           providerEntry.registered &&
           !scopeRootProvider &&
           !__mfMatchesSharedProvider(liveProvider, provider)
-        ) return;
-        if (
-          !selectedLocalProvider &&
-          isWebpackProvider(provider) &&
-          !provider.lib &&
-          !provider.loaded
         ) return;
         const loadedShare = await __mfLoadPinnedRuntimeShare(
           pkg,
@@ -2094,11 +2087,13 @@ export function generateHostAutoInitCode(
               // a generic full-module key here.
               if (share.treeShaking) return;
               const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
-              if (
+              ${
+                _command === 'serve'
+                  ? `if (
                 __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined &&
                 __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined
-              ) {
-                return;
+              ) return;`
+                  : ''
               }
               await runtime.loadShare(pkg, {
                 customShareInfo: { shareConfig: share.shareConfig }

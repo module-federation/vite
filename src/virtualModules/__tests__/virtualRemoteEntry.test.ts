@@ -2691,7 +2691,26 @@ describe('virtualRemoteEntry', () => {
     );
   });
 
-  it('emits shared cache compatibility helpers for host auto init preloads', async () => {
+  it('refreshes the host cache from the runtime-selected version-first share in builds', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+
+    expect(code).toContain('const __mfGetSharedCacheDescriptor =');
+    expect(code).toContain('await runtime.loadShare(pkg, {');
+    expect(code).not.toContain(
+      '__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined'
+    );
+    expect(code).toMatch(
+      /__mfWriteSharedCache\(\s*__mfModuleCache\.share,\s*cacheDescriptor,\s*resolved,\s*"host"\s*\)/
+    );
+    expect(code).not.toContain('__mfModuleCache.share[cacheKey]');
+  });
+
+  it('preserves an owned host share cache during dev', async () => {
     const mod = await import('../virtualRemoteEntry');
 
     mod.getUsedShares().clear();
@@ -2699,15 +2718,9 @@ describe('virtualRemoteEntry', () => {
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
-    expect(code).toContain('const __mfGetSharedCacheDescriptor =');
-    expect(code).toContain('__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor)');
     expect(code).toContain(
       '__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined'
     );
-    expect(code).toMatch(
-      /__mfWriteSharedCache\(\s*__mfModuleCache\.share,\s*cacheDescriptor,\s*resolved,\s*"host"\s*\)/
-    );
-    expect(code).not.toContain('__mfModuleCache.share[cacheKey]');
   });
 
   it('bridges materialized shares without losing singleton cache semantics', async () => {
@@ -3037,7 +3050,7 @@ describe('virtualRemoteEntry', () => {
     ).toBeUndefined();
   });
 
-  it('defers only unresolved Webpack providers during remote init', async () => {
+  it('loads unresolved Webpack providers through the pinned runtime path', async () => {
     normalizedSharedMock.mockReturnValue({
       'react-dom': {
         name: 'react-dom',
@@ -3090,16 +3103,17 @@ describe('virtualRemoteEntry', () => {
     );
     const externalProviderGuard =
       'isWebpackProvider(provider) &&\n          !provider.lib &&\n          !provider.loaded';
-    expect(externalBridgeCode).toContain(externalProviderGuard);
+    expect(externalBridgeCode).not.toContain(externalProviderGuard);
+    expect(externalBridgeCode).not.toContain(
+      'if (__mfGetPendingExternalSharedProvider(pkg, usedShare)) return;'
+    );
     expect(code).toContain(
       "const pendingExternalProvider = typeof __mfGetPendingExternalSharedProvider === 'function'"
     );
     expect(code).toContain(
       'if (__mfGetPendingExternalSharedProvider(pkg, share, initialShared[pkg])) return;'
     );
-    expect(externalBridgeCode.indexOf(externalProviderGuard)).toBeLessThan(
-      externalBridgeCode.indexOf('const loadedShare = await __mfLoadPinnedRuntimeShare(')
-    );
+    expect(externalBridgeCode).toContain('const loadedShare = await __mfLoadPinnedRuntimeShare(');
 
     const detectorStart = code.indexOf('function isWebpackProvider(provider) {');
     const detectorEnd = code.indexOf('const __mfUsesWebpackShareScope', detectorStart);
