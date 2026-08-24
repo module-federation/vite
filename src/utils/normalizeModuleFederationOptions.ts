@@ -142,6 +142,7 @@ export interface ShareItem {
   shareConfig: SharedConfig &
     moduleFederationPlugin.SharedConfig & {
       treeShaking?: TreeShakingConfig;
+      suppressMissingImportWarning?: boolean;
     };
 }
 
@@ -204,6 +205,7 @@ function normalizeShareItem(
         eager?: boolean;
         requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
         strictVersion?: boolean;
+        suppressMissingImportWarning?: boolean;
         treeShaking?: TreeShakingConfig;
       }
 ): ShareItem {
@@ -280,6 +282,7 @@ function normalizeShareItem(
               ? `^${version}`
               : '*',
       strictVersion: !!shareItem.strictVersion,
+      ...(shareItem.suppressMissingImportWarning ? { suppressMissingImportWarning: true } : {}),
       ...(treeShaking ? { treeShaking: { ...treeShaking } } : {}),
     },
   };
@@ -306,6 +309,8 @@ function normalizeShared(
             eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
+            /** Suppress the missing local dependency warning for `import: false` shares. */
+            suppressMissingImportWarning?: boolean;
             treeShaking?: TreeShakingConfig;
           }
       >
@@ -438,6 +443,8 @@ export type ModuleFederationOptions = {
             eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
+            /** Suppress the missing local dependency warning for `import: false` shares. */
+            suppressMissingImportWarning?: boolean;
             treeShaking?: TreeShakingConfig;
             import?: moduleFederationPlugin.SharedConfig['import'];
           }

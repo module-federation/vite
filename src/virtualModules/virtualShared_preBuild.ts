@@ -1911,7 +1911,11 @@ export function writeLoadShareModule(
       );
     } else {
       const { warnedMissingImportFalse } = getSharedVirtualModuleState(resolvedOptions);
-      if (detectedNamedExports === undefined && !warnedMissingImportFalse.has(pkg)) {
+      if (
+        detectedNamedExports === undefined &&
+        !shareItem.shareConfig.suppressMissingImportWarning &&
+        !warnedMissingImportFalse.has(pkg)
+      ) {
         warnedMissingImportFalse.add(pkg);
         mfWarn(
           `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
