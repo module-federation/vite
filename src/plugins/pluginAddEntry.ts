@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { normalizePathForImport, rebaseImport } from '../utils/buildPaths';
+import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
 import {
@@ -51,16 +52,73 @@ interface AddEntryOptions {
   federationOptions?: NormalizedModuleFederationOptions;
 }
 
+// Tree-shaken shares deliberately keep their complete provider as a lazy
+// fallback. Preloading every virtual MF chunk would fetch that fallback
+// before runtime provider selection has a chance to choose the optimized
+// provider — so `__prebuild__` chunks are always excluded.
+// Virtual MF chunk file names vary in their underscore prefix depending on
+// how the bundler sanitizes the virtual id (`_virtual_mf…`, `virtual_mf…`,
+// `__virtual_mf…`), so match by substring.
+const isPreloadableVirtualMfChunk = (name: string) =>
+  name.includes('virtual_mf') && !name.includes('__prebuild__');
+
 const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
   (name) => name === 'hostInit',
   (name) => name === 'remoteEntry',
-  // Tree-shaken shares deliberately keep their complete provider as a lazy
-  // fallback. Preloading every virtual MF chunk would fetch that fallback
-  // before runtime provider selection has a chance to choose the optimized
-  // provider.
-  (name) => name.startsWith('_virtual_mf') && !name.includes('__prebuild__'),
+  (name) => name === 'virtualExposes',
+  isPreloadableVirtualMfChunk,
   (name) => name === 'index',
 ];
+
+// Chunks the generated remote entry warms for its consumers as soon as it
+// evaluates: everything its own container init/get path needs. Deliberately
+// narrower than HOST_INIT_PRELOAD_CHUNKS — no 'index' (that can be the
+// remote's standalone app entry), no exposes payloads (speculative for hosts
+// that use only some exposes), and no loadShare wrappers (their static
+// imports are full share payloads that stay unloaded whenever the consumer
+// provides the share, e.g. singletons).
+const isRemoteWarmupExcluded = (name: string) =>
+  name.includes('__prebuild__') || name.includes('__loadShare__');
+const REMOTE_ENTRY_WARMUP_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
+  (name) => name === 'hostInit',
+  (name) => name === 'virtualExposes',
+  (name) => isPreloadableVirtualMfChunk(name) && !isRemoteWarmupExcluded(name),
+];
+
+function getChunksByFileName(bundle: Rollup.OutputBundle) {
+  return new Map(
+    Object.values(bundle)
+      .filter((chunk) => chunk.type === 'chunk')
+      .map((chunk) => [chunk.fileName, chunk as Rollup.OutputChunk])
+  );
+}
+
+// Breadth-first over the seed chunks plus their transitive static imports:
+// modulepreload fetches only the named file, not its imports, so each
+// static-import level of a preloaded chunk otherwise costs one serial round
+// trip at init time.
+function collectPreloadChunkFiles(
+  chunksByFileName: Map<string, Rollup.OutputChunk>,
+  seeds: Rollup.OutputChunk[],
+  excludeFromClosure: (name: string) => boolean = (name) => name.includes('__prebuild__')
+): string[] {
+  const seenFiles = new Set<string>();
+  const files: string[] = [];
+  const queue = [...seeds];
+  while (queue.length > 0) {
+    const chunk = queue.shift()!;
+    if (seenFiles.has(chunk.fileName)) continue;
+    seenFiles.add(chunk.fileName);
+    for (const imported of chunk.imports ?? []) {
+      const importedChunk = chunksByFileName.get(imported);
+      if (importedChunk && !excludeFromClosure(importedChunk.name)) {
+        queue.push(importedChunk);
+      }
+    }
+    files.push(chunk.fileName);
+  }
+  return files;
+}
 
 function escapeHtmlAttr(value: string) {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -73,18 +131,22 @@ function getExistingHrefSet(html: string) {
 function injectHostInitPreloads(
   html: string,
   bundle: Rollup.OutputBundle,
-  resolvePath: (fileName: string) => string
+  resolvePath: (fileName: string) => string,
+  externalHrefs: string[] = []
 ) {
   const existingHrefs = getExistingHrefSet(html);
-  const seenFiles = new Set<string>();
   const hrefs: string[] = [];
-
-  for (const chunk of Object.values(bundle)) {
-    if (chunk.type !== 'chunk') continue;
-    if (!HOST_INIT_PRELOAD_CHUNKS.some((match) => match(chunk.name))) continue;
-    if (seenFiles.has(chunk.fileName)) continue;
-    seenFiles.add(chunk.fileName);
-    const href = resolvePath(chunk.fileName);
+  for (const href of externalHrefs) {
+    if (existingHrefs.has(href)) continue;
+    existingHrefs.add(href);
+    hrefs.push(href);
+  }
+  const chunksByFileName = getChunksByFileName(bundle);
+  const seeds = Array.from(chunksByFileName.values()).filter((chunk) =>
+    HOST_INIT_PRELOAD_CHUNKS.some((match) => match(chunk.name))
+  );
+  for (const fileName of collectPreloadChunkFiles(chunksByFileName, seeds)) {
+    const href = resolvePath(fileName);
     if (existingHrefs.has(href)) continue;
     existingHrefs.add(href);
     hrefs.push(href);
@@ -96,6 +158,57 @@ function injectHostInitPreloads(
     .map((href) => `<link rel="modulepreload" crossorigin href="${escapeHtmlAttr(href)}">`)
     .join('');
   return html.includes('</head>') ? html.replace('</head>', `${tags}</head>`) : `${tags}${html}`;
+}
+
+// A consumer discovers the remote entry's init/get chunk URLs one dynamic
+// import at a time — and, being cross-origin, it cannot preload them itself.
+// The remote's own build knows every hash, so the generated entry injects
+// modulepreload links for its init-critical chunks as soon as it evaluates.
+// Link-only: nothing is executed early, so load semantics are unchanged.
+function appendRemoteEntryWarmup(bundle: Rollup.OutputBundle, entryFileName: string) {
+  const chunksByFileName = getChunksByFileName(bundle);
+  const entryChunk = chunksByFileName.get(entryFileName);
+  if (!entryChunk || entryChunk.code.includes('__mfWarmupPath')) return;
+  // Only chunks reachable from THIS entry: with several federation configs in
+  // one build the bundle holds each config's hostInit/virtualExposes chunks,
+  // and a bundle-wide name match would warm the other configs' files too.
+  const reachable = new Set<string>();
+  const walk = [entryChunk];
+  while (walk.length > 0) {
+    const chunk = walk.pop()!;
+    if (reachable.has(chunk.fileName)) continue;
+    reachable.add(chunk.fileName);
+    for (const imported of [...(chunk.imports ?? []), ...(chunk.dynamicImports ?? [])]) {
+      const importedChunk = chunksByFileName.get(imported);
+      if (importedChunk) walk.push(importedChunk);
+    }
+  }
+  const seeds = Array.from(reachable)
+    .map((file) => chunksByFileName.get(file)!)
+    .filter(
+      (chunk) =>
+        chunk.fileName !== entryFileName &&
+        REMOTE_ENTRY_WARMUP_CHUNKS.some((match) => match(chunk.name))
+    );
+  const lastSlash = entryFileName.lastIndexOf('/');
+  const entryDir = lastSlash !== -1 ? entryFileName.slice(0, lastSlash + 1) : '';
+  const files = collectPreloadChunkFiles(chunksByFileName, seeds, isRemoteWarmupExcluded)
+    .filter((file) => file !== entryFileName)
+    .map((file) => rebaseImport(file, entryDir));
+  if (files.length === 0) return;
+  entryChunk.code += `
+if (typeof document !== 'undefined' && document.head) {
+  try {
+    for (const __mfWarmupPath of ${JSON.stringify(files)}) {
+      const __mfWarmupLink = document.createElement('link');
+      __mfWarmupLink.rel = 'modulepreload';
+      __mfWarmupLink.crossOrigin = '';
+      __mfWarmupLink.href = new URL(__mfWarmupPath, import.meta.url).href;
+      document.head.appendChild(__mfWarmupLink);
+    }
+  } catch (__mfWarmupError) {}
+}
+`;
 }
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
@@ -278,6 +391,43 @@ const __mfCurrentScript = document.currentScript;
     return patched;
   }
 
+  // Absolute module-type remote entry URLs that are safe to warm before host
+  // init runs. Used both by the bootstrap's runtime prefetch and as HTML
+  // modulepreload hints, so the fetch starts at HTML parse time instead of
+  // after the bootstrap script downloads and evaluates.
+  function getRemoteEntryPreloadUrls(): string[] {
+    const normalizedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
+    const isLoadedFirstClientBuild =
+      (_command === 'build' || viteConfig?.command === 'build') &&
+      waitsForInit &&
+      !viteConfig?.build?.ssr &&
+      normalizedOptions.shareStrategy === 'loaded-first';
+    if (normalizedOptions.shareStrategy === 'loaded-first' && !isLoadedFirstClientBuild) return [];
+    const remoteSources = isLoadedFirstClientBuild
+      ? Array.from(getStaticRemotes(normalizedOptions))
+      : Object.entries(getUsedRemotesMap(federationOptions))
+          .flatMap(([, remotes]) => Array.from(remotes))
+          .filter(
+            (remote) => !federationOptions || !isDynamicOnlyRemote(remote, federationOptions)
+          );
+    return Array.from(
+      new Set(
+        remoteSources.flatMap((remote) => {
+          const registration = getRemoteRegistration(
+            remote,
+            normalizedOptions.remotes,
+            federationOptions
+          );
+          return registration &&
+            (registration.type === 'module' || registration.type === 'esm') &&
+            /^(?:https?:)?\/\//.test(registration.entry)
+            ? [registration.entry]
+            : [];
+        })
+      )
+    );
+  }
+
   function getBootstrapSource(
     initSrc: string,
     entrySrc: string,
@@ -355,24 +505,7 @@ const __mfCurrentScript = document.currentScript;
     // entries otherwise queue behind every shared chunk (staircase waterfall).
     // Warm the module-type entry URLs up front: the browser dedupes the
     // later loadRemote() import of the same URL against the in-flight request.
-    const remoteEntryPrefetchUrls = shouldPreloadRemotes
-      ? Array.from(
-          new Set(
-            remoteSources.flatMap((remote) => {
-              const registration = getRemoteRegistration(
-                remote,
-                normalizedOptions.remotes,
-                federationOptions
-              );
-              return registration &&
-                (registration.type === 'module' || registration.type === 'esm') &&
-                /^(?:https?:)?\/\//.test(registration.entry)
-                ? [registration.entry]
-                : [];
-            })
-          )
-        )
-      : [];
+    const remoteEntryPrefetchUrls = shouldPreloadRemotes ? getRemoteEntryPreloadUrls() : [];
     const remoteEntryPrefetchBlock =
       remoteEntryPrefetchUrls.length > 0
         ? `const __mfRemoteEntryPrefetchUrls = ${JSON.stringify(remoteEntryPrefetchUrls)};
@@ -809,6 +942,23 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
       },
       generateBundle(_options, bundle) {
         if (skipSvelteKitSsrBuild()) return;
+        if (
+          entryName === 'remoteEntry' &&
+          emitFileId &&
+          fileName &&
+          !viteConfig?.build?.ssr &&
+          (_options as { format?: string })?.format === 'es' &&
+          viteConfig?.build?.modulePreload !== false
+        ) {
+          // Not this.getFileName(emitFileId): with several federation configs
+          // in one build, rolldown dedupes the emitted-chunk refs (all named
+          // 'remoteEntry') and every instance would resolve to the last
+          // config's file. The configured filename identifies this instance.
+          const remoteEntryFile = findRemoteEntryFile(fileName, bundle);
+          if (remoteEntryFile) {
+            appendRemoteEntryWarmup(bundle, remoteEntryFile);
+          }
+        }
         if (!injectHtml()) return;
         if (!emitFileId) return;
         const htmlFileNames = Object.keys(bundle).filter((fileName) => fileName.endsWith('.html'));
@@ -916,8 +1066,11 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             }
           }
           if (waitsForInit && viteConfig.build.modulePreload !== false) {
-            htmlContent = injectHostInitPreloads(htmlContent, bundle, (builtFileName) =>
-              resolvePath(builtFileName, fileName)
+            htmlContent = injectHostInitPreloads(
+              htmlContent,
+              bundle,
+              (builtFileName) => resolvePath(builtFileName, fileName),
+              getRemoteEntryPreloadUrls()
             );
           }
           htmlAsset.source = htmlContent;
