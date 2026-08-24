@@ -1122,6 +1122,7 @@ interface SharedVirtualModuleState {
   treeShakingProviderCacheMap: Record<string, VirtualModule>;
   materializedTreeShakingProviders: Set<string>;
   loadShareCacheMap: Record<string, VirtualModule>;
+  warnedMissingImportFalse: Set<string>;
   ownerKey?: string;
 }
 
@@ -1131,6 +1132,7 @@ const legacySharedVirtualModuleState: SharedVirtualModuleState = {
   treeShakingProviderCacheMap: {},
   materializedTreeShakingProviders: new Set(),
   loadShareCacheMap: {},
+  warnedMissingImportFalse: new Set(),
 };
 const sharedVirtualModuleStates = new WeakMap<
   NormalizedModuleFederationOptions,
@@ -1155,6 +1157,7 @@ function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions
       treeShakingProviderCacheMap: {},
       materializedTreeShakingProviders: new Set(),
       loadShareCacheMap: {},
+      warnedMissingImportFalse: new Set(),
       ownerKey: `${options.internalName}${MF_OWNER_INFIX}${nextSharedVirtualModuleOwnerId++}`,
     };
     sharedVirtualModuleStates.set(options, state);
@@ -1907,7 +1910,9 @@ export function writeLoadShareModule(
         treeShakingConsumer
       );
     } else {
-      if (detectedNamedExports === undefined) {
+      const { warnedMissingImportFalse } = getSharedVirtualModuleState(resolvedOptions);
+      if (detectedNamedExports === undefined && !warnedMissingImportFalse.has(pkg)) {
+        warnedMissingImportFalse.add(pkg);
         mfWarn(
           `Shared dependency "${pkg}" has import: false but is not installed locally.\n` +
             `  Named imports (e.g. import { ... } from '${pkg}') will not work in production builds.\n` +

@@ -2965,6 +2965,27 @@ describe('writeLoadShareModule', () => {
     );
   });
 
+  it('warns once when rewriting a missing import: false dependency', () => {
+    const pkg = 'host-only-dep';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+    writeLoadShareModule(pkg, mockShareItem, 'serve', false);
+
+    expect(mfWarnSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('auto-detects workspace package entry when the shared dep is not directly resolvable', () => {
     const pkg = 'transitive-pkg';
     const mockShareItem: ShareItem = {
