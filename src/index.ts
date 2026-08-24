@@ -1172,13 +1172,19 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         ) {
           return;
         }
-        if (
-          command !== 'build' &&
-          id.includes(LOAD_SHARE_TAG) &&
-          refreshLoadShareModuleForEnvironment(id, this as LoadHookContext, loadOptions) ===
+        if (command !== 'build' && id.includes(LOAD_SHARE_TAG)) {
+          id =
+            findCurrentLoadShareForStaleOwnerId(
+              id,
+              options.shared,
+              findSharedKey,
+              options
+            )?.getResolvedId() ?? id;
+          if (
+            refreshLoadShareModuleForEnvironment(id, this as LoadHookContext, loadOptions) ===
             'not-owned'
-        ) {
-          return;
+          )
+            return;
         }
         if (
           id.includes(PREBUILD_TAG) &&
