@@ -381,6 +381,38 @@ describe('virtual module resolution', () => {
       resolverMock.mockImplementation(originalImplementation!);
     }
   });
+
+  it('loads the current loadShare module for a stale owner id', () => {
+    const plugins = federation({
+      name: 'stale-load-host',
+      shared: { react: { import: false } },
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-early-init'
+    )!;
+    const virtualModulesPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-virtual-modules'
+    )!;
+    const options = (
+      plugins.find((plugin) => plugin.name === 'module-federation-vite') as Plugin & {
+        _options: NormalizedModuleFederationOptions;
+      }
+    )._options;
+
+    runConfig(
+      earlyInitPlugin,
+      { meta: {} } as ConfigPluginContext,
+      { root: process.cwd() },
+      { command: 'serve', mode: 'development' }
+    );
+    const currentId = getLoadShareModulePath('react', false, options);
+    const staleId = currentId.replace(/__mf_owner__\d+/, '__mf_owner__999999');
+    const context = {} as Rollup.PluginContext;
+
+    expect(callHook(virtualModulesPlugin.load, context, `\0${staleId}`)).toBe(
+      callHook(virtualModulesPlugin.load, context, `\0${currentId}`)
+    );
+  });
 });
 
 describe('module parse wiring', () => {
