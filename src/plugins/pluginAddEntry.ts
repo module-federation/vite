@@ -236,24 +236,35 @@ export function getBuildInput(config: any) {
   return config.build?.rollupOptions?.input ?? config.build?.rolldownOptions?.input;
 }
 
-function patchHashEntryFileName(output: any, entryName: string, fileName: string) {
-  const originalEntryFileNames = output.entryFileNames;
-  output.entryFileNames = (chunkInfo: { name?: string }, ...args: unknown[]) => {
-    if (chunkInfo?.name === entryName) return fileName;
-    if (typeof originalEntryFileNames === 'function') {
-      return originalEntryFileNames(chunkInfo, ...args);
-    }
-    return originalEntryFileNames || 'assets/[name]-[hash].js';
-  };
+function patchHashEntryFileName(
+  output: any,
+  entryName: string,
+  fileName: string,
+  defaultFileNames: string
+) {
+  for (const option of ['entryFileNames', 'chunkFileNames']) {
+    const originalFileNames = output[option];
+    output[option] = (chunkInfo: { name?: string }, ...args: unknown[]) => {
+      if (chunkInfo?.name === entryName) return fileName;
+      if (typeof originalFileNames === 'function') {
+        return originalFileNames(chunkInfo, ...args);
+      }
+      return originalFileNames || defaultFileNames;
+    };
+  }
 }
 
 function patchHashEntryFileNames(config: any, entryName: string, fileName?: string) {
   if (!fileName?.includes?.('[hash')) return;
+  fileName = fileName.replace(/(\[hash(?::\d+)?\])$/, '$1.js');
   config.build ??= {};
   config.build.rollupOptions ??= {};
   config.build.rolldownOptions ??= {};
+  const assetsDir = config.build.assetsDir ?? 'assets';
+  const defaultFileNames = `${assetsDir ? `${assetsDir}/` : ''}[name]-[hash].js`;
 
-  const patchOutput = (output: any) => patchHashEntryFileName(output, entryName, fileName);
+  const patchOutput = (output: any) =>
+    patchHashEntryFileName(output, entryName, fileName, defaultFileNames);
   const patchBundlerOutput = (bundlerOptions: any) => {
     const output = bundlerOptions.output;
     if (Array.isArray(output)) {
@@ -265,6 +276,9 @@ function patchHashEntryFileNames(config: any, entryName: string, fileName?: stri
 
   patchBundlerOutput(config.build.rollupOptions);
   patchBundlerOutput(config.build.rolldownOptions);
+  Object.values(config.environments ?? {}).forEach((environment) =>
+    patchHashEntryFileNames(environment, entryName, fileName)
+  );
 }
 
 const addEntry = ({

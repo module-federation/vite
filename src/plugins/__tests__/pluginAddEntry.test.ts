@@ -233,6 +233,53 @@ describe('pluginAddEntry', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it('applies hash-pattern remote filenames to Rolldown chunks', () => {
+    const plugins = addEntry({
+      entryName: 'remoteEntry',
+      entryPath: 'virtual:mf-remote-entry',
+      fileName: 'remote-entry-[hash].js',
+    });
+    const config = {
+      environments: {
+        federation: {
+          build: {
+            assetsDir: 'static',
+            rolldownOptions: { input: './index.ts' },
+          },
+        },
+      },
+    } as any;
+
+    runConfig(plugins[1], {} as ConfigPluginContext, config, {
+      command: 'build',
+      mode: 'production',
+    });
+
+    const output = config.environments.federation.build.rolldownOptions
+      .output as Rollup.OutputOptions;
+    const chunkFileNames = output.chunkFileNames as Function;
+    expect(chunkFileNames({ name: 'remoteEntry' })).toBe('remote-entry-[hash].js');
+    expect(chunkFileNames({ name: 'other' })).toBe('static/[name]-[hash].js');
+  });
+
+  it('preserves the implicit js extension for hash-pattern filenames', () => {
+    const plugins = addEntry({
+      entryName: 'remoteEntry',
+      entryPath: 'virtual:mf-remote-entry',
+      fileName: 'remoteEntry-[hash]',
+    });
+    const config = {} as UserConfig;
+
+    runConfig(plugins[1], {} as ConfigPluginContext, config, {
+      command: 'build',
+      mode: 'production',
+    });
+
+    const output = config.build!.rolldownOptions!.output as Rollup.OutputOptions;
+    const chunkFileNames = output.chunkFileNames as Function;
+    expect(chunkFileNames({ name: 'remoteEntry' })).toBe('remoteEntry-[hash].js');
+  });
+
   it('serves html proxy imports with the configured base', () => {
     const [servePlugin] = addEntry({
       entryName: 'hostInit',
