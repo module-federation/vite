@@ -1795,6 +1795,123 @@ describe('pluginProxySharedModule_preBuild', () => {
     );
   });
 
+  it('waits for app-local shared materialization across concurrent resolutions', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const storeDir = mkdtempSync(path.join(tmpdir(), 'mf-app-store-'));
+    const storePath = path.join(storeDir, 'store.ts');
+    writeFileSync(storePath, 'export const state = {};\n');
+    existsSyncMock.mockImplementation((filePath: string) => filePath === storePath);
+    readFileSyncMock.mockImplementation((filePath: string) =>
+      filePath === storePath ? 'export const state = {};\n' : ''
+    );
+
+    const shared: NormalizedShared = {
+      'app/store': {
+        name: 'app/store',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '1.0.0', strictVersion: true },
+      },
+    };
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    let signalResolutionStarted!: () => void;
+    let releaseResolution!: () => void;
+    const resolutionStarted = new Promise<void>((resolve) => {
+      signalResolutionStarted = resolve;
+    });
+    const resolutionGate = new Promise<void>((resolve) => {
+      releaseResolution = resolve;
+    });
+    const resolve = async (id: string) => {
+      if (id === 'app/store') {
+        signalResolutionStarted();
+        await resolutionGate;
+        return { id: storePath };
+      }
+      return { id: `/resolved/${id}` };
+    };
+
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta(), resolve } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const firstResolution = callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve } as any,
+      'app/store',
+      '/project/src/first.ts',
+      { isEntry: false }
+    );
+    await resolutionStarted;
+    const secondResolution = callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve } as any,
+      'app/store',
+      '/project/src/second.ts',
+      { isEntry: false }
+    );
+    const secondState = await Promise.race([
+      Promise.resolve(secondResolution).then(() => 'resolved'),
+      new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 10)),
+    ]);
+
+    releaseResolution();
+    await Promise.all([firstResolution, secondResolution]);
+
+    expect(secondState).toBe('pending');
+    expect(shared['app/store'].shareConfig.import).toBe(storePath);
+  });
+
+  it('preserves query parameters in resolved app-local shared imports', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const storeDir = mkdtempSync(path.join(tmpdir(), 'mf-app-store-'));
+    const storePath = path.join(storeDir, 'store.ts');
+    const resolvedStoreId = `${storePath}?raw`;
+    writeFileSync(storePath, 'export const state = {};\n');
+    existsSyncMock.mockImplementation((filePath: string) => filePath === storePath);
+    readFileSyncMock.mockImplementation((filePath: string) =>
+      filePath === storePath ? 'export const state = {};\n' : ''
+    );
+
+    const shared: NormalizedShared = {
+      'app/store': {
+        name: 'app/store',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { singleton: true, requiredVersion: '1.0.0', strictVersion: true },
+      },
+    };
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const resolve = async (id: string) => ({
+      id: id === 'app/store' ? resolvedStoreId : `/resolved/${id}`,
+    });
+
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta(), resolve } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+    await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve } as any,
+      'app/store',
+      '/project/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect(shared['app/store'].shareConfig.import).toBe(resolvedStoreId);
+  });
+
   it('keeps installed packages untouched when adopting app-local shared keys', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
     getInstalledPackageEntryMock.mockImplementation((pkg: string) =>
