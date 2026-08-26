@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -2327,6 +2327,70 @@ describe('vite:module-federation-early-init', () => {
       path.join(REACT_EXAMPLE_ROOT, '..', 'shared-lib', 'src', 'index.tsx')
     );
     expect(config.optimizeDeps.entries).toContain('custom-entry.ts');
+  });
+
+  it('preserves optimizeDeps exclusion for linked shared source', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-linked-shared-'));
+    try {
+      const hostDir = path.join(root, 'packages', 'host');
+      const sharedDir = path.join(root, 'packages', 'shared');
+      const sharedSource = path.join(sharedDir, 'src', 'index.ts');
+      mkdirSync(path.join(hostDir, 'node_modules', '@fixture'), { recursive: true });
+      mkdirSync(path.dirname(sharedSource), { recursive: true });
+      writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+      writeFileSync(
+        path.join(sharedDir, 'package.json'),
+        JSON.stringify({
+          name: '@fixture/shared',
+          version: '1.0.0',
+          exports: {
+            '.': {
+              development: './src/index.ts',
+              browser: './dist/index.js',
+              import: './dist/index.js',
+            },
+          },
+        })
+      );
+      writeFileSync(sharedSource, 'export const marker = 1;\n');
+      symlinkSync(sharedDir, path.join(hostDir, 'node_modules', '@fixture', 'shared'), 'junction');
+
+      const plugin = (
+        federation({
+          name: 'host',
+          shared: {
+            '@fixture/shared': {
+              singleton: true,
+              version: '1.0.0',
+              import: sharedSource,
+            },
+          },
+        }) as Plugin[]
+      ).find((entry) => entry.name === 'vite:module-federation-early-init');
+      if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+      const config: any = {
+        root: hostDir,
+        optimizeDeps: { include: [], exclude: ['@fixture/shared'] },
+      };
+      runConfig(plugin, {} as ConfigPluginContext, config, {
+        command: 'serve',
+        mode: 'test',
+      });
+      const normalizeHook = getNormalizeOptimizeDepsPlugin().configResolved;
+      if (typeof normalizeHook !== 'function') {
+        throw new Error('normalizeOptimizeDeps configResolved hook not found');
+      }
+      normalizeHook.call({} as MinimalPluginContextWithoutEnvironment, config);
+
+      expect({
+        included: config.optimizeDeps.include.includes('@fixture/shared'),
+        excluded: config.optimizeDeps.exclude.includes('@fixture/shared'),
+        sourceEntry: config.optimizeDeps.entries?.includes(sharedSource) ?? false,
+      }).toEqual({ included: false, excluded: true, sourceEntry: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('does not create optimizer entries for missing exposes', () => {

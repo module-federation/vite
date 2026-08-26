@@ -409,6 +409,16 @@ function includeLinkedSharedEntries(
 
   for (const [packageName, share] of Object.entries(shared ?? {})) {
     if (share?.shareConfig?.import === false) continue;
+    const configuredImport = share?.shareConfig?.import;
+    if (typeof configuredImport === 'string') {
+      const entry = path.isAbsolute(configuredImport)
+        ? configuredImport
+        : path.resolve(projectRoot, configuredImport);
+      if (existsSync(entry) && !entry.replaceAll('\\', '/').includes('/node_modules/')) {
+        additions.add(entry);
+        continue;
+      }
+    }
     const installed = getInstalledPackageJson(packageName, { cwd: projectRoot });
     if (!installed || installed.dir.replaceAll('\\', '/').includes('/node_modules/')) continue;
     const entry = getInstalledPackageEntry(packageName, { cwd: projectRoot });
@@ -784,7 +794,7 @@ export default __mfShared.default ?? __mfShared;`,
             const shouldBypassOptimizeDep = isLitShare(key) || !canResolveSharedSubpath(key, root);
             if (optimizeDeps.include.includes(key)) {
               optimizeDeps.exclude = optimizeDeps.exclude.filter((dep) => dep !== key);
-            } else if (shouldBypassOptimizeDep) {
+            } else if (shouldBypassOptimizeDep || optimizeDeps.exclude.includes(key)) {
               optimizeDeps.exclude.push(key);
             } else {
               optimizeDeps.include.push(key);
