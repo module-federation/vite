@@ -74,17 +74,22 @@ export default function ({
     );
   }
 
-  function collectImportSources(code: string): string[] {
-    const sources = new Set<string>();
+  function collectImportSources(code: string): Array<{ source: string; dynamic: boolean }> {
+    const sources = new Map<string, boolean>();
     const importRe =
       /(?:^|[;\n\r])\s*import\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
 
     for (const match of code.matchAll(importRe)) {
       const source = match[1] || match[2];
-      if (source) sources.add(source);
+      if (source) {
+        const dynamic = !match[1];
+        sources.set(source, (sources.get(source) ?? true) && dynamic);
+      }
     }
 
-    return Array.from(sources).sort();
+    return Array.from(sources, ([source, dynamic]) => ({ source, dynamic })).sort((a, b) =>
+      a.source.localeCompare(b.source)
+    );
   }
 
   function shouldScanResolvedImport(id: string): boolean {
@@ -109,9 +114,9 @@ export default function ({
     }
 
     const dependencies = new Set<string>();
-    for (const source of collectImportSources(code)) {
+    for (const { source, dynamic } of collectImportSources(code)) {
       if (isRemoteImport(source)) {
-        dependencies.add(source);
+        if (!dynamic) dependencies.add(source);
         continue;
       }
 

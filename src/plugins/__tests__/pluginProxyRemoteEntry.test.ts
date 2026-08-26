@@ -106,6 +106,43 @@ describe('pluginProxyRemoteEntry', () => {
     expect(exposeResolveCalls).toBe(2);
   });
 
+  it('preflights static remote imports but leaves dynamic remote imports lazy', async () => {
+    const expose = resolve('integration/fixtures/nested-remote-transitive/mixed-imports.js');
+    const plugin = pluginProxyRemoteEntry({
+      options: getDefaultMockOptions({
+        exposes: { './widget': { import: expose } as any },
+        remotes: {
+          remoteA: {
+            name: 'remoteA',
+            entry: 'http://localhost:3001/remoteEntry.js',
+            type: 'module',
+          },
+          remoteB: {
+            name: 'remoteB',
+            entry: 'http://localhost:3002/remoteEntry.js',
+            type: 'module',
+          },
+        },
+      }),
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+    const context = {
+      resolve: async (source: string) => (source === expose ? { id: expose } : undefined),
+    } as any;
+
+    callHook(
+      plugin.config,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    const generated = await callHook(plugin.load, context, 'virtual:mf-exposes');
+
+    expect(generated).toContain('__loadRemote__remoteA_mf_1_shared_mf_1_helpers');
+    expect(generated).not.toContain('__loadRemote__remoteB_mf_1_heavy');
+  });
+
   it('uses an inlined data-URL origin for dev host init in SSR/module-runner contexts, protocol relative fallback origin otherwise', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const plugin = pluginProxyRemoteEntry({
