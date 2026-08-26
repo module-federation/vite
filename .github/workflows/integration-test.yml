@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 4
       matrix:
         bundler: ["vite@5", "vite@6", "vite@7", "vite@8"]
     steps:
