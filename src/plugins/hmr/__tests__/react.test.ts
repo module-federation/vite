@@ -59,6 +59,9 @@ describe('reactAdapter', () => {
     );
     expect(res.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', '*');
     expect(res.end).toHaveBeenCalledWith(expect.stringContaining('window.location.origin'));
+    expect(res.end).toHaveBeenCalledWith(
+      expect.stringContaining('export const getRefreshReg = __rt.getRefreshReg;')
+    );
   });
 
   it('serves the React refresh proxy under the configured base path', () => {
