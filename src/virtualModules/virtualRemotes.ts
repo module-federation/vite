@@ -485,7 +485,8 @@ export function generateRemotes(
 
   const realRemoteInit = `__mfRemotePending = __mfStartRemoteLoad().then(__mfAssignRemoteModule);`;
   const deferredClientInit = `exportModule = __mfCreateDeferredRemoteProxy();`;
-  const eagerLoadClientRemote = shouldEagerLoadClientRemoteInDev(command, enableSsrInit);
+  const eagerLoadClientRemote =
+    id === remoteRegistration?.alias || shouldEagerLoadClientRemoteInDev(command, enableSsrInit);
   const eagerClientInit = eagerLoadClientRemote ? getEagerDeferredClientInit() : deferredClientInit;
   const loadedFirstClientInit = eagerLoadClientRemote
     ? getEagerDeferredClientInit()

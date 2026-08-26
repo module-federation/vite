@@ -298,6 +298,17 @@ describe('generateRemotes', () => {
     );
   });
 
+  it('runs a loaded-first remote imported for side effects', async () => {
+    mockOptions.shareStrategy = 'loaded-first';
+    const runtime = {
+      registerRemotes: vi.fn(),
+      loadRemote: vi.fn(() => Promise.resolve({})),
+    };
+
+    runGeneratedRemoteModule(generateRemotes('remote', 'serve', false, 'client'), runtime);
+    await vi.waitFor(() => expect(runtime.loadRemote).toHaveBeenCalledWith('remote'));
+  });
+
   it('resolves the real remote on the server for loaded-first dev', () => {
     mockOptions.shareStrategy = 'loaded-first';
     const code = generateRemotes('remote/Button', 'serve');
