@@ -127,6 +127,13 @@ type CodeSplittingGroup = {
   priority?: number;
 };
 
+// Federation groups must always outrank user-provided codeSplitting groups so a
+// user group can never capture a runtimeInit/loadShare wrapper or the preload
+// helper (Rolldown assigns each module to the highest-priority matching group).
+// User group priorities are clamped below this value.
+const MF_GROUP_PRIORITY = 1_000_000;
+const USER_GROUP_MAX_PRIORITY = MF_GROUP_PRIORITY - 1;
+
 type ViteWatchOptions = NonNullable<NonNullable<UserConfig['server']>['watch']>;
 type ViteWatchConfig = ViteWatchOptions | boolean | null | undefined;
 
@@ -1414,49 +1421,46 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
 
         let warnedAboutCodeSplitting = false;
-        let warnedAboutCodeSplittingGroups = false;
         const ensureCodeSplitting = (output: MutableBundlerOutput) => {
-          if (output?.codeSplitting === false) {
-            delete output.codeSplitting;
-            if (warnedAboutCodeSplitting) return;
-            warnedAboutCodeSplitting = true;
-            mfWarn(
-              'Ignoring `output.codeSplitting = false` because module federation requires chunk splitting.'
-            );
-            return;
-          }
-
-          if (!output?.codeSplitting || typeof output.codeSplitting !== 'object') return;
-          if (!('groups' in output.codeSplitting)) return;
-
-          // Don't strip the groups we set ourselves in applyManualChunks — they
-          // isolate the loadShare/runtimeInit wrappers and the preload helper.
-          const groups = output.codeSplitting.groups;
-          if (
-            Array.isArray(groups) &&
-            groups.some(
-              (group) =>
-                typeof (group as Partial<CodeSplittingGroup>)?.name === 'function' &&
-                patchedManualChunks.has((group as { name: Function }).name)
-            )
-          ) {
-            return;
-          }
-
-          delete output.codeSplitting.groups;
-          if (Object.keys(output.codeSplitting).length === 0) {
-            delete output.codeSplitting;
-          }
-          if (warnedAboutCodeSplittingGroups) return;
-          warnedAboutCodeSplittingGroups = true;
+          if (output?.codeSplitting !== false) return;
+          delete output.codeSplitting;
+          if (warnedAboutCodeSplitting) return;
+          warnedAboutCodeSplitting = true;
           mfWarn(
-            'Ignoring `output.codeSplitting.groups` because it conflicts with module federation. ' +
-              'Grouping shared dependency init wrappers with their dependent modules can break runtime init order ' +
-              'and cause standalone remotes to fail before mount.'
+            'Ignoring `output.codeSplitting = false` because module federation requires chunk splitting.'
           );
         };
 
+        // Groups installed by applyManualChunks: the dynamic name() group (tracked
+        // in patchedManualChunks) and the preload-helper test group.
+        const isFederationGroup = (group: unknown): boolean => {
+          const candidate = group as Partial<CodeSplittingGroup> | undefined;
+          return (
+            (typeof candidate?.name === 'function' && patchedManualChunks.has(candidate.name)) ||
+            candidate?.name === PRELOAD_HELPER_CHUNK
+          );
+        };
+
+        let warnedAboutGroupPriority = false;
+        // Keep user groups, but clamp their priority below the federation groups so
+        // they can only claim modules the federation groups didn't.
+        const clampUserGroup = (group: unknown): unknown => {
+          const candidate = group as Partial<CodeSplittingGroup>;
+          if (typeof candidate?.priority !== 'number') return group;
+          if (candidate.priority <= USER_GROUP_MAX_PRIORITY) return group;
+          if (!warnedAboutGroupPriority) {
+            warnedAboutGroupPriority = true;
+            mfWarn(
+              `Clamping \`output.codeSplitting.groups\` priority to ${USER_GROUP_MAX_PRIORITY} — ` +
+                'module federation groups must keep the highest priority so shared dependency init ' +
+                'wrappers stay isolated in their own chunks.'
+            );
+          }
+          return { ...candidate, priority: USER_GROUP_MAX_PRIORITY };
+        };
+
         let warnedAboutManualChunks = false;
+        let warnedAboutObjectManualChunks = false;
         // `useCodeSplitting` selects the bundler-appropriate isolation mechanism:
         // Rolldown (Vite 8+) supports `codeSplitting` (and needs it to relocate the
         // injected preload helper), while Rollup (Vite 5–7) only understands
@@ -1466,15 +1470,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           const isPatchedByPlugin =
             typeof output.manualChunks === 'function' &&
             patchedManualChunks.has(output.manualChunks);
-          if (output.manualChunks && !isPatchedByPlugin && !warnedAboutManualChunks) {
-            warnedAboutManualChunks = true;
-            mfWarn(
-              'Ignoring `output.manualChunks` because it conflicts with module federation. ' +
-                'Module federation transforms shared dependency imports with async init wrappers, and grouping ' +
-                'these transformed modules into a single chunk creates circular async dependencies that cause ' +
-                'the application to silently hang.'
-            );
-          }
           const mfChunkName = function (id: string): string | null {
             // Keep runtimeInitStatus in its own chunk to break init deadlock
             if (id.includes(runtimeInitId) || id.includes('__mf_v__runtimeInit__mf_v__')) {
@@ -1492,10 +1487,31 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           if (!useCodeSplitting) {
             // Rollup (Vite 5–7): `codeSplitting` is rejected as an unknown output
             // option, so isolate runtimeInit, loadShare, and the preload helper with
-            // `manualChunks`.
-            const mfManualChunks = function (id: string) {
+            // `manualChunks`. A user-provided manualChunks function is composed in as
+            // a fallback: federation modules are claimed first, everything else falls
+            // through to the user's function.
+            if (isPatchedByPlugin) return;
+            const userManualChunks = output.manualChunks;
+            if (
+              userManualChunks &&
+              typeof userManualChunks !== 'function' &&
+              !warnedAboutObjectManualChunks
+            ) {
+              warnedAboutObjectManualChunks = true;
+              mfWarn(
+                'Ignoring the object form of `output.manualChunks` because module federation cannot ' +
+                  'safely compose with it. Use the function form instead: federation modules are claimed ' +
+                  'first and your function runs for everything else.'
+              );
+            }
+            const mfManualChunks = function (id: string, ...rest: unknown[]) {
               if (PRELOAD_HELPER_TEST.test(id)) return PRELOAD_HELPER_CHUNK;
-              return mfChunkName(id) ?? undefined;
+              const mfChunk = mfChunkName(id);
+              if (mfChunk) return mfChunk;
+              if (typeof userManualChunks === 'function') {
+                return userManualChunks(id, ...rest) ?? undefined;
+              }
+              return undefined;
             };
             patchedManualChunks.add(mfManualChunks);
             output.manualChunks = mfManualChunks;
@@ -1507,9 +1523,32 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           // a dynamic `name()` group reproduces the runtimeInit/loadShare isolation,
           // and a higher-priority `test` group pulls the preload helper into its own
           // chunk (the helper is only matched by `test`, never the `name()` fn).
-          const groups: CodeSplittingGroup[] = [
-            { name: PRELOAD_HELPER_CHUNK, test: PRELOAD_HELPER_TEST, priority: 100 },
-            { name: mfChunkName },
+          // User groups are kept, clamped below the federation priorities, so they
+          // can only claim modules the federation groups leave behind.
+          if (output.manualChunks && !isPatchedByPlugin && !warnedAboutManualChunks) {
+            warnedAboutManualChunks = true;
+            mfWarn(
+              'Ignoring `output.manualChunks` for the Rolldown build because module federation manages ' +
+                'chunking with `output.codeSplitting.groups`. Move your grouping there — user groups are ' +
+                'kept below the federation groups.'
+            );
+          }
+          const existingGroups = (
+            output.codeSplitting && typeof output.codeSplitting === 'object'
+              ? output.codeSplitting.groups
+              : undefined
+          ) as unknown[] | undefined;
+          const userGroups = Array.isArray(existingGroups)
+            ? existingGroups.filter((group) => !isFederationGroup(group)).map(clampUserGroup)
+            : [];
+          const groups = [
+            {
+              name: PRELOAD_HELPER_CHUNK,
+              test: PRELOAD_HELPER_TEST,
+              priority: MF_GROUP_PRIORITY + 1,
+            },
+            { name: mfChunkName, priority: MF_GROUP_PRIORITY },
+            ...userGroups,
           ];
           output.codeSplitting = { ...(output.codeSplitting || {}), groups };
           delete output.manualChunks;
