@@ -726,6 +726,15 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   )
                     return;
                   addUsedShares(args.path, options);
+                  if (args.kind === 'import-statement' || args.kind === 'dynamic-import') {
+                    const shareItem = shared[key];
+                    const loadSharePath = getLoadShareModulePath(args.path, isRolldown, options);
+                    writeLoadShareModule(args.path, shareItem, _command, isRolldown, options);
+                    if (shareItem.shareConfig?.import !== false) {
+                      writePreBuildLibPath(args.path, shareItem, options);
+                    }
+                    return { path: loadSharePath, external: true };
+                  }
                   return { path: args.path, namespace: 'mf-shared' };
                 });
                 build.onLoad({ filter: /.*/, namespace: 'mf-shared' }, (args: any) => {
