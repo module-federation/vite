@@ -362,7 +362,7 @@ Module Federation requires chunk splitting so `loadShare` and `runtimeInitStatus
 User groups are now **preserved**. The plugin installs its own federation groups at the highest priority and appends your groups below them, so your groups can only claim modules the federation groups didn't.
 
 - No warning is emitted just for keeping your groups.
-- If one of your groups sets a `priority` high enough to outrank the federation groups, it is **clamped** below them and the plugin warns once. This guarantees a user group can never capture a `runtimeInit`/`loadShare` wrapper or the preload helper.
+- If one of your existing groups sets a `priority` high enough to outrank the federation groups, it is **clamped** below them and the plugin warns once. This prevents those groups from capturing a `runtimeInit`/`loadShare` wrapper or the preload helper.
 
 ## ⚠️ `manualChunks` behavior depends on your Vite version
 
@@ -371,7 +371,7 @@ User groups are now **preserved**. The plugin installs its own federation groups
 | `manualChunks` (function) | **Composed as a fallback** — federation modules are claimed first, everything else falls through to your function | **Ignored** (warns) — move grouping to `codeSplitting.groups` |
 | `manualChunks` (object) | **Ignored** (warns) — use the function form to compose | **Ignored** (warns) — move grouping to `codeSplitting.groups` |
 
-On Vite 5–7, Rollup rejects `codeSplitting` as an unknown option, so the plugin isolates `runtimeInitStatus`, `loadShare`, and the preload helper via `manualChunks`. A user-provided **function** is called for any module the plugin doesn't claim; the **object** form can't be composed safely and is ignored.
+On Vite 5–7, Rollup doesn't support `codeSplitting`, so the plugin isolates `runtimeInitStatus`, `loadShare`, and the preload helper via `manualChunks`. A user-provided **function** is called for any module the plugin doesn't claim; the **object** form isn't composed by the plugin and is ignored.
 
 On Vite 8+, chunking is managed through `codeSplitting.groups` (see above), so `manualChunks` is removed — express your grouping as `codeSplitting.groups` instead, where user groups are preserved below the federation groups.
 
