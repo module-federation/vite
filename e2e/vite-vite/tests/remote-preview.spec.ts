@@ -7,6 +7,27 @@ test.describe('vite-vite remote preview', () => {
     await expect(heading).toBeVisible();
   });
 
+  test('keeps a user manualChunks chunk alongside federation chunks', async ({ page }) => {
+    // The remote runs Vite 7 (Rollup). Its user `manualChunks` function emits
+    // deployInfo as a stable-named chunk, composed behind the federation chunks
+    // the plugin claims first.
+    const scriptUrls: string[] = [];
+    page.on('response', (response) => {
+      if (response.request().resourceType() === 'script') {
+        scriptUrls.push(response.url());
+      }
+    });
+
+    await page.goto('/');
+    // Federation still starts: the app renders, including the isolated module.
+    await expect(page.getByTestId('remote-deploy-info')).toHaveText('remote-deploy-info');
+
+    // The user chunk is emitted and loaded with the app.
+    await expect
+      .poll(() => scriptUrls.some((url) => /user-remote-chunk/.test(url)))
+      .toBe(true);
+  });
+
   test('renders shared-lib component', async ({ page }) => {
     await page.goto('/');
     const counter = page.getByTestId('shared-counter-[shared-lib] Remote');

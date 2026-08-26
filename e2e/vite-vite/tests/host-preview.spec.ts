@@ -96,6 +96,32 @@ test.describe('vite-vite host preview', () => {
     expect(consoleLogs).toHaveLength(1);
   });
 
+  test('keeps a user codeSplitting.groups chunk alongside federation chunks', async ({
+    page,
+  }) => {
+    // The host runs Vite 8 (Rolldown). Its user `codeSplitting.groups` entry
+    // isolates PrimaryFederationMarker into a stable-named chunk. The plugin's
+    // federation groups keep the highest priority, so this only proves user
+    // groups survive alongside them.
+    const scriptUrls: string[] = [];
+    page.on('response', (response) => {
+      if (response.request().resourceType() === 'script') {
+        scriptUrls.push(response.url());
+      }
+    });
+
+    await page.goto('/');
+    // Federation still starts: the remote-backed marker renders.
+    await expect(page.getByTestId('primary-federation-marker')).toHaveText(
+      'primary federation instance'
+    );
+
+    // The user chunk is emitted and loaded on startup.
+    await expect
+      .poll(() => scriptUrls.some((url) => /user-host-chunk/.test(url)))
+      .toBe(true);
+  });
+
   test('isolates identical remote ids across two federation configs', async ({ page }) => {
     await page.goto('/');
 

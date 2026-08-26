@@ -109,5 +109,16 @@ export default defineConfig({
   ],
   build: {
     target: 'chrome89',
+    // This host runs on Vite 8 (Rolldown) so it exercises the
+    // `codeSplitting.groups` composition path. The plugin installs its
+    // federation groups at the highest priority and keeps this user group below
+    // them — it emits PrimaryFederationMarker as its own stable-named chunk.
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [{ name: 'user-host-chunk', test: /PrimaryFederationMarker/ }],
+        },
+      },
+    },
   },
 });

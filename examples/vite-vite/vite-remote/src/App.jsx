@@ -1,6 +1,7 @@
 import './App.css';
 import reactLogo from './assets/react.svg';
 import { Input } from 'antd';
+import { deployInfo } from './deployInfo';
 // import viteLogo from './assets/vite.svg';
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
                 </p>
                 <p>The remote statically imports only the Ant Design Input component.</p>
                 <Input placeholder="Remote Input" />
+                <p data-testid="remote-deploy-info">{deployInfo}</p>
             </div>
         </div>
     );
