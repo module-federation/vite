@@ -351,20 +351,29 @@ federation({
 `provideExternalRuntime` injects a local runtime plugin that publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`. `externalRuntime` rewrites imports of `@module-federation/runtime-core` to read that global. Using `provideExternalRuntime` together with `exposes` throws — only pure consumers may provide the runtime.
 The `externalRuntime` rewrite applies to the browser remote graph; SSR remote entries continue to resolve `@module-federation/runtime-core` from Node so they do not depend on the browser global.
 
-## ⚠️ `codeSplitting` settings are controlled by the plugin
+## ⚠️ `codeSplitting` is managed by the plugin
 
-Do not set either `build.rollupOptions.output.codeSplitting` or
-`build.rolldownOptions.output.codeSplitting` to `false` with this plugin — it will be **automatically ignored**.
+Do not set `build.rollupOptions.output.codeSplitting` or
+`build.rolldownOptions.output.codeSplitting` to `false` — it will be **ignored** (with a warning).
+Module Federation requires chunk splitting so `loadShare` and `runtimeInitStatus` stay isolated for correct bootstrap order.
 
-`codeSplitting.groups` is also ignored because grouping shared-runtime chunks can break MF init order.
-Module Federation needs `loadShare` and `runtimeInitStatus` isolated into separate chunks for correct bootstrap behavior.
+### `codeSplitting.groups` (Vite 8+ / Rolldown)
 
-## ⚠️ `manualChunks` is not supported
+User groups are now **preserved**. The plugin installs its own federation groups at the highest priority and appends your groups below them, so your groups can only claim modules the federation groups didn't.
 
-Do not use `build.rollupOptions.output.manualChunks` or
-`build.rolldownOptions.output.manualChunks` with this plugin — it will be **automatically ignored**.
-The plugin manages the runtime chunk graph itself, and forcing custom chunk grouping can break Module Federation bootstrap order.
-The plugin injects the splits it needs so `runtimeInitStatus` and `loadShare` stay isolated.
+- No warning is emitted just for keeping your groups.
+- If one of your groups sets a `priority` high enough to outrank the federation groups, it is **clamped** below them and the plugin warns once. This guarantees a user group can never capture a `runtimeInit`/`loadShare` wrapper or the preload helper.
+
+## ⚠️ `manualChunks` behavior depends on your Vite version
+
+| Setting | Vite 5–7 (Rollup) | Vite 8+ (Rolldown) |
+| --- | --- | --- |
+| `manualChunks` (function) | **Composed as a fallback** — federation modules are claimed first, everything else falls through to your function | **Ignored** (warns) — move grouping to `codeSplitting.groups` |
+| `manualChunks` (object) | **Ignored** (warns) — use the function form to compose | **Ignored** (warns) — move grouping to `codeSplitting.groups` |
+
+On Vite 5–7, Rollup rejects `codeSplitting` as an unknown option, so the plugin isolates `runtimeInitStatus`, `loadShare`, and the preload helper via `manualChunks`. A user-provided **function** is called for any module the plugin doesn't claim; the **object** form can't be composed safely and is ignored.
+
+On Vite 8+, chunking is managed through `codeSplitting.groups` (see above), so `manualChunks` is removed — express your grouping as `codeSplitting.groups` instead, where user groups are preserved below the federation groups.
 
 ### So far so good 🎉
 
