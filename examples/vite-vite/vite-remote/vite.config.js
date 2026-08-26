@@ -109,11 +109,18 @@ export default defineConfig({
   ].filter(Boolean),
   build: {
     target: 'chrome89',
-    rolldownOptions: {
+    // This remote runs on Vite 7 (Rollup) so it exercises the `manualChunks`
+    // composition path. The plugin claims federation modules first, then this
+    // function runs for everything else — here it emits deployInfo as its own
+    // stable-named chunk alongside the federation chunks.
+    rollupOptions: {
       output: {
         chunkFileNames: 'static/js/[name]-[hash].js',
         entryFileNames: 'static/js/[name]-[hash].js',
         assetFileNames: 'static/[ext]/[name]-[hash].[ext]',
+        manualChunks(id) {
+          if (id.includes('deployInfo')) return 'user-remote-chunk';
+        },
       },
     },
   },
