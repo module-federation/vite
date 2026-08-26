@@ -977,6 +977,49 @@ describe('module-federation-esm-shims', () => {
     expect(mfWarn).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a user group whose name collides with the preload-helper group', () => {
+    const plugin = getEsmShimsPlugin();
+    // A user group that shares the federation preload-helper group's name. It must
+    // be matched by object identity, not name, so it isn't silently dropped.
+    const userGroup = {
+      name: 'vite-preload-helper',
+      test: /custom-preload-marker/,
+      priority: 50,
+    };
+    const config: any = {
+      build: {
+        rolldownOptions: {
+          output: { codeSplitting: { groups: [userGroup] } },
+        },
+      },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+
+    const groups = config.build.rolldownOptions.output.codeSplitting.groups;
+    // The name collision no longer drops the user group.
+    const survivor = groups.find((g: any) => g.test?.source === 'custom-preload-marker');
+    expect(survivor).toEqual(userGroup);
+    // The plugin still installs its own preload-helper group; both same-named
+    // groups coexist because identity — not name — distinguishes them.
+    const federationHelper = groups.find(
+      (g: any) => g.name === 'vite-preload-helper' && g.test?.test('\0vite/preload-helper.js')
+    );
+    expect(federationHelper).toBeDefined();
+    expect(federationHelper).not.toBe(survivor);
+    expect(federationHelper.priority).toBeGreaterThan(survivor.priority);
+    expect(groups.filter((g: any) => g.name === 'vite-preload-helper')).toHaveLength(2);
+    // Keeping the user group is not a conflict — no warning.
+    expect(mfWarn).not.toHaveBeenCalled();
+
+    // Re-running config() drops the previous federation group (by identity) rather
+    // than mistaking it for a user group, so counts stay stable.
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+    const rerun = config.build.rolldownOptions.output.codeSplitting.groups;
+    expect(rerun.filter((g: any) => g.test?.source === 'custom-preload-marker')).toHaveLength(1);
+    expect(rerun.filter((g: any) => g.name === 'vite-preload-helper')).toHaveLength(2);
+  });
+
   it('composes user manualChunks behind federation chunks, keeps federation chunks isolated', () => {
     const plugin = getEsmShimsPlugin();
     const runtimeInitId = virtualRuntimeInitStatus.getImportId();

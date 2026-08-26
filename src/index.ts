@@ -108,6 +108,10 @@ import {
 } from './virtualModules/virtualShared_preBuild';
 
 const patchedManualChunks = new WeakSet<Function>();
+// Plugin-created codeSplitting groups, tracked by object identity so a user group
+// that happens to share a federation group's name (e.g. `vite-preload-helper`)
+// isn't mistaken for one of ours and dropped.
+const federationGroups = new WeakSet<object>();
 
 // Rolldown injects the `__vite_preload` helper as a special runtime module and,
 // left to automatic chunking, hoists it into whichever loadShare chunk first uses
@@ -1431,15 +1435,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           );
         };
 
-        // Groups installed by applyManualChunks: the dynamic name() group (tracked
-        // in patchedManualChunks) and the preload-helper test group.
-        const isFederationGroup = (group: unknown): boolean => {
-          const candidate = group as Partial<CodeSplittingGroup> | undefined;
-          return (
-            (typeof candidate?.name === 'function' && patchedManualChunks.has(candidate.name)) ||
-            candidate?.name === PRELOAD_HELPER_CHUNK
-          );
-        };
+        // Groups installed by applyManualChunks, matched by object identity (not
+        // name) so a user group named like a federation group isn't filtered out.
+        const isFederationGroup = (group: unknown): boolean =>
+          typeof group === 'object' && group !== null && federationGroups.has(group);
 
         let warnedAboutGroupPriority = false;
         // Keep user groups, but clamp their priority below the federation groups so
@@ -1541,15 +1540,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           const userGroups = Array.isArray(existingGroups)
             ? existingGroups.filter((group) => !isFederationGroup(group)).map(clampUserGroup)
             : [];
-          const groups = [
-            {
-              name: PRELOAD_HELPER_CHUNK,
-              test: PRELOAD_HELPER_TEST,
-              priority: MF_GROUP_PRIORITY + 1,
-            },
-            { name: mfChunkName, priority: MF_GROUP_PRIORITY },
-            ...userGroups,
-          ];
+          const mfPreloadGroup = {
+            name: PRELOAD_HELPER_CHUNK,
+            test: PRELOAD_HELPER_TEST,
+            priority: MF_GROUP_PRIORITY + 1,
+          };
+          const mfNameGroup = { name: mfChunkName, priority: MF_GROUP_PRIORITY };
+          federationGroups.add(mfPreloadGroup);
+          federationGroups.add(mfNameGroup);
+          const groups = [mfPreloadGroup, mfNameGroup, ...userGroups];
           output.codeSplitting = { ...(output.codeSplitting || {}), groups };
           delete output.manualChunks;
         };
