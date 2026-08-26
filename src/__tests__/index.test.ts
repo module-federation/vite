@@ -1669,6 +1669,18 @@ describe('vite:module-federation-early-init', () => {
     });
     expect(result.contents).toContain(JSON.stringify(loadSharePath));
     expect(result.contents).not.toContain(JSON.stringify(encodedLoadSharePath));
+    for (const kind of ['import-statement', 'dynamic-import']) {
+      expect(
+        onResolveHandlers[1]({
+          path: 'pkg-foo/a',
+          importer: '/repo/node_modules/pkg-b/index.js',
+          kind,
+        })
+      ).toEqual({
+        path: expect.stringContaining(LOAD_SHARE_TAG),
+        external: true,
+      });
+    }
   });
 
   it('does not proxy shared deps when esbuild resolves optimizeDeps entry points', () => {
@@ -1872,7 +1884,10 @@ describe('vite:module-federation-early-init', () => {
         importer: '/repo/node_modules/.vite/deps/pkg.js',
         kind: 'import-statement',
       })
-    ).toEqual({ path: '@ui-lib/button', namespace: 'mf-shared' });
+    ).toEqual({
+      path: expect.stringContaining(LOAD_SHARE_TAG),
+      external: true,
+    });
   });
 
   it('redirects System.register commonjs-proxy consumers to loadShare chunks', () => {
