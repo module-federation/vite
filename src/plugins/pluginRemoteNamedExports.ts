@@ -9,7 +9,8 @@
  *
  * This plugin rewrites consumer code:
  *   import { foo } from "remote/xxx"
- *     → import { __moduleExports as __mf_ns_0 } from "remote/xxx"; const { foo } = __mf_ns_0;
+ *     → import { __moduleExports as ns, __mf_remote_pending as pending } from "remote/xxx";
+ *       let foo; if ("foo" in ns) foo = ns.foo; pending.then(() => { foo = ns.foo });
  *
  *   import("remote/xxx")
  *     → import("remote/xxx").then(…)  // spreads __moduleExports into namespace
@@ -216,8 +217,17 @@ function applyRewrites(
 
           let rewrite = `import { ${importParts.join(', ')} } from ${src};`;
           if (imp.named.length > 0) {
-            const destructParts = imp.named.map((s) => `${s.imported}: ${s.local}`);
-            rewrite += `\nconst { ${destructParts.join(', ')} } = ${nsId};`;
+            const declarations = imp.named.map((s) => `let ${s.local};`).join('\n');
+            const initializers = imp.named
+              .map(
+                (s) =>
+                  `if (${JSON.stringify(s.imported)} in ${nsId}) {\n${s.local} = ${nsId}[${JSON.stringify(s.imported)}];\n}`
+              )
+              .join('\n');
+            const assignments = imp.named
+              .map((s) => `${s.local} = ${nsId}[${JSON.stringify(s.imported)}];`)
+              .join('\n');
+            rewrite += `\n${declarations}\n${initializers}\n${pendingId}.then(() => {\n${assignments}\n});`;
           }
 
           ms.overwrite(imp.start, imp.end, rewrite);
@@ -238,8 +248,12 @@ function applyRewrites(
         });
 
         const importLine = `import { __moduleExports as ${nsId}, __mf_remote_pending as ${pendingId} } from ${src};`;
-        const varLines = vars
-          .map((v) => `let ${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];`)
+        const varLines = vars.map((v) => `let ${v.tmp};`).join('\n');
+        const initializers = vars
+          .map(
+            (v) =>
+              `if (${JSON.stringify(v.local)} in ${nsId}) {\n${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];\n}`
+          )
           .join('\n');
         const assignLines = vars
           .map((v) => `${v.tmp} = ${nsId}[${JSON.stringify(v.local)}];`)
@@ -247,7 +261,11 @@ function applyRewrites(
         const syncLine = `${pendingId}.then(() => {\n${assignLines}\n});`;
         const exportLine = `export { ${vars.map((v) => `${v.tmp} as ${v.exported}`).join(', ')} };`;
 
-        ms.overwrite(imp.start, imp.end, `${importLine}\n${varLines}\n${syncLine}\n${exportLine}`);
+        ms.overwrite(
+          imp.start,
+          imp.end,
+          `${importLine}\n${varLines}\n${initializers}\n${syncLine}\n${exportLine}`
+        );
         changed = true;
         break;
       }

@@ -45,17 +45,19 @@ describe('remote dependency pending', () => {
 
     const allCode = getAllChunkCode(output);
 
-    expect(allCode).toMatch(/\b(?:const|var)\s+\{\s*View\s*\}\s*=\s*exportModule/);
+    expect(allCode).toMatch(/\b(?:let|var)\s+View\s*;/);
+    expect(allCode).toContain('if ("View" in exportModule)');
+    expect(allCode).toContain('__mf_remote_pending.then(() =>');
     expect(allCode).not.toContain('const pendingPrototype = {};');
     expect(allCode).toMatch(/__loadRemote__ckeditor5__mf_owner__\d+__loadRemote__/);
-    expect(allCode).toContain('const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;');
+    expect(allCode).toContain(
+      'const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;'
+    );
     expect(allCode).toContain('await dependencyPending;');
     expect(allCode).toMatch(
       /\b(?:const|var)\s+__mf_remote_dependency_pending\s*=\s*Promise\.all\(\[__mf_remote_pending\]\)/
     );
-    expect(allCode).not.toMatch(
-      /\b(?:const|var)\s+__mf_remote_dependency_pending\s*=\s*await\b/
-    );
+    expect(allCode).not.toMatch(/\b(?:const|var)\s+__mf_remote_dependency_pending\s*=\s*await\b/);
   });
 
   it('preloads nested remotes discovered through local transitive imports', async () => {
@@ -75,7 +77,8 @@ describe('remote dependency pending', () => {
     expect(allCode).toMatch(
       /await Promise\.all\(\[.*remoteA_mf_1_shared_mf_1_helpers__mf_owner__\d+__loadRemote__.*__mf_remote_pending/
     );
-    expect(allCode).toMatch(/\b(?:const|var)\s+\{\s*helper(?:\s*:\s*helper)?\s*\}\s*=/);
+    expect(allCode).toMatch(/\b(?:let|var)\s+helper\s*;/);
+    expect(allCode).toContain('if ("helper" in exportModule)');
     expect(allCode).toContain('Promise.all([__mf_remote_pending]);');
   });
 });

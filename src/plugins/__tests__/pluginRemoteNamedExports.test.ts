@@ -104,7 +104,10 @@ describe('pluginRemoteNamedExports', () => {
         'export const __mf_remote_dependency_pending = Promise.all([__mf_ns_0_pending]);'
       );
       expect(result).not.toContain('await ');
-      expect(result).toContain('const { foo: foo } = __mf_ns_0;');
+      expect(result).toContain('let foo;');
+      expect(result).toContain('if ("foo" in __mf_ns_0)');
+      expect(result).toContain('__mf_ns_0_pending.then(() =>');
+      expect(result).not.toContain('const { foo: foo } = __mf_ns_0;');
       expect(result).not.toContain('import { foo }');
     });
 
@@ -113,27 +116,27 @@ describe('pluginRemoteNamedExports', () => {
         ['import { View } from "remoteApp/utils";', 'class Foo extends View {}'].join('\n')
       );
 
-      expect(result).toContain('const { View: View } = __mf_ns_0;');
+      expect(result).toContain('let View;');
       expect(result).not.toContain('await ');
     });
 
     it('rewrites multiple named imports', async () => {
       const result = await transform('import { foo, bar, baz } from "remoteApp/utils";');
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo: foo, bar: bar, baz: baz } = __mf_ns_0;');
+      expect(result).toContain('let foo;\nlet bar;\nlet baz;');
     });
 
     it('rewrites aliased import', async () => {
       const result = await transform('import { foo as myFoo } from "remoteApp/utils";');
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo: myFoo } = __mf_ns_0;');
+      expect(result).toContain('let myFoo;');
     });
 
     it('rewrites default + named imports', async () => {
       const result = await transform('import Default, { foo } from "remoteApp/utils";');
       expect(result).toContain('default as Default');
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo: foo } = __mf_ns_0;');
+      expect(result).toContain('let foo;');
     });
 
     it('skips default-only import', async () => {
@@ -153,7 +156,7 @@ describe('pluginRemoteNamedExports', () => {
     it('handles bare remote name (no subpath)', async () => {
       const result = await transform('import { foo } from "remoteApp";');
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo: foo } = __mf_ns_0;');
+      expect(result).toContain('let foo;');
     });
 
     it('skips bare remote-name rewrites inside node_modules files', async () => {
@@ -170,7 +173,7 @@ describe('pluginRemoteNamedExports', () => {
         '/repo/node_modules/some-package/index.js'
       );
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo: foo } = __mf_ns_0;');
+      expect(result).toContain('let foo;');
     });
 
     it('handles multiple remotes in one file', async () => {
@@ -179,8 +182,8 @@ describe('pluginRemoteNamedExports', () => {
         'import { bar } from "otherRemote/helpers";',
       ].join('\n');
       const result = await transform(code);
-      expect(result).toContain('const { foo: foo } = __mf_ns_0;');
-      expect(result).toContain('const { bar: bar } = __mf_ns_1;');
+      expect(result).toContain('let foo;');
+      expect(result).toContain('let bar;');
     });
 
     it('rewrites multiple remote imports to direct named bindings', async () => {
@@ -189,8 +192,8 @@ describe('pluginRemoteNamedExports', () => {
         'import { useShellStore } from "otherRemote/shellStore";',
       ].join('\n');
       const result = await transform(code);
-      expect(result).toContain('const { useAuth: useAuth } = __mf_ns_0;');
-      expect(result).toContain('const { useShellStore: useShellStore } = __mf_ns_1;');
+      expect(result).toContain('let useAuth;');
+      expect(result).toContain('let useShellStore;');
     });
   });
 
@@ -271,6 +274,8 @@ describe('pluginRemoteNamedExports', () => {
       );
       expect(result).not.toContain('await ');
       expect(result).toContain('__mf_re_');
+      expect(result).toContain('if ("foo" in __mf_ns_0)');
+      expect(result).not.toContain('let __mf_re_1 = __mf_ns_0["foo"]');
       expect(result).toContain('as foo');
     });
 
@@ -300,7 +305,7 @@ describe('pluginRemoteNamedExports', () => {
         true
       );
       expect(result).toContain('__moduleExports');
-      expect(result).toContain('const { foo: foo } = __mf_ns_0;');
+      expect(result).toContain('let foo;');
     });
 
     it('rewrites namespace import via fallback', async () => {
@@ -325,7 +330,7 @@ describe('pluginRemoteNamedExports', () => {
         true
       );
       expect(result).toContain('default as Default');
-      expect(result).toContain('const { foo: foo } = __mf_ns_0;');
+      expect(result).toContain('let foo;');
     });
 
     it('wraps dynamic import via fallback', async () => {
@@ -407,7 +412,7 @@ describe('pluginRemoteNamedExports', () => {
         '/src/app.tsx',
         true
       );
-      expect(result).toContain('const { foo: myFoo } = __mf_ns_0;');
+      expect(result).toContain('let myFoo;');
     });
 
     it('keeps runtime specifiers and skips inline type specifiers via fallback', async () => {
@@ -423,7 +428,7 @@ describe('pluginRemoteNamedExports', () => {
         true
       );
       expect(result).toContain('default as Default');
-      expect(result).toContain('const { foo: myFoo, bar: bar } = __mf_ns_0;');
+      expect(result).toContain('let myFoo;\nlet bar;');
       expect(result).not.toContain('type Foo');
     });
 
