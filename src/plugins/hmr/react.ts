@@ -47,6 +47,7 @@ const REACT_REFRESH_PROXY_MODULE = [
   `const __rt = await import(__target);`,
   `export const injectIntoGlobalHook = __rt.injectIntoGlobalHook;`,
   `export const register = __rt.register;`,
+  `export const getRefreshReg = __rt.getRefreshReg;`,
   `export const createSignatureFunctionForTransform = __rt.createSignatureFunctionForTransform;`,
   `export const registerExportsForReactRefresh = __rt.registerExportsForReactRefresh;`,
   `export const validateRefreshBoundaryAndEnqueueUpdate = __rt.validateRefreshBoundaryAndEnqueueUpdate;`,
