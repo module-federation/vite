@@ -805,6 +805,14 @@ describe('module-federation-esm-shims', () => {
     expect(result).toBeNull();
   });
 
+  it('returns the full shared module to CommonJS consumers', () => {
+    const plugin = getEsmShimsPlugin();
+    const target = `\0virtual:mf:host${LOAD_SHARE_TAG}cjs-package${LOAD_SHARE_TAG}.js`;
+    const result = callHook(plugin.load, {} as any, `\0${target}?commonjs-proxy`);
+
+    expect(result).toBe(`export { __moduleExports as default } from ${JSON.stringify(target)};`);
+  });
+
   it('filters federation control chunks from js dynamic modulepreload deps', () => {
     const plugin = getEsmShimsPlugin();
     const config: any = {
