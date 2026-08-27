@@ -587,7 +587,9 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
           ) => {
             const isLocalProvider = (provider) => __mfMatchesSharedProvider(provider, localShare);
             const candidates = Object.fromEntries(
-              Object.entries(versions || {}).filter(([, provider]) => !isLocalProvider(provider))
+              Object.entries(versions || {}).filter(([, provider]) =>
+                !isLocalProvider(provider) && provider?.shareConfig?.import !== false
+              )
             );
             if (localShare?.version && localShare.shareConfig?.import !== false) {
               const sameVersionProvider = candidates[localShare.version];
