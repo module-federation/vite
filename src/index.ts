@@ -1642,6 +1642,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
       },
       load(id: string, loadOptions?: LoadHookOptions) {
+        const commonJsProxySuffix = '?commonjs-proxy';
+        if (id.includes(LOAD_SHARE_TAG) && id.endsWith(commonJsProxySuffix)) {
+          const target = id.slice(id.startsWith('\0') ? 1 : 0, -commonJsProxySuffix.length);
+          return `export { __moduleExports as default } from ${JSON.stringify(target)};`;
+        }
+
         const loadVirtualModule = (
           importFalseExportUsage?: ReturnType<typeof getSharedExportUsage>
         ) => {
