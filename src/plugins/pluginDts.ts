@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { normalizeOptions, type moduleFederationPlugin } from '@module-federation/sdk';
 import {
@@ -32,7 +33,40 @@ const DEFAULT_DEV_OPTIONS: Required<DevOptions> = {
 
 const DYNAMIC_HINTS_PLUGIN = '@module-federation/dts-plugin/dynamic-remote-type-hints-plugin';
 
-const getIPv4 = () => process.env['FEDERATION_IPV4'] || '127.0.0.1';
+const localIpv4 = '127.0.0.1';
+
+// Match the DTS dev worker's network address so dynamic remote type hints remain
+// reachable when development traffic uses a LAN or VPN interface.
+const getIpv4Interfaces = (): os.NetworkInterfaceInfo[] => {
+  try {
+    const interfaces = os.networkInterfaces();
+    const ipv4Interfaces: os.NetworkInterfaceInfo[] = [];
+
+    Object.values(interfaces).forEach((detail) => {
+      detail?.forEach((detail) => {
+        // Node versions may represent the address family as a string or number.
+        const familyV4Value = typeof detail.family === 'string' ? 'IPv4' : 4;
+
+        if (detail.family === familyV4Value && detail.address !== localIpv4) {
+          ipv4Interfaces.push(detail);
+        }
+      });
+    });
+    return ipv4Interfaces;
+  } catch (_err) {
+    return [];
+  }
+};
+
+const getIPv4 = () => {
+  if (process.env['FEDERATION_IPV4']) {
+    return process.env['FEDERATION_IPV4'];
+  }
+
+  const ipv4Interfaces = getIpv4Interfaces();
+  const ipv4Interface = ipv4Interfaces[0] || { address: localIpv4 };
+  return ipv4Interface.address;
+};
 
 const DEV_TYPES_FOLDER = '.dev-server';
 
