@@ -35,7 +35,8 @@ const DYNAMIC_HINTS_PLUGIN = '@module-federation/dts-plugin/dynamic-remote-type-
 
 const localIpv4 = '127.0.0.1';
 
-// This code comes from https://github.com/module-federation/core/blob/0d65b82ed5d434cf82c9c2c257daf51db297cb07/packages/dts-plugin/src/server/utils/getIPV4.ts
+// Match the DTS dev worker's network address so dynamic remote type hints remain
+// reachable when development traffic uses a LAN or VPN interface.
 const getIpv4Interfaces = (): os.NetworkInterfaceInfo[] => {
   try {
     const interfaces = os.networkInterfaces();
@@ -43,7 +44,7 @@ const getIpv4Interfaces = (): os.NetworkInterfaceInfo[] => {
 
     Object.values(interfaces).forEach((detail) => {
       detail?.forEach((detail) => {
-        // 'IPv4' is in Node <= 17, from 18 it's a number 4 or 6
+        // Node versions may represent the address family as a string or number.
         const familyV4Value = typeof detail.family === 'string' ? 'IPv4' : 4;
 
         if (detail.family === familyV4Value && detail.address !== localIpv4) {
