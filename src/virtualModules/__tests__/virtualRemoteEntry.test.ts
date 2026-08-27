@@ -4007,6 +4007,23 @@ describe('virtualRemoteEntry', () => {
     ).toBe(loadedReact18);
   });
 
+  it('ignores import:false placeholders when selecting an external provider', async () => {
+    const selectProvider = await getExternalSharedProviderSelector();
+    const localReact = {
+      from: 'host',
+      version: '18.3.1',
+      shareConfig: { singleton: true, requiredVersion: false as const },
+    };
+    const remotePlaceholder = {
+      from: 'remote',
+      shareConfig: { singleton: true, import: false, requiredVersion: false },
+    };
+
+    expect(
+      selectProvider({ '18.3.1': remotePlaceholder }, 'react', localReact, 'loaded-first')
+    ).toBeUndefined();
+  });
+
   it('compares external and local singleton providers with version-first', async () => {
     const selectExternalProvider = await getExternalSharedProviderSelector();
     const hostGet = vi.fn();
