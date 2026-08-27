@@ -3,12 +3,20 @@ import os from 'os';
 import path from 'path';
 import { PassThrough } from 'stream';
 import type { IncomingMessage, ServerResponse } from 'http';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ResolvedConfig, MinimalPluginContextWithoutEnvironment, Rollup } from 'vite';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  ResolvedConfig,
+  MinimalPluginContextWithoutEnvironment,
+  ConfigPluginContext,
+  ConfigEnv,
+  UserConfig,
+  Rollup,
+} from 'vite';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 
 const hasPackageDependency = vi.hoisted(() => vi.fn(() => false));
+const networkInterfaces = vi.hoisted(() => vi.fn());
 
 vi.mock('../../utils/packageUtils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/packageUtils')>();
@@ -16,6 +24,12 @@ vi.mock('../../utils/packageUtils', async (importOriginal) => {
     ...actual,
     hasPackageDependency,
   };
+});
+
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  const mockedOs = { ...actual, networkInterfaces };
+  return { ...mockedOs, default: mockedOs };
 });
 
 import {
@@ -40,6 +54,11 @@ function runGenerateBundle(plugin: NonNullable<ReturnType<typeof pluginDts>[numb
     {} as Rollup.OutputBundle,
     false
   );
+}
+
+function runConfig(plugin: NonNullable<ReturnType<typeof pluginDts>[number]>, config: UserConfig) {
+  callHook(plugin.config, {} as ConfigPluginContext, config, {} as ConfigEnv);
+  return config;
 }
 
 function createMockResponse() {
@@ -172,5 +191,83 @@ describe('pluginDts build', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('pluginDts dev FEDERATION_IPV4', () => {
+  const originalFederationIpv4 = process.env['FEDERATION_IPV4'];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env['FEDERATION_IPV4'];
+  });
+
+  afterEach(() => {
+    if (originalFederationIpv4 === undefined) {
+      delete process.env['FEDERATION_IPV4'];
+    } else {
+      process.env['FEDERATION_IPV4'] = originalFederationIpv4;
+    }
+  });
+
+  function getDevPlugin() {
+    const normalized = normalizeModuleFederationOptions({
+      name: 'test-module',
+      shareStrategy: 'loaded-first',
+    });
+    const devPlugin = pluginDts(normalized).find(
+      (plugin) => plugin.name === 'module-federation-dts-dev'
+    );
+    if (!devPlugin) throw new Error('dev plugin missing');
+    return devPlugin;
+  }
+
+  it('uses the first non-loopback IPv4 address found on the network', () => {
+    networkInterfaces.mockReturnValue({
+      eth0: [
+        {
+          address: '192.168.1.42',
+          netmask: '255.255.255.0',
+          family: 'IPv4',
+          mac: '00:00:00:00:00:00',
+          internal: false,
+          cidr: '192.168.1.42/24',
+        },
+      ],
+    });
+
+    const config = runConfig(getDevPlugin(), {});
+
+    expect(config.define?.['FEDERATION_IPV4']).toBe(JSON.stringify('192.168.1.42'));
+  });
+
+  it('falls back to 127.0.0.1 when no IPv4 interface is found', () => {
+    networkInterfaces.mockReturnValue({});
+
+    const config = runConfig(getDevPlugin(), {});
+
+    expect(config.define?.['FEDERATION_IPV4']).toBe(JSON.stringify('127.0.0.1'));
+  });
+
+  it('keeps a user-provided define.FEDERATION_IPV4 untouched', () => {
+    networkInterfaces.mockReturnValue({
+      eth0: [
+        {
+          address: '192.168.1.42',
+          netmask: '255.255.255.0',
+          family: 'IPv4',
+          mac: '00:00:00:00:00:00',
+          internal: false,
+          cidr: '192.168.1.42/24',
+        },
+      ],
+    });
+
+    const config = runConfig(getDevPlugin(), {
+      define: { FEDERATION_IPV4: JSON.stringify('10.10.10.10') },
+    });
+
+    expect(config.define?.['FEDERATION_IPV4']).toBe(JSON.stringify('10.10.10.10'));
+    expect(networkInterfaces).not.toHaveBeenCalled();
   });
 });
