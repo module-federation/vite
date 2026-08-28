@@ -1461,6 +1461,48 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('runtime.loadRemote("remote/remote-app")');
   });
 
+  it.each(['version-first', 'loaded-first'] as const)(
+    'keeps a scoped %s build init when host auto init re-enters a dual-role container',
+    async (shareStrategy) => {
+      const mod = await import('../virtualRemoteEntry');
+      const code = mod.generateRemoteEntry(
+        {
+          internalName: '__mfe_internal__mid',
+          name: 'mid',
+          filename: 'remoteEntry.js',
+          exposes: { './probe': './probe.js' },
+          remotes: {
+            leaf: {
+              name: 'leaf',
+              entry: 'http://localhost:4173/remoteEntry.js',
+              type: 'module',
+            },
+          },
+          shared: {},
+          runtimePlugins: [],
+          shareScope: 'default',
+          shareStrategy,
+        } as any,
+        'virtual:exposes',
+        'build'
+      );
+
+      expect(code).toContain('if (shared === undefined && __mfInitPromise)');
+      expect(code).toContain('export { __mfGuardedInit as init, getExposes as get }');
+      const guardStart = code.indexOf('let __mfInitPromise;');
+      const guardEnd = code.indexOf('export { __mfGuardedInit', guardStart);
+      const guardCode = code.slice(guardStart, guardEnd);
+      const scopedInit = Promise.resolve({ shareScopeMap: { default: {} } });
+      const init = vi.fn(() => scopedInit);
+      const guardedInit = new Function('init', `${guardCode}; return __mfGuardedInit;`)(init);
+
+      expect(guardedInit({ react: {} }, [])).toBe(scopedInit);
+      expect(guardedInit()).toBe(scopedInit);
+      expect(init).toHaveBeenCalledOnce();
+      expect(guardCode).not.toContain('await ');
+    }
+  );
+
   it('does not preload generated subpath shares from a root shared package', async () => {
     const mod = await import('../virtualRemoteEntry');
 

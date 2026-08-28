@@ -1042,6 +1042,10 @@ export function generateRemoteEntry(
     (share) => !!share?.shareConfig.treeShaking
   );
   const hasMultipleShareScopes = Array.isArray(options.shareScope);
+  const guardHostAutoInit =
+    command === 'build' &&
+    Object.keys(options.exposes ?? {}).length > 0 &&
+    Object.keys(options.remotes ?? {}).length > 0;
   const materializedShareBatches = toSafeJsLiteral(getShareBatches(options, false));
   const runtimeImports = [
     'init as runtimeInit',
@@ -2010,9 +2014,16 @@ export function generateRemoteEntry(
     }
     return (exposesMap[moduleName])().then(res => () => res)
   }
-  export {
-      init,
-      getExposes as get
+  ${
+    guardHostAutoInit
+      ? `let __mfInitPromise;
+  function __mfGuardedInit(shared, initScope) {
+    if (shared === undefined && __mfInitPromise) return __mfInitPromise;
+    __mfInitPromise = init(shared, initScope);
+    return __mfInitPromise;
+  }
+  export { __mfGuardedInit as init, getExposes as get }`
+      : `export { init, getExposes as get }`
   }
   `;
 }
