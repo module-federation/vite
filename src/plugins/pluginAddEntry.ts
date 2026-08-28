@@ -1040,6 +1040,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=["']([^"']+)["'])[^>]*>\s*<\/script>/gi;
           let rewritten = false;
           htmlContent = htmlContent.replace(scriptRegex, (scriptTag, entrySrc) => {
+            if (/\svite-ignore(?:\s|=|\/?>)/i.test(scriptTag)) return scriptTag;
             rewritten = true;
             const strippedInit = stripBase(initPath);
             const strippedEntry = stripBase(entrySrc);
