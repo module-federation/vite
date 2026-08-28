@@ -363,6 +363,18 @@ describe('federation in test environment', () => {
 });
 
 describe('virtual module resolution', () => {
+  it('invalidates shared export inspections for workspace watcher events', () => {
+    const on = vi.fn();
+
+    callHook(
+      getVirtualModulesPlugin().configureServer,
+      {} as MinimalPluginContextWithoutEnvironment,
+      { watcher: { on } } as any
+    );
+
+    expect(on.mock.calls.map(([event]) => event)).toEqual(['change', 'add', 'unlink']);
+  });
+
   it('resolves the SSR entry loader from the plugin package', () => {
     const loaderPath = '/plugin/lib/utils/ssrEntryLoader.js';
     const resolverMock = vi.mocked(resolveImportPath);

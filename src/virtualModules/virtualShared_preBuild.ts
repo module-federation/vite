@@ -109,6 +109,13 @@ type SharedExportInspection = {
 type CachedNamedExports = { value: string[] | undefined };
 
 const packageNamedExportsCache = new Map<string, CachedNamedExports>();
+const sharedExportInspectionCache = new Map<string, SharedExportInspection | undefined>();
+
+export function invalidateSharedExportInspectionCache(filePath: string): void {
+  if (!/(?:^|[/\\])node_modules(?:[/\\]|$)/.test(filePath)) {
+    sharedExportInspectionCache.clear();
+  }
+}
 
 type NamedExportScanState = {
   complete: boolean;
@@ -157,8 +164,13 @@ function inspectSharedExportsFromFile(
   entryPath: string | undefined,
   exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
 ): SharedExportInspection | undefined {
+  if (!entryPath) return undefined;
+  const cacheKey = `${entryPath}\0${exportConditions.join('\0')}`;
+  if (sharedExportInspectionCache.has(cacheKey)) {
+    return sharedExportInspectionCache.get(cacheKey);
+  }
+
   try {
-    if (!entryPath) return undefined;
     const source = readFileSync(entryPath, 'utf-8');
     const scanState: NamedExportScanState = { complete: true };
     const namedExports = getNamedExportsViaRegex(
@@ -169,13 +181,16 @@ function inspectSharedExportsFromFile(
       exportConditions
     );
     const commonJs = hasCommonJsExports(source);
-    return {
+    const inspection = {
       // A complete empty ESM scan is a known default-only export surface. Keep
       // unresolved re-exports and CommonJS sources conservative instead.
       namedExports: scanState.complete && !commonJs ? namedExports : undefined,
       commonJs,
     };
+    sharedExportInspectionCache.set(cacheKey, inspection);
+    return inspection;
   } catch {
+    sharedExportInspectionCache.set(cacheKey, undefined);
     return undefined;
   }
 }

@@ -15,6 +15,7 @@ import {
   getTreeShakingGraphToken,
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
+  invalidateSharedExportInspectionCache,
   refreshTreeShakingModules,
   resetConcreteSharedImportSourceCache,
   stripTreeShakingGraphQuery,
@@ -537,7 +538,9 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/typed-destructuring.ts') ||
       filePath.endsWith('/repo/packages/decorated-export.ts') ||
       filePath.endsWith('/repo/packages/export-import-alias.ts') ||
-      filePath.endsWith('/repo/packages/custom-shared-source/index.ts')
+      filePath.endsWith('/repo/packages/custom-shared-source/index.ts') ||
+      filePath.endsWith('/repo/packages/cached-shared-source/index.ts') ||
+      filePath.endsWith('/repo/packages/cached-shared-source/leaf.ts')
     );
   }),
   readFileSync: vi.fn((filePath: string) => {
@@ -931,6 +934,12 @@ export const [firstItem, ...restItems] = tuple;`;
               export function useSharedFeature() {
                 return sharedValue;
               }`;
+    }
+    if (filePath.endsWith('/repo/packages/cached-shared-source/index.ts')) {
+      return "export * from './leaf';";
+    }
+    if (filePath.endsWith('/repo/packages/cached-shared-source/leaf.ts')) {
+      return 'export const leafValue = true;';
     }
     if (filePath.endsWith('/mock-package-browser-esm-internal-cjs/index.js')) {
       return `const internalModule = { exports: {} };
@@ -1419,6 +1428,70 @@ describe('writeLoadShareModule', () => {
       'export { __mf_0 as sharedValue, __mf_1 as useSharedFeature };'
     );
     expect(generatedCode).not.toContain('export * from "/repo/packages/custom-shared-source"');
+  });
+
+  it('inspects a configured shared source once', () => {
+    const shareItem: ShareItem = {
+      name: '@repo/cached-shared-source',
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/cached-shared-source',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+    const readFileSyncMock = vi.mocked(readFileSync);
+    readFileSyncMock.mockClear();
+
+    getSharedNamedExports(shareItem.name, shareItem, ['cache-regression']);
+    getSharedNamedExports(shareItem.name, shareItem, ['cache-regression']);
+
+    expect(
+      readFileSyncMock.mock.calls.filter(([filePath]) =>
+        String(filePath).includes('/repo/packages/cached-shared-source/')
+      )
+    ).toHaveLength(2);
+  });
+
+  it('reinspects configured shared sources after a workspace change', () => {
+    const shareItem: ShareItem = {
+      name: '@repo/cached-shared-source',
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/cached-shared-source',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+    const readFileSyncMock = vi.mocked(readFileSync);
+    const originalRead = readFileSyncMock.getMockImplementation() as typeof readFileSync;
+    let source = 'export const before = true;';
+    readFileSyncMock.mockImplementation(((filePath: string, ...args: unknown[]) =>
+      String(filePath).endsWith('/repo/packages/cached-shared-source/leaf.ts')
+        ? source
+        : (originalRead as (...args: unknown[]) => unknown)(
+            filePath,
+            ...args
+          )) as typeof readFileSync);
+
+    try {
+      expect(getSharedNamedExports(shareItem.name, shareItem, ['invalidation-regression'])).toEqual(
+        ['before']
+      );
+      source = 'export const after = true;';
+      invalidateSharedExportInspectionCache('/repo/packages/cached-shared-source/leaf.ts');
+      expect(getSharedNamedExports(shareItem.name, shareItem, ['invalidation-regression'])).toEqual(
+        ['after']
+      );
+    } finally {
+      readFileSyncMock.mockImplementation(originalRead);
+    }
   });
 
   it('inlines a build-only cache bootstrap without importing runtimeInit', () => {
