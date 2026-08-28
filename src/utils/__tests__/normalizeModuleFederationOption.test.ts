@@ -517,7 +517,7 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
-    it('normalizes docs-style trailing slash keys for common subpath shares', () => {
+    it('preserves react/ as a namespace prefix and collapses react-dom/', () => {
       const shared = normalizeModuleFederationOptions({
         ...minimalOptions,
         shared: {
@@ -535,13 +535,18 @@ describe('normalizeModuleFederationOption', () => {
         },
       }).shared;
 
-      expect(shared.react).toMatchObject({
-        name: 'react',
+      // react/ stays a prefix so consumer-only (and provider) shares cover any
+      // actually-imported subpath instead of a hardcoded JSX export list.
+      expect(shared['react/']).toMatchObject({
+        name: 'react/',
         shareConfig: {
           singleton: true,
           requiredVersion: '^19.0.0',
         },
       });
+      expect(shared.react).toBeUndefined();
+      // react-dom/ must not become a browser-wide prefix: that would also
+      // capture react-dom/server*. Collapse to the package root instead.
       expect(shared['react-dom']).toMatchObject({
         name: 'react-dom',
         shareConfig: {
@@ -549,9 +554,29 @@ describe('normalizeModuleFederationOption', () => {
           singleton: true,
         },
       });
-      expect(shared['react/']).toBeUndefined();
       expect(shared['react-dom/']).toBeUndefined();
       expect(shared['@scope/ui/']).toBeDefined();
+    });
+
+    it('preserves consumer-only react/ with import: false as a namespace prefix', () => {
+      const shared = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          'react/': {
+            singleton: true,
+            import: false,
+          },
+        },
+      }).shared;
+
+      expect(shared['react/']).toMatchObject({
+        name: 'react/',
+        shareConfig: {
+          singleton: true,
+          import: false,
+        },
+      });
+      expect(shared.react).toBeUndefined();
     });
 
     it('prefers the installed package version over an inferred requiredVersion', () => {

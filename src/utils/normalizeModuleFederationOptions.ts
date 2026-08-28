@@ -288,9 +288,26 @@ function normalizeShareItem(
   };
 }
 
+/**
+ * Trailing-slash keys are package namespace prefixes (`lodash/`, `@scope/ui/`).
+ *
+ * Packages in COMMON_SHARED_SUBPATHS historically collapsed `pkg/` → `pkg` so
+ * Vite would not resolve the invalid `pkg/` specifier, while still auto-mapping
+ * known subpaths when a local provider exists.
+ *
+ * `react/` is different: consumer-only shares need true namespace coverage for
+ * any actually-imported subpath, not a hardcoded export list. Keep `react/` as
+ * a prefix; concrete subpaths materialize on import via the generic matcher.
+ *
+ * `react-dom/` must keep collapsing. A browser-wide `react-dom/` prefix would
+ * also capture `react-dom/server*`, which is unsafe without environment-aware
+ * filtering. Browser-safe entries such as `react-dom/client` stay explicit via
+ * COMMON_SHARED_SUBPATHS (local provider) or an exact shared key.
+ */
 function normalizeSharedKey(key: string): string {
   if (!key.endsWith('/')) return key;
   const baseKey = key.slice(0, -1);
+  if (baseKey === 'react') return key;
   return getCommonSharedSubpaths(baseKey).length > 0 ? baseKey : key;
 }
 
