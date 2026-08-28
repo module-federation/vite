@@ -364,6 +364,9 @@ describe('pluginProxySharedModule_preBuild', () => {
       const shared = makeShared();
       shared.react.shareConfig.import = false;
 
+      // Bare `react` + import:false shares only the package root. Known JSX
+      // subpaths are not auto-mapped (that would invent unfulfillable
+      // runtime-only entries). Opt into namespace coverage with `react/` instead.
       expect(findSharedKey('react', shared)).toBe('react');
       expect(findSharedKey('react/jsx-runtime', shared)).toBeUndefined();
 
@@ -374,6 +377,52 @@ describe('pluginProxySharedModule_preBuild', () => {
         name: 'react/jsx-runtime',
       };
       expect(findSharedKey('react/jsx-runtime', explicitlyShared)).toBe('react/jsx-runtime');
+    });
+
+    it('covers imported react subpaths via a consumer-only react/ namespace prefix', () => {
+      const shared: NormalizedShared = {
+        'react/': {
+          name: 'react/',
+          from: '',
+          version: '19.2.4',
+          scope: 'default',
+          shareConfig: {
+            singleton: true,
+            import: false,
+            requiredVersion: '^19.2.4',
+            strictVersion: false,
+          },
+        },
+      };
+
+      expect(findSharedKey('react', shared)).toBe('react/');
+      expect(findSharedKey('react/jsx-runtime', shared)).toBe('react/');
+      expect(findSharedKey('react/jsx-dev-runtime', shared)).toBe('react/');
+      // Namespace coverage, not a hardcoded JSX list: any imported subpath matches.
+      expect(findSharedKey('react/compiler-runtime', shared)).toBe('react/');
+      expect(findSharedKey('react/some-future-export', shared)).toBe('react/');
+    });
+
+    it('does not share react-dom/server* via a browser-wide react-dom/ prefix', () => {
+      // normalize collapses react-dom/ (see normalizeModuleFederationOption tests).
+      // With import:false on the package root, server* must not be auto-mapped.
+      // Browser-safe client sharing stays an explicit key.
+      const collapsed = makeShared();
+      collapsed['react-dom'].shareConfig.import = false;
+      expect(findSharedKey('react-dom/server', collapsed)).toBeUndefined();
+      expect(findSharedKey('react-dom/server.browser', collapsed)).toBeUndefined();
+      expect(findSharedKey('react-dom/client', collapsed)).toBeUndefined();
+
+      // New object: findSharedKey caches its matcher per `shared` reference.
+      const withClient = makeShared();
+      withClient['react-dom'].shareConfig.import = false;
+      withClient['react-dom/client'] = {
+        ...withClient['react-dom'],
+        name: 'react-dom/client',
+      };
+      expect(findSharedKey('react-dom/client', withClient)).toBe('react-dom/client');
+      expect(findSharedKey('react-dom/server', withClient)).toBeUndefined();
+      expect(findSharedKey('react-dom/server.browser', withClient)).toBeUndefined();
     });
 
     // findSharedKey memoizes its matcher per `shared` object reference. If
@@ -1146,6 +1195,60 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect((resolution as { id: string }).id).toBeDefined();
     expect(preBuildShareItemMap.has('transitive/button')).toBe(true);
     expect(preBuildShareItemMap.has('transitive')).toBe(false);
+  });
+
+  it('materializes imported react subpaths from a consumer-only react/ prefix', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const reactNamespace: NormalizedShared[string] = {
+      name: 'react/',
+      from: '',
+      version: '19.2.4',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        import: false,
+        requiredVersion: '^19.2.4',
+        strictVersion: false,
+      },
+    };
+    const shared: NormalizedShared = {
+      'react/': reactNamespace,
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    for (const source of ['react/jsx-runtime', 'react/jsx-dev-runtime', 'react/compiler-runtime']) {
+      addUsedSharesMock.mockClear();
+      writeLoadShareModuleMock.mockClear();
+      const resolution = await callHook(
+        sharedResolvePlugin.resolveId,
+        {
+          resolve: async (id: string) => ({ id }),
+        } as any,
+        source,
+        '/src/App.tsx',
+        { isEntry: false }
+      );
+
+      expect((resolution as { id: string }).id).toBeDefined();
+      expect(writeLoadShareModuleMock).toHaveBeenCalledWith(source, reactNamespace, 'build', false);
+      expect(addUsedSharesMock).toHaveBeenCalledWith(source);
+      // import:false must not invent a local prebuild fallback.
+      expect(preBuildShareItemMap.has(source)).toBe(false);
+    }
   });
 
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {
