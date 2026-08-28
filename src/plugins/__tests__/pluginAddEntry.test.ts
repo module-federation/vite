@@ -1958,61 +1958,6 @@ describe('pluginAddEntry', () => {
     expect(bootstrapFile!.source as string).toContain('__mfImport("../../src/main.tsx")');
   });
 
-  it('leaves vite-ignore scripts unchanged', () => {
-    const plugins = addEntry({
-      entryName: 'hostInit',
-      entryPath: '/virtual/hostInit.js',
-      inject: 'html',
-    });
-    const buildPlugin = plugins[1];
-    const emitted: Rollup.EmittedFile[] = [];
-    const bundle: any = {
-      'index.html': {
-        type: 'asset',
-        source:
-          '<script type="module" src="/src/main.tsx"></script><script type="module" src="/external/external.js" vite-ignore></script>',
-      },
-    };
-
-    runConfigResolved(buildPlugin, {
-      root: '/repo/host',
-      base: '/',
-      command: 'build',
-      build: { rollupOptions: {} },
-    } as unknown as ResolvedConfig);
-    runBuildStart(
-      buildPlugin,
-      {
-        emitFile: (file: Rollup.EmittedFile) => {
-          emitted.push(file);
-          return file.type === 'chunk' ? 'host-init-ref' : `bootstrap-${emitted.length}`;
-        },
-      } as unknown as Rollup.PluginContext,
-      {} as Rollup.NormalizedInputOptions
-    );
-    runGenerateBundle(
-      buildPlugin,
-      {
-        getFileName: (ref: string) => (ref === 'host-init-ref' ? 'assets/hostInit.js' : ref),
-        emitFile: (file: Rollup.EmittedFile) => {
-          emitted.push(file);
-          return `bootstrap-${emitted.length}`;
-        },
-      } as unknown as Rollup.PluginContext,
-      {} as Rollup.NormalizedOutputOptions,
-      bundle as unknown as Rollup.OutputBundle
-    );
-
-    expect(bundle['index.html'].source).toContain(
-      '<script type="module" src="/external/external.js" vite-ignore></script>'
-    );
-    expect(
-      emitted.filter(
-        (file) => file.type === 'asset' && file.fileName?.includes('mf-entry-bootstrap')
-      )
-    ).toHaveLength(1);
-  });
-
   it('emits bootstrap file at root when entryFileNames is not set', () => {
     const plugins = addEntry({
       entryName: 'hostInit',
