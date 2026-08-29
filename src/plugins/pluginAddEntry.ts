@@ -309,6 +309,7 @@ const addEntry = ({
   let emittedFileName: string | undefined;
   let skipTransformIds = new Set<string>();
   let injectedTransformIds = new Set<string>();
+  const ignoredHtmlScriptSources = new Set<string>();
   let bootstrapDir = '';
 
   function skipSvelteKitSsrBuild() {
@@ -715,6 +716,10 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
     let match: RegExpExecArray | null;
 
     while ((match = scriptRegex.exec(htmlContent)) !== null) {
+      if (/\svite-ignore(?:\s|=|\/?>)/i.test(match[0])) {
+        ignoredHtmlScriptSources.add(match[1]);
+        continue;
+      }
       const scriptSrc = stripQueryAndHash(match[1]);
       if (/^(?:[a-z]+:)?\/\//i.test(scriptSrc)) continue;
       addEntryFile(scriptSrc);
@@ -1040,7 +1045,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=["']([^"']+)["'])[^>]*>\s*<\/script>/gi;
           let rewritten = false;
           htmlContent = htmlContent.replace(scriptRegex, (scriptTag, entrySrc) => {
-            if (/\svite-ignore(?:\s|=|\/?>)/i.test(scriptTag)) return scriptTag;
+            if (ignoredHtmlScriptSources.has(entrySrc)) return scriptTag;
             rewritten = true;
             const strippedInit = stripBase(initPath);
             const strippedEntry = stripBase(entrySrc);

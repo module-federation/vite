@@ -1,5 +1,6 @@
 import { mkdir, rm, symlink } from 'fs/promises';
 import { dirname, resolve } from 'path';
+import { version as viteVersion } from 'vite';
 import { describe, expect, it } from 'vitest';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
 import { buildFixture, FIXTURES } from './helpers/build';
@@ -26,6 +27,8 @@ const LOADED_FIRST_STATIC_MF_OPTIONS = {
 
 const hostInitChunkRegex = /<script\s+type="module"\s+src="[^"]*hostInit[^"]*">/;
 const bootstrapScriptRegex = /<script\s+type="module"[^>]+src="[^"]*mf-entry-bootstrap[^"]*">/;
+// Vite 5 does not support the vite-ignore HTML attribute.
+const itSupportsViteIgnore = it.skipIf(viteVersion.startsWith('5.'));
 
 async function createWorkspaceFixture() {
   const root = resolve(FIXTURES, 'workspace-source-remote');
@@ -144,6 +147,22 @@ describe('host build', () => {
     expect(bootstrapAsset?.source).toContain('})().then(() => __mfImport(');
     expect(bootstrapAsset?.source).toContain('globalThis.System.import(src)');
     expect(bootstrapAsset?.source).toContain('hostInit');
+  });
+
+  itSupportsViteIgnore('leaves vite-ignore scripts unchanged in a Vite build', async () => {
+    const output = await buildFixture({
+      fixture: 'vite-ignore-host',
+      mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: 'html' },
+    });
+    const html = getHtmlAsset(output)?.source as string;
+    const bootstrapAssets = output.output.filter(
+      (item) => item.type === 'asset' && item.fileName.includes('mf-entry-bootstrap')
+    );
+
+    expect(html).toContain('src="/external/external.js"');
+    expect(html).not.toContain('vite-ignore');
+    expect(bootstrapAssets).toHaveLength(1);
+    expect(bootstrapAssets[0].source).not.toContain('/external/external.js');
   });
 
   it('builds when rolldownOptions.input points at a named HTML entry', async () => {
