@@ -2,7 +2,14 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'url';
-import type { ConfigEnv, EnvironmentOptions, Plugin, ResolvedConfig, UserConfig } from 'vite';
+import type {
+  ConfigEnv,
+  EnvironmentOptions,
+  Plugin,
+  ResolvedConfig,
+  UserConfig,
+  ViteDevServer,
+} from 'vite';
 import { version as viteVersion } from 'vite';
 import addEntry, { getBuildInput } from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
@@ -100,6 +107,7 @@ import {
   getCachedPreBuildPkg,
   getLoadShareModulePath,
   getPreBuildLibImportId,
+  invalidateSharedExportInspectionCache,
   materializeCachedLoadShareModule,
   prependWorkspaceSingletonSsrImport,
   resetConcreteSharedImportSourceCache,
@@ -1174,6 +1182,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     {
       name: 'vite:module-federation-virtual-modules',
       enforce: 'pre',
+      configureServer(server: ViteDevServer) {
+        server.watcher.on('change', invalidateSharedExportInspectionCache);
+        server.watcher.on('add', invalidateSharedExportInspectionCache);
+        server.watcher.on('unlink', invalidateSharedExportInspectionCache);
+      },
       resolveId(id: string) {
         if (id === SSR_ENTRY_LOADER_SPECIFIER) return resolveImportPath(id);
         let virtualModule = VirtualModule.findById(id);
