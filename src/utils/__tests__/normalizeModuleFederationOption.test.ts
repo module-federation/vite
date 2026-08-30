@@ -517,7 +517,7 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
-    it('preserves react/ as a namespace prefix and collapses react-dom/', () => {
+    it('preserves react/ and react-dom/ as namespace prefixes', () => {
       const shared = normalizeModuleFederationOptions({
         ...minimalOptions,
         shared: {
@@ -545,16 +545,16 @@ describe('normalizeModuleFederationOption', () => {
         },
       });
       expect(shared.react).toBeUndefined();
-      // react-dom/ must not become a browser-wide prefix: that would also
-      // capture react-dom/server*. Collapse to the package root instead.
-      expect(shared['react-dom']).toMatchObject({
-        name: 'react-dom',
+      // react-dom/ is also preserved. Matching filters by environment so
+      // react-dom/server* is not captured in the browser share set.
+      expect(shared['react-dom/']).toMatchObject({
+        name: 'react-dom/',
         shareConfig: {
           import: false,
           singleton: true,
         },
       });
-      expect(shared['react-dom/']).toBeUndefined();
+      expect(shared['react-dom']).toBeUndefined();
       expect(shared['@scope/ui/']).toBeDefined();
     });
 

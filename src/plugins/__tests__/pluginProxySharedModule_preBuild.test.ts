@@ -403,26 +403,84 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(findSharedKey('react/some-future-export', shared)).toBe('react/');
     });
 
-    it('does not share react-dom/server* via a browser-wide react-dom/ prefix', () => {
-      // normalize collapses react-dom/ (see normalizeModuleFederationOption tests).
-      // With import:false on the package root, server* must not be auto-mapped.
-      // Browser-safe client sharing stays an explicit key.
+    it('does not share react-dom/server* via a blind react-dom/ prefix in the browser', () => {
+      // react-dom/ is preserved as a prefix, but matching is environment-filtered:
+      // browser/client only covers client + profiling.
+      const prefix: NormalizedShared = {
+        'react-dom/': {
+          name: 'react-dom/',
+          from: '',
+          version: '19.2.4',
+          scope: 'default',
+          shareConfig: {
+            singleton: true,
+            import: false,
+            requiredVersion: '^19.2.4',
+            strictVersion: false,
+          },
+        },
+      };
+      expect(findSharedKey('react-dom/client', prefix, 'client')).toBe('react-dom/');
+      expect(findSharedKey('react-dom/profiling', prefix, 'browser')).toBe('react-dom/');
+      expect(findSharedKey('react-dom/server', prefix, 'client')).toBeUndefined();
+      expect(findSharedKey('react-dom/server.browser', prefix, 'client')).toBeUndefined();
+      expect(findSharedKey('react-dom/server.node', prefix, 'client')).toBeUndefined();
+      expect(findSharedKey('react-dom/static', prefix, 'client')).toBeUndefined();
+      // Arbitrary future exports are not covered (unlike react/).
+      expect(findSharedKey('react-dom/some-future-export', prefix, 'client')).toBeUndefined();
+
+      // Bare react-dom + import:false still does not auto-map any subpaths.
       const collapsed = makeShared();
       collapsed['react-dom'].shareConfig.import = false;
-      expect(findSharedKey('react-dom/server', collapsed)).toBeUndefined();
-      expect(findSharedKey('react-dom/server.browser', collapsed)).toBeUndefined();
-      expect(findSharedKey('react-dom/client', collapsed)).toBeUndefined();
+      expect(findSharedKey('react-dom/server', collapsed, 'client')).toBeUndefined();
+      expect(findSharedKey('react-dom/client', collapsed, 'client')).toBeUndefined();
 
-      // New object: findSharedKey caches its matcher per `shared` reference.
+      // Explicit client key still does not pull server* into the browser set.
       const withClient = makeShared();
       withClient['react-dom'].shareConfig.import = false;
       withClient['react-dom/client'] = {
         ...withClient['react-dom'],
         name: 'react-dom/client',
       };
-      expect(findSharedKey('react-dom/client', withClient)).toBe('react-dom/client');
-      expect(findSharedKey('react-dom/server', withClient)).toBeUndefined();
-      expect(findSharedKey('react-dom/server.browser', withClient)).toBeUndefined();
+      expect(findSharedKey('react-dom/client', withClient, 'client')).toBe('react-dom/client');
+      expect(findSharedKey('react-dom/server', withClient, 'client')).toBeUndefined();
+      expect(findSharedKey('react-dom/server.browser', withClient, 'client')).toBeUndefined();
+    });
+
+    it('maps react-dom/server* and static* only in node/ssr/react-server share sets', () => {
+      const prefix: NormalizedShared = {
+        'react-dom/': {
+          name: 'react-dom/',
+          from: '',
+          version: '19.2.4',
+          scope: 'default',
+          shareConfig: {
+            singleton: true,
+            import: false,
+            requiredVersion: '^19.2.4',
+            strictVersion: false,
+          },
+        },
+      };
+
+      for (const env of ['ssr', 'node', 'server', 'react-server'] as const) {
+        expect(findSharedKey('react-dom/server', prefix, env)).toBe('react-dom/');
+        expect(findSharedKey('react-dom/server.node', prefix, env)).toBe('react-dom/');
+        expect(findSharedKey('react-dom/server.edge', prefix, env)).toBe('react-dom/');
+        expect(findSharedKey('react-dom/static', prefix, env)).toBe('react-dom/');
+        expect(findSharedKey('react-dom/static.node', prefix, env)).toBe('react-dom/');
+        // Client entries stay out of the server share set.
+        expect(findSharedKey('react-dom/client', prefix, env)).toBeUndefined();
+        expect(findSharedKey('react-dom/profiling', prefix, env)).toBeUndefined();
+      }
+
+      // Local provider auto-maps env-filtered subpaths only.
+      const provider = makeShared();
+      expect(findSharedKey('react-dom/client', provider, 'client')).toBe('react-dom');
+      expect(findSharedKey('react-dom/server', provider, 'client')).toBeUndefined();
+      expect(findSharedKey('react-dom/server', provider, 'ssr')).toBe('react-dom');
+      expect(findSharedKey('react-dom/static.browser', provider, 'ssr')).toBe('react-dom');
+      expect(findSharedKey('react-dom/client', provider, 'ssr')).toBeUndefined();
     });
 
     // findSharedKey memoizes its matcher per `shared` object reference. If
@@ -1249,6 +1307,211 @@ describe('pluginProxySharedModule_preBuild', () => {
       // import:false must not invent a local prebuild fallback.
       expect(preBuildShareItemMap.has(source)).toBe(false);
     }
+  });
+
+  it('materializes react-dom/client only from import:false react-dom/ in the browser', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const reactDomNamespace: NormalizedShared[string] = {
+      name: 'react-dom/',
+      from: '',
+      version: '19.2.4',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        import: false,
+        requiredVersion: '^19.2.4',
+        strictVersion: false,
+      },
+    };
+    const shared: NormalizedShared = {
+      'react-dom/': reactDomNamespace,
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const browserCtx = {
+      environment: { name: 'client' },
+      resolve: async (id: string) => ({ id }),
+    } as any;
+
+    addUsedSharesMock.mockClear();
+    writeLoadShareModuleMock.mockClear();
+    const clientResolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      browserCtx,
+      'react-dom/client',
+      '/src/App.tsx',
+      { isEntry: false }
+    );
+    expect((clientResolution as { id: string }).id).toBeDefined();
+    expect(writeLoadShareModuleMock).toHaveBeenCalledWith(
+      'react-dom/client',
+      reactDomNamespace,
+      'build',
+      false
+    );
+    expect(addUsedSharesMock).toHaveBeenCalledWith('react-dom/client');
+    expect(preBuildShareItemMap.has('react-dom/client')).toBe(false);
+
+    addUsedSharesMock.mockClear();
+    writeLoadShareModuleMock.mockClear();
+    for (const source of [
+      'react-dom/server',
+      'react-dom/server.browser',
+      'react-dom/server.node',
+      'react-dom/static',
+    ]) {
+      const resolution = await callHook(
+        sharedResolvePlugin.resolveId,
+        browserCtx,
+        source,
+        '/src/App.tsx',
+        { isEntry: false }
+      );
+      expect(resolution).toBeUndefined();
+    }
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+    expect(addUsedSharesMock).not.toHaveBeenCalled();
+  });
+
+  it('materializes react-dom/server* from import:false react-dom/ in node/ssr', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const reactDomNamespace: NormalizedShared[string] = {
+      name: 'react-dom/',
+      from: '',
+      version: '19.2.4',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        import: false,
+        requiredVersion: '^19.2.4',
+        strictVersion: false,
+      },
+    };
+    const shared: NormalizedShared = {
+      'react-dom/': reactDomNamespace,
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const ssrCtx = {
+      environment: { name: 'ssr' },
+      resolve: async (id: string) => ({ id }),
+    } as any;
+
+    for (const source of [
+      'react-dom/server',
+      'react-dom/server.node',
+      'react-dom/server.edge',
+      'react-dom/static',
+      'react-dom/static.node',
+    ]) {
+      addUsedSharesMock.mockClear();
+      writeLoadShareModuleMock.mockClear();
+      const resolution = await callHook(
+        sharedResolvePlugin.resolveId,
+        ssrCtx,
+        source,
+        '/src/entry-server.tsx',
+        { isEntry: false, ssr: true }
+      );
+      expect((resolution as { id: string }).id).toBeDefined();
+      expect(writeLoadShareModuleMock).toHaveBeenCalledWith(
+        source,
+        reactDomNamespace,
+        'build',
+        false
+      );
+      expect(addUsedSharesMock).toHaveBeenCalledWith(source);
+      expect(preBuildShareItemMap.has(source)).toBe(false);
+    }
+
+    addUsedSharesMock.mockClear();
+    writeLoadShareModuleMock.mockClear();
+    const clientInSsr = await callHook(
+      sharedResolvePlugin.resolveId,
+      ssrCtx,
+      'react-dom/client',
+      '/src/entry-server.tsx',
+      { isEntry: false, ssr: true }
+    );
+    expect(clientInSsr).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-map react-dom/server* into the browser share set for a local provider', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const browserCtx = {
+      environment: { name: 'client' },
+      resolve: async (id: string) => ({ id }),
+    } as any;
+
+    addUsedSharesMock.mockClear();
+    writeLoadShareModuleMock.mockClear();
+    const clientResolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      browserCtx,
+      'react-dom/client',
+      '/src/App.tsx',
+      { isEntry: false }
+    );
+    expect((clientResolution as { id: string }).id).toBeDefined();
+    expect(addUsedSharesMock).toHaveBeenCalledWith('react-dom/client');
+
+    addUsedSharesMock.mockClear();
+    writeLoadShareModuleMock.mockClear();
+    for (const source of ['react-dom/server', 'react-dom/server.browser', 'react-dom/static']) {
+      const resolution = await callHook(
+        sharedResolvePlugin.resolveId,
+        browserCtx,
+        source,
+        '/src/App.tsx',
+        { isEntry: false }
+      );
+      expect(resolution).toBeUndefined();
+    }
+    expect(addUsedSharesMock).not.toHaveBeenCalled();
   });
 
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {

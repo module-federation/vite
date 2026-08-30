@@ -295,19 +295,19 @@ function normalizeShareItem(
  * Vite would not resolve the invalid `pkg/` specifier, while still auto-mapping
  * known subpaths when a local provider exists.
  *
- * `react/` is different: consumer-only shares need true namespace coverage for
- * any actually-imported subpath, not a hardcoded export list. Keep `react/` as
- * a prefix; concrete subpaths materialize on import via the generic matcher.
+ * `react/` stays a consumer namespace prefix: any actually-imported subpath
+ * matches (not a hardcoded JSX export list).
  *
- * `react-dom/` must keep collapsing. A browser-wide `react-dom/` prefix would
- * also capture `react-dom/server*`, which is unsafe without environment-aware
- * filtering. Browser-safe entries such as `react-dom/client` stay explicit via
- * COMMON_SHARED_SUBPATHS (local provider) or an exact shared key.
+ * `react-dom/` is also preserved as a prefix, but it is not blind: matching
+ * filters by share-set environment (browser/client → client + profiling;
+ * node/ssr/react-server → server and static entries). That keeps server
+ * react-dom entries out of the browser share set while still covering
+ * import:false consumers.
  */
 function normalizeSharedKey(key: string): string {
   if (!key.endsWith('/')) return key;
   const baseKey = key.slice(0, -1);
-  if (baseKey === 'react') return key;
+  if (baseKey === 'react' || baseKey === 'react-dom') return key;
   return getCommonSharedSubpaths(baseKey).length > 0 ? baseKey : key;
 }
 

@@ -784,7 +784,7 @@ export default __mfShared.default ?? __mfShared;`,
               const optimizeDeps = (config.optimizeDeps ??= {});
               optimizeDeps.include ??= [];
               optimizeDeps.exclude ??= [];
-              for (const subpath of getCommonSharedSubpaths(key)) {
+              for (const subpath of getCommonSharedSubpaths(key, 'client')) {
                 writePreBuildLibPath(subpath, shareItem, options);
                 if (canResolveSharedSubpath(subpath, root)) {
                   optimizeDeps.include.push(subpath);
@@ -827,10 +827,12 @@ export default __mfShared.default ?? __mfShared;`,
             } else {
               optimizeDeps.include.push(key);
             }
-            for (const subpath of getCommonSharedSubpaths(key)) {
+            for (const subpath of getCommonSharedSubpaths(key, 'client')) {
               const canResolveSubpath = canResolveSharedSubpath(subpath, root);
               if (
-                ['react/compiler-runtime', 'react-dom/client'].includes(subpath) &&
+                ['react/compiler-runtime', 'react-dom/client', 'react-dom/profiling'].includes(
+                  subpath
+                ) &&
                 !canResolveSubpath
               ) {
                 // These entry points only exist in newer React versions.

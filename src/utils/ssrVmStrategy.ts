@@ -123,13 +123,18 @@ function findVmSharedKey(
 
   const commonSubpathKey = keys.find((key) => {
     const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
-    return getCommonSharedSubpaths(keyBase).includes(specifier);
+    return getCommonSharedSubpaths(keyBase, 'ssr').includes(specifier);
   });
   if (commonSubpathKey) return commonSubpathKey;
 
   return keys.find((key) => {
     if (!key.endsWith('/')) return false;
     const keyBase = key.slice(0, -1);
+    if (keyBase === 'react-dom') {
+      return (
+        getCommonSharedSubpaths('react-dom', 'ssr').includes(specifier) || specifier === 'react-dom'
+      );
+    }
     return specifier === keyBase || specifier.startsWith(`${keyBase}/`);
   });
 }

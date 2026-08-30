@@ -3,13 +3,18 @@ import {
   ensureTrailingSlash,
   getBasePath,
   getCommonSharedSubpathFromNodeModulePath,
+  getCommonSharedSubpaths,
   getMatchingNodeModuleSubpath,
   isAssetLikeImport,
+  isEnvironmentAllowedReactDomSubpath,
   isNuxtClientBase,
   isNodeModulePath,
   normalizeNodeModulePath,
   removeTrailingSlash,
   resolvePublicPath,
+  resolveSharedSubpathShareSet,
+  REACT_DOM_CLIENT_SHARED_SUBPATHS,
+  REACT_DOM_SERVER_SHARED_SUBPATHS,
 } from '../pathNormalization';
 import type { NormalizedModuleFederationOptions } from '../normalizeModuleFederationOptions';
 
@@ -67,6 +72,48 @@ describe('pathNormalization', () => {
         'react'
       )
     ).toBe('react/jsx-runtime');
+  });
+
+  it('filters react-dom common subpaths by share-set environment', () => {
+    expect(resolveSharedSubpathShareSet(undefined)).toBe('client');
+    expect(resolveSharedSubpathShareSet('browser')).toBe('client');
+    expect(resolveSharedSubpathShareSet('client')).toBe('client');
+    expect(resolveSharedSubpathShareSet('ssr')).toBe('server');
+    expect(resolveSharedSubpathShareSet('node')).toBe('server');
+    expect(resolveSharedSubpathShareSet('react-server')).toBe('server');
+
+    expect(getCommonSharedSubpaths('react-dom', 'client')).toEqual([
+      ...REACT_DOM_CLIENT_SHARED_SUBPATHS,
+    ]);
+    expect(getCommonSharedSubpaths('react-dom', 'ssr')).toEqual([
+      ...REACT_DOM_SERVER_SHARED_SUBPATHS,
+    ]);
+    expect(getCommonSharedSubpaths('react-dom')).toEqual([...REACT_DOM_CLIENT_SHARED_SUBPATHS]);
+    expect(getCommonSharedSubpaths('react')).toEqual([
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      'react/compiler-runtime',
+    ]);
+
+    expect(isEnvironmentAllowedReactDomSubpath('react-dom/client', 'client')).toBe(true);
+    expect(isEnvironmentAllowedReactDomSubpath('react-dom/server', 'client')).toBe(false);
+    expect(isEnvironmentAllowedReactDomSubpath('react-dom/server.node', 'ssr')).toBe(true);
+    expect(isEnvironmentAllowedReactDomSubpath('react-dom/client', 'ssr')).toBe(false);
+
+    expect(
+      getCommonSharedSubpathFromNodeModulePath(
+        '/repo/node_modules/react-dom/server.browser.js',
+        'react-dom',
+        'client'
+      )
+    ).toBeUndefined();
+    expect(
+      getCommonSharedSubpathFromNodeModulePath(
+        '/repo/node_modules/react-dom/server.browser.js',
+        'react-dom',
+        'ssr'
+      )
+    ).toBe('react-dom/server.browser');
   });
 
   it.each([
