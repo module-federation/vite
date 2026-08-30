@@ -723,6 +723,75 @@ describe('virtualRemoteEntry', () => {
     expect(code).toMatch(/loaded: false,\s+materialize: true,\s+eager: true,\s+from: "host"/);
   });
 
+  it('expands eager react/ prefix into concrete shared modules, never the prefix string', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const reactNamespace = {
+      name: 'react/',
+      from: '',
+      version: '19.2.4',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        eager: true,
+        import: false,
+        requiredVersion: '^19.2.4',
+        strictVersion: false,
+      },
+    };
+    const options = {
+      internalName: '__mfe_internal__react_prefix',
+      name: 'react-prefix-host',
+      filename: 'remoteEntry.js',
+      shared: { 'react/': reactNamespace },
+      shareScope: 'default',
+      runtimePlugins: [],
+      shareStrategy: 'version-first',
+    } as any;
+
+    mod.addUsedShares('react/jsx-runtime', options);
+    mod.addUsedShares('react/jsx-dev-runtime', options);
+
+    const code = mod.generateLocalSharedImportMap(options);
+
+    expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
+    expect(code).toMatch(/"react\/jsx-runtime": \{[\s\S]*?materialize: true,/);
+    expect(code).toMatch(/"react\/jsx-dev-runtime": \{[\s\S]*?materialize: true,/);
+    expect(code).not.toMatch(/"react\/": \{/);
+  });
+
+  it('eager react/ still seeds the package root when no subpaths were imported yet', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const options = {
+      internalName: '__mfe_internal__react_eager_root',
+      name: 'react-eager-root',
+      filename: 'remoteEntry.js',
+      shared: {
+        'react/': {
+          name: 'react/',
+          from: '',
+          version: '19.2.4',
+          scope: 'default',
+          shareConfig: {
+            singleton: true,
+            eager: true,
+            import: false,
+            requiredVersion: '^19.2.4',
+            strictVersion: false,
+          },
+        },
+      },
+      shareScope: 'default',
+      runtimePlugins: [],
+      shareStrategy: 'version-first',
+    } as any;
+
+    const code = mod.generateLocalSharedImportMap(options);
+
+    expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
+    expect(code).not.toMatch(/"react\/": \{/);
+    expect(code).not.toContain('"react/jsx-runtime"');
+  });
+
   it('registers configured shares without materializing unused providers', async () => {
     const mod = await import('../virtualRemoteEntry');
     const options = {

@@ -1,5 +1,10 @@
-import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { findSharedKey } from '../plugins/pluginProxySharedModule_preBuild';
+import {
+  NormalizedModuleFederationOptions,
+  ShareItem,
+} from '../utils/normalizeModuleFederationOptions';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
+import { getUsedShares } from './virtualRemoteEntry';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
 import { MODULE_CACHE_SHARE_SCOPE_KEY } from './virtualRuntimeInitStatus';
 
@@ -18,6 +23,40 @@ export function getSsrRemoteEntryFileName(browserFilename: string): string {
 }
 
 /**
+ * Build-time singleton map for SSR init loadShare.
+ *
+ * Trailing-slash keys (`react/`) are namespace prefixes, not host share-scope
+ * entries. After #1148 they stay as prefixes, so JSON-serializing them and
+ * probing `scopeShare['react/']` would skip seeding. Expand via the same
+ * matcher + usedShares path as the browser entry: concrete packages that
+ * matched the prefix (e.g. `react`, `react/jsx-runtime`), never the prefix
+ * string itself.
+ */
+function getSsrSharedSingletons(
+  options: NormalizedModuleFederationOptions
+): Record<string, ShareItem> {
+  const used = getUsedShares(options);
+  const result: Record<string, ShareItem> = {};
+
+  for (const [pkg, share] of Object.entries(options.shared)) {
+    if (!share.shareConfig.singleton) continue;
+
+    if (pkg.endsWith('/')) {
+      for (const usedPkg of used) {
+        if (usedPkg.endsWith('/')) continue;
+        if (findSharedKey(usedPkg, options.shared) !== pkg) continue;
+        result[usedPkg] = { ...share, name: usedPkg };
+      }
+      continue;
+    }
+
+    result[pkg] = share;
+  }
+
+  return result;
+}
+
+/**
  * Generates the SSR remote entry module.
  *
  * This is intentionally minimal — no HMR shim, no loadShare virtual modules,
@@ -29,9 +68,7 @@ export function getSsrRemoteEntryFileName(browserFilename: string): string {
  */
 export function generateRemoteEntrySSR(options: NormalizedModuleFederationOptions): string {
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
-  const sharedSingletons = Object.fromEntries(
-    Object.entries(options.shared).filter(([, share]) => share.shareConfig.singleton)
-  );
+  const sharedSingletons = getSsrSharedSingletons(options);
 
   return `
   import { init as runtimeInit } from "@module-federation/runtime";
