@@ -105,6 +105,8 @@ export default defineConfig({
   plugins: [
     federation({
       name: "catalog",
+      // Default when omitted is "remoteEntry-[hash]". Pin a stable name when
+      // hosts hardcode the entry URL (e.g. during incremental migration).
       filename: "remoteEntry.js",
       exposes: {
         "./Product": "./src/Product.tsx",
@@ -117,7 +119,9 @@ export default defineConfig({
 
 `name` and expose keys remain unchanged, so existing consumer imports continue to work.
 
-With Vite's default build settings, the same `filename` produces a different remote entry path:
+When `filename` is omitted, `@module-federation/vite` emits a content-hashed remote entry (`remoteEntry-[hash]`, e.g. `remoteEntry-a1b2c3d4.js`). Hosts that hardcode `remoteEntry.js` will break unless you pin `filename: 'remoteEntry.js'` or switch them to the hashed URL / manifest.
+
+With Vite's default build settings, an explicit `filename: 'remoteEntry.js'` also produces a different remote entry path than OriginJS:
 
 - OriginJS with `filename: 'remoteEntry.js'`: `dist/assets/remoteEntry.js`
 - `@module-federation/vite` with `filename: 'remoteEntry.js'`: `dist/remoteEntry.js`
@@ -173,11 +177,22 @@ The first host migration keeps the array-form `shared` configuration unchanged. 
 
 Use an object remote with an explicit `type` for a Vite ESM remote.
 
-**X — Incorrect:** a string remote is interpreted as `var`.
+**X — Incorrect:** a string remote is interpreted as `var` (and emits a warning).
 
 ```ts
 remotes: {
   catalog: 'https://cdn.example.com/catalog/remoteEntry.js',
+}
+```
+
+**X — Incorrect:** an object remote without `type` also defaults to `var`.
+
+```ts
+remotes: {
+  catalog: {
+    name: 'catalog',
+    entry: 'https://cdn.example.com/catalog/remoteEntry.js',
+  },
 }
 ```
 

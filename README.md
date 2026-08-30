@@ -83,6 +83,8 @@ import { createModuleFederationConfig } from "@module-federation/vite";
 
 export default createModuleFederationConfig({
   name: "remote",
+  // Default when omitted is "remoteEntry-[hash]" (content-hashed).
+  // Pin a stable name when hosts hardcode the entry URL:
   filename: "remoteEntry.js",
   exposes: {
     "./remote-app": "./src/App.vue",
@@ -115,6 +117,8 @@ export default defineConfig({
     [...]
     federation({ 👈
       name: "remote",
+      // Defaults to "remoteEntry-[hash]". Set an explicit name when hosts
+      // hardcode the entry URL (omitting filename cache-busts those hosts).
       filename: "remoteEntry.js",
       // optional: additional "var" remoteEntry file
       // needed only for legacy hosts with "var" usage (remote.type = 'var')
@@ -132,7 +136,7 @@ export default defineConfig({
 });
 ```
 
-In this remote app configuration, we define a remoteEntry.js file that will expose the App component.
+In this remote app configuration, we set `filename: "remoteEntry.js"` so hosts can load a stable remote entry URL. If you omit `filename`, the default is `remoteEntry-[hash]` (a content-hashed file such as `remoteEntry-a1b2c3d4.js`). Prefer the hashed default with manifest-based remotes, or pin `filename: "remoteEntry.js"` when hosts hardcode the entry path.
 The shared property ensures that both host and remote applications use the same vue library.
 
 ### Host-only shared dependencies
@@ -167,21 +171,21 @@ export default defineConfig({
       name: "host",
       remotes: {
         remote: {
-          type: "module", // type "var" (default) for vite remote is supported with remote's `varFilename` option
+          type: "module", // required for Vite ESM remotes; omitting type defaults to "var" and fails silently
           name: "remote",
           entry: "https://[...]/remoteEntry.js",
           entryGlobalName: "remote",
           shareScope: "default",
         },
       },
+      // Only needed when this host also acts as a remote. Defaults to "remoteEntry-[hash]".
       filename: "remoteEntry.js",
       shared: ["vue"],
       // Optional parameter that controls where the host initialization script is injected.
-      // By default, it is injected into the index.html file.
-      // You can set this to "entry" to inject it into the entry script instead.
-      // Recommended for SSR hosts without index.html (Nitro, TanStack Start) so
+      // Default: "html" (injected into index.html).
+      // Use "entry" for SSR hosts without index.html (Nitro, TanStack Start) so
       // initHost() completes before hydrateRoot and @module-federation/bridge-react
-      // remotes render on first paint.
+      // remotes render on first paint. Without "entry", hydration wraps never run.
       hostInitInjectLocation: "html", // or "entry"
       // Controls whether all CSS assets from the bundle should be added to every exposed module.
       // When false (default), the plugin will not process any CSS assets.
@@ -236,7 +240,26 @@ export default defineConfig({
 });
 ```
 
-The host app configuration specifies its name, the filename of its exposed remote entry remoteEntry.js, and importantly, the configuration of the remote application to load.
+### Nitro / TanStack Start hosts
+
+SSR hosts without `index.html` must inject host init into the entry script and declare Vite remotes as ESM:
+
+```ts
+federation({
+  name: "host",
+  remotes: {
+    remote: {
+      type: "module",
+      name: "remote",
+      entry: "https://[...]/remoteEntry.js",
+    },
+  },
+  shared: ["vue"],
+  hostInitInjectLocation: "entry",
+});
+```
+
+The host app configuration specifies its name, optionally pins `filename` when it also exposes a remote entry (default `remoteEntry-[hash]`), and importantly, the configuration of the remote application to load.
 You can specify the place the host initialization file is injected with the **hostInitInjectLocation** option, which is described in the example code above.
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
@@ -338,6 +361,7 @@ federation({
 ```ts
 federation({
   name: "remote",
+  // Pin a stable name; default is "remoteEntry-[hash]"
   filename: "remoteEntry.js",
   exposes: {
     "./App": "./src/App.tsx",

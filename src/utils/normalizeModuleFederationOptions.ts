@@ -95,6 +95,33 @@ export function normalizeRemotes(
   return result;
 }
 
+/** Remotes that already received the omitted-type warning (warn once per alias). */
+const omittedRemoteTypeWarned = new Set<string>();
+
+/** @internal Clears omitted-type warn tracking between unit tests. */
+export function resetOmittedRemoteTypeWarnedForTests(): void {
+  omittedRemoteTypeWarned.clear();
+}
+
+/**
+ * Defaults remain `type: 'var'` for backward compatibility. Vite ESM remotes
+ * need an explicit `type: 'module'`; omitting type often fails silently.
+ */
+function warnOmittedRemoteType(remoteKey: string, entry: string): void {
+  if (omittedRemoteTypeWarned.has(remoteKey)) return;
+  omittedRemoteTypeWarned.add(remoteKey);
+
+  const looksLikeModuleEntry = /\.(m?js)(?:[?#]|$)/i.test(entry);
+  const entryHint = looksLikeModuleEntry
+    ? ` Entry "${entry}" looks like a .js/.mjs module; Vite ESM remotes need type: 'module' or they fail silently under the 'var' default.`
+    : ` Vite ESM remotes need type: 'module'; omitting type defaults to 'var'.`;
+
+  mfWarn(
+    `Remote "${remoteKey}" omits type and defaults to 'var'.${entryHint} ` +
+      `Set type: 'module' for Vite ESM remotes, or type: 'var' explicitly to silence this warning.`
+  );
+}
+
 function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): RemoteObjectConfig {
   warnOnReservedInternalNamePrefix(key, 'remoteAlias');
   if (typeof remote === 'string') {
@@ -110,6 +137,7 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
       entryGlobalName = remote;
       entry = remote;
     }
+    warnOmittedRemoteType(key, entry);
     return {
       type: 'var',
       name: key,
@@ -119,6 +147,12 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
       shareScope: 'default',
     };
   }
+
+  const typeOmitted = remote.type == null || remote.type === '';
+  if (typeOmitted) {
+    warnOmittedRemoteType(key, remote.entry);
+  }
+
   return Object.assign(
     {
       type: 'var',
