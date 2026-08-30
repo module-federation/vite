@@ -1,4 +1,9 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+export {
+  getSsrRemoteEntryFileName,
+  resolveDevHashEntryFileName,
+  resolveSsrRemoteEntryFileName,
+} from '../utils/remoteEntryFileName';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
 import { MODULE_CACHE_SHARE_SCOPE_KEY } from './virtualRuntimeInitStatus';
@@ -9,12 +14,6 @@ export function getRemoteEntrySSRId(
   options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
 ) {
   return `${REMOTE_ENTRY_SSR_ID}:${getVirtualModuleScopeKey(options)}`;
-}
-
-export function getSsrRemoteEntryFileName(browserFilename: string): string {
-  const ext = browserFilename.match(/\.[^.]+$/)?.[0] || '.js';
-  const base = browserFilename.slice(0, browserFilename.length - ext.length);
-  return `${base}.ssr${ext}`;
 }
 
 /**

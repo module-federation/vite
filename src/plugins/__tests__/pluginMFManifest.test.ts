@@ -802,7 +802,28 @@ describe('pluginMFManifest', () => {
     const manifest = JSON.parse(emitted['mf-manifest.json']);
 
     expect(manifest.metaData.remoteEntry.name).toBe('remoteEntry-a1b2c3d4.js');
-    expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry-a1b2c3d4.ssr.js');
+    // Hashed browser filenames keep a stable SSR companion so emit/middleware/manifest align.
+    expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry.ssr.js');
+  });
+
+  it('aligns build SSR emit name with metaData.ssrRemoteEntry for hashed filenames', async () => {
+    const bundle = makeBundle();
+    const remoteEntry = bundle['remoteEntry.js'] as OutputChunk;
+    remoteEntry.fileName = 'remoteEntry-deadbeef.js';
+    // Simulate the SSR plugin having emitted the resolved stable companion.
+    (bundle as OutputBundle)['remoteEntry.ssr.js'] = {
+      ...remoteEntry,
+      fileName: 'remoteEntry.ssr.js',
+      name: 'ssrRemoteEntry',
+    };
+    const emitted = await runGenerateBundleWithManifest(true, {
+      filename: 'remoteEntry-[hash]',
+      bundle,
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry.ssr.js');
+    expect(bundle['remoteEntry.ssr.js']).toBeDefined();
   });
 
   // An expose basenamed like the container gets the same chunk name; even emitted first,

@@ -17,6 +17,10 @@ import {
 
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import {
+  resolveDevHashEntryFileName,
+  resolveSsrRemoteEntryFileName,
+} from '../utils/remoteEntryFileName';
+import {
   addCssAssetsToAllExports,
   buildFileToShareKeyMap,
   collectCssAssets,
@@ -33,7 +37,6 @@ import { normalizePathForImport } from '../utils/buildPaths';
 import { DEFAULT_PUBLIC_TYPES_FOLDER } from '../utils/dtsConstants';
 import { normalizeVirtualModuleId } from '../utils/VirtualModule';
 import { getVirtualExposesId } from '../virtualModules/virtualExposes';
-import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
 
 /**
  * Resolves the build version for the module federation manifest.
@@ -77,15 +80,6 @@ function resolveTypesMeta(dts: ReturnType<typeof getNormalizeModuleFederationOpt
     zip: `${typesFolder}.zip`,
     api: `${typesFolder}.d.ts`,
   };
-}
-
-function resolveDevRemoteEntryFileName(fileName: string): string {
-  if (!fileName.includes('[hash')) return fileName;
-
-  const normalized = fileName.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
-  const baseName = path.basename(normalized);
-
-  return path.extname(baseName) ? normalized : `${normalized}.js`;
 }
 
 function createRemoteEntryAssetMap(fileName: string) {
@@ -290,7 +284,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
        */
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
-          const devRemoteEntryFile = resolveDevRemoteEntryFileName(filename);
+          const devRemoteEntryFile = resolveDevHashEntryFileName(filename);
           if (
             devRemoteEntryFile !== filename &&
             Object.keys(mfOptions.exposes).length > 0 &&
@@ -328,7 +322,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
                     type: 'module',
                   },
                   ssrRemoteEntry: {
-                    name: getSsrRemoteEntryFileName(devRemoteEntryFile),
+                    name: resolveSsrRemoteEntryFileName(filename),
                     path: '/__mf_ssr__/',
                     type: 'module',
                   },
@@ -403,8 +397,12 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         let filesMap: PreloadMap = {};
 
         const foundRemoteEntryFile = findRemoteEntryFile(mfOptions.filename, bundle);
-        const expectedSsrRemoteEntryFile = getSsrRemoteEntryFileName(
-          foundRemoteEntryFile || mfOptions.filename
+        // Hashed browser filenames keep a stable SSR companion (`remoteEntry.ssr.js`)
+        // so emit, middleware, and manifest stay aligned. Non-hash configs still
+        // derive the SSR name from the emitted browser chunk when present.
+        const expectedSsrRemoteEntryFile = resolveSsrRemoteEntryFileName(
+          mfOptions.filename,
+          foundRemoteEntryFile
         );
         const foundSsrRemoteEntryFile = Object.values(bundle).find(
           (file) => file.fileName === expectedSsrRemoteEntryFile
@@ -417,7 +415,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         ssrRemoteEntryFile =
           foundSsrRemoteEntryFile ||
           (_command === 'serve'
-            ? getSsrRemoteEntryFileName(resolveDevRemoteEntryFileName(mfOptions.filename))
+            ? resolveSsrRemoteEntryFileName(mfOptions.filename)
             : expectedSsrRemoteEntryFile);
 
         // Second pass: Collect all CSS assets
@@ -520,7 +518,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
     const { name, varFilename } = options;
     const resolvedRemoteEntryFile =
       _command === 'serve'
-        ? remoteEntryFile || resolveDevRemoteEntryFileName(filename)
+        ? remoteEntryFile || resolveDevHashEntryFileName(filename)
         : remoteEntryFile;
     const remoteEntry = {
       name: resolvedRemoteEntryFile,
@@ -530,9 +528,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
     const ssrRemoteEntry = {
       name:
         ssrRemoteEntryFile ||
-        getSsrRemoteEntryFileName(
-          _command === 'serve' ? resolveDevRemoteEntryFileName(filename) : filename
-        ),
+        resolveSsrRemoteEntryFileName(filename, _command === 'serve' ? null : remoteEntryFile),
       path: _command === 'serve' ? '/__mf_ssr__/' : '',
       type: 'module',
     };

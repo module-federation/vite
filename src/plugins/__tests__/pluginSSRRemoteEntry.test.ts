@@ -30,23 +30,24 @@ vi.mock('../../utils/packageUtils', () => ({
   getExtFromNpmPackage: vi.fn(() => '.js'),
 }));
 
+vi.mock('../../virtualModules/virtualRemoteEntrySSR', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../virtualModules/virtualRemoteEntrySSR')>();
+  return {
+    ...actual,
+    generateRemoteEntrySSR: vi.fn(() => 'export { init, get }'),
+    getRemoteEntrySSRId: vi.fn(
+      (opts: { internalName: string; filename: string }) =>
+        `virtual:mf-REMOTE_ENTRY_SSR_ID:${opts.internalName}__${opts.filename.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    ),
+  };
+});
+
 vi.mock('../../virtualModules/virtualExposesSSR', () => ({
   generateExposesSSR: vi.fn(() => 'export default {}'),
   getVirtualExposesSSRId: vi.fn(
     (opts: { internalName: string }) => `virtual:mf-exposes-ssr:${opts.internalName}`
   ),
-}));
-
-vi.mock('../../virtualModules/virtualRemoteEntrySSR', () => ({
-  generateRemoteEntrySSR: vi.fn(() => 'export { init, get }'),
-  getRemoteEntrySSRId: vi.fn(
-    (opts: { internalName: string; filename: string }) =>
-      `virtual:mf-REMOTE_ENTRY_SSR_ID:${opts.internalName}__${opts.filename.replace(/[^a-zA-Z0-9_-]/g, '_')}`
-  ),
-  getSsrRemoteEntryFileName: vi.fn((filename: string) => {
-    const base = filename.replace(/\.[^.]+$/, '');
-    return `${base}.ssr.js`;
-  }),
 }));
 
 import { generateRemoteEntrySSR } from '../../virtualModules/virtualRemoteEntrySSR';
@@ -517,6 +518,59 @@ describe('pluginSSRRemoteEntry', () => {
       expect(secondResponse.body).toBe(firstResponse.body);
       expect(generateRemoteEntrySSR).toHaveBeenCalledTimes(1);
     });
+
+    it('serves hashed filename configs at /__mf_ssr__/remoteEntry.ssr.js', () => {
+      const plugins = pluginSSRRemoteEntry(makeOptions({ filename: 'remoteEntry-[hash]' }));
+      const mainPlugin = plugins[1];
+      const handlers: { path: string; handler: (req: unknown, res: unknown) => unknown }[] = [];
+
+      callHook(
+        mainPlugin.configResolved,
+        {} as Rollup.PluginContext,
+        { base: '/', root: '/mock/cwd' } as unknown as ResolvedConfig
+      );
+      callHook(
+        mainPlugin.configureServer,
+        {} as Rollup.PluginContext,
+        {
+          config: { root: '/mock/cwd' },
+          environments: {},
+          middlewares: {
+            use(
+              pathOrHandler: string | ((req: unknown, res: unknown) => unknown),
+              handler?: unknown
+            ) {
+              if (typeof pathOrHandler === 'string') {
+                handlers.push({
+                  path: pathOrHandler,
+                  handler: handler as (req: unknown, res: unknown) => unknown,
+                });
+              }
+            },
+          },
+        } as never
+      );
+
+      expect(handlers.some((entry) => entry.path === '/__mf_ssr__/remoteEntry.ssr.js')).toBe(true);
+      expect(handlers.some((entry) => entry.path.includes('[hash]'))).toBe(false);
+      expect(handlers.some((entry) => entry.path === '/__mf_ssr__/remoteEntry.exposes.js')).toBe(
+        true
+      );
+
+      const resolved = callHook(
+        mainPlugin.resolveId,
+        {} as Rollup.PluginContext,
+        '/__mf_ssr__/remoteEntry.ssr.js'
+      );
+      expect(resolved).toContain('virtual:mf-REMOTE_ENTRY_SSR_ID');
+      expect(
+        callHook(
+          mainPlugin.resolveId,
+          {} as Rollup.PluginContext,
+          '/__mf_ssr__/remoteEntry-[hash].ssr.js'
+        )
+      ).toBeUndefined();
+    });
   });
 
   describe('main plugin — configureServer runner endpoint', () => {
@@ -973,6 +1027,59 @@ describe('pluginSSRRemoteEntry', () => {
         {} as Rollup.NormalizedOutputOptions,
         {} as Rollup.OutputBundle,
         false
+      );
+
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'chunk',
+          name: 'ssrRemoteEntry',
+          fileName: 'remoteEntry.ssr.js',
+        })
+      );
+    });
+
+    it('emits stable SSR filename for hashed browser remoteEntry configs', () => {
+      getIsRolldownMock.mockReturnValue(false);
+      const emitFile = makeEmitFile();
+      const plugins = pluginSSRRemoteEntry(makeOptions({ filename: 'remoteEntry-[hash]' }));
+      const mainPlugin = plugins[1];
+      configureLegacySsrBuild(mainPlugin);
+
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle,
+        false
+      );
+
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'asset',
+          fileName: 'remoteEntry.ssr.js',
+        })
+      );
+      expect(emitFile).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileName: expect.stringContaining('[hash]'),
+        })
+      );
+    });
+
+    it('emits stable SSR chunk name for Rolldown hashed configs', () => {
+      getIsRolldownMock.mockReturnValue(true);
+      const emitFile = makeEmitFile();
+      const plugins = pluginSSRRemoteEntry(makeOptions({ filename: 'remoteEntry-[hash]' }));
+      const mainPlugin = plugins[1];
+      configureLegacySsrBuild(mainPlugin);
+
+      callHook(
+        mainPlugin.buildStart,
+        {
+          meta: makePluginMeta(true),
+          emitFile,
+        } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
       );
 
       expect(emitFile).toHaveBeenCalledWith(
