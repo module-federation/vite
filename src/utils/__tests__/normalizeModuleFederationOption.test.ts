@@ -646,6 +646,9 @@ describe('normalizeModuleFederationOption', () => {
           'workspace:*',
           'npm:react@^19.0.0',
           'patch:react@19.2.7#./patches/react.patch',
+          'file:../react',
+          'link:../react',
+          'portal:../react',
           '',
         ]) {
           const shared = normalizeModuleFederationOptions({
@@ -659,22 +662,22 @@ describe('normalizeModuleFederationOption', () => {
           }).shared;
 
           expect(shared.react.shareConfig.requiredVersion).toBe('^19.2.7');
-          expect(shared.react.shareConfig.requiredVersion).not.toMatch(
-            /^(catalog:|workspace:|npm:|patch:|$)/
-          );
         }
 
-        // Normal semver ranges still pass through unchanged.
-        const semverShared = normalizeModuleFederationOptions({
-          ...minimalOptions,
-          shared: {
-            react: {
-              singleton: true,
-              requiredVersion: '^19.0.0',
+        // Real ranges — including leading spaces / compound OR — stay unchanged.
+        // Do not use isRequiredVersion(); it only checks a prefix regex.
+        for (const range of ['^19.0.0', ' >= 8.0.0', '* || ^8.0.0']) {
+          const shared = normalizeModuleFederationOptions({
+            ...minimalOptions,
+            shared: {
+              react: {
+                singleton: true,
+                requiredVersion: range,
+              },
             },
-          },
-        }).shared;
-        expect(semverShared.react.shareConfig.requiredVersion).toBe('^19.0.0');
+          }).shared;
+          expect(shared.react.shareConfig.requiredVersion).toBe(range);
+        }
       } finally {
         setPackageDetectionCwd(process.cwd());
       }

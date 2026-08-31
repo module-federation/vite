@@ -1,5 +1,5 @@
 import { SharedConfig, ShareStrategy } from '@module-federation/runtime/types';
-import { isRequiredVersion, type moduleFederationPlugin } from '@module-federation/sdk';
+import type { moduleFederationPlugin } from '@module-federation/sdk';
 
 export type RemoteEntryType =
   | 'var'
@@ -192,6 +192,13 @@ function inferVersionFromRequiredVersion(
   return match?.[0];
 }
 
+/** Package-manager protocols that are not semver ranges for runtime satisfy(). */
+const PACKAGE_MANAGER_PROTOCOL_RE = /^(catalog|workspace|npm|patch|file|link|portal):/;
+
+function isPackageManagerProtocolRequiredVersion(requiredVersion: string): boolean {
+  return PACKAGE_MANAGER_PROTOCOL_RE.test(requiredVersion.trim());
+}
+
 function getLitExportSubpathShares(sharedName: string): string[] {
   if (sharedName !== 'lit') return [];
 
@@ -278,13 +285,16 @@ function normalizeShareItem(
       },
     };
   }
-  // Package-manager protocols (catalog:, workspace:*, npm:pkg@range, patch:, …)
+  // Package-manager protocols (catalog:, workspace:*, npm:, patch:, file:, …)
   // are not semver ranges. Passing them through breaks runtime satisfy().
-  // Treat non-isRequiredVersion strings as unset and fall back like auto-path.
+  // Only rewrite known protocols / empty string — keep real ranges as-is
+  // (including leading spaces and compound ranges like "* || ^8.0.0").
   const userRequiredVersion = shareItem.requiredVersion;
-  const hasUsableRequiredVersion =
+  const keepUserRequiredVersion =
     userRequiredVersion === false ||
-    (typeof userRequiredVersion === 'string' && isRequiredVersion(userRequiredVersion));
+    (typeof userRequiredVersion === 'string' &&
+      userRequiredVersion.trim() !== '' &&
+      !isPackageManagerProtocolRequiredVersion(userRequiredVersion));
 
   return {
     name: key,
@@ -295,7 +305,7 @@ function normalizeShareItem(
       import: shareItem.import,
       singleton: shareItem.singleton || false,
       eager: shareItem.eager || false,
-      requiredVersion: hasUsableRequiredVersion
+      requiredVersion: keepUserRequiredVersion
         ? userRequiredVersion
         : isImportFalse || shareItem.version
           ? '*'
