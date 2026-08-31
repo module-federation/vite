@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
+import { addUsedShares, getUsedShares } from '../virtualRemoteEntry';
 import { generateRemoteEntrySSR, getRemoteEntrySSRId } from '../virtualRemoteEntrySSR';
 import { MODULE_CACHE_SHARE_SCOPE_KEY } from '../virtualRuntimeInitStatus';
 
@@ -64,8 +65,13 @@ function createRuntime(
   }));
 }
 
+beforeEach(() => {
+  getUsedShares().clear();
+});
+
 afterEach(() => {
   delete (globalThis as Record<string, unknown>).__mf_module_cache__;
+  getUsedShares().clear();
 });
 
 describe('virtualRemoteEntrySSR', () => {
@@ -275,5 +281,35 @@ describe('virtualRemoteEntrySSR', () => {
       react: module,
     });
     expect((globalThis as any).__mf_module_cache__).toBeUndefined();
+  });
+
+  it('expands react/ prefix into concrete SSR loadShare targets, never the prefix string', async () => {
+    const reactNamespace = {
+      name: 'react/',
+      version: '19.0.0',
+      scope: 'default',
+      from: '',
+      shareConfig: { singleton: true, import: false, requiredVersion: '^19.0.0' },
+    };
+    const options = getDefaultMockOptions({
+      name: 'remote',
+      shared: { 'react/': reactNamespace },
+    } as any);
+
+    addUsedShares('react', options);
+    addUsedShares('react/jsx-runtime', options);
+
+    const code = generateRemoteEntrySSR(options);
+    expect(code).toContain('"react"');
+    expect(code).toContain('"react/jsx-runtime"');
+    expect(code).not.toContain('"react/"');
+
+    const loadShare = vi.fn(async (pkg: string) => () => ({ marker: pkg }));
+    const entry = evaluateGeneratedEntry(code, createRuntime(undefined, loadShare));
+
+    await expect(entry.init({ react: {}, 'react/jsx-runtime': {} })).resolves.toBeDefined();
+
+    expect(loadShare.mock.calls.map(([pkg]) => pkg).sort()).toEqual(['react', 'react/jsx-runtime']);
+    expect(loadShare.mock.calls.some(([pkg]) => pkg === 'react/')).toBe(false);
   });
 });
