@@ -617,6 +617,83 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
+    it('ignores package-manager protocol requiredVersion and falls back to installed version', () => {
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const fixtureRoot = path.join(
+        require('node:os').tmpdir(),
+        'mf-vite-protocol-required-version'
+      );
+      fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      const reactDir = path.join(fixtureRoot, 'node_modules/react');
+      fs.mkdirSync(reactDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(fixtureRoot, 'package.json'),
+        JSON.stringify({ name: 'consumer-app', dependencies: { react: 'catalog:' } })
+      );
+      fs.writeFileSync(
+        path.join(reactDir, 'package.json'),
+        JSON.stringify({ name: 'react', version: '19.2.7', main: 'index.js' })
+      );
+      fs.writeFileSync(path.join(reactDir, 'index.js'), '');
+
+      setPackageDetectionCwd(fixtureRoot);
+
+      try {
+        for (const protocol of [
+          'catalog:',
+          'catalog:react19',
+          'workspace:*',
+          'npm:react@^19.0.0',
+          'patch:react@19.2.7#./patches/react.patch',
+          '',
+        ]) {
+          const shared = normalizeModuleFederationOptions({
+            ...minimalOptions,
+            shared: {
+              react: {
+                singleton: true,
+                requiredVersion: protocol,
+              },
+            },
+          }).shared;
+
+          expect(shared.react.shareConfig.requiredVersion).toBe('^19.2.7');
+          expect(shared.react.shareConfig.requiredVersion).not.toMatch(
+            /^(catalog:|workspace:|npm:|patch:|$)/
+          );
+        }
+
+        // Normal semver ranges still pass through unchanged.
+        const semverShared = normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: {
+            react: {
+              singleton: true,
+              requiredVersion: '^19.0.0',
+            },
+          },
+        }).shared;
+        expect(semverShared.react.shareConfig.requiredVersion).toBe('^19.0.0');
+      } finally {
+        setPackageDetectionCwd(process.cwd());
+      }
+    });
+
+    it('falls back to * when protocol requiredVersion has no installed package', () => {
+      const shared = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          'missing-protocol-dep': {
+            singleton: true,
+            requiredVersion: 'catalog:',
+          },
+        },
+      }).shared;
+
+      expect(shared['missing-protocol-dep'].shareConfig.requiredVersion).toBe('*');
+    });
+
     it('preserves react/ as a namespace prefix and collapses react-dom/', () => {
       const shared = normalizeModuleFederationOptions({
         ...minimalOptions,

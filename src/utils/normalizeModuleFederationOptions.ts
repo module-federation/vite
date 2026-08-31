@@ -1,5 +1,5 @@
 import { SharedConfig, ShareStrategy } from '@module-federation/runtime/types';
-import type { moduleFederationPlugin } from '@module-federation/sdk';
+import { isRequiredVersion, type moduleFederationPlugin } from '@module-federation/sdk';
 
 export type RemoteEntryType =
   | 'var'
@@ -278,6 +278,14 @@ function normalizeShareItem(
       },
     };
   }
+  // Package-manager protocols (catalog:, workspace:*, npm:pkg@range, patch:, …)
+  // are not semver ranges. Passing them through breaks runtime satisfy().
+  // Treat non-isRequiredVersion strings as unset and fall back like auto-path.
+  const userRequiredVersion = shareItem.requiredVersion;
+  const hasUsableRequiredVersion =
+    userRequiredVersion === false ||
+    (typeof userRequiredVersion === 'string' && isRequiredVersion(userRequiredVersion));
+
   return {
     name: key,
     from: '',
@@ -287,14 +295,13 @@ function normalizeShareItem(
       import: shareItem.import,
       singleton: shareItem.singleton || false,
       eager: shareItem.eager || false,
-      requiredVersion:
-        shareItem.requiredVersion !== undefined
-          ? shareItem.requiredVersion
-          : isImportFalse || shareItem.version
-            ? '*'
-            : version
-              ? `^${version}`
-              : '*',
+      requiredVersion: hasUsableRequiredVersion
+        ? userRequiredVersion
+        : isImportFalse || shareItem.version
+          ? '*'
+          : version
+            ? `^${version}`
+            : '*',
       strictVersion: !!shareItem.strictVersion,
       ...(shareItem.suppressMissingImportWarning ? { suppressMissingImportWarning: true } : {}),
       ...(treeShaking ? { treeShaking: { ...treeShaking } } : {}),
