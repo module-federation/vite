@@ -11,8 +11,7 @@ import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/vi
 import {
   generateRemoteEntrySSR,
   getRemoteEntrySSRId,
-  resolveDevHashEntryFileName,
-  resolveSsrRemoteEntryFileName,
+  getSsrRemoteEntryFileName,
 } from '../virtualModules/virtualRemoteEntrySSR';
 
 const MAX_RUNNER_BODY_BYTES = 1024 * 1024;
@@ -214,18 +213,11 @@ function readBoundedRunnerBody(
  * so Node resolves them through its own module cache, guaranteeing the singleton
  * is shared with react-dom/server.
  */
-function resolveSsrExposesDevFileName(filename: string): string {
-  const stable = resolveDevHashEntryFileName(filename);
-  return `${stable.replace(/\.[^.]+$/, '')}.exposes.js`;
-}
-
 export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions): Plugin[] {
   const remoteEntrySSRId = getRemoteEntrySSRId(options);
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
   let cachedSsrRemoteEntrySource: string | undefined;
-  // Never keep a literal `[hash]` placeholder — serve/build use the resolved name.
-  const ssrOutputFilename = resolveSsrRemoteEntryFileName(options.filename);
-  const ssrExposesDevFileName = resolveSsrExposesDevFileName(options.filename);
+  const ssrOutputFilename = getSsrRemoteEntryFileName(options.filename);
   let ssrOutputFiles = new Set<string>();
   let ssrOutputDir = '';
   let clientOutputDir = '';
@@ -374,7 +366,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       configureServer(server) {
         const base = '/__mf_ssr__';
         const basePath = getBasePath(viteConfig?.base);
-        const ssrEntryFileName = ssrOutputFilename;
+        const ssrEntryFileName = getSsrRemoteEntryFileName(options.filename);
 
         if (isNuxtProject || isNuxtClientBase(basePath)) {
           server.middlewares.use((req, _res, next) => {
@@ -486,7 +478,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Serve the SSR remote entry at a predictable URL.
         const ssrPath = `${base}/${ssrEntryFileName}`;
         server.middlewares.use(ssrPath, (_req, res) => {
-          const exposesUrl = `${base}/${ssrExposesDevFileName}`;
+          const exposesUrl = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
           const code = getSsrRemoteEntrySource().replace(
             JSON.stringify(virtualExposesSSRId),
             JSON.stringify(exposesUrl)
@@ -496,7 +488,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           res.end(code);
         });
 
-        const exposesPath = `${base}/${ssrExposesDevFileName}`;
+        const exposesPath = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
         server.middlewares.use(exposesPath, (_req, res) => {
           res.setHeader('Content-Type', 'application/javascript');
           res.setHeader('Access-Control-Allow-Origin', '*');
@@ -512,9 +504,9 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Vite 8+ dev path: allow server.fetchModule() to resolve the
         // /__mf_ssr__/*.ssr.js URL as the virtual SSR entry. ModuleRunner
         // imports this path and Vite resolves it here so load() can serve it.
-        const ssrDevPath = `/__mf_ssr__/${ssrOutputFilename}`;
+        const ssrDevPath = `/__mf_ssr__/${getSsrRemoteEntryFileName(options.filename)}`;
         if (id === ssrDevPath) return remoteEntrySSRId;
-        const exposesDevPath = `/__mf_ssr__/${ssrExposesDevFileName}`;
+        const exposesDevPath = `/__mf_ssr__/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
         if (id === exposesDevPath) return virtualExposesSSRId;
       },
 

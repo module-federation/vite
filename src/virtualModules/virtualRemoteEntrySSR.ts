@@ -1,9 +1,4 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-export {
-  getSsrRemoteEntryFileName,
-  resolveDevHashEntryFileName,
-  resolveSsrRemoteEntryFileName,
-} from '../utils/remoteEntryFileName';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
 import { MODULE_CACHE_SHARE_SCOPE_KEY } from './virtualRuntimeInitStatus';
@@ -14,6 +9,22 @@ export function getRemoteEntrySSRId(
   options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
 ) {
   return `${REMOTE_ENTRY_SSR_ID}:${getVirtualModuleScopeKey(options)}`;
+}
+
+export function getSsrRemoteEntryFileName(browserFilename: string): string {
+  // Strip literal `[hash]` / `[hash:N]` placeholders so the SSR companion stays
+  // stable (`remoteEntry-[hash].js` → `remoteEntry.ssr.js`). Do not try to mirror
+  // the browser content hash in the SSR filename.
+  let filename = browserFilename;
+  if (filename.includes('[hash')) {
+    filename = filename.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
+    if (!/\.[^.]+$/.test(filename)) {
+      filename = `${filename}.js`;
+    }
+  }
+  const ext = filename.match(/\.[^.]+$/)?.[0] || '.js';
+  const base = filename.slice(0, filename.length - ext.length);
+  return `${base}.ssr${ext}`;
 }
 
 /**

@@ -14,7 +14,6 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
 import { ensureTrailingSlash, filterId, resolvePublicPath } from '../utils/pathNormalization';
-import { resolveDevHashEntryFileName } from '../utils/remoteEntryFileName';
 import {
   generateExposes,
   generateHostAutoInitCode,
@@ -28,6 +27,15 @@ interface ProxyRemoteEntryParams {
   remoteEntryId: string;
   virtualExposesId: string;
   getParsePromise?: () => Promise<unknown>;
+}
+
+function resolveDevHashEntryFileName(fileName: string) {
+  if (!fileName.includes('[hash')) return fileName;
+
+  const normalized = fileName.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
+  const baseName = path.basename(normalized);
+
+  return path.extname(baseName) ? normalized : `${normalized}.js`;
 }
 
 function resolveAbsoluteDevRemoteEntryUrl(publicPath: string, fileName: string): string {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
-import { generateRemoteEntrySSR, getRemoteEntrySSRId } from '../virtualRemoteEntrySSR';
+import { generateRemoteEntrySSR, getRemoteEntrySSRId, getSsrRemoteEntryFileName } from '../virtualRemoteEntrySSR';
 import { MODULE_CACHE_SHARE_SCOPE_KEY } from '../virtualRuntimeInitStatus';
 
 type SsrEntry = {
@@ -69,6 +69,23 @@ afterEach(() => {
 });
 
 describe('virtualRemoteEntrySSR', () => {
+  describe('getSsrRemoteEntryFileName', () => {
+    it('maps remoteEntry.js to remoteEntry.ssr.js', () => {
+      expect(getSsrRemoteEntryFileName('remoteEntry.js')).toBe('remoteEntry.ssr.js');
+    });
+
+    it('strips [hash] placeholders to a stable SSR companion', () => {
+      expect(getSsrRemoteEntryFileName('remoteEntry-[hash]')).toBe('remoteEntry.ssr.js');
+      expect(getSsrRemoteEntryFileName('remoteEntry-[hash].js')).toBe('remoteEntry.ssr.js');
+      expect(getSsrRemoteEntryFileName('remote-entry-[hash:8].js')).toBe('remote-entry.ssr.js');
+    });
+
+    it('never leaves a literal [hash] in the SSR filename', () => {
+      expect(getSsrRemoteEntryFileName('remoteEntry-[hash].js')).not.toContain('[hash');
+      expect(getSsrRemoteEntryFileName('mf-[hash:8]')).not.toContain('[hash');
+    });
+  });
+
   it('uses public runtime name while keeping internal virtual IDs', () => {
     const options = getDefaultMockOptions({
       internalName: '__mfe_internal__remote',

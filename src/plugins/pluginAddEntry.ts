@@ -4,7 +4,6 @@ import * as path from 'node:path';
 import type { Plugin, ResolvedConfig, Rollup } from 'vite';
 import { normalizePathForImport, rebaseImport } from '../utils/buildPaths';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
-import { resolveDevHashEntryFileName } from '../utils/remoteEntryFileName';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 
 import {
@@ -222,6 +221,15 @@ function stripQueryAndHash(file: string) {
 
 function isReactRouterClientRouteInput(file: string) {
   return /[?&]__react-router-build-client-route(?:[=&]|$)/.test(file);
+}
+
+function resolveDevHashEntryFileName(fileName: string) {
+  if (!fileName.includes('[hash')) return fileName;
+
+  const normalized = fileName.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
+  const baseName = path.basename(normalized);
+
+  return path.extname(baseName) ? normalized : `${normalized}.js`;
 }
 
 export function getBuildInput(config: any) {
