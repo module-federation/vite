@@ -1,10 +1,9 @@
-import { findSharedKey } from '../plugins/pluginProxySharedModule_preBuild';
 import {
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
-import { getUsedShares } from './virtualRemoteEntry';
+import { expandSharedPrefixKey, getUsedShares } from './virtualRemoteEntry';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
 import { MODULE_CACHE_SHARE_SCOPE_KEY } from './virtualRuntimeInitStatus';
 
@@ -22,16 +21,7 @@ export function getSsrRemoteEntryFileName(browserFilename: string): string {
   return `${base}.ssr${ext}`;
 }
 
-/**
- * Build-time singleton map for SSR init loadShare.
- *
- * Trailing-slash keys (`react/`) are namespace prefixes, not host share-scope
- * entries. After #1148 they stay as prefixes, so JSON-serializing them and
- * probing `scopeShare['react/']` would skip seeding. Expand via the same
- * matcher + usedShares path as the browser entry: concrete packages that
- * matched the prefix (e.g. `react`, `react/jsx-runtime`), never the prefix
- * string itself.
- */
+/** Singleton map for SSR loadShare: expand `pkg/` via usedShares; never serialize the prefix. */
 function getSsrSharedSingletons(
   options: NormalizedModuleFederationOptions
 ): Record<string, ShareItem> {
@@ -40,16 +30,12 @@ function getSsrSharedSingletons(
 
   for (const [pkg, share] of Object.entries(options.shared)) {
     if (!share.shareConfig.singleton) continue;
-
     if (pkg.endsWith('/')) {
-      for (const usedPkg of used) {
-        if (usedPkg.endsWith('/')) continue;
-        if (findSharedKey(usedPkg, options.shared) !== pkg) continue;
-        result[usedPkg] = { ...share, name: usedPkg };
+      for (const concrete of expandSharedPrefixKey(pkg, used)) {
+        result[concrete] = { ...share, name: concrete };
       }
       continue;
     }
-
     result[pkg] = share;
   }
 

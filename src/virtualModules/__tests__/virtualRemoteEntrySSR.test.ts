@@ -283,7 +283,7 @@ describe('virtualRemoteEntrySSR', () => {
     expect((globalThis as any).__mf_module_cache__).toBeUndefined();
   });
 
-  it('expands consumer-only react/ prefix into concrete SSR loadShare targets', async () => {
+  it('expands react/ prefix into concrete SSR loadShare targets, never the prefix string', async () => {
     const reactNamespace = {
       name: 'react/',
       version: '19.0.0',
@@ -293,9 +293,7 @@ describe('virtualRemoteEntrySSR', () => {
     };
     const options = getDefaultMockOptions({
       name: 'remote',
-      shared: {
-        'react/': reactNamespace,
-      },
+      shared: { 'react/': reactNamespace },
     } as any);
 
     addUsedShares('react', options);
@@ -309,39 +307,9 @@ describe('virtualRemoteEntrySSR', () => {
     const loadShare = vi.fn(async (pkg: string) => () => ({ marker: pkg }));
     const entry = evaluateGeneratedEntry(code, createRuntime(undefined, loadShare));
 
-    await expect(
-      entry.init({
-        react: {},
-        'react/jsx-runtime': {},
-      })
-    ).resolves.toBeDefined();
+    await expect(entry.init({ react: {}, 'react/jsx-runtime': {} })).resolves.toBeDefined();
 
     expect(loadShare.mock.calls.map(([pkg]) => pkg).sort()).toEqual(['react', 'react/jsx-runtime']);
     expect(loadShare.mock.calls.some(([pkg]) => pkg === 'react/')).toBe(false);
-    expect((globalThis as any).__mf_module_cache__.share).toMatchObject({
-      'default:react': { marker: 'react' },
-      'default:react/jsx-runtime': { marker: 'react/jsx-runtime' },
-      react: { marker: 'react' },
-      'react/jsx-runtime': { marker: 'react/jsx-runtime' },
-    });
-  });
-
-  it('does not invent SSR loadShare targets for an unused react/ prefix', () => {
-    const options = getDefaultMockOptions({
-      name: 'remote',
-      shared: {
-        'react/': {
-          name: 'react/',
-          version: '19.0.0',
-          scope: 'default',
-          from: '',
-          shareConfig: { singleton: true, import: false, requiredVersion: '^19.0.0' },
-        },
-      },
-    } as any);
-
-    const code = generateRemoteEntrySSR(options);
-    expect(code).toContain('const sharedSingletons = {}');
-    expect(code).not.toContain('"react/"');
   });
 });

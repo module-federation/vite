@@ -321,12 +321,8 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
       `;
 }
 
-/**
- * Expand a trailing-slash shared key (`react/`) to concrete package names.
- * Always includes the package root; also includes imported subpaths from
- * `used` that fall under the prefix. Never returns the prefix string itself.
- */
-function expandEagerSharedPrefix(prefixKey: string, used: Iterable<string>): string[] {
+/** Expand `pkg/` → package root + matching usedShares; never returns the prefix string. */
+export function expandSharedPrefixKey(prefixKey: string, used: Iterable<string>): string[] {
   const base = prefixKey.slice(0, -1);
   const expanded = new Set<string>([base]);
   for (const pkg of used) {
@@ -336,22 +332,6 @@ function expandEagerSharedPrefix(prefixKey: string, used: Iterable<string>): str
   return [...expanded];
 }
 
-function getEagerSharedPackages(
-  shared: NormalizedModuleFederationOptions['shared'],
-  used: Iterable<string>
-): string[] {
-  const packages: string[] = [];
-  for (const [pkg, share] of Object.entries(shared ?? {})) {
-    if (!share.shareConfig?.eager) continue;
-    if (pkg.endsWith('/')) {
-      packages.push(...expandEagerSharedPrefix(pkg, used));
-    } else {
-      packages.push(pkg);
-    }
-  }
-  return packages;
-}
-
 function getOrderedUsedShares(options?: NormalizedModuleFederationOptions) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const used = getUsedShares(options);
@@ -359,10 +339,10 @@ function getOrderedUsedShares(options?: NormalizedModuleFederationOptions) {
   Object.keys(resolvedOptions.shared ?? {}).forEach((pkg) => {
     if (!pkg.endsWith('/')) shares.add(pkg);
   });
-  // Eager prefix keys (`react/`) must appear as concrete packages in usedShared
-  // (root + imported subpaths), never as the prefix string itself.
-  for (const pkg of getEagerSharedPackages(resolvedOptions.shared, used)) {
-    shares.add(pkg);
+  for (const [pkg, share] of Object.entries(resolvedOptions.shared ?? {})) {
+    if (pkg.endsWith('/') && share.shareConfig?.eager) {
+      for (const concrete of expandSharedPrefixKey(pkg, used)) shares.add(concrete);
+    }
   }
   const sorted = Array.from(shares).sort((a, b) => {
     const priority = (pkg: string) =>
@@ -381,8 +361,13 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
       : usedShares
   );
   const usedForEager = options ? (usedSharesByOptions.get(options) ?? []) : usedShares;
-  for (const pkg of getEagerSharedPackages(resolvedOptions.shared, usedForEager)) {
-    shares.add(pkg);
+  for (const [pkg, share] of Object.entries(resolvedOptions.shared ?? {})) {
+    if (!share.shareConfig?.eager) continue;
+    if (pkg.endsWith('/')) {
+      for (const concrete of expandSharedPrefixKey(pkg, usedForEager)) shares.add(concrete);
+    } else {
+      shares.add(pkg);
+    }
   }
   const configured = new Map<string, string>();
   for (const pkg of getOrderedUsedShares(options)) {
