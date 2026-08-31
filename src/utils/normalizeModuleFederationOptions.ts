@@ -95,21 +95,9 @@ export function normalizeRemotes(
   return result;
 }
 
-const omittedRemoteTypeWarned = new Set<string>();
-
-/** @internal */
-export function resetOmittedRemoteTypeWarnedForTests(): void {
-  omittedRemoteTypeWarned.clear();
-}
-
-function warnOmittedRemoteType(remoteKey: string, entry: string): void {
-  if (omittedRemoteTypeWarned.has(remoteKey)) return;
-  omittedRemoteTypeWarned.add(remoteKey);
-  const jsHint = /\.(m?js)(?:[?#]|$)/i.test(entry)
-    ? ` Entry "${entry}" looks like a .js/.mjs module.`
-    : '';
+function warnOmittedObjectRemoteType(remoteKey: string): void {
   mfWarn(
-    `Remote "${remoteKey}" omits type and defaults to 'var'.${jsHint} ` +
+    `Remote "${remoteKey}" omits type and defaults to 'var'. ` +
       `Set type: 'module' for Vite ESM remotes, or type: 'var' explicitly to silence this warning.`
   );
 }
@@ -129,7 +117,6 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
       entryGlobalName = remote;
       entry = remote;
     }
-    warnOmittedRemoteType(key, entry);
     return {
       type: 'var',
       name: key,
@@ -140,9 +127,9 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
     };
   }
 
-  const typeOmitted = remote.type == null || remote.type === '';
+  const typeOmitted = remote.type === undefined || remote.type === null || remote.type === '';
   if (typeOmitted) {
-    warnOmittedRemoteType(key, remote.entry);
+    warnOmittedObjectRemoteType(key);
   }
 
   return Object.assign(
@@ -155,6 +142,7 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
     },
     {
       ...remote,
+      type: typeOmitted ? 'var' : remote.type,
       internalName: toInternalModuleFederationName(remote.name || key),
     }
   );
