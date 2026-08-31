@@ -1,7 +1,8 @@
-import { vi } from 'vitest';
+import { beforeEach, vi } from 'vitest';
 import {
   ModuleFederationOptions,
   normalizeModuleFederationOptions,
+  RemoteObjectConfig,
 } from '../normalizeModuleFederationOptions';
 import { setPackageDetectionCwd } from '../packageUtils';
 
@@ -210,6 +211,10 @@ describe('normalizeModuleFederationOption', () => {
   });
 
   describe('remotes', () => {
+    beforeEach(() => {
+      mfWarnSpy.mockClear();
+    });
+
     it('should normalize a remote with a string value', () => {
       expect(
         normalizeModuleFederationOptions({
@@ -294,9 +299,104 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
-    it('warns when remote alias uses reserved internal prefix', () => {
-      mfWarnSpy.mockClear();
+    it('warns when object remote omits type and defaults to var', () => {
+      const remotes = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        remotes: {
+          omittedObjectRemote: {
+            name: 'omittedObjectRemote',
+            entry: 'http://localhost:3001/remoteEntry.js',
+          },
+        },
+      }).remotes;
 
+      expect(remotes.omittedObjectRemote.type).toBe('var');
+      expect(mfWarnSpy).toHaveBeenCalledTimes(1);
+      expect(mfWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Remote "omittedObjectRemote" omits type and defaults to \'var\'')
+      );
+    });
+
+    it('warns independently for separate configs using the same remote alias', () => {
+      const options = {
+        ...minimalOptions,
+        remotes: {
+          repeatedRemote: {
+            name: 'repeatedRemote',
+            entry: 'http://localhost:3001/remoteEntry.js',
+          },
+        },
+      };
+
+      normalizeModuleFederationOptions(options);
+      normalizeModuleFederationOptions(options);
+
+      expect(mfWarnSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not warn for string remote syntax', () => {
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        remotes: {
+          omittedStringRemote: 'Button@http://localhost:3001/remoteEntry.js',
+        },
+      });
+
+      expect(mfWarnSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not warn when object remote sets type: module', () => {
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        remotes: {
+          remote1: {
+            type: 'module',
+            name: 'remote1',
+            entry: 'http://localhost:3001/remoteEntry.js',
+          },
+        },
+      });
+
+      expect(mfWarnSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not warn when object remote sets type: var', () => {
+      const remotes = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        remotes: {
+          explicitVarRemote: {
+            type: 'var',
+            name: 'explicitVarRemote',
+            entry: 'http://localhost:3001/remoteEntry.js',
+          },
+        },
+      }).remotes;
+
+      expect(remotes.explicitVarRemote.type).toBe('var');
+      expect(mfWarnSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['undefined', undefined],
+      ['empty', ''],
+      ['null', null],
+    ])('normalizes omitted-like %s type to var', (remoteName, type) => {
+      const remotes = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        remotes: {
+          [remoteName]: {
+            type,
+            name: remoteName,
+            entry: 'http://localhost:3001/remoteEntry.js',
+          } as RemoteObjectConfig,
+        },
+      }).remotes;
+
+      expect(remotes[remoteName].type).toBe('var');
+      expect(mfWarnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns when remote alias uses reserved internal prefix', () => {
       normalizeModuleFederationOptions({
         ...minimalOptions,
         remotes: {

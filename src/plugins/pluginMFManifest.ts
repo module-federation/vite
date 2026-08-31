@@ -403,9 +403,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         let filesMap: PreloadMap = {};
 
         const foundRemoteEntryFile = findRemoteEntryFile(mfOptions.filename, bundle);
-        const expectedSsrRemoteEntryFile = getSsrRemoteEntryFileName(
-          foundRemoteEntryFile || mfOptions.filename
-        );
+        const expectedSsrRemoteEntryFile = getSsrRemoteEntryFileName(mfOptions.filename);
         const foundSsrRemoteEntryFile = Object.values(bundle).find(
           (file) => file.fileName === expectedSsrRemoteEntryFile
         )?.fileName;

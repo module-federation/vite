@@ -790,7 +790,7 @@ describe('pluginMFManifest', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it('keeps build manifest remoteEntry resolved from emitted bundle', async () => {
+  it('keeps hashed browser and stable SSR remote entry names', async () => {
     const bundle = makeBundle();
     const remoteEntry = bundle['remoteEntry.js'] as OutputChunk;
     remoteEntry.fileName = 'remoteEntry-a1b2c3d4.js';
@@ -802,7 +802,7 @@ describe('pluginMFManifest', () => {
     const manifest = JSON.parse(emitted['mf-manifest.json']);
 
     expect(manifest.metaData.remoteEntry.name).toBe('remoteEntry-a1b2c3d4.js');
-    expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry-a1b2c3d4.ssr.js');
+    expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry.ssr.js');
   });
 
   // An expose basenamed like the container gets the same chunk name; even emitted first,
