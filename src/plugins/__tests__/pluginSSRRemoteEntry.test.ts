@@ -37,17 +37,19 @@ vi.mock('../../virtualModules/virtualExposesSSR', () => ({
   ),
 }));
 
-vi.mock('../../virtualModules/virtualRemoteEntrySSR', () => ({
-  generateRemoteEntrySSR: vi.fn(() => 'export { init, get }'),
-  getRemoteEntrySSRId: vi.fn(
-    (opts: { internalName: string; filename: string }) =>
-      `virtual:mf-REMOTE_ENTRY_SSR_ID:${opts.internalName}__${opts.filename.replace(/[^a-zA-Z0-9_-]/g, '_')}`
-  ),
-  getSsrRemoteEntryFileName: vi.fn((filename: string) => {
-    const base = filename.replace(/\.[^.]+$/, '');
-    return `${base}.ssr.js`;
-  }),
-}));
+vi.mock('../../virtualModules/virtualRemoteEntrySSR', async () => {
+  const actual = await vi.importActual<typeof import('../../virtualModules/virtualRemoteEntrySSR')>(
+    '../../virtualModules/virtualRemoteEntrySSR'
+  );
+  return {
+    ...actual,
+    generateRemoteEntrySSR: vi.fn(() => 'export { init, get }'),
+    getRemoteEntrySSRId: vi.fn(
+      (opts: { internalName: string; filename: string }) =>
+        `virtual:mf-REMOTE_ENTRY_SSR_ID:${opts.internalName}__${opts.filename.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    ),
+  };
+});
 
 import { generateRemoteEntrySSR } from '../../virtualModules/virtualRemoteEntrySSR';
 import { pluginSSRRemoteEntry } from '../pluginSSRRemoteEntry';
@@ -979,6 +981,30 @@ describe('pluginSSRRemoteEntry', () => {
         expect.objectContaining({
           type: 'chunk',
           name: 'ssrRemoteEntry',
+          fileName: 'remoteEntry.ssr.js',
+        })
+      );
+    });
+
+    it('emits a stable SSR entry for a hashed browser filename', () => {
+      getIsRolldownMock.mockReturnValue(true);
+      const emitFile = makeEmitFile();
+      const plugins = pluginSSRRemoteEntry(makeOptions({ filename: 'remoteEntry-[hash]' }));
+      const mainPlugin = plugins[1];
+      configureLegacySsrBuild(mainPlugin);
+
+      callHook(
+        mainPlugin.buildStart,
+        {
+          meta: makePluginMeta(true),
+          emitFile,
+        } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'chunk',
           fileName: 'remoteEntry.ssr.js',
         })
       );

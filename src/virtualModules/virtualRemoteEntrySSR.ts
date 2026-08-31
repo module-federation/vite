@@ -16,8 +16,18 @@ export function getRemoteEntrySSRId(
 }
 
 export function getSsrRemoteEntryFileName(browserFilename: string): string {
-  const ext = browserFilename.match(/\.[^.]+$/)?.[0] || '.js';
-  const base = browserFilename.slice(0, browserFilename.length - ext.length);
+  // Strip literal `[hash]` / `[hash:N]` placeholders so the SSR companion stays
+  // stable (`remoteEntry-[hash].js` → `remoteEntry.ssr.js`). Do not try to mirror
+  // the browser content hash in the SSR filename.
+  let filename = browserFilename;
+  if (filename.includes('[hash')) {
+    filename = filename.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
+    if (!/\.[^.]+$/.test(filename)) {
+      filename = `${filename}.js`;
+    }
+  }
+  const ext = filename.match(/\.[^.]+$/)?.[0] || '.js';
+  const base = filename.slice(0, filename.length - ext.length);
   return `${base}.ssr${ext}`;
 }
 
