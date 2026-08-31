@@ -95,6 +95,13 @@ export function normalizeRemotes(
   return result;
 }
 
+function warnOmittedObjectRemoteType(remoteKey: string): void {
+  mfWarn(
+    `Remote "${remoteKey}" omits type and defaults to 'var'. ` +
+      `Set type: 'module' for Vite ESM remotes, or type: 'var' explicitly to silence this warning.`
+  );
+}
+
 function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): RemoteObjectConfig {
   warnOnReservedInternalNamePrefix(key, 'remoteAlias');
   if (typeof remote === 'string') {
@@ -119,6 +126,12 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
       shareScope: 'default',
     };
   }
+
+  const typeOmitted = remote.type === undefined || remote.type === null || remote.type === '';
+  if (typeOmitted) {
+    warnOmittedObjectRemoteType(key);
+  }
+
   return Object.assign(
     {
       type: 'var',
@@ -129,6 +142,7 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
     },
     {
       ...remote,
+      type: typeOmitted ? 'var' : remote.type,
       internalName: toInternalModuleFederationName(remote.name || key),
     }
   );

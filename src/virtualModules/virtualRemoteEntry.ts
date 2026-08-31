@@ -321,12 +321,29 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
       `;
 }
 
+/** Expand `pkg/` → package root + matching usedShares; never returns the prefix string. */
+export function expandSharedPrefixKey(prefixKey: string, used: Iterable<string>): string[] {
+  const base = prefixKey.slice(0, -1);
+  const expanded = new Set<string>([base]);
+  for (const pkg of used) {
+    if (pkg.endsWith('/')) continue;
+    if (pkg === base || pkg.startsWith(`${base}/`)) expanded.add(pkg);
+  }
+  return [...expanded];
+}
+
 function getOrderedUsedShares(options?: NormalizedModuleFederationOptions) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
-  const shares = new Set(getUsedShares(options));
+  const used = getUsedShares(options);
+  const shares = new Set(used);
   Object.keys(resolvedOptions.shared ?? {}).forEach((pkg) => {
     if (!pkg.endsWith('/')) shares.add(pkg);
   });
+  for (const [pkg, share] of Object.entries(resolvedOptions.shared ?? {})) {
+    if (pkg.endsWith('/') && share.shareConfig?.eager) {
+      for (const concrete of expandSharedPrefixKey(pkg, used)) shares.add(concrete);
+    }
+  }
   const sorted = Array.from(shares).sort((a, b) => {
     const priority = (pkg: string) =>
       pkg === 'react' ? 0 : pkg === 'react-dom' ? 1 : pkg.startsWith('react/') ? 2 : 3;
@@ -343,8 +360,14 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
       ? (materializedSharesByOptions.get(options) ?? [])
       : usedShares
   );
+  const usedForEager = options ? (usedSharesByOptions.get(options) ?? []) : usedShares;
   for (const [pkg, share] of Object.entries(resolvedOptions.shared ?? {})) {
-    if (!pkg.endsWith('/') && share.shareConfig?.eager) shares.add(pkg);
+    if (!share.shareConfig?.eager) continue;
+    if (pkg.endsWith('/')) {
+      for (const concrete of expandSharedPrefixKey(pkg, usedForEager)) shares.add(concrete);
+    } else {
+      shares.add(pkg);
+    }
   }
   const configured = new Map<string, string>();
   for (const pkg of getOrderedUsedShares(options)) {

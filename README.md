@@ -167,7 +167,7 @@ export default defineConfig({
       name: "host",
       remotes: {
         remote: {
-          type: "module", // type "var" (default) for vite remote is supported with remote's `varFilename` option
+          type: "module", // omitted object type defaults to "var" with a warning
           name: "remote",
           entry: "https://[...]/remoteEntry.js",
           entryGlobalName: "remote",
@@ -237,6 +237,7 @@ export default defineConfig({
 ```
 
 The host app configuration specifies its name, the filename of its exposed remote entry remoteEntry.js, and importantly, the configuration of the remote application to load.
+Object remotes that omit `type` retain the legacy `"var"` default and emit a warning. Use `type: "module"` for Vite ESM remotes. Use `type: "var"` explicitly only for global-format remotes, such as Webpack/Rspack remotes or a Vite remote's `varFilename` output.
 You can specify the place the host initialization file is injected with the **hostInitInjectLocation** option, which is described in the example code above.
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.

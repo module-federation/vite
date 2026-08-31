@@ -94,6 +94,7 @@ export function rewriteEntryScripts(
     /<script\b(?=[^>]*\btype=["']module["'])(?=[^>]*\bsrc=["'][^"']+["'])([^>]*)>/gi;
 
   return html.replace(scriptTagRegex, (match, attrs) => {
+    if (/\svite-ignore(?:\s|=|\/|$)/i.test(attrs)) return match;
     const srcMatch = attrs.match(/\bsrc=["']([^"']+)["']/i);
     if (!srcMatch) return match;
     const originalSrc = srcMatch[1];
