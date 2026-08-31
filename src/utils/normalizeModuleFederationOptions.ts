@@ -192,6 +192,13 @@ function inferVersionFromRequiredVersion(
   return match?.[0];
 }
 
+/** URI-style package specifiers are not semver ranges for runtime satisfy(). */
+const PACKAGE_SPECIFIER_PROTOCOL_RE = /^[a-z][a-z\d+.-]*:/i;
+
+function isProtocolRequiredVersion(requiredVersion: string): boolean {
+  return PACKAGE_SPECIFIER_PROTOCOL_RE.test(requiredVersion.trim());
+}
+
 function getLitExportSubpathShares(sharedName: string): string[] {
   if (sharedName !== 'lit') return [];
 
@@ -278,6 +285,17 @@ function normalizeShareItem(
       },
     };
   }
+  // Package-manager protocols (catalog:, workspace:*, npm:, patch:, file:, …)
+  // are not semver ranges. Passing them through breaks runtime satisfy().
+  // Only rewrite known protocols / empty string — keep real ranges as-is
+  // (including leading spaces and compound ranges like "* || ^8.0.0").
+  const userRequiredVersion = shareItem.requiredVersion;
+  const keepUserRequiredVersion =
+    userRequiredVersion === false ||
+    (typeof userRequiredVersion === 'string' &&
+      userRequiredVersion.trim() !== '' &&
+      !isProtocolRequiredVersion(userRequiredVersion));
+
   return {
     name: key,
     from: '',
@@ -287,14 +305,13 @@ function normalizeShareItem(
       import: shareItem.import,
       singleton: shareItem.singleton || false,
       eager: shareItem.eager || false,
-      requiredVersion:
-        shareItem.requiredVersion !== undefined
-          ? shareItem.requiredVersion
-          : isImportFalse || shareItem.version
-            ? '*'
-            : version
-              ? `^${version}`
-              : '*',
+      requiredVersion: keepUserRequiredVersion
+        ? userRequiredVersion
+        : isImportFalse || shareItem.version
+          ? '*'
+          : version
+            ? `^${version}`
+            : '*',
       strictVersion: !!shareItem.strictVersion,
       ...(shareItem.suppressMissingImportWarning ? { suppressMissingImportWarning: true } : {}),
       ...(treeShaking ? { treeShaking: { ...treeShaking } } : {}),

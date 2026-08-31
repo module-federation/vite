@@ -617,6 +617,92 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
+    it('ignores package-manager protocol requiredVersion and falls back to installed version', () => {
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const fixtureRoot = path.join(
+        require('node:os').tmpdir(),
+        'mf-vite-protocol-required-version'
+      );
+      fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      const reactDir = path.join(fixtureRoot, 'node_modules/react');
+      fs.mkdirSync(reactDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(fixtureRoot, 'package.json'),
+        JSON.stringify({ name: 'consumer-app', dependencies: { react: 'catalog:' } })
+      );
+      fs.writeFileSync(
+        path.join(reactDir, 'package.json'),
+        JSON.stringify({ name: 'react', version: '19.2.7', main: 'index.js' })
+      );
+      fs.writeFileSync(path.join(reactDir, 'index.js'), '');
+
+      setPackageDetectionCwd(fixtureRoot);
+
+      try {
+        for (const protocol of [
+          'catalog:',
+          'catalog:react19',
+          'workspace:*',
+          'npm:react@^19.0.0',
+          'patch:react@19.2.7#./patches/react.patch',
+          'file:../react',
+          'link:../react',
+          'portal:../react',
+          'exec:./build-react.js',
+          'jsr:@scope/react@^19.0.0',
+          'git:https://github.com/facebook/react.git',
+          'git+https://github.com/facebook/react.git',
+          'https://registry.example.com/react.tgz',
+          'github:facebook/react',
+          '',
+        ]) {
+          const shared = normalizeModuleFederationOptions({
+            ...minimalOptions,
+            shared: {
+              react: {
+                singleton: true,
+                requiredVersion: protocol,
+              },
+            },
+          }).shared;
+
+          expect.soft(shared.react.shareConfig.requiredVersion, protocol).toBe('^19.2.7');
+        }
+
+        // Real ranges — including leading spaces / compound OR — stay unchanged.
+        // Do not use isRequiredVersion(); it only checks a prefix regex.
+        for (const range of ['^19.0.0', ' >= 8.0.0', '* || ^8.0.0']) {
+          const shared = normalizeModuleFederationOptions({
+            ...minimalOptions,
+            shared: {
+              react: {
+                singleton: true,
+                requiredVersion: range,
+              },
+            },
+          }).shared;
+          expect(shared.react.shareConfig.requiredVersion).toBe(range);
+        }
+      } finally {
+        setPackageDetectionCwd(process.cwd());
+      }
+    });
+
+    it('falls back to * when protocol requiredVersion has no installed package', () => {
+      const shared = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          'missing-protocol-dep': {
+            singleton: true,
+            requiredVersion: 'catalog:',
+          },
+        },
+      }).shared;
+
+      expect(shared['missing-protocol-dep'].shareConfig.requiredVersion).toBe('*');
+    });
+
     it('preserves react/ as a namespace prefix and collapses react-dom/', () => {
       const shared = normalizeModuleFederationOptions({
         ...minimalOptions,
