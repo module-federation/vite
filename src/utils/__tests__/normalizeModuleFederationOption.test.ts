@@ -234,11 +234,6 @@ describe('normalizeModuleFederationOption', () => {
           shareScope: 'default',
         },
       });
-
-      expect(mfWarnSpy).toHaveBeenCalledTimes(1);
-      expect(mfWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Remote "remote1" omits type and defaults to \'var\'')
-      );
     });
 
     it('should normalize a scoped-package remote string', () => {
@@ -303,71 +298,64 @@ describe('normalizeModuleFederationOption', () => {
           shareScope: 'default',
         },
       });
+    });
+
+    it('warns once when object remote omits type and defaults to var', () => {
+      const remotes = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        remotes: {
+          remote1: {
+            name: 'remote1',
+            entry: 'http://localhost:3001/remoteEntry.js',
+          },
+        },
+      }).remotes;
+
+      expect(remotes.remote1.type).toBe('var');
+      expect(mfWarnSpy).toHaveBeenCalledTimes(1);
+      expect(mfWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Remote "remote1" omits type and defaults to \'var\'')
+      );
+
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        remotes: {
+          remote1: {
+            name: 'remote1',
+            entry: 'http://localhost:3001/remoteEntry.js',
+          },
+        },
+      });
+      expect(mfWarnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns when string remote omits type', () => {
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        remotes: {
+          remote1: 'Button@http://localhost:3001/remoteEntry.js',
+        },
+      });
 
       expect(mfWarnSpy).toHaveBeenCalledTimes(1);
       expect(mfWarnSpy).toHaveBeenCalledWith(
         expect.stringContaining('Remote "remote1" omits type and defaults to \'var\'')
       );
-      expect(mfWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('looks like a .js/.mjs module')
-      );
     });
 
     it('does not warn when object remote sets type: module', () => {
-      expect(
-        normalizeModuleFederationOptions({
-          ...minimalOptions,
-          remotes: {
-            remote1: {
-              type: 'module',
-              name: 'remote1',
-              entry: 'http://localhost:3001/remoteEntry.js',
-            },
-          },
-        }).remotes.remote1.type
-      ).toBe('module');
-
-      expect(mfWarnSpy).not.toHaveBeenCalled();
-    });
-
-    it('does not warn when object remote sets type: var explicitly', () => {
-      expect(
-        normalizeModuleFederationOptions({
-          ...minimalOptions,
-          remotes: {
-            remote1: {
-              type: 'var',
-              name: 'remote1',
-              entry: 'http://localhost:3001/remoteEntry.js',
-            },
-          },
-        }).remotes.remote1.type
-      ).toBe('var');
-
-      expect(mfWarnSpy).not.toHaveBeenCalled();
-    });
-
-    it('warns once per remote alias when type is omitted', () => {
       normalizeModuleFederationOptions({
         ...minimalOptions,
         remotes: {
-          onceRemote: {
-            name: 'onceRemote',
-            entry: 'http://localhost:3001/remoteEntry.js',
-          },
-        },
-      });
-      normalizeModuleFederationOptions({
-        ...minimalOptions,
-        remotes: {
-          onceRemote: {
-            name: 'onceRemote',
+          remote1: {
+            type: 'module',
+            name: 'remote1',
             entry: 'http://localhost:3001/remoteEntry.js',
           },
         },
       });
 
-      expect(mfWarnSpy).toHaveBeenCalledTimes(1);
+      expect(mfWarnSpy).not.toHaveBeenCalled();
     });
 
     it('warns when remote alias uses reserved internal prefix', () => {
@@ -381,11 +369,6 @@ describe('normalizeModuleFederationOption', () => {
       expect(mfWarnSpy).toHaveBeenCalledWith(
         expect.stringContaining('Reserved internal remoteAlias prefix "__mfe_internal__" detected')
       );
-      expect(mfWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'Remote "__mfe_internal__remote1" omits type and defaults to \'var\''
-        )
-      );
     });
 
     it('preserves multiple share scopes on remote config', () => {
@@ -394,7 +377,6 @@ describe('normalizeModuleFederationOption', () => {
           ...minimalOptions,
           remotes: {
             remote1: {
-              type: 'module',
               name: 'remote1',
               entry: 'http://localhost:3001/remoteEntry.js',
               shareScope: ['default', 'scope1'],

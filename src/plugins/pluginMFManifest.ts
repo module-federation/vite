@@ -34,7 +34,6 @@ import { DEFAULT_PUBLIC_TYPES_FOLDER } from '../utils/dtsConstants';
 import { normalizeVirtualModuleId } from '../utils/VirtualModule';
 import { getVirtualExposesId } from '../virtualModules/virtualExposes';
 import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
-import packageJson from '../../package.json' with { type: 'json' };
 
 /**
  * Resolves the build version for the module federation manifest.
@@ -48,11 +47,6 @@ import packageJson from '../../package.json' with { type: 'json' };
  */
 function getBuildVersion(): string {
   return process.env['MF_BUILD_VERSION'] ?? '1.0.0';
-}
-
-/** Published package version for manifest `metaData.pluginVersion` (not a hardcoded stale value). */
-function getPluginVersion(): string {
-  return typeof packageJson.version === 'string' ? packageJson.version : '0.0.0';
 }
 
 /**
@@ -347,7 +341,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
                     : undefined,
                   types: resolveTypesMeta(mfOptions.dts),
                   globalName: name,
-                  pluginVersion: getPluginVersion(),
+                  pluginVersion: '0.2.5',
                   publicPath,
                 },
               });
@@ -666,7 +660,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         varRemoteEntry,
         types: resolveTypesMeta(options.dts),
         globalName: name,
-        pluginVersion: getPluginVersion(),
+        pluginVersion: '0.2.5',
         ...(!!getPublicPath ? { getPublicPath } : { publicPath }),
       },
       ...(disableAssetsAnalyze ? {} : { shared }),

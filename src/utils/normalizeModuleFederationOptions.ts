@@ -95,29 +95,21 @@ export function normalizeRemotes(
   return result;
 }
 
-/** Remotes that already received the omitted-type warning (warn once per alias). */
 const omittedRemoteTypeWarned = new Set<string>();
 
-/** @internal Clears omitted-type warn tracking between unit tests. */
+/** @internal */
 export function resetOmittedRemoteTypeWarnedForTests(): void {
   omittedRemoteTypeWarned.clear();
 }
 
-/**
- * Defaults remain `type: 'var'` for backward compatibility. Vite ESM remotes
- * need an explicit `type: 'module'`; omitting type often fails silently.
- */
 function warnOmittedRemoteType(remoteKey: string, entry: string): void {
   if (omittedRemoteTypeWarned.has(remoteKey)) return;
   omittedRemoteTypeWarned.add(remoteKey);
-
-  const looksLikeModuleEntry = /\.(m?js)(?:[?#]|$)/i.test(entry);
-  const entryHint = looksLikeModuleEntry
-    ? ` Entry "${entry}" looks like a .js/.mjs module; Vite ESM remotes need type: 'module' or they fail silently under the 'var' default.`
-    : ` Vite ESM remotes need type: 'module'; omitting type defaults to 'var'.`;
-
+  const jsHint = /\.(m?js)(?:[?#]|$)/i.test(entry)
+    ? ` Entry "${entry}" looks like a .js/.mjs module.`
+    : '';
   mfWarn(
-    `Remote "${remoteKey}" omits type and defaults to 'var'.${entryHint} ` +
+    `Remote "${remoteKey}" omits type and defaults to 'var'.${jsHint} ` +
       `Set type: 'module' for Vite ESM remotes, or type: 'var' explicitly to silence this warning.`
   );
 }
