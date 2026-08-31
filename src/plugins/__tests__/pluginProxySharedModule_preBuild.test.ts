@@ -433,6 +433,17 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(findSharedKey('react-dom/server.browser', shared)).toBeUndefined();
     });
 
+    it('keeps explicit react-dom server shares available', () => {
+      const shared = makeShared();
+      shared['react-dom/server'] = {
+        ...shared['react-dom'],
+        name: 'react-dom/server',
+      };
+
+      expect(findSharedKey('react-dom/server', shared)).toBe('react-dom/server');
+      expect(findSharedKey('react-dom/server.browser', shared)).toBeUndefined();
+    });
+
     // findSharedKey memoizes its matcher per `shared` object reference. If
     // something (e.g. the entry-import scanner) resolves a source through the
     // matcher before excludeSharedSubDependencies deletes that key from the
