@@ -98,6 +98,20 @@ describe('rewriteEntryScripts', () => {
     expect(result).toContain(`src="/proxy?entry=%2Fsrc%2Fmain.js"`);
   });
 
+  it.each([
+    '<script type="module" src="/external/external.js" vite-ignore></script>',
+    '<script vite-ignore="" src="/external/external.js" type="module"></script>',
+  ])('preserves vite-ignore script tags', (script) => {
+    const result = rewriteEntryScripts(script, (src) => `/proxy?entry=${encodeURIComponent(src)}`);
+    expect(result).toBe(script);
+  });
+
+  it('does not confuse similarly named attributes with vite-ignore', () => {
+    const html = '<script type="module" src="/src/main.js" data-vite-ignore="true"></script>';
+    const result = rewriteEntryScripts(html, (src) => `/proxy?entry=${encodeURIComponent(src)}`);
+    expect(result).toContain('src="/proxy?entry=%2Fsrc%2Fmain.js"');
+  });
+
   it('handles multiple entry scripts', () => {
     const html =
       '<body>' +
