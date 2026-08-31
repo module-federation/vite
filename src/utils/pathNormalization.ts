@@ -1,80 +1,14 @@
 import { NormalizedModuleFederationOptions } from './normalizeModuleFederationOptions';
 
-/** Client/browser react-dom entries that are safe to auto-share in a browser graph. */
-export const REACT_DOM_CLIENT_SHARED_SUBPATHS = [
-  'react-dom/client',
-  'react-dom/profiling',
-] as const;
-
-/**
- * Server/SSR/static react-dom entries. Includes React 19 server.* / static.*
- * variants. These must not be auto-mapped into a browser share set.
- */
-export const REACT_DOM_SERVER_SHARED_SUBPATHS = [
-  'react-dom/server',
-  'react-dom/server.browser',
-  'react-dom/server.node',
-  'react-dom/server.edge',
-  'react-dom/server.bun',
-  'react-dom/static',
-  'react-dom/static.browser',
-  'react-dom/static.node',
-  'react-dom/static.edge',
-] as const;
-
 export const COMMON_SHARED_SUBPATHS: Record<string, string[]> = {
   react: ['react/jsx-runtime', 'react/jsx-dev-runtime', 'react/compiler-runtime'],
-  'react-dom': [...REACT_DOM_CLIENT_SHARED_SUBPATHS, ...REACT_DOM_SERVER_SHARED_SUBPATHS],
+  // Browser-safe only. Do not auto-map react-dom/server* — that would pull SSR
+  // entries into the client share set. SSR imports them as normal modules, or
+  // users add an explicit shared key.
+  'react-dom': ['react-dom/client', 'react-dom/profiling'],
   'solid-js': ['solid-js/web', 'solid-js/store', 'solid-js/html', 'solid-js/h'],
   zustand: ['zustand/vanilla', 'zustand/react'],
 };
-
-/**
- * Share-set environment for filtering react-dom common subpaths.
- * - client/browser → client + profiling
- * - node/ssr/server/react-server → server* + static*
- */
-export type SharedSubpathEnvironment =
-  | 'browser'
-  | 'client'
-  | 'node'
-  | 'ssr'
-  | 'server'
-  | 'react-server'
-  | string;
-
-export type SharedSubpathShareSet = 'client' | 'server';
-
-export function resolveSharedSubpathShareSet(
-  environment?: SharedSubpathEnvironment | null
-): SharedSubpathShareSet {
-  if (!environment) return 'client';
-  const normalized = environment.trim().toLowerCase();
-  if (
-    normalized === 'node' ||
-    normalized === 'ssr' ||
-    normalized === 'server' ||
-    normalized === 'react-server' ||
-    normalized === 'rsc'
-  ) {
-    return 'server';
-  }
-  return 'client';
-}
-
-function filterReactDomSharedSubpaths(
-  subpaths: string[],
-  shareSet: SharedSubpathShareSet
-): string[] {
-  if (shareSet === 'server') {
-    return subpaths.filter((subpath) =>
-      (REACT_DOM_SERVER_SHARED_SUBPATHS as readonly string[]).includes(subpath)
-    );
-  }
-  return subpaths.filter((subpath) =>
-    (REACT_DOM_CLIENT_SHARED_SUBPATHS as readonly string[]).includes(subpath)
-  );
-}
 
 const VITE_DEFAULT_ASSET_TYPES = [
   'apng',
@@ -174,43 +108,16 @@ export function getMatchingNodeModuleSubpath(
     );
 }
 
-/**
- * Known subpaths auto-mapped when a local provider exists for `sharedKey`.
- *
- * For `react-dom`, filter by share-set environment so browser graphs only see
- * client/profiling and node/ssr/react-server graphs only see server* + static*.
- * Pass `environment` whenever the active Vite graph is known; omitting it
- * defaults to the client share set (safe for optimizeDeps / browser resolves).
- */
-export function getCommonSharedSubpaths(
-  sharedKey: string,
-  environment?: SharedSubpathEnvironment | null
-): string[] {
-  const keyBase = removeTrailingSlash(sharedKey);
-  const all = COMMON_SHARED_SUBPATHS[keyBase] || [];
-  if (keyBase !== 'react-dom') return all;
-  return filterReactDomSharedSubpaths(all, resolveSharedSubpathShareSet(environment));
-}
-
-/**
- * Whether `source` is an allowed react-dom subpath for the given environment.
- * Used so `react-dom/` is not a blind prefix: only env-filtered subpaths match.
- */
-export function isEnvironmentAllowedReactDomSubpath(
-  source: string,
-  environment?: SharedSubpathEnvironment | null
-): boolean {
-  if (source === 'react-dom') return true;
-  return getCommonSharedSubpaths('react-dom', environment).includes(source);
+export function getCommonSharedSubpaths(sharedKey: string): string[] {
+  return COMMON_SHARED_SUBPATHS[removeTrailingSlash(sharedKey)] || [];
 }
 
 export function getCommonSharedSubpathFromNodeModulePath(
   source: string,
-  sharedKey: string,
-  environment?: SharedSubpathEnvironment | null
+  sharedKey: string
 ): string | undefined {
   const keyBase = removeTrailingSlash(sharedKey);
-  return getMatchingNodeModuleSubpath(source, getCommonSharedSubpaths(keyBase, environment));
+  return getMatchingNodeModuleSubpath(source, getCommonSharedSubpaths(keyBase));
 }
 
 /**

@@ -6,15 +6,11 @@ import {
   getCommonSharedSubpaths,
   getMatchingNodeModuleSubpath,
   isAssetLikeImport,
-  isEnvironmentAllowedReactDomSubpath,
   isNuxtClientBase,
   isNodeModulePath,
   normalizeNodeModulePath,
   removeTrailingSlash,
   resolvePublicPath,
-  resolveSharedSubpathShareSet,
-  REACT_DOM_CLIENT_SHARED_SUBPATHS,
-  REACT_DOM_SERVER_SHARED_SUBPATHS,
 } from '../pathNormalization';
 import type { NormalizedModuleFederationOptions } from '../normalizeModuleFederationOptions';
 
@@ -74,46 +70,25 @@ describe('pathNormalization', () => {
     ).toBe('react/jsx-runtime');
   });
 
-  it('filters react-dom common subpaths by share-set environment', () => {
-    expect(resolveSharedSubpathShareSet(undefined)).toBe('client');
-    expect(resolveSharedSubpathShareSet('browser')).toBe('client');
-    expect(resolveSharedSubpathShareSet('client')).toBe('client');
-    expect(resolveSharedSubpathShareSet('ssr')).toBe('server');
-    expect(resolveSharedSubpathShareSet('node')).toBe('server');
-    expect(resolveSharedSubpathShareSet('react-server')).toBe('server');
-
-    expect(getCommonSharedSubpaths('react-dom', 'client')).toEqual([
-      ...REACT_DOM_CLIENT_SHARED_SUBPATHS,
+  it('lists only browser-safe react-dom common subpaths', () => {
+    expect(getCommonSharedSubpaths('react-dom')).toEqual([
+      'react-dom/client',
+      'react-dom/profiling',
     ]);
-    expect(getCommonSharedSubpaths('react-dom', 'ssr')).toEqual([
-      ...REACT_DOM_SERVER_SHARED_SUBPATHS,
-    ]);
-    expect(getCommonSharedSubpaths('react-dom')).toEqual([...REACT_DOM_CLIENT_SHARED_SUBPATHS]);
-    expect(getCommonSharedSubpaths('react')).toEqual([
-      'react/jsx-runtime',
-      'react/jsx-dev-runtime',
-      'react/compiler-runtime',
-    ]);
-
-    expect(isEnvironmentAllowedReactDomSubpath('react-dom/client', 'client')).toBe(true);
-    expect(isEnvironmentAllowedReactDomSubpath('react-dom/server', 'client')).toBe(false);
-    expect(isEnvironmentAllowedReactDomSubpath('react-dom/server.node', 'ssr')).toBe(true);
-    expect(isEnvironmentAllowedReactDomSubpath('react-dom/client', 'ssr')).toBe(false);
-
+    expect(getCommonSharedSubpaths('react-dom')).not.toContain('react-dom/server');
+    expect(getCommonSharedSubpaths('react-dom')).not.toContain('react-dom/server.browser');
+    expect(
+      getCommonSharedSubpathFromNodeModulePath(
+        '/repo/node_modules/react-dom/client.js',
+        'react-dom'
+      )
+    ).toBe('react-dom/client');
     expect(
       getCommonSharedSubpathFromNodeModulePath(
         '/repo/node_modules/react-dom/server.browser.js',
-        'react-dom',
-        'client'
+        'react-dom'
       )
     ).toBeUndefined();
-    expect(
-      getCommonSharedSubpathFromNodeModulePath(
-        '/repo/node_modules/react-dom/server.browser.js',
-        'react-dom',
-        'ssr'
-      )
-    ).toBe('react-dom/server.browser');
   });
 
   it.each([

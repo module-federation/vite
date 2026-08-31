@@ -11,20 +11,13 @@ import {
   type ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import {
-  COMMON_SHARED_SUBPATHS,
   getCommonSharedSubpathFromNodeModulePath,
   getCommonSharedSubpaths,
   getMatchingNodeModuleSubpath,
-  isAssetLikeImport,
-  isEnvironmentAllowedReactDomSubpath,
   isNodeModulePath,
+  isAssetLikeImport,
   normalizeNodeModulePath,
-  removeTrailingSlash,
-  resolveSharedSubpathShareSet,
-  type SharedSubpathEnvironment,
-  type SharedSubpathShareSet,
 } from '../utils/pathNormalization';
-import { getPluginEnvironmentName } from '../utils/remoteConsumerTarget';
 import {
   getIsRolldown,
   getInstalledPackageJson,
@@ -96,11 +89,7 @@ function isBuildConfigImporter(importer: string | undefined): boolean {
   );
 }
 
-export function matchesSharedSource(
-  source: string,
-  key: string,
-  environment?: SharedSubpathEnvironment | null
-): boolean {
+export function matchesSharedSource(source: string, key: string): boolean {
   const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
   if (
     keyBase === 'vue' &&
@@ -108,23 +97,16 @@ export function matchesSharedSource(
   ) {
     return true;
   }
-  if (key.endsWith('/')) {
-    if (keyBase === 'react-dom') {
-      // Not a blind prefix: only env-filtered react-dom subpaths match.
-      return isEnvironmentAllowedReactDomSubpath(source, environment);
-    }
-    return source === keyBase || source.startsWith(`${keyBase}/`);
-  }
-  if (getCommonSharedSubpaths(keyBase, environment).includes(source)) return true;
+  if (key.endsWith('/')) return source === keyBase || source.startsWith(`${keyBase}/`);
+  if (getCommonSharedSubpaths(keyBase).includes(source)) return true;
   return source === keyBase;
 }
 
 export function findSharedKey(
   source: string,
-  shared: NormalizedShared | undefined,
-  environment?: SharedSubpathEnvironment | null
+  shared: NormalizedShared | undefined
 ): string | undefined {
-  return getSharedKeyMatcher(shared, environment).find(source);
+  return getSharedKeyMatcher(shared).find(source);
 }
 
 type SharedKeyMatcher = {
@@ -135,61 +117,34 @@ const emptySharedKeyMatcher: SharedKeyMatcher = {
   find: () => undefined,
 };
 
-const sharedKeyMatcherCache = new WeakMap<
-  NormalizedShared,
-  Map<SharedSubpathShareSet, SharedKeyMatcher>
->();
+const sharedKeyMatcherCache = new WeakMap<NormalizedShared, SharedKeyMatcher>();
 
-function getSharedKeyMatcher(
-  shared: NormalizedShared | undefined,
-  environment?: SharedSubpathEnvironment | null
-): SharedKeyMatcher {
+function getSharedKeyMatcher(shared: NormalizedShared | undefined): SharedKeyMatcher {
   if (!shared) return emptySharedKeyMatcher;
 
-  const shareSet = resolveSharedSubpathShareSet(environment);
-  let byShareSet = sharedKeyMatcherCache.get(shared);
-  if (!byShareSet) {
-    byShareSet = new Map();
-    sharedKeyMatcherCache.set(shared, byShareSet);
-  }
-  const cached = byShareSet.get(shareSet);
+  const cached = sharedKeyMatcherCache.get(shared);
   if (cached) return cached;
 
   // Shared matching is on a hot resolve path. Precompute exact/subpath indexes
-  // once per normalized shared object + share-set, then cache repeated lookups.
+  // once per normalized shared object, then cache repeated source lookups.
   const keys = Object.keys(shared);
   const exactKeys = new Set(keys);
   const commonSubpathKeys = new Map<string, string>();
   const wildcardKeys: Array<{ key: string; base: string }> = [];
   let vueKey: string | undefined;
-  let reactDomPrefixKey: string | undefined;
 
   for (const key of keys) {
     const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
     const shareItem = shared[key];
 
     if (!vueKey && keyBase === 'vue') vueKey = key;
-    if (key.endsWith('/')) {
-      if (keyBase === 'react-dom') {
-        // Preserve react-dom/ as a prefix key, but never as a blind matcher —
-        // only environment-allowed subpaths (plus the package root) match.
-        reactDomPrefixKey = key;
-        commonSubpathKeys.set('react-dom', key);
-        for (const subpath of getCommonSharedSubpaths('react-dom', shareSet)) {
-          if (!commonSubpathKeys.has(subpath)) commonSubpathKeys.set(subpath, key);
-        }
-      } else {
-        wildcardKeys.push({ key, base: keyBase });
-      }
-    }
+    if (key.endsWith('/')) wildcardKeys.push({ key, base: keyBase });
 
     // `import: false` applies to the configured key only. Treating common
     // subpaths as implicit shares creates unfulfillable runtime-only entries
     // for hosts which provide the bare package but not every package export.
-    // react-dom subpaths are further filtered by share-set environment so a
-    // local provider never auto-maps server* into the browser share set.
     if (shareItem.shareConfig?.import !== false) {
-      for (const subpath of getCommonSharedSubpaths(keyBase, shareSet)) {
+      for (const subpath of getCommonSharedSubpaths(keyBase)) {
         if (!commonSubpathKeys.has(subpath)) commonSubpathKeys.set(subpath, key);
       }
     }
@@ -220,36 +175,20 @@ function getSharedKeyMatcher(
         result = wildcardKey?.key;
       }
 
-      // Defensive: never let an unexpected react-dom/* hit a blind path.
-      if (!result && reactDomPrefixKey && isEnvironmentAllowedReactDomSubpath(source, shareSet)) {
-        result = reactDomPrefixKey;
-      }
-
       sourceCache.set(source, result);
       return result;
     },
   };
 
-  byShareSet.set(shareSet, matcher);
+  sharedKeyMatcherCache.set(shared, matcher);
   return matcher;
-}
-
-function resolveShareEnvironmentFromContext(
-  context: unknown,
-  resolveOptions?: { ssr?: boolean }
-): SharedSubpathEnvironment {
-  const envName = getPluginEnvironmentName(context);
-  if (envName) return envName;
-  if (resolveOptions?.ssr) return 'ssr';
-  return 'client';
 }
 
 function findSharedKeyForSource(
   source: string,
-  shared: NormalizedShared | undefined,
-  environment?: SharedSubpathEnvironment | null
+  shared: NormalizedShared | undefined
 ): string | undefined {
-  const key = findSharedKey(source, shared, environment);
+  const key = findSharedKey(source, shared);
   if (key) return key;
   const explicitSharedSubpathKeys = Object.keys(shared || {}).filter(
     (sharedKey) => getPackageName(sharedKey) !== sharedKey && !sharedKey.endsWith('/')
@@ -268,7 +207,7 @@ function findSharedKeyForSource(
   }
 
   const packageName = getPackageNameFromNodeModulePath(source);
-  return packageName ? findSharedKey(packageName, shared, environment) : undefined;
+  return packageName ? findSharedKey(packageName, shared) : undefined;
 }
 
 /**
@@ -440,11 +379,7 @@ export function proxySharedModule(options: {
               ...getUsedShares(federationOptions),
             ]);
             for (const pkg of providerPackages) {
-              const sharedKey = findSharedKeyForSource(
-                pkg,
-                shared,
-                resolveShareEnvironmentFromContext(this)
-              );
+              const sharedKey = findSharedKeyForSource(pkg, shared);
               const shareItem = shared[pkg] || (sharedKey ? shared[sharedKey] : undefined);
               if (shareItem) emitTreeShakingProvider(this, pkg, shareItem);
             }
@@ -524,12 +459,11 @@ export function proxySharedModule(options: {
         if (_command !== 'build' || !hasAnalyzableShares) {
           return;
         }
-        const shareEnvironment = resolveShareEnvironmentFromContext(this);
         collectTreeShakingImports(
           code,
           id,
           shared,
-          (source, sharedMap) => findSharedKeyForSource(source, sharedMap, shareEnvironment),
+          findSharedKeyForSource,
           (sharedKey, exports, request) =>
             recordTreeShakingExports(sharedKey, exports, request, federationOptions),
           (sharedKey, request) =>
@@ -558,11 +492,7 @@ export function proxySharedModule(options: {
         // graph token so the optimized provider cannot be merged with the full
         // fallback's dependency graph.
         if (!sourceToken && importerToken) {
-          const nestedSharedKey = findSharedKeyForSource(
-            cleanSource,
-            shared,
-            resolveShareEnvironmentFromContext(this, resolveOptions)
-          );
+          const nestedSharedKey = findSharedKeyForSource(cleanSource, shared);
           if (
             nestedSharedKey &&
             getPackageName(nestedSharedKey) !== getPackageName(importerToken)
@@ -605,7 +535,6 @@ export function proxySharedModule(options: {
         if ((resolveOptions.custom as Record<string, unknown> | undefined)?.__mfTreeShakingGraph) {
           return;
         }
-        const shareEnvironment = resolveShareEnvironmentFromContext(this, resolveOptions);
         function shouldSkipTaggedImporterProxy(sharedKey: string, tag: string): boolean {
           if (!importer?.includes(tag)) return false;
 
@@ -614,13 +543,10 @@ export function proxySharedModule(options: {
 
           // Only skip a wrapper's own fallback import. Cross-wrapper shared imports
           // still need proxying, e.g. @fortawesome/vue-fontawesome -> vue.
-          return (
-            taggedModule.name === sharedKey ||
-            matchesSharedSource(source, taggedModule.name, shareEnvironment)
-          );
+          return taggedModule.name === sharedKey || matchesSharedSource(source, taggedModule.name);
         }
 
-        const key = findSharedKeyForSource(source, shared, shareEnvironment);
+        const key = findSharedKeyForSource(source, shared);
         if (!key) return;
         if (useDirectReactImport && key === 'react') return;
         if (isAssetLikeImport(source)) return;
@@ -635,43 +561,12 @@ export function proxySharedModule(options: {
         }
         if (shouldSkipTaggedImporterProxy(key, LOAD_SHARE_TAG)) return;
         if (shouldSkipTaggedImporterProxy(key, PREBUILD_TAG)) return;
-
-        let shareSource: string;
-        if (key === 'vue' && source.startsWith('vue/dist/')) {
-          shareSource = key;
-        } else if (isNodeModulePath(source)) {
-          const keyBase = removeTrailingSlash(key);
-          const envSubpath = getCommonSharedSubpathFromNodeModulePath(
-            source,
-            keyBase,
-            shareEnvironment
-          );
-          if (envSubpath) {
-            shareSource = envSubpath;
-          } else if (keyBase === 'react-dom') {
-            // Disk path is a react-dom common subpath for the other share set
-            // (e.g. server.browser in a browser graph). Do not proxy through
-            // the local provider — that would either pollute the browser share
-            // set or remap server* onto the package root.
-            const otherSubpath = getMatchingNodeModuleSubpath(
-              source,
-              COMMON_SHARED_SUBPATHS['react-dom'] || []
-            );
-            if (otherSubpath) return;
-            shareSource = key.endsWith('/') ? 'react-dom' : key;
-          } else {
-            shareSource = key;
-          }
-        } else {
-          shareSource = source;
-        }
-
-        // Prefix shares materialize the concrete imported subpath, not the
-        // trailing-slash key itself.
-        if (key.endsWith('/') && shareSource === key) {
-          shareSource = source;
-        }
-
+        const shareSource =
+          key === 'vue' && source.startsWith('vue/dist/')
+            ? key
+            : isNodeModulePath(source)
+              ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
+              : source;
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {
           materializedLoadShareSources.add(shareSource);
