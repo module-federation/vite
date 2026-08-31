@@ -192,11 +192,11 @@ function inferVersionFromRequiredVersion(
   return match?.[0];
 }
 
-/** Package-manager protocols that are not semver ranges for runtime satisfy(). */
-const PACKAGE_MANAGER_PROTOCOL_RE = /^(catalog|workspace|npm|patch|file|link|portal):/;
+/** URI-style package specifiers are not semver ranges for runtime satisfy(). */
+const PACKAGE_SPECIFIER_PROTOCOL_RE = /^[a-z][a-z\d+.-]*:/i;
 
-function isPackageManagerProtocolRequiredVersion(requiredVersion: string): boolean {
-  return PACKAGE_MANAGER_PROTOCOL_RE.test(requiredVersion.trim());
+function isProtocolRequiredVersion(requiredVersion: string): boolean {
+  return PACKAGE_SPECIFIER_PROTOCOL_RE.test(requiredVersion.trim());
 }
 
 function getLitExportSubpathShares(sharedName: string): string[] {
@@ -294,7 +294,7 @@ function normalizeShareItem(
     userRequiredVersion === false ||
     (typeof userRequiredVersion === 'string' &&
       userRequiredVersion.trim() !== '' &&
-      !isPackageManagerProtocolRequiredVersion(userRequiredVersion));
+      !isProtocolRequiredVersion(userRequiredVersion));
 
   return {
     name: key,

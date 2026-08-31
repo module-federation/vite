@@ -649,6 +649,12 @@ describe('normalizeModuleFederationOption', () => {
           'file:../react',
           'link:../react',
           'portal:../react',
+          'exec:./build-react.js',
+          'jsr:@scope/react@^19.0.0',
+          'git:https://github.com/facebook/react.git',
+          'git+https://github.com/facebook/react.git',
+          'https://registry.example.com/react.tgz',
+          'github:facebook/react',
           '',
         ]) {
           const shared = normalizeModuleFederationOptions({
@@ -661,7 +667,7 @@ describe('normalizeModuleFederationOption', () => {
             },
           }).shared;
 
-          expect(shared.react.shareConfig.requiredVersion).toBe('^19.2.7');
+          expect.soft(shared.react.shareConfig.requiredVersion, protocol).toBe('^19.2.7');
         }
 
         // Real ranges — including leading spaces / compound OR — stay unchanged.
