@@ -3,6 +3,7 @@ import {
   ensureTrailingSlash,
   getBasePath,
   getCommonSharedSubpathFromNodeModulePath,
+  getCommonSharedSubpaths,
   getMatchingNodeModuleSubpath,
   isAssetLikeImport,
   isNuxtClientBase,
@@ -67,6 +68,27 @@ describe('pathNormalization', () => {
         'react'
       )
     ).toBe('react/jsx-runtime');
+  });
+
+  it('lists only browser-safe react-dom common subpaths', () => {
+    expect(getCommonSharedSubpaths('react-dom')).toEqual([
+      'react-dom/client',
+      'react-dom/profiling',
+    ]);
+    expect(getCommonSharedSubpaths('react-dom')).not.toContain('react-dom/server');
+    expect(getCommonSharedSubpaths('react-dom')).not.toContain('react-dom/server.browser');
+    expect(
+      getCommonSharedSubpathFromNodeModulePath(
+        '/repo/node_modules/react-dom/client.js',
+        'react-dom'
+      )
+    ).toBe('react-dom/client');
+    expect(
+      getCommonSharedSubpathFromNodeModulePath(
+        '/repo/node_modules/react-dom/server.browser.js',
+        'react-dom'
+      )
+    ).toBeUndefined();
   });
 
   it.each([

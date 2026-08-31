@@ -2254,6 +2254,43 @@ describe('vite:module-federation-early-init', () => {
     expect(virtualModule?.code).toContain('jsx');
   });
 
+  it('registers only browser-safe react-dom subpaths during early init', () => {
+    const plugins = federation({
+      name: 'react-dom-browser-safe-host',
+      filename: 'remoteEntry.js',
+      shared: { 'react-dom': { singleton: true } },
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (entry) => entry.name === 'vite:module-federation-early-init'
+    );
+    const federationPlugin = plugins.find((entry) => entry.name === 'module-federation-vite') as
+      | (Plugin & { _options?: NormalizedModuleFederationOptions })
+      | undefined;
+    if (!earlyInitPlugin || !federationPlugin?._options) {
+      throw new Error('module federation plugins not found');
+    }
+    const config: any = {
+      root: REACT_EXAMPLE_ROOT,
+      optimizeDeps: { include: [], exclude: [] },
+    };
+
+    runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    const optimized = [...config.optimizeDeps.include, ...config.optimizeDeps.exclude];
+    const used = getUsedShares(federationPlugin._options);
+    expect(optimized).toContain('react-dom/client');
+    expect(optimized).toContain('react-dom/profiling');
+    expect(optimized).not.toContain('react-dom/server');
+    expect(optimized).not.toContain('react-dom/server.browser');
+    expect(used).toContain('react-dom/client');
+    expect(used).toContain('react-dom/profiling');
+    expect(used).not.toContain('react-dom/server');
+    expect(used).not.toContain('react-dom/server.browser');
+  });
+
   it('does not register react/compiler-runtime when the project React version does not export it', () => {
     const plugins = federation({
       name: 'host',

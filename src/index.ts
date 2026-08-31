@@ -830,7 +830,9 @@ export default __mfShared.default ?? __mfShared;`,
             for (const subpath of getCommonSharedSubpaths(key)) {
               const canResolveSubpath = canResolveSharedSubpath(subpath, root);
               if (
-                ['react/compiler-runtime', 'react-dom/client'].includes(subpath) &&
+                ['react/compiler-runtime', 'react-dom/client', 'react-dom/profiling'].includes(
+                  subpath
+                ) &&
                 !canResolveSubpath
               ) {
                 // These entry points only exist in newer React versions.

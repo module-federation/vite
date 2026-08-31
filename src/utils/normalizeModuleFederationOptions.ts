@@ -314,9 +314,9 @@ function normalizeShareItem(
  * a prefix; concrete subpaths materialize on import via the generic matcher.
  *
  * `react-dom/` must keep collapsing. A browser-wide `react-dom/` prefix would
- * also capture `react-dom/server*`, which is unsafe without environment-aware
- * filtering. Browser-safe entries such as `react-dom/client` stay explicit via
- * COMMON_SHARED_SUBPATHS (local provider) or an exact shared key.
+ * also capture `react-dom/server*`. Browser-safe entries (`react-dom/client`,
+ * `react-dom/profiling`) stay via COMMON_SHARED_SUBPATHS (local provider) or
+ * an exact shared key; SSR server* entries need an explicit shared key.
  */
 function normalizeSharedKey(key: string): string {
   if (!key.endsWith('/')) return key;
