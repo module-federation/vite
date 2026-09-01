@@ -434,6 +434,16 @@ function getAdditionalTopLevelDeclaratorNames(
       canStartRegex = false;
       continue;
     }
+    if (char === '<' && source[index + 1] === '/') {
+      const jsxClosingTag = source
+        .slice(index)
+        .match(/^<\/\s*(?:[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}.:-]*\s*)?>/u);
+      if (jsxClosingTag) {
+        index += jsxClosingTag[0].length - 1;
+        canStartRegex = false;
+        continue;
+      }
+    }
     if (char === '/' && source[index + 1] === '/') {
       index = source.indexOf('\n', index + 2);
       if (index === -1) return names;

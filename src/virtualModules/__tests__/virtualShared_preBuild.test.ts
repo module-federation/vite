@@ -529,6 +529,7 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/relational-multi-declarator.ts') ||
       filePath.endsWith('/repo/packages/multi-declarator.js') ||
       filePath.endsWith('/repo/packages/postfix-multi-declarator.js') ||
+      filePath.endsWith('/repo/packages/semicolonless-jsx.jsx') ||
       filePath.endsWith('/repo/packages/string-export-list.js') ||
       filePath.endsWith('/repo/packages/trailing-comma-export-list.js') ||
       filePath.endsWith('/repo/packages/default-reexport-list.js') ||
@@ -632,6 +633,20 @@ export const assertedRegistry = <Map<object, any>>new Map();`;
     }
     if (filePath.endsWith('/repo/packages/postfix-multi-declarator.js')) {
       return 'export let first = count++ / total, second = /x/;';
+    }
+    if (filePath.endsWith('/repo/packages/semicolonless-jsx.jsx')) {
+      return `export const a = 1, b = 2
+export const withTheme = Component => props => <Component {...props} theme="light" />
+
+export const Badge = () => (
+  <span>
+    ok
+  </span>
+)
+
+export const Inline = <span>
+  ok
+</span>, later = 3`;
     }
     if (filePath.endsWith('/repo/packages/string-export-list.js')) {
       return 'const foo = 1; export { foo as "a-b", foo as valid };';
@@ -2059,6 +2074,35 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain(
       'export * from "/repo/packages/postfix-multi-declarator.js"'
     );
+  });
+
+  it('keeps semicolonless JSX exports live', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/semicolonless-jsx.jsx',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expectLiveSingletonProxy(generatedCode, pkg, [
+      'a',
+      'withTheme',
+      'Badge',
+      'Inline',
+      'b',
+      'later',
+    ]);
   });
 
   it('does not treat string-named export lists as complete', () => {
