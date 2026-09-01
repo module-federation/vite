@@ -28,7 +28,7 @@
     "lib/**/*"
   ],
   "scripts": {
-    "prepare": "husky install",
+    "prepare": "husky",
     "fmt": "oxfmt src",
     "fmt.check": "oxfmt --check src",
     "dev": "tsdown --watch",
