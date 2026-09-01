@@ -1,13 +1,12 @@
-import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
+import VirtualModule from '../utils/VirtualModule';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { SERVER_ENV_GUARD } from '../utils/ssrCapabilities';
 import { isReactServerConditions } from '../utils/sharedExportConditions';
 import { toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
+import { getFederationScopeKey } from './virtualModuleScope';
 
 export const virtualRuntimeInitStatus = new VirtualModule('runtimeInit');
 const runtimeInitModules = new WeakMap<NormalizedModuleFederationOptions, VirtualModule>();
-const runtimeInitOwnerIds = new WeakMap<NormalizedModuleFederationOptions, number>();
-let nextRuntimeInitOwnerId = 1;
 const MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache__';
 const REACT_SERVER_MODULE_CACHE_GLOBAL_KEY = '__mf_module_cache_react_server__';
 export const MODULE_CACHE_SHARE_SCOPE_KEY = 'module-federation.vite-module-cache';
@@ -18,25 +17,15 @@ export function getModuleCacheGlobalKey(exportConditions?: readonly string[]) {
     : MODULE_CACHE_GLOBAL_KEY;
 }
 
-function getRuntimeInitOwnerId(options: NormalizedModuleFederationOptions) {
-  let ownerId = runtimeInitOwnerIds.get(options);
-  if (!ownerId) {
-    ownerId = nextRuntimeInitOwnerId++;
-    runtimeInitOwnerIds.set(options, ownerId);
-  }
-  return ownerId;
-}
-
 function getRuntimeInitModule(options?: NormalizedModuleFederationOptions) {
   if (!options) return virtualRuntimeInitStatus;
   let runtimeInitModule = runtimeInitModules.get(options);
   if (!runtimeInitModule) {
-    const ownerId = getRuntimeInitOwnerId(options);
     runtimeInitModule = new VirtualModule(
       'runtimeInit',
       '__mf_v__',
       '',
-      `${options.internalName}${MF_OWNER_INFIX}${ownerId}`
+      getFederationScopeKey(options)
     );
     runtimeInitModules.set(options, runtimeInitModule);
   }
@@ -53,7 +42,7 @@ export function getRuntimeRemoteCachePrefix(options?: NormalizedModuleFederation
 
 export function getRuntimeRemoteAlias(alias: string, options?: NormalizedModuleFederationOptions) {
   if (!options) return alias;
-  return `${options.internalName}${MF_OWNER_INFIX}${getRuntimeInitOwnerId(options)}__${alias}`;
+  return `${getFederationScopeKey(options)}__${alias}`;
 }
 
 export function getRuntimeInitGlobalKey(ownerImportId?: string) {

@@ -42,6 +42,7 @@ import {
   getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
+import { getFederationScopeKey } from './virtualModuleScope';
 
 const JS_IDENTIFIER_REGEX = new RegExp(
   '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
@@ -1163,8 +1164,6 @@ const sharedVirtualModuleStates = new WeakMap<
   NormalizedModuleFederationOptions,
   SharedVirtualModuleState
 >();
-let nextSharedVirtualModuleOwnerId = 1;
-
 function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions) {
   if (!options) {
     try {
@@ -1183,7 +1182,7 @@ function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions
       materializedTreeShakingProviders: new Set(),
       loadShareCacheMap: {},
       warnedMissingImportFalse: new Set(),
-      ownerKey: `${options.internalName}${MF_OWNER_INFIX}${nextSharedVirtualModuleOwnerId++}`,
+      ownerKey: getFederationScopeKey(options),
     };
     sharedVirtualModuleStates.set(options, state);
   }
