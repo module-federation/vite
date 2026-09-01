@@ -37,8 +37,12 @@ export function findModuleImportDescriptors(code: string): ModuleImportDescripto
   const requirePattern = /\brequire\s*\(\s*(["'])([^"']+)\1\s*\)/g;
   const sideEffectPattern = /\bimport\s*(["'])([^"']+)\1/g;
 
-  for (const match of code.matchAll(staticFromPattern)) {
-    if (!codePositions[match.index!]) continue;
+  let match: RegExpExecArray | null;
+  while ((match = staticFromPattern.exec(code))) {
+    if (!codePositions[match.index!]) {
+      staticFromPattern.lastIndex = match.index! + 1;
+      continue;
+    }
     descriptors.push({
       kind: 'static',
       syntax: 'import',

@@ -80,7 +80,11 @@ import {
   getResolvedLocalSharedImportMapId,
   getUsedShares,
 } from '../virtualModules/virtualRemoteEntry';
-import { getStaticRemotes, getUsedRemotesMap } from '../virtualModules/virtualRemotes';
+import {
+  getPreloadRemotes,
+  getStaticRemotes,
+  getUsedRemotesMap,
+} from '../virtualModules/virtualRemotes';
 import { virtualRuntimeInitStatus } from '../virtualModules/virtualRuntimeInitStatus';
 
 const REACT_EXAMPLE_ROOT = path.join(process.cwd(), 'examples/vite-vite/vite-host');
@@ -1391,6 +1395,7 @@ describe('vite:module-federation-early-init', () => {
 
       expect([...getUsedRemotesMap(owner._options).modules]).toContain('modules/authSlice');
       expect([...getUsedRemotesMap(owner._options).modules]).not.toContain('modules/lazy');
+      expect(getPreloadRemotes(owner._options)).toEqual(new Set(['modules/authSlice']));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

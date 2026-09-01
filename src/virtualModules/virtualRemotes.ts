@@ -98,6 +98,7 @@ const usedRemotesByOptions = new WeakMap<
 >();
 const dynamicRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 const staticRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
+const preloadRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 const EMPTY_STATIC_REMOTES: ReadonlySet<string> = new Set();
 
 function getScopedUsedRemotesMap(options: NormalizedModuleFederationOptions) {
@@ -151,6 +152,19 @@ export function markStaticRemote(remote: string, options: NormalizedModuleFedera
 
 export function getStaticRemotes(options: NormalizedModuleFederationOptions): ReadonlySet<string> {
   return staticRemotesByOptions.get(options) ?? EMPTY_STATIC_REMOTES;
+}
+
+export function markPreloadRemote(remote: string, options: NormalizedModuleFederationOptions) {
+  let remotes = preloadRemotesByOptions.get(options);
+  if (!remotes) {
+    remotes = new Set();
+    preloadRemotesByOptions.set(options, remotes);
+  }
+  remotes.add(remote);
+}
+
+export function getPreloadRemotes(options: NormalizedModuleFederationOptions): ReadonlySet<string> {
+  return preloadRemotesByOptions.get(options) ?? EMPTY_STATIC_REMOTES;
 }
 
 export function isDynamicOnlyRemote(remote: string, options: NormalizedModuleFederationOptions) {
