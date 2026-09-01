@@ -2869,6 +2869,12 @@ describe('virtualRemoteEntry', () => {
     );
     expect(preSeedBridgeCode).toContain('if (usedShare.canLiveRebind === false) return;');
     expect(preSeedBridgeCode).toContain('const provider = __mfSelectExternalSharedProvider(');
+    expect(preSeedBridgeCode).toContain(
+      'if (usedShare.shareConfig?.import === false && __mfMatchesSharedProvider(provider, usedShare)) return;'
+    );
+    expect(preSeedBridgeCode.indexOf('shareConfig?.import === false')).toBeLessThan(
+      preSeedBridgeCode.indexOf('directFactory = await provider.get()')
+    );
     expect(preSeedBridgeCode).toContain('if (!singleton && version !== usedShare.version) return;');
     expect(preSeedBridgeCode).toContain("!(provider.loaded && typeof provider.get === 'function')");
     expect(preSeedBridgeCode).toContain('directFactory = await provider.get();');
@@ -2972,6 +2978,10 @@ describe('virtualRemoteEntry', () => {
     );
     expect(bridgeHelperCode).not.toContain('if (!usedShare.shareConfig?.singleton) return;');
     expect(bridgeHelperCode).toContain('if (usedShare.canLiveRebind === false) return;');
+    expect(bridgeHelperCode).toContain(
+      'if (usedShare.shareConfig?.import === false && __mfMatchesSharedProvider(provider, usedShare)) return;'
+    );
+    expect(bridgeHelperCode.indexOf('shareConfig?.import === false')).toBeLessThan(providerLoad);
     expect(bridgeHelperCode.indexOf('if (usedShare.canLiveRebind === false) return;')).toBeLessThan(
       providerLoad
     );
@@ -3004,6 +3014,13 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('expectedFrom');
     expect(code).not.toContain('__mfModuleCache.share[usedCacheKey] = normalized;');
     expect(code.match(/runtimeResolveShareHook/g)).toHaveLength(2);
+    expect(code).toContain('if (__mfMatchesSharedProvider(provider, share)) return;');
+    expect(code.indexOf('if (__mfMatchesSharedProvider(provider, share)) return;')).toBeLessThan(
+      code.indexOf(
+        'const loadedShare = await __mfLoadPinnedRuntimeShare(',
+        code.indexOf('const __mfResolveImportFalseShared')
+      )
+    );
   });
 
   it('materializes only an originally passed root provider replaced by a later instance', async () => {

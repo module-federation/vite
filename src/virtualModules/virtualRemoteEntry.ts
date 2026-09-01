@@ -1659,6 +1659,7 @@ export function generateRemoteEntry(
         );
         const providerEntry = __mfFindSharedProviderEntry(versionMap, provider);
         if (!providerEntry) return;
+        if (usedShare.shareConfig?.import === false && __mfMatchesSharedProvider(provider, usedShare)) return;
         const { version } = providerEntry;
         if (!singleton && version !== usedShare.version) return;
         if (
@@ -1780,6 +1781,7 @@ export function generateRemoteEntry(
           scopeRootProvider: undefined
         };
         if (usedShare.canLiveRebind === false) return;
+        if (usedShare.shareConfig?.import === false && __mfMatchesSharedProvider(provider, usedShare)) return;
         // Preserve a singleton already selected by another container. The bridge may
         // only replace the provisional local fallback seeded by this container.
         if (cachedShare !== undefined && cachedShareOwner !== mfName) return;
@@ -1948,6 +1950,7 @@ export function generateRemoteEntry(
       ) || share;
       const providerEntry = __mfFindSharedProviderEntry(versionMap, provider);
       if (!providerEntry) return;
+      if (__mfMatchesSharedProvider(provider, share)) return;
       const { version } = providerEntry;
       const currentProvider = versionMap?.[version];
       const loadedShare = await __mfLoadPinnedRuntimeShare(
