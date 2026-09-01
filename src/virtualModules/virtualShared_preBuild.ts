@@ -1751,7 +1751,7 @@ function generateLazyWorkspaceSingletonExports(
       if (import.meta.env.SSR${serveLocalFallback ? " || (import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')" : ''}) {
         ${applyLocalFallback}
       } else {
-        (__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then(() => {
+        __mfTrackPendingShareLoad(initPromise.then(() => {
           exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
           if (exportModule !== undefined) {
             __mfApplyLazyShareExports(exportModule);
@@ -1829,7 +1829,7 @@ function generateDeferredHostProvidedExports(
     };
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
-      (__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then(() => {
+      __mfTrackPendingShareLoad(initPromise.then(() => {
         exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
         if (exportModule === undefined) {
           throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.");

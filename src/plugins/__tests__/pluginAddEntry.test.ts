@@ -496,9 +496,9 @@ describe('pluginAddEntry', () => {
 
     const bootstrap = result?.code ?? '';
     expect(bootstrap.indexOf('await initHost();')).toBeLessThan(
-      bootstrap.indexOf('__mfModuleCache.pendingShareLoads')
+      bootstrap.indexOf('if (__mfModuleCache.pendingShareLoads)')
     );
-    expect(bootstrap.indexOf('__mfModuleCache.pendingShareLoads')).toBeLessThan(
+    expect(bootstrap.indexOf('if (__mfModuleCache.pendingShareLoads)')).toBeLessThan(
       bootstrap.indexOf('.then(() => import(')
     );
   });
