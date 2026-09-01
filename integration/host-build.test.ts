@@ -84,6 +84,32 @@ describe('host build', () => {
     expect(bootstrapCode).toContain('await initHost();');
   });
 
+  it('does not preload static remote imports behind a dynamic chunk', async () => {
+    const output = await buildFixture({
+      fixture: 'loaded-first-lazy-remote-host',
+      mfOptions: {
+        ...LOADED_FIRST_STATIC_MF_OPTIONS,
+        remotes: {
+          ...LOADED_FIRST_STATIC_MF_OPTIONS.remotes,
+          remote2: {
+            name: 'remote2',
+            entry: 'http://localhost:3002/remoteEntry.js',
+            type: 'module',
+          },
+        },
+      },
+    });
+    const bootstrapAsset = output.output.find(
+      (item) => item.type === 'asset' && item.fileName.includes('mf-entry-bootstrap')
+    );
+    const bootstrapCode = (bootstrapAsset as unknown as { source: string }).source;
+
+    expect(bootstrapCode).toContain('"remote1/Module"');
+    expect(bootstrapCode).not.toContain('remote2/Module');
+    expect(bootstrapCode).not.toContain('http://localhost:3002/remoteEntry.js');
+    expect(bootstrapCode).not.toMatch(/^await /m);
+  });
+
   it('prefetches module remote entries before host init for version-first', async () => {
     const output = await buildFixture({
       fixture: 'loaded-first-static-host',

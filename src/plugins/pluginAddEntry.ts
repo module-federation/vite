@@ -24,9 +24,9 @@ import {
 } from '../utils/VirtualModule';
 import {
   addUsedRemote,
+  getPreloadRemotes,
   getRemoteRegistration,
   getRuntimeRemoteId,
-  getStaticRemotes,
   getUsedRemotesMap,
   isDynamicOnlyRemote,
 } from '../virtualModules/virtualRemotes';
@@ -419,7 +419,7 @@ const __mfCurrentScript = document.currentScript;
       normalizedOptions.shareStrategy === 'loaded-first';
     if (normalizedOptions.shareStrategy === 'loaded-first' && !isLoadedFirstClientBuild) return [];
     const remoteSources = isLoadedFirstClientBuild
-      ? Array.from(getStaticRemotes(normalizedOptions))
+      ? Array.from(getPreloadRemotes(normalizedOptions))
       : Object.entries(getUsedRemotesMap(federationOptions))
           .flatMap(([, remotes]) => Array.from(remotes))
           .filter(
@@ -490,7 +490,7 @@ const __mfCurrentScript = document.currentScript;
       (normalizedOptions.shareStrategy !== 'loaded-first' || isLoadedFirstClientBuild);
 
     const remoteSources = isLoadedFirstClientBuild
-      ? Array.from(getStaticRemotes(normalizedOptions))
+      ? Array.from(getPreloadRemotes(normalizedOptions))
       : Object.entries(getUsedRemotesMap(federationOptions))
           .flatMap(([, remotes]) => Array.from(remotes))
           .filter(

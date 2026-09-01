@@ -41,6 +41,15 @@ describe('findModuleImportSources', () => {
       `)
     ).toEqual(['remote/runtime', 'remote/lazy']);
   });
+
+  it('finds a namespace import after a comment mentioning an import', () => {
+    expect(
+      findModuleImportDescriptors(`
+        // Static import of the entry remote.
+        import * as remote from 'remote/namespace';
+      `)
+    ).toEqual([{ kind: 'static', syntax: 'import', source: 'remote/namespace', typeOnly: false }]);
+  });
 });
 
 describe('findModuleImportDescriptors', () => {

@@ -99,7 +99,11 @@ import {
   isOwnedHostAutoInitId,
   refreshHostAutoInit,
 } from './virtualModules/virtualRemoteEntry';
-import { addUsedRemote, markStaticRemote } from './virtualModules/virtualRemotes';
+import {
+  addUsedRemote,
+  markPreloadRemote,
+  markStaticRemote,
+} from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
   findCurrentLoadShareForStaleOwnerId,
@@ -561,6 +565,7 @@ function registerEntryImports(
       if (remoteKey) {
         addUsedRemote(remoteKey, request, options);
         markStaticRemote(request, options);
+        markPreloadRemote(request, options);
       } else if (sharedKey && recordShared) {
         addUsedShares(request, options);
       } else if (request && !typeOnly) {

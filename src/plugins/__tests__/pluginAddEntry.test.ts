@@ -54,6 +54,7 @@ import {
   addUsedRemote,
   getUsedRemotesMap,
   markDynamicRemote,
+  markPreloadRemote,
   markStaticRemote,
 } from '../../virtualModules/virtualRemotes';
 import { addUsedShares } from '../../virtualModules/virtualRemoteEntry';
@@ -1346,6 +1347,7 @@ describe('pluginAddEntry', () => {
       },
     } as any;
     markStaticRemote('employees/staff', federationOptions);
+    markPreloadRemote('employees/staff', federationOptions);
     markDynamicRemote('employees/lazy', federationOptions);
 
     const plugins = addEntry({
