@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import VirtualModule from '../../utils/VirtualModule';
+import VirtualModule, { MF_OWNER_INFIX } from '../../utils/VirtualModule';
 import { findSharedKey } from '../../plugins/pluginProxySharedModule_preBuild';
+import { packageNameEncode } from '../../utils/packageUtils';
 import {
   normalizeModuleFederationOptions,
   type NormalizedShared,
@@ -17,10 +18,12 @@ import {
 import { generateRemoteEntry } from '../virtualRemoteEntry';
 import { getRuntimeInitStatusImportId, writeRuntimeInitStatus } from '../virtualRuntimeInitStatus';
 import { recordTreeShakingExports, setTreeShakingBuildMode } from '../../utils/treeShaking';
+import { getFederationScopeKey } from '../virtualModuleScope';
 
-function makeOptions(name = 'same-name-host') {
+function makeOptions(name = 'same-name-host', filename?: string) {
   return normalizeModuleFederationOptions({
     name,
+    filename,
     shared: {},
   });
 }
@@ -42,7 +45,7 @@ function makeShareItem(importValue: false | string): ShareItem {
 describe('shared virtual module instance isolation', () => {
   it('keeps same-package generated modules owned by same-name federation instances', () => {
     const optionsA = makeOptions();
-    const optionsB = makeOptions();
+    const optionsB = makeOptions('same-name-host', 'secondaryRemoteEntry.js');
     const shareA = makeShareItem(false);
     const shareB = makeShareItem('react');
 
@@ -66,7 +69,7 @@ describe('shared virtual module instance isolation', () => {
 
   it('uses a distinct build init barrier for each federation instance', () => {
     const optionsA = makeOptions();
-    const optionsB = makeOptions();
+    const optionsB = makeOptions('same-name-host', 'secondaryRemoteEntry.js');
     const share = makeShareItem(false);
 
     writeLoadShareModule('react', share, 'build', false, optionsA);
@@ -82,6 +85,52 @@ describe('shared virtual module instance isolation', () => {
     expect(codeA).not.toContain(`__mf_init__${runtimeInitB}__`);
     expect(codeB).toContain(`__mf_init__${runtimeInitB}__`);
     expect(codeB).not.toContain(`__mf_init__${runtimeInitA}__`);
+  });
+
+  it('keeps runtime init ids stable for equivalent configs', () => {
+    const optionsA = makeOptions('stable-host');
+    const share = makeShareItem(false);
+    writeLoadShareModule('react', share, 'serve', false, optionsA);
+    getRuntimeInitStatusImportId(makeOptions('unrelated-host'));
+    const optionsB = makeOptions('stable-host');
+    writeLoadShareModule('react', share, 'serve', false, optionsB);
+
+    expect(getRuntimeInitStatusImportId(optionsA)).toBe(getRuntimeInitStatusImportId(optionsB));
+    expect(getLoadShareModulePath('react', false, optionsA)).toBe(
+      getLoadShareModulePath('react', false, optionsB)
+    );
+  });
+
+  it('normalizes non-JSON config values deterministically', () => {
+    const makeTypedOptions = (reverse: boolean) => ({
+      internalName: 'typed-host',
+      runtime: {
+        date: new Date('2026-01-02T03:04:05.000Z'),
+        pattern: /remote-entry/gi,
+        map: new Map(
+          reverse
+            ? [
+                ['b', 2],
+                ['a', 1],
+              ]
+            : [
+                ['a', 1],
+                ['b', 2],
+              ]
+        ),
+        set: new Set(reverse ? ['b', 'a'] : ['a', 'b']),
+      },
+    });
+
+    expect(getFederationScopeKey(makeTypedOptions(false))).toBe(
+      getFederationScopeKey(makeTypedOptions(true))
+    );
+    expect(getFederationScopeKey(makeTypedOptions(false))).not.toBe(
+      getFederationScopeKey({
+        ...makeTypedOptions(false),
+        runtime: { ...makeTypedOptions(false).runtime, pattern: /remote-entry/g },
+      })
+    );
   });
 
   it('uses the same scoped init barrier in serve loadShare and remoteEntry modules', () => {
@@ -101,7 +150,7 @@ describe('shared virtual module instance isolation', () => {
 
   it('keeps scoped SSR remotes separate from the host-init import identity', () => {
     const optionsA = makeOptions();
-    const optionsB = makeOptions();
+    const optionsB = makeOptions('same-name-host', 'secondaryRemoteEntry.js');
     const remotesA = [{ name: 'remote-a', entry: 'https://a.invalid/ssr.js', type: 'module' }];
     const remotesB = [{ name: 'remote-b', entry: 'https://b.invalid/ssr.js', type: 'module' }];
 
@@ -124,7 +173,7 @@ describe('shared virtual module instance isolation', () => {
 
   it('does not combine tree-shaking providers across federation instances', () => {
     const optionsA = makeOptions();
-    const optionsB = makeOptions();
+    const optionsB = makeOptions('same-name-host', 'secondaryRemoteEntry.js');
     const shareA = makeShareItem('react');
     const shareB = makeShareItem('react');
     shareA.shareConfig.treeShaking = { mode: 'server-calc' };
@@ -169,21 +218,23 @@ function makeShared(pkg: string): NormalizedShared {
   return { [pkg]: makePkgShareItem(pkg) } as NormalizedShared;
 }
 
-// The flip side of instance isolation: owner keys embed a process-wide
-// generation counter, but Vite persists loadShare ids into the dep-optimizer
-// cache (node_modules/.vite). Ids minted by an earlier generation of the SAME
-// instance must resolve to the current generation, while other instances' ids
-// stay isolated (#970).
+function toLegacyOwnerId(id: string, options: ReturnType<typeof makeOptions>) {
+  return id.replace(
+    `virtual:mf:${packageNameEncode(getFederationScopeKey(options))}`,
+    `virtual:mf:${packageNameEncode(`${options.internalName}${MF_OWNER_INFIX}99`)}`
+  );
+}
+
+// Numeric owner keys from older caches must resolve to the deterministic owner
+// for the same instance, while other instances' ids stay isolated.
 describe('stale owner loadShare resolution', () => {
   it('redirects loadShare ids minted by a previous generation of the same instance', () => {
-    const previousGen = makeOptions('stale-owner-host');
     const currentGen = makeOptions('stale-owner-host');
     const shared = makeShared('react');
 
-    writeLoadShareModule('react', shared['react'], 'serve', false, previousGen);
     writeLoadShareModule('react', shared['react'], 'serve', false, currentGen);
-    const staleId = getLoadShareModulePath('react', false, previousGen);
     const currentId = getLoadShareModulePath('react', false, currentGen);
+    const staleId = toLegacyOwnerId(currentId, currentGen);
     expect(staleId).not.toBe(currentId);
 
     const healed = findCurrentLoadShareForStaleOwnerId(staleId, shared, findSharedKey, currentGen);
@@ -191,7 +242,6 @@ describe('stale owner loadShare resolution', () => {
   });
 
   it('redirects stale ids for encoded package subpaths', () => {
-    const previousGen = makeOptions('stale-owner-host');
     const currentGen = makeOptions('stale-owner-host');
     const shared = makeShared('react-dom/client');
 
@@ -200,16 +250,12 @@ describe('stale owner loadShare resolution', () => {
       shared['react-dom/client'],
       'serve',
       false,
-      previousGen
-    );
-    writeLoadShareModule(
-      'react-dom/client',
-      shared['react-dom/client'],
-      'serve',
-      false,
       currentGen
     );
-    const staleId = getLoadShareModulePath('react-dom/client', false, previousGen);
+    const staleId = toLegacyOwnerId(
+      getLoadShareModulePath('react-dom/client', false, currentGen),
+      currentGen
+    );
 
     const healed = findCurrentLoadShareForStaleOwnerId(staleId, shared, findSharedKey, currentGen);
     expect(healed?.getImportId()).toBe(
