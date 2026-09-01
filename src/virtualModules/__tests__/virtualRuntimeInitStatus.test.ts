@@ -74,6 +74,86 @@ describe('virtualRuntimeInitStatus', () => {
     delete (globalThis as any)['__mf_init__virtual:owner__'];
   });
 
+  it('cleans settled loads in default and react-server caches without changing the original promises', async () => {
+    const { getRuntimeModuleCacheBootstrapCode } = await import('../virtualRuntimeInitStatus');
+    const defaultTracker = runCode<(promise: Promise<unknown>) => Promise<unknown>>(
+      getRuntimeModuleCacheBootstrapCode(),
+      'return __mfTrackPendingShareLoad;'
+    );
+    const reactServerTracker = runCode<(promise: Promise<unknown>) => Promise<unknown>>(
+      getRuntimeModuleCacheBootstrapCode(['react-server', 'node']),
+      'return __mfTrackPendingShareLoad;'
+    );
+    const defaultCache = (globalThis as any).__mf_module_cache__;
+    const reactServerCache = (globalThis as any).__mf_module_cache_react_server__;
+    let rejectFirst!: (error: Error) => void;
+    let resolveSecond!: () => void;
+    let resolveReactServer!: () => void;
+    const first = new Promise<never>((_resolve, reject) => {
+      rejectFirst = reject;
+    });
+    const second = new Promise<void>((resolve) => {
+      resolveSecond = resolve;
+    });
+    const reactServer = new Promise<void>((resolve) => {
+      resolveReactServer = resolve;
+    });
+
+    expect(defaultCache.pendingShareLoads).toBeUndefined();
+    expect(reactServerCache.pendingShareLoads).toBeUndefined();
+    expect(defaultTracker(first)).toBe(first);
+    expect(defaultTracker(second)).toBe(second);
+    expect(reactServerTracker(reactServer)).toBe(reactServer);
+    expect(defaultCache.pendingShareLoads).toEqual([first, second]);
+    expect(reactServerCache.pendingShareLoads).toEqual([reactServer]);
+
+    const defaultWaiter = Promise.all(defaultCache.pendingShareLoads);
+    const reactServerWaiter = Promise.all(reactServerCache.pendingShareLoads);
+    const firstError = new Error('default shared load failed');
+    rejectFirst(firstError);
+    await expect(defaultWaiter).rejects.toBe(firstError);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(defaultCache.pendingShareLoads).toEqual([second]);
+    expect(reactServerCache.pendingShareLoads).toEqual([reactServer]);
+
+    resolveSecond();
+    resolveReactServer();
+    await expect(second).resolves.toBeUndefined();
+    await expect(reactServerWaiter).resolves.toEqual([undefined]);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(defaultCache.pendingShareLoads).toEqual([]);
+    expect(reactServerCache.pendingShareLoads).toEqual([]);
+  });
+
+  it('does not let rejected-load cleanup remove a newer retry in the same cache', async () => {
+    const { getRuntimeModuleCacheBootstrapCode } = await import('../virtualRuntimeInitStatus');
+    const tracker = runCode<(promise: Promise<unknown>) => Promise<unknown>>(
+      getRuntimeModuleCacheBootstrapCode(),
+      'return __mfTrackPendingShareLoad;'
+    );
+    const cache = (globalThis as any).__mf_module_cache__;
+    let rejectFirst!: (error: Error) => void;
+    let resolveRetry!: () => void;
+    const first = new Promise<never>((_resolve, reject) => {
+      rejectFirst = reject;
+    });
+    const retry = new Promise<void>((resolve) => {
+      resolveRetry = resolve;
+    });
+
+    tracker(first);
+    tracker(retry);
+    rejectFirst(new Error('retryable shared load failed'));
+    await expect(first).rejects.toThrow('retryable shared load failed');
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    expect(cache.pendingShareLoads).toEqual([retry]);
+    resolveRetry();
+    await expect(retry).resolves.toBeUndefined();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(cache.pendingShareLoads).toEqual([]);
+  });
+
   it('aliases default-scoped and legacy share cache keys both ways', async () => {
     const { getRuntimeModuleCacheBootstrapCode } = await import('../virtualRuntimeInitStatus');
     const legacyReact = { source: 'legacy-react' };

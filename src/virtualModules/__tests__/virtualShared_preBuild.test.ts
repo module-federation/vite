@@ -2357,7 +2357,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('let current = __mfLocalShare;');
     expect(generatedCode).toContain('export * from "/missing/virtual-shared-module.js"');
     expect(generatedCode).not.toContain('__mfApplyLazyShareExports');
-    expect(generatedCode).not.toContain('pendingShareLoads');
+    expect(generatedCode).not.toContain('__mfTrackPendingShareLoad(');
   });
 
   it('statically imports unknown workspace exports in serve mode', () => {
@@ -4132,7 +4132,7 @@ describe('writePreBuildLibPath', () => {
     expect(afterElse).not.toContain('pendingShareLoads');
   });
 
-  it('pushes lazy share load to pendingShareLoads in client-side undefined branch (build mode)', () => {
+  it('tracks lazy share load in client-side undefined branch (build mode)', () => {
     const pkg = 'workspace-shared-lib';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -4158,8 +4158,10 @@ describe('writePreBuildLibPath', () => {
     expect(generatedCode).toContain('if (exportModule !== undefined)');
     expect(generatedCode).toContain('return import(');
 
-    // Must use the ||= pattern for lazy initialization
-    expect(generatedCode).toContain('||= []');
+    expect(generatedCode).toContain('__mfTrackPendingShareLoad(initPromise.then');
+    expect(generatedCode).not.toContain(
+      '(__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then'
+    );
   });
 
   it('does not use bare initPromise.then without pendingShareLoads in build mode', () => {
@@ -4180,13 +4182,16 @@ describe('writePreBuildLibPath', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    // Every initPromise.then() must be wrapped in a pendingShareLoads push.
-    const pushCount = (generatedCode.match(/pendingShareLoads/g) || []).length;
+    // Every initPromise.then() must be wrapped in the pending-share tracker.
+    const trackerCount = (generatedCode.match(/__mfTrackPendingShareLoad/g) || []).length;
     const thenCount = (generatedCode.match(/initPromise\.then/g) || []).length;
-    expect(pushCount).toBeGreaterThanOrEqual(thenCount);
+    expect(trackerCount).toBeGreaterThanOrEqual(thenCount);
+    expect(generatedCode).not.toContain(
+      '(__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then'
+    );
   });
 
-  it('pushes host-provided share load to pendingShareLoads in else branch (import: false)', () => {
+  it('tracks host-provided share load in else branch (import: false)', () => {
     const pkg = 'host-only-dep';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -4210,6 +4215,44 @@ describe('writePreBuildLibPath', () => {
     expect(generatedCode).toContain('__mfApplyHostProvidedExports');
     expect(generatedCode).toContain('__mfModuleCache.share');
     expect(generatedCode).toContain('initPromise.then');
+    expect(generatedCode).toContain('__mfTrackPendingShareLoad(initPromise.then');
+    expect(generatedCode).not.toContain(
+      '(__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then'
+    );
+  });
+
+  it('tracks react-server shared loads in the react-server module cache', () => {
+    const pkg = 'react-server-host-only-dep';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'react-server',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false, undefined, [
+      'react-server',
+      'node',
+      'import',
+      'module',
+      'default',
+    ]);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain(
+      'const __mfCacheGlobalKey = "__mf_module_cache_react_server__";'
+    );
+    expect(generatedCode).toContain('__mfTrackPendingShareLoad(initPromise.then');
+    expect(generatedCode).not.toContain(
+      '(__mfModuleCache.pendingShareLoads ||= []).push(initPromise.then'
+    );
   });
 });
 

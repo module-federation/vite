@@ -192,6 +192,16 @@ globalThis[__mfCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[__mfCacheGlobalKey].share ||= {};
 globalThis[__mfCacheGlobalKey].remote ||= {};
 const __mfModuleCache = globalThis[__mfCacheGlobalKey];
+const __mfTrackPendingShareLoad = (promise) => {
+  const pendingShareLoads = (__mfModuleCache.pendingShareLoads ||= []);
+  pendingShareLoads.push(promise);
+  const cleanup = () => {
+    const index = pendingShareLoads.indexOf(promise);
+    if (index !== -1) pendingShareLoads.splice(index, 1);
+  };
+  void promise.then(cleanup, cleanup);
+  return promise;
+};
 for (const __mfShareKey of Object.keys(__mfModuleCache.share)) {
   if (__mfShareKey.startsWith("default:")) {
     const __mfLegacyShareKey = __mfShareKey.slice("default:".length);
