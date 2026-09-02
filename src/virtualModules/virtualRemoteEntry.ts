@@ -1251,7 +1251,21 @@ export function generateRemoteEntry(
       }
       return runtimeScope;
     };
+    // runtimeInit() lets runtime plugins register providers (public
+    // registerShared) before initShareScopeMap() replaces the runtime's own
+    // scope map. Carry those registrations over; the runtime's own copies of
+    // usedShared keep registering lazily through loadShare().
+    const __mfKeepRegisteredShares = (scopeName, scope) => {
+      for (const [pkg, versions] of Object.entries(initRes.shareScopeMap?.[scopeName] || {})) {
+        for (const [version, provider] of Object.entries(versions || {})) {
+          if (!provider || provider.get === usedShared[pkg]?.get) continue;
+          const target = scope[pkg] ||= {};
+          if (target[version] === undefined) target[version] = provider;
+        }
+      }
+    };
     const __mfGetRuntimeShareScope = (scopeName, hostScope) => {
+      __mfKeepRegisteredShares(scopeName, hostScope);
       const isWebpackScope = !scopeRoot && Object.values(hostScope || {}).some((versions) =>
         Object.values(versions || {}).some(isWebpackProvider)
       );
@@ -1958,7 +1972,11 @@ export function generateRemoteEntry(
       ) || share;
       const providerEntry = __mfFindSharedProviderEntry(versionMap, provider);
       if (!providerEntry) return;
-      if (__mfMatchesSharedProvider(provider, share)) return;
+      // A provider registered on this instance through the public registerShared
+      // API carries this container's own name, so tell the own stub apart by its
+      // import:false config rather than by provenance.
+      const __mfIsOwnStub = (candidate) => candidate === share || candidate?.shareConfig?.import === false;
+      if (__mfIsOwnStub(provider)) return;
       const { version } = providerEntry;
       const currentProvider = versionMap?.[version];
       const loadedShare = await __mfLoadPinnedRuntimeShare(
@@ -1968,13 +1986,13 @@ export function generateRemoteEntry(
         version,
         currentProvider,
         provider,
-        providerEntry.registered && !__mfMatchesSharedProvider(provider, share)
+        providerEntry.registered
       );
       const providerSelection = loadedShare?.selection;
       const actualProvider = loadedShare?.provider;
       const resolved = loadedShare?.resolved;
       if (!providerSelection) return;
-      if (__mfMatchesSharedProvider(actualProvider, share)) return;
+      if (__mfIsOwnStub(actualProvider)) return;
       if (resolved === undefined) return;
       const latestCachedShare = share.treeShaking
         ? __mfReadTreeShakingSharedSelection(__mfModuleCache.share, cacheDescriptor, mfName)
@@ -2139,6 +2157,16 @@ export function generateHostAutoInitCode(
                 __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) ${
                   _command === 'serve' ? '!== undefined' : `=== ${cacheOwner}`
                 }
+              ) return;
+              // An import:false share has nothing to load until a foreign provider
+              // registers: its own stub getter throws by construction.
+              if (
+                share.shareConfig?.import === false &&
+                !(Array.isArray(share.scope) ? share.scope : [share.scope || 'default']).some((scopeName) =>
+                  Object.values(runtime.shareScopeMap?.[scopeName]?.[pkg] || {}).some(
+                    (provider) => provider?.shareConfig?.import !== false
+                  )
+                )
               ) return;
               await runtime.loadShare(pkg, {
                 customShareInfo: { shareConfig: share.shareConfig }
