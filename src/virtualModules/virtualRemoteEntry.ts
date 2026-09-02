@@ -1248,6 +1248,13 @@ export function generateRemoteEntry(
         Object.values(versions || {}).some(isWebpackProvider)
       );
       const runtimeScope = isWebpackScope ? __mfCloneShareScope(hostScope) : hostScope;
+      const registeredScope = initRes.shareScopeMap?.[scopeName];
+      for (const [pkg, versions] of Object.entries(registeredScope || {})) {
+        const runtimeVersions = runtimeScope[pkg] ||= Object.create(null);
+        for (const [version, provider] of Object.entries(versions || {})) {
+          if (runtimeVersions[version] === undefined) runtimeVersions[version] = provider;
+        }
+      }
       __mfRuntimeShareScopes[scopeName] = {
         host: hostScope,
         runtime: runtimeScope,

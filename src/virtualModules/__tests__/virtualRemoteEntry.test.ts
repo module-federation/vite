@@ -1267,6 +1267,56 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('import {usedShared, usedRemotes} from');
   });
 
+  it('preserves runtime-registered shares when initializing the host scope', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+    const helperStart = code.indexOf('const __mfRuntimeShareScopes =');
+    const helperEnd = code.indexOf('const __mfRestoreForeignSharedProviders =', helperStart);
+    const getRuntimeShareScope = new Function(
+      'initRes',
+      'scopeRoot',
+      'isWebpackProvider',
+      `${code.slice(helperStart, helperEnd)}; return __mfGetRuntimeShareScope;`
+    )(
+      {
+        shareScopeMap: {
+          default: {
+            'runtime-shared': {
+              '2.0.0': { from: 'runtime-plugin' },
+            },
+            'host-shared': {
+              '1.0.0': { from: 'runtime-plugin' },
+            },
+          },
+        },
+      },
+      undefined,
+      () => false
+    ) as (scopeName: string, hostScope: Record<string, unknown>) => Record<string, any>;
+
+    const hostScope = {
+      'host-shared': {
+        '1.0.0': { from: 'host' },
+      },
+    };
+    const runtimeScope = getRuntimeShareScope('default', hostScope);
+
+    expect(runtimeScope['runtime-shared']['2.0.0']).toMatchObject({ from: 'runtime-plugin' });
+    expect(runtimeScope['host-shared']['1.0.0']).toMatchObject({ from: 'host' });
+  });
+
   it('loads the local shared map dynamically when a local eager share is configured', async () => {
     const mod = await import('../virtualRemoteEntry');
     const eagerShare = {
