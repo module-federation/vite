@@ -930,6 +930,15 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           htmlFilePath = getFirstHtmlEntryFile(entryFiles);
         }
 
+        // Build input may be non-HTML and does not determine the page served in dev.
+        // Fall back to root index.html so transformIndexHtml can inject host init.
+        if (config.command === 'serve' && !htmlFilePath) {
+          const rootIndexHtml = path.resolve(config.root, 'index.html');
+          if (fs.existsSync(rootIndexHtml)) {
+            htmlFilePath = rootIndexHtml;
+          }
+        }
+
         if (htmlFilePath) {
           addHtmlScriptEntries(htmlFilePath);
         }
