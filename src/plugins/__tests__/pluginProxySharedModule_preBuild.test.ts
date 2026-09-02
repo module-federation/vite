@@ -23,7 +23,7 @@ const {
   getTreeShakingSharedProviderImportIdMock,
   getTreeShakingSharedProviderNameMock,
 } = vi.hoisted(() => ({
-  hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(),
+  hasPackageDependencyMock: vi.fn<(pkg: string, cwd?: string) => boolean>(),
   existsSyncMock: vi.fn<(path: string) => boolean>(() => false),
   readFileSyncMock: vi.fn<(path: string) => string>(() => '{}'),
   addUsedSharesMock: vi.fn<(pkg: string) => void>(),
@@ -1072,6 +1072,63 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     expect(resolution).toBeUndefined();
     expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+  });
+
+  it('does not proxy a shared package import from one of its own dependencies during build', async () => {
+    // vue -> vue-core -> vue-helper -> vue is a package-level cycle. Proxying the
+    // back edge would evaluate the loadShare glue inside vue's own evaluation cycle.
+    hasPackageDependencyMock.mockReturnValue(false);
+    const manifests: Record<string, string> = {
+      '/repo/apps/remote/node_modules/vue/package.json': '{"dependencies":{"vue-core":"1"}}',
+      '/repo/apps/remote/node_modules/vue-core/package.json': '{"dependencies":{"vue-helper":"1"}}',
+      '/repo/apps/remote/node_modules/vue-helper/package.json': '{"dependencies":{"vue":"1"}}',
+      '/repo/apps/remote/node_modules/other-lib/package.json': '{"dependencies":{"vue":"1"}}',
+    };
+    existsSyncMock.mockImplementation((p: string) => p in manifests);
+    readFileSyncMock.mockImplementation((p: string) => manifests[p] ?? '{}');
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      'vue',
+      '/repo/apps/remote/node_modules/vue-helper/index.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+
+    const unrelated = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      'vue',
+      '/repo/apps/remote/node_modules/other-lib/index.js',
+      { isEntry: false }
+    );
+
+    expect(unrelated).toBeDefined();
+    expect(writeLoadShareModuleMock).toHaveBeenCalled();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
   });
 
   it('does not proxy internal imports for wildcard shared package keys during build', async () => {
