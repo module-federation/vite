@@ -380,8 +380,9 @@ document.body.textContent = window.__issue1104Result;
     expect(pageErrors).toEqual([]);
   }, 60_000);
 
-  // `build.rollupOptions.input` is a build-only option, but pluginAddEntry reads
-  // it to pick the dev-time HTML entry too: when it resolves to a non-HTML file
+  // `build.rollupOptions.input` / `build.rolldownOptions.input` are build-only
+  // options, but pluginAddEntry reads them to pick the dev-time HTML entry too:
+  // when one resolves to a non-HTML file
   // (e.g. a remote-only container whose input is its own exposed module, built
   // separately from the page the dev server serves), htmlFilePath stays unset
   // and the host-init bootstrap is never injected into index.html. That
@@ -389,54 +390,56 @@ document.body.textContent = window.__issue1104Result;
   // evaluates, so without it a synchronous consumer sees an undefined binding
   // exactly like #1104 -- just reached through the wrong-target injection
   // instead of a missing preload.
-  it('boots on first load when build.rollupOptions.input targets a non-HTML file', async () => {
-    const exposedEntry = path.join(fixtureRoot, 'src/IssueBuildInputApp.js');
-    await Promise.all([
-      writeFile(
-        path.join(fixtureRoot, 'src/main.js'),
-        `import { jsxDEV } from 'react/jsx-dev-runtime';
+  it.each(['rollupOptions', 'rolldownOptions'] as const)(
+    'boots on first load when build.%s.input targets a non-HTML file',
+    async (inputOption) => {
+      const exposedEntry = path.join(fixtureRoot, 'src/IssueBuildInputApp.js');
+      await Promise.all([
+        writeFile(
+          path.join(fixtureRoot, 'src/main.js'),
+          `import { jsxDEV } from 'react/jsx-dev-runtime';
 
 const element = jsxDEV('div', { children: 'ready' }, undefined, false, undefined, undefined);
 window.__issueBuildInputResult = element.type === 'div' ? 'ready' : 'invalid';
 document.body.textContent = window.__issueBuildInputResult;
 `
-      ),
-      writeFile(exposedEntry, 'export default function IssueBuildInputApp() { return null; }\n'),
-    ]);
+        ),
+        writeFile(exposedEntry, 'export default function IssueBuildInputApp() { return null; }\n'),
+      ]);
 
-    const host = await createDevServer(
-      'issue-build-input-host',
-      {
-        name: 'issueBuildInputHost',
-        exposes: { './App': exposedEntry },
-        dts: false,
-        shared: {
-          react: { singleton: true },
+      const host = await createDevServer(
+        `issue-build-input-${inputOption}-host`,
+        {
+          name: 'issueBuildInputHost',
+          exposes: { './App': exposedEntry },
+          dts: false,
+          shared: {
+            react: { singleton: true },
+          },
         },
-      },
-      fixtureRoot,
-      'silent',
-      // The build target (the exposed module) deliberately differs from the
-      // dev entry (src/main.js) that index.html actually loads.
-      { rollupOptions: { input: exposedEntry } }
-    );
-    const browser = await chromium.launch({ channel: 'chrome', headless: true });
-    cleanupTasks.push(() => browser.close());
-    const page = await browser.newPage();
-    const pageErrors: string[] = [];
-    page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+        fixtureRoot,
+        'silent',
+        // The build target (the exposed module) deliberately differs from the
+        // dev entry (src/main.js) that index.html actually loads.
+        { [inputOption]: { input: exposedEntry } }
+      );
+      const browser = await chromium.launch({ channel: 'chrome', headless: true });
+      cleanupTasks.push(() => browser.close());
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
 
-    await page.goto(host.origin, { waitUntil: 'domcontentloaded' });
-    try {
-      await page.waitForFunction(() => window.__issueBuildInputResult === 'ready', undefined, {
-        timeout: 15_000,
-      });
-    } catch (error) {
-      throw new Error(JSON.stringify({ cause: String(error), pageErrors }, null, 2));
-    }
+      await page.goto(host.origin, { waitUntil: 'domcontentloaded' });
+      try {
+        await page.waitForFunction(() => window.__issueBuildInputResult === 'ready', undefined, {
+          timeout: 15_000,
+        });
+      } catch (error) {
+        throw new Error(JSON.stringify({ cause: String(error), pageErrors }, null, 2));
+      }
 
-    expect(pageErrors).toEqual([]);
-  }, 60_000);
+      expect(pageErrors).toEqual([]);
+    }, 60_000);
 
   it('serves an optimized ESM React provider', async () => {
     const { origin } = await createDevServer('issue-913-provider', {

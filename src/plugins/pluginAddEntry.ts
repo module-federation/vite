@@ -930,21 +930,8 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           htmlFilePath = getFirstHtmlEntryFile(entryFiles);
         }
 
-        // `build.rollupOptions.input` is a build-only concept, but it is also
-        // what the branches above use to pick the dev-time HTML entry. Some
-        // configs point it at a non-HTML build target that differs from what
-        // the dev server actually serves -- e.g. a remote-only container
-        // whose input is its exposed module, not an HTML page, or a
-        // framework that sets a per-environment client entry. `vite dev`
-        // still serves a root index.html directly in these cases, so fall
-        // back to it here: without this, htmlFilePath stays unset,
-        // transformIndexHtml's injectHtml() gate never opens, and the
-        // host-init bootstrap (including the shared-singleton seeding pass
-        // it performs before the entry evaluates) is never injected into the
-        // page the browser loads. Serve-only: a build whose input omits
-        // index.html never emits that file into the bundle either, so
-        // generateBundle's own htmlFileNames check already makes this a
-        // no-op for build.
+        // Build input may be non-HTML and does not determine the page served in dev.
+        // Fall back to root index.html so transformIndexHtml can inject host init.
         if (config.command === 'serve' && !htmlFilePath) {
           const rootIndexHtml = path.resolve(config.root, 'index.html');
           if (fs.existsSync(rootIndexHtml)) {
