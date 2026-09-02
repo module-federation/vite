@@ -1042,6 +1042,76 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(resolution).toBeUndefined();
   });
 
+  it('does not proxy internal imports from the same shared package during build', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      '/repo/apps/remote/node_modules/vue/src/internal.js',
+      '/repo/apps/remote/node_modules/vue/src/index.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+  });
+
+  it('does not proxy internal imports for wildcard shared package keys during build', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      'transitive/': {
+        ...makeShared().transitive,
+        name: 'transitive/',
+      },
+    };
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      '/repo/apps/remote/node_modules/transitive/src/internal.js',
+      '/repo/apps/remote/node_modules/transitive/src/index.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+  });
+
   it('materializes repeated loadShare resolutions once per shared source', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 

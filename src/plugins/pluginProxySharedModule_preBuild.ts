@@ -548,6 +548,10 @@ export function proxySharedModule(options: {
 
         const key = findSharedKeyForSource(source, shared);
         if (!key) return;
+        // A shared package's own files must keep ordinary internal module edges.
+        // Compare package roots because `key` may be an explicit subpath or a
+        // trailing-slash wildcard share key.
+        if (importer && getPackageNameFromNodeModulePath(importer) === getPackageName(key)) return;
         if (useDirectReactImport && key === 'react') return;
         if (isAssetLikeImport(source)) return;
         if (isBuildConfigImporter(importer)) return;
