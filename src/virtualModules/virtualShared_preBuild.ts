@@ -2006,7 +2006,7 @@ export function writeLoadShareModule(
         shareItem.shareConfig.singleton === true) ||
       (command === 'build' &&
         isRemoteOnlyContainer(resolvedOptions) &&
-        (shareItem.shareConfig.singleton === true ? !isDefaultShareScope : isDefaultShareScope)));
+        (shareItem.shareConfig.singleton === true || isDefaultShareScope)));
   const servesRemoteSingletonFallback =
     command !== 'build' &&
     isRemoteOnlyContainer(resolvedOptions) &&
@@ -2014,12 +2014,11 @@ export function writeLoadShareModule(
   const isConsumedByPeerSingleton = isSharedSingletonConsumedByPeer(pkg, resolvedOptions);
   const usesEntryInjectedRemoteFallback =
     hasCompleteExportCoverage &&
-    command !== 'build' &&
     !isWorkspaceSingleton &&
     isRemoteOnlyContainer(resolvedOptions) &&
     shareItem.shareConfig.singleton === true &&
     resolvedOptions.hostInitInjectLocation === 'entry' &&
-    isConsumedByPeerSingleton;
+    (command === 'build' || isConsumedByPeerSingleton);
   const usesEagerWorkspaceFallback =
     hasCompleteExportCoverage &&
     isWorkspaceSingleton &&

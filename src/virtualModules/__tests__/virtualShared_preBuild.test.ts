@@ -3413,6 +3413,34 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
+  it('defers default-scope singleton fallback in remote builds', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: { './App': './src/App.jsx' },
+      shared: { lit: { singleton: true } },
+    });
+    const pkg = 'lit';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^3.3.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
+    expect(generatedCode).toContain('initPromise.then');
+    expect(generatedCode).toContain('import("mock-import-id").then((mod) => {');
+    expect(generatedCode).not.toContain('await ');
+  });
+
   it('prepends workspace singleton static import for SSR build loads only', async () => {
     const { prependWorkspaceSingletonSsrImport } = await import('../virtualShared_preBuild');
     const pkg = 'workspace-shared-lib';
@@ -3814,6 +3842,34 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('__mfWriteSharedCache');
     expect(generatedCode).toContain('export { __mf_default as default };');
     expect(generatedCode).not.toContain('import("react").then((mod) => {');
+    expect(generatedCode).not.toContain('initPromise.then');
+    expect(generatedCode).not.toContain('await ');
+  });
+
+  it('uses eager fallback for entry-injected remote singleton builds', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      hostInitInjectLocation: 'entry',
+      exposes: { './App': './src/App.jsx' },
+      shared: { react: { singleton: true } },
+    });
+    const pkg = 'react';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '19.2.4',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^19.2.4',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).toContain('import * as __mfLocalShare from "/resolved/react";');
     expect(generatedCode).not.toContain('initPromise.then');
     expect(generatedCode).not.toContain('await ');
   });
