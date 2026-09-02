@@ -802,6 +802,24 @@ describe('normalizeModuleFederationOption', () => {
       }
     });
 
+    it('infers versions from ranges without a backtracking regular expression', () => {
+      for (const [requiredVersion, expected] of [
+        ['^19.1.1', '19.1.1'],
+        ['>=1.2.3-beta.1', '1.2.3-beta.1'],
+        ['workspace:^', undefined],
+        [`${'9'.repeat(100_000)}x1.2.3`, '1.2.3'],
+      ] as const) {
+        const shared = normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: {
+            'missing-version-dep': { requiredVersion },
+          },
+        }).shared;
+
+        expect(shared['missing-version-dep'].version).toBe(expected);
+      }
+    });
+
     it('ignores module federation runtime packages in explicit shared arrays', () => {
       const shared = normalizeModuleFederationOptions({
         ...minimalOptions,
