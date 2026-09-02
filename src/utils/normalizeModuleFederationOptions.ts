@@ -188,8 +188,48 @@ function inferVersionFromRequiredVersion(
   requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion']
 ): string | undefined {
   if (typeof requiredVersion !== 'string') return undefined;
-  const match = requiredVersion.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/);
-  return match?.[0];
+
+  const isDigit = (char: string | undefined): boolean =>
+    char !== undefined && char >= '0' && char <= '9';
+  const isSuffixChar = (char: string | undefined): boolean =>
+    char !== undefined &&
+    ((char >= '0' && char <= '9') ||
+      (char >= 'A' && char <= 'Z') ||
+      (char >= 'a' && char <= 'z') ||
+      char === '.' ||
+      char === '-');
+
+  let index = 0;
+  while (index < requiredVersion.length) {
+    if (!isDigit(requiredVersion[index])) {
+      index += 1;
+      continue;
+    }
+
+    const start = index;
+    while (isDigit(requiredVersion[index])) index += 1;
+    if (requiredVersion[index] !== '.') continue;
+
+    index += 1;
+    if (!isDigit(requiredVersion[index])) continue;
+    while (isDigit(requiredVersion[index])) index += 1;
+    if (requiredVersion[index] !== '.') continue;
+
+    index += 1;
+    if (!isDigit(requiredVersion[index])) continue;
+    while (isDigit(requiredVersion[index])) index += 1;
+
+    if (
+      (requiredVersion[index] === '-' || requiredVersion[index] === '+') &&
+      isSuffixChar(requiredVersion[index + 1])
+    ) {
+      index += 1;
+      while (isSuffixChar(requiredVersion[index])) index += 1;
+    }
+    return requiredVersion.slice(start, index);
+  }
+
+  return undefined;
 }
 
 /** URI-style package specifiers are not semver ranges for runtime satisfy(). */
