@@ -304,6 +304,18 @@ federation({
 
 `runtime-infer` is useful for local development and falls back to the full dependency when the required exports are not available. `server-calc` is recommended for deployments because it can use aggregated export metadata from all consumers.
 
+Use `eager: true` when a shared dependency must provide exports during module evaluation. For example, icon libraries may call `jsx()` at module scope before deferred singleton initialization completes. Configure the remote's React share as follows; discovered React subpaths such as `react/jsx-runtime` inherit this setting:
+
+```ts
+federation({
+  shared: {
+    react: { singleton: true, eager: true },
+  },
+});
+```
+
+This bundles the local fallback into the initial entry, so enable it only when synchronous evaluation requires it.
+
 Do not combine `eager: true` with `treeShaking`; eager shared dependencies are bundled into the initial entry and cannot use the on-demand tree-shaking path. Choose eager loading for small dependencies, or tree shaking for larger dependencies such as component libraries.
 
 With `server-calc`, the Vite build records the exports used by each application in its generated Module Federation metadata. A deployment service must then collect that metadata for all applications that share the same dependency and version, merge their `usedExports` lists, and use the resulting union to create one optimized secondary shared artifact. For example, if one application uses `Button` and another uses `Input`, the secondary artifact must contain both exports.

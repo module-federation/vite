@@ -4169,6 +4169,25 @@ describe('virtualRemoteEntry', () => {
     ).toBeUndefined();
   });
 
+  it("does not satisfy-check the container's own import:false stub", async () => {
+    const selectProvider = await getExternalSharedProviderSelector();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ownStub = {
+      from: 'host',
+      version: '0.0.0',
+      shareConfig: { singleton: true, import: false, requiredVersion: '^1.0.0' },
+    };
+
+    try {
+      expect(
+        selectProvider({ '0.0.0': ownStub }, 'demo-lib', ownStub, 'loaded-first')
+      ).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('compares external and local singleton providers with version-first', async () => {
     const selectExternalProvider = await getExternalSharedProviderSelector();
     const hostGet = vi.fn();

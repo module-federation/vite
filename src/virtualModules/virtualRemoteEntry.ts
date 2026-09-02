@@ -587,8 +587,16 @@ export const sharedProviderSelectionHelperCode = `const __mfOriginalProviderKey 
             strategy
           ) => {
             if (!versions || !share) return undefined;
+            // import:false stubs provide nothing, so they are never a selectable
+            // provider and must not be satisfy-checked. Skip the runtime entirely
+            // when nothing remains: it treats an empty map as version "0" and
+            // warns that it fails even a "*" requirement.
+            const candidates = Object.fromEntries(
+              Object.entries(versions).filter(([, provider]) => provider?.shareConfig?.import !== false)
+            );
+            if (Object.keys(candidates).length === 0) return undefined;
             const scopes = Array.isArray(share.scope) ? share.scope : [share.scope || "default"];
-            const selectionVersions = __mfCreateProviderSelectionVersions(versions, strategy);
+            const selectionVersions = __mfCreateProviderSelectionVersions(candidates, strategy);
             const shareScopeMap = {};
             for (const scope of scopes) {
               shareScopeMap[scope || "default"] = { [pkg]: selectionVersions };
