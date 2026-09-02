@@ -261,6 +261,34 @@ export function excludeSharedSubDependencies(shared: NormalizedShared): void {
   }
 }
 
+const sharedDependencyCache = new Map<string, Set<string>>();
+
+/** Whether `dependency` is reachable through the shared package's manifest dependencies. */
+function isSharedPackageDependency(sharedKey: string, dependency: string) {
+  const sharedPackage = getPackageName(sharedKey);
+  let reachable = sharedDependencyCache.get(sharedPackage);
+  if (!reachable) {
+    reachable = new Set<string>();
+    const visited = new Set<string>();
+    const queue = [getInstalledPackageJson(sharedPackage, { packageName: sharedPackage })];
+    for (let installed = queue.shift(); installed; installed = queue.shift()) {
+      if (visited.has(installed.dir)) continue;
+      visited.add(installed.dir);
+      const manifest = installed.packageJson as Record<string, Record<string, string> | undefined>;
+      for (const dep of Object.keys({
+        ...manifest.dependencies,
+        ...manifest.peerDependencies,
+        ...manifest.optionalDependencies,
+      })) {
+        reachable.add(dep);
+        queue.push(getInstalledPackageJson(dep, { cwd: installed.dir, packageName: dep }));
+      }
+    }
+    sharedDependencyCache.set(sharedPackage, reachable);
+  }
+  return reachable.has(dependency);
+}
+
 export function proxySharedModule(options: {
   shared?: NormalizedShared;
   include?: string | string[];
@@ -401,6 +429,7 @@ export function proxySharedModule(options: {
         setTreeShakingBuildMode(command === 'build', federationOptions);
         resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
+        sharedDependencyCache.clear();
         const isVinext = hasPackageDependency('vinext');
         const isAstro = hasPackageDependency('astro');
         const isRolldown = getIsRolldown(this);
@@ -551,7 +580,13 @@ export function proxySharedModule(options: {
         // A shared package's own files must keep ordinary internal module edges.
         // Compare package roots because `key` may be an explicit subpath or a
         // trailing-slash wildcard share key.
-        if (importer && getPackageNameFromNodeModulePath(importer) === getPackageName(key)) return;
+        const importerPackage = importer ? getPackageNameFromNodeModulePath(importer) : undefined;
+        if (importerPackage === getPackageName(key)) return;
+        // A dependency of the shared package that imports it back (a package-level
+        // cycle) keeps its ordinary edge too. Proxying it would place the loadShare
+        // glue inside the package's own evaluation cycle, where the glue's eager
+        // export reads run before the fallback body has initialized.
+        if (importerPackage && isSharedPackageDependency(key, importerPackage)) return;
         if (useDirectReactImport && key === 'react') return;
         if (isAssetLikeImport(source)) return;
         if (isBuildConfigImporter(importer)) return;
