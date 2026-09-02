@@ -2515,6 +2515,33 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('useState');
   });
 
+  it('generates eager inherited subpath exports synchronously for remote builds', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: { './App': './src/App.jsx' },
+    });
+    const pkg = 'react/jsx-runtime';
+    const mockShareItem: ShareItem = {
+      name: 'react',
+      from: '',
+      version: '17.0.2',
+      shareConfig: {
+        singleton: true,
+        eager: true,
+        strictVersion: false,
+        requiredVersion: '^17.0.2',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', true);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expect(generatedCode).toContain('import * as __mfLocalShare from "mock-import-id";');
+    expect(generatedCode).not.toContain('initPromise.then');
+  });
+
   it('reads React compiler runtime internals from the compatible React cache key', () => {
     const pkg = 'react/compiler-runtime';
     const mockShareItem: ShareItem = {
