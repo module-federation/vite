@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   findModuleImportDescriptors,
   findModuleImportSources,
+  getScannableModuleSource,
   injectEntryScript,
   rewriteEntryScripts,
   sanitizeDevEntryPath,
@@ -98,6 +99,139 @@ describe('findModuleImportDescriptors', () => {
     ]);
   });
 
+  it('does not let comments change the classification of an import', () => {
+    expect(
+      findModuleImportDescriptors(`
+        import type /* comment */, { value } from 'remote/runtime';
+        import { type/* comment */Foo } from 'remote/type';
+        import { value } from /* comment */ 'remote/comment-before-source';
+      `)
+    ).toEqual([
+      {
+        kind: 'static',
+        syntax: 'import',
+        source: 'remote/runtime',
+        typeOnly: false,
+      },
+      {
+        kind: 'static',
+        syntax: 'import',
+        source: 'remote/type',
+        typeOnly: true,
+      },
+      {
+        kind: 'static',
+        syntax: 'import',
+        source: 'remote/comment-before-source',
+        typeOnly: false,
+      },
+    ]);
+  });
+
+  it('does not span multiple statements when classifying re-exports', () => {
+    expect(
+      findModuleImportDescriptors(`
+        export type Local = string;
+        export { value } from 'remote/value';
+        import Legacy = require('remote/legacy');
+        import { other } from 'remote/other';
+        export * from 'remote/star';
+        export * as ns from 'remote/namespace';
+        export type * from 'remote/type-star';
+      `)
+    ).toEqual([
+      {
+        kind: 'static',
+        syntax: 'import',
+        source: 'remote/value',
+        typeOnly: false,
+      },
+      {
+        kind: 'static',
+        syntax: 'import',
+        source: 'remote/other',
+        typeOnly: false,
+      },
+      {
+        kind: 'static',
+        syntax: 'import',
+        source: 'remote/star',
+        typeOnly: false,
+      },
+      {
+        kind: 'static',
+        syntax: 'import',
+        source: 'remote/namespace',
+        typeOnly: false,
+      },
+      {
+        kind: 'static',
+        syntax: 'import',
+        source: 'remote/type-star',
+        typeOnly: true,
+      },
+      {
+        kind: 'dynamic',
+        syntax: 'require',
+        source: 'remote/legacy',
+        typeOnly: false,
+      },
+    ]);
+  });
+
+  it('does not invent imports from `from` inside strings or trailing comments', () => {
+    expect(
+      findModuleImportDescriptors(`
+        export const text = " from 'fake-package'";
+        export const value = 1; // from 'fake-package'
+        export const escaped = 'it\\'s'; import { real } from 'remote/real';
+      `)
+    ).toEqual([
+      {
+        kind: 'static',
+        syntax: 'import',
+        source: 'remote/real',
+        typeOnly: false,
+      },
+    ]);
+  });
+
+  it('finds dynamic imports with options or comments before the source', () => {
+    expect(
+      findModuleImportDescriptors(`
+        import('remote/json', { with: { type: 'json' } });
+        import /* comment */ ('remote/commented');
+      `)
+    ).toEqual([
+      {
+        kind: 'dynamic',
+        syntax: 'import',
+        source: 'remote/json',
+        typeOnly: false,
+      },
+      {
+        kind: 'dynamic',
+        syntax: 'import',
+        source: 'remote/commented',
+        typeOnly: false,
+      },
+    ]);
+  });
+
+  it('finds imports in minified code without whitespace', () => {
+    expect(
+      findModuleImportDescriptors(
+        `import{a}from"remote/a";import*as b from"remote/b";export{c}from"remote/c";export*from"remote/d";import"remote/e";import("remote/f")`
+      ).map(({ source }) => source)
+    ).toEqual(['remote/a', 'remote/b', 'remote/c', 'remote/d', 'remote/f', 'remote/e']);
+  });
+
+  it('ignores member accesses named import or require', () => {
+    expect(
+      findModuleImportDescriptors(`loader.import('remote/member'); ctx.require('remote/member');`)
+    ).toEqual([]);
+  });
+
   it('ignores import-looking text in comments and strings', () => {
     expect(
       findModuleImportDescriptors(`
@@ -107,6 +241,44 @@ describe('findModuleImportDescriptors', () => {
         import 'remote/real';
       `)
     ).toEqual([{ kind: 'static', syntax: 'import', source: 'remote/real', typeOnly: false }]);
+  });
+});
+
+describe('getScannableModuleSource', () => {
+  it('returns plain modules unchanged', () => {
+    const code = `import 'remote/plain';`;
+    expect(getScannableModuleSource('/src/entry.ts', code)).toBe(code);
+  });
+
+  it.each(['/src/App.vue', '/src/App.svelte', '/src/App.vue?vue&type=script'])(
+    'only scans script blocks of %s',
+    (id) => {
+      const source = getScannableModuleSource(
+        id,
+        `<template><p>import 'remote/template'</p><!-- import 'remote/html-comment' --></template>
+<script setup lang="ts">import { a } from 'remote/setup';</script>
+<script>import 'remote/plain';</script>
+<style>/* import 'remote/style' */ .x { content: "import 'remote/css'" }</style>`
+      );
+      expect(findModuleImportSources(source)).toEqual(['remote/setup', 'remote/plain']);
+    }
+  );
+
+  it('closes a script block at an end tag carrying whitespace or attributes', () => {
+    expect(
+      findModuleImportSources(
+        getScannableModuleSource(
+          '/src/App.svelte',
+          `<script>import 'remote/a';</script\t\n bar>\n<p>import 'remote/template'</p>\n<script>import 'remote/b';</script >`
+        )
+      )
+    ).toEqual(['remote/a', 'remote/b']);
+  });
+
+  it('returns nothing for a component without script blocks', () => {
+    expect(getScannableModuleSource('/src/App.vue', `<template><p>import 'x'</p></template>`)).toBe(
+      ''
+    );
   });
 });
 

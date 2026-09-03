@@ -179,6 +179,47 @@ describe('pluginProxyRemoteEntry', () => {
     expect(resolvedSources).not.toContain('@graphql-typed-document-node/core');
   });
 
+  it.each(['component.vue', 'component.svelte'])(
+    'only scans script blocks of %s for remote dependencies',
+    async (component) => {
+      const expose = resolve(`integration/fixtures/nested-remote-transitive/${component}`);
+      const plugin = pluginProxyRemoteEntry({
+        options: getDefaultMockOptions({
+          exposes: { './component': { import: expose } as any },
+          remotes: {
+            remoteA: {
+              name: 'remoteA',
+              entry: 'http://localhost:3001/remoteEntry.js',
+              type: 'module',
+            },
+            remoteB: {
+              name: 'remoteB',
+              entry: 'http://localhost:3002/remoteEntry.js',
+              type: 'module',
+            },
+          },
+        }),
+        remoteEntryId: 'virtual:mf-remote-entry',
+        virtualExposesId: 'virtual:mf-exposes',
+      });
+      const context = {
+        resolve: async (source: string) => (source === expose ? { id: expose } : undefined),
+      } as any;
+
+      callHook(
+        plugin.config,
+        {} as ConfigPluginContext,
+        {},
+        { command: 'serve', mode: 'development' }
+      );
+      const generated = await callHook(plugin.load, context, 'virtual:mf-exposes');
+
+      expect(generated).toContain('__loadRemote__remoteA_mf_1_shared_mf_1_helpers');
+      expect(generated).toContain('__loadRemote__remoteA_mf_1_module_mf_2_setup');
+      expect(generated).not.toContain('__loadRemote__remoteB');
+    }
+  );
+
   it('uses an inlined data-URL origin for dev host init in SSR/module-runner contexts, protocol relative fallback origin otherwise', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const plugin = pluginProxyRemoteEntry({

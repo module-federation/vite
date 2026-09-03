@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 import type { Plugin } from 'vite';
 import { normalizePathForImport } from '../utils/buildPaths';
-import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
+import { findModuleImportDescriptors, getScannableModuleSource } from '../utils/htmlEntryUtils';
 import {
   addCssAssetsToAllExports,
   collectCssAssets,
@@ -105,7 +105,7 @@ export default function ({
 
     let code: string;
     try {
-      code = readFileSync(id, 'utf8');
+      code = getScannableModuleSource(id, readFileSync(id, 'utf8'));
     } catch {
       return [];
     }

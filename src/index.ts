@@ -77,7 +77,7 @@ import {
   isAssetLikeImport,
   isViteOptimizableEntry,
 } from './utils/pathNormalization';
-import { findModuleImportDescriptors } from './utils/htmlEntryUtils';
+import { findModuleImportDescriptors, getScannableModuleSource } from './utils/htmlEntryUtils';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
 import {
   getHostAutoInitPath,
@@ -552,7 +552,7 @@ function registerEntryImports(
     const { file, preloadRemotes } = pending.pop()!;
     if (visited.get(file) || (visited.has(file) && !preloadRemotes)) continue;
     visited.set(file, preloadRemotes);
-    const code = readFileSync(file, 'utf8');
+    const code = getScannableModuleSource(file, readFileSync(file, 'utf8'));
     for (const { source: request, kind, typeOnly } of findModuleImportDescriptors(code)) {
       const isStatic = kind === 'static' && !typeOnly;
       const remoteKey =
