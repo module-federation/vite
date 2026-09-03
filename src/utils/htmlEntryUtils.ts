@@ -9,7 +9,10 @@ export interface ModuleImportDescriptor {
 
 function isTypeOnlyClause(clause: string): boolean {
   const normalized = clause.trim();
-  if (/^type\b/.test(normalized)) return true;
+  const declarationTypeOnly = normalized.match(/^type\b([\s\S]*)$/)?.[1].trim();
+  if (declarationTypeOnly !== undefined) {
+    return declarationTypeOnly.length > 0 && !declarationTypeOnly.startsWith(',');
+  }
 
   const namedSpecifiers = normalized.match(/^\{([\s\S]*)\}$/)?.[1];
   if (!namedSpecifiers) return false;
