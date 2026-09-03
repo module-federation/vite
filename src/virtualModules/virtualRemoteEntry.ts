@@ -169,6 +169,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
   return `
     import {loadShare} from "@module-federation/runtime";
     ${eagerImports}
+    ${normalizeRuntimeShareCode}
     const importMap = {
       ${orderedShares
         .map((pkg, index) => {
@@ -250,7 +251,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
               const res = await pkgDynamicImport()
               const exportModule = ${toSafeJsLiteral(useDirectReactImport)} && ${toSafeJsLiteral(key)} === "react"
                 ? (res?.default ?? res)
-                : {...res}
+                : __mfNormalizeRuntimeShare({...res})
               // All npm packages pre-built by vite will be converted to esm
               if (exportModule.__esModule !== true) {
                 Object.defineProperty(exportModule, "__esModule", {

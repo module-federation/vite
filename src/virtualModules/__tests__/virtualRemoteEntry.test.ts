@@ -594,7 +594,7 @@ describe('virtualRemoteEntry', () => {
       hasVinext: false,
       hasAstro: false,
       expectedImport: 'let pkg = await import("virtual:prebuild:react");',
-      expectedExportShape: ': {...res}',
+      expectedExportShape: ': __mfNormalizeRuntimeShare({...res})',
       unexpectedImport: 'let pkg = await import("react");',
     },
     {
@@ -603,7 +603,7 @@ describe('virtualRemoteEntry', () => {
       hasVinext: true,
       hasAstro: false,
       expectedImport: 'let pkg = await import("virtual:prebuild:vue");',
-      expectedExportShape: ': {...res}',
+      expectedExportShape: ': __mfNormalizeRuntimeShare({...res})',
       unexpectedImport: 'let pkg = await import("vue");',
     },
   ]) {
@@ -626,6 +626,31 @@ describe('virtualRemoteEntry', () => {
       expect(code).not.toContain(testCase.unexpectedImport);
     });
   }
+
+  it('unwraps default-only CJS namespaces in local shared getters', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const reactModule = {
+      __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { S: 'dispatcher' },
+    };
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:react")', 'Promise.resolve({ default: reactModule })')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+    const generated = new Function('reactModule', code)(reactModule);
+    const factory = await generated.usedShared.react.get();
+
+    expect(factory()).toBe(reactModule);
+    expect(factory().__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.S).toBe(
+      'dispatcher'
+    );
+  });
 
   it('materializes direct React for vinext RSC hosts', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'vinext');
