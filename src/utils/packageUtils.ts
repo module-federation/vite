@@ -479,6 +479,7 @@ function resolveInstalledPackageJson(
 
     let currentDir = path.dirname(resolvedPath);
     const rootDir = path.parse(currentDir).root;
+    let matchingPackage: InstalledPackageJson | undefined;
 
     while (true) {
       const packageJsonPath = path.join(currentDir, 'package.json');
@@ -487,11 +488,13 @@ function resolveInstalledPackageJson(
         try {
           const packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>;
           if (packageJson.name === packageName) {
-            return {
+            const packageInfo = {
               path: packageJsonPath,
               dir: currentDir,
               packageJson,
             };
+            if (currentDir.endsWith(path.join('node_modules', packageName))) return packageInfo;
+            matchingPackage ??= packageInfo;
           }
         } catch (error) {
           if (!(error instanceof SyntaxError)) throw error;
@@ -500,6 +503,7 @@ function resolveInstalledPackageJson(
       if (currentDir === rootDir) break;
       currentDir = path.dirname(currentDir);
     }
+    return matchingPackage;
   } catch {
     let currentDir = cwd;
     const rootDir = path.parse(currentDir).root;

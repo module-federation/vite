@@ -183,6 +183,29 @@ describe('getInstalledPackageJson', () => {
     expect(entry).toBe(realpathSync(path.join(packageDir, 'dist/index.js')));
   });
 
+  it('ignores copied package metadata beside the resolved entry', () => {
+    const packageName = 'mf-test-copied-package-json';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-copied-package-json-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    const packageJson = JSON.stringify({
+      name: packageName,
+      exports: { import: './dist/index.js', require: './dist/index.cjs' },
+    });
+    mkdirSync(path.join(packageDir, 'dist'), { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(path.join(packageDir, 'package.json'), packageJson);
+    writeFileSync(path.join(packageDir, 'dist/package.json'), packageJson);
+    writeFileSync(path.join(packageDir, 'dist/index.js'), 'export const esmOnly = true;');
+    writeFileSync(path.join(packageDir, 'dist/index.cjs'), 'module.exports = {};');
+
+    expect(getInstalledPackageEntry(packageName, { cwd: hostDir })).toBe(
+      path.join(packageDir, 'dist/index.js')
+    );
+  });
+
   it('preserves legacy package subpaths when ESM condition resolution is requested', () => {
     const packageName = 'mf-test-legacy-subpath';
     const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-legacy-subpath-'));

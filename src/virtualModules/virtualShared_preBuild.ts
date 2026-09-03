@@ -790,6 +790,10 @@ function getNamedExportsViaRegex(
     }
     if (source[previousCodeIndex] === '.') continue;
 
+    let nextCodeIndex = match.index + match[0].length;
+    while (/\s/.test(source[nextCodeIndex] || '')) nextCodeIndex++;
+    if (source[nextCodeIndex] === '(') continue;
+
     scanState.complete = false;
     break;
   }
