@@ -264,6 +264,17 @@ describe('getScannableModuleSource', () => {
     }
   );
 
+  it('closes a script block at an end tag carrying whitespace or attributes', () => {
+    expect(
+      findModuleImportSources(
+        getScannableModuleSource(
+          '/src/App.svelte',
+          `<script>import 'remote/a';</script\t\n bar>\n<p>import 'remote/template'</p>\n<script>import 'remote/b';</script >`
+        )
+      )
+    ).toEqual(['remote/a', 'remote/b']);
+  });
+
   it('returns nothing for a component without script blocks', () => {
     expect(getScannableModuleSource('/src/App.vue', `<template><p>import 'x'</p></template>`)).toBe(
       ''

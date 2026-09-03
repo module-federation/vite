@@ -138,7 +138,7 @@ export function findModuleImportDescriptors(code: string): ModuleImportDescripto
 export function getScannableModuleSource(id: string, code: string): string {
   if (!/\.(?:vue|svelte)(?:\?|$)/.test(id)) return code;
   const blocks: string[] = [];
-  for (const match of code.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)) {
+  for (const match of code.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script(?:\s[^>]*)?>/gi)) {
     blocks.push(match[1]);
   }
   return blocks.join('\n');
