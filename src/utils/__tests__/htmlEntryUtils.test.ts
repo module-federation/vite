@@ -53,10 +53,27 @@ describe('findModuleImportSources', () => {
 });
 
 describe('findModuleImportDescriptors', () => {
+  it('treats an imported runtime binding named type as a value import', () => {
+    expect(findModuleImportDescriptors(`import { type as value } from 'remote/value';`)).toEqual([
+      { kind: 'static', syntax: 'import', source: 'remote/value', typeOnly: false },
+    ]);
+  });
+
+  it.each([`import type from 'remote/value';`, `import type, { value } from 'remote/value';`])(
+    'treats a default runtime binding named type as a value import',
+    (source) => {
+      expect(findModuleImportDescriptors(source)).toEqual([
+        { kind: 'static', syntax: 'import', source: 'remote/value', typeOnly: false },
+      ]);
+    }
+  );
+
   it('separates runtime imports from type-only imports', () => {
     expect(
       findModuleImportDescriptors(`
+        import type DefaultType from 'remote/default-type';
         import type { RemoteType } from 'remote/type';
+        import type * as RemoteTypes from 'remote/namespace-type';
         export type { ExportedType } from 'remote/export-type';
         export { type NamedType } from 'remote/named-type';
         import { value } from 'remote/value';
@@ -64,7 +81,9 @@ describe('findModuleImportDescriptors', () => {
         const lazy = import('remote/lazy');
       `)
     ).toEqual([
+      { kind: 'static', syntax: 'import', source: 'remote/default-type', typeOnly: true },
       { kind: 'static', syntax: 'import', source: 'remote/type', typeOnly: true },
+      { kind: 'static', syntax: 'import', source: 'remote/namespace-type', typeOnly: true },
       { kind: 'static', syntax: 'import', source: 'remote/export-type', typeOnly: true },
       { kind: 'static', syntax: 'import', source: 'remote/named-type', typeOnly: true },
       { kind: 'static', syntax: 'import', source: 'remote/value', typeOnly: false },

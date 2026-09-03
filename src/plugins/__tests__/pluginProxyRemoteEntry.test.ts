@@ -143,6 +143,42 @@ describe('pluginProxyRemoteEntry', () => {
     expect(generated).not.toContain('__loadRemote__remoteB_mf_1_heavy');
   });
 
+  it('does not resolve type-only imports while collecting remote dependencies', async () => {
+    const expose = resolve('integration/fixtures/nested-remote-transitive/type-only-import.ts');
+    const resolvedSources: string[] = [];
+    const plugin = pluginProxyRemoteEntry({
+      options: getDefaultMockOptions({
+        exposes: { './document': { import: expose } as any },
+        remotes: {
+          remoteA: {
+            name: 'remoteA',
+            entry: 'http://localhost:3001/remoteEntry.js',
+            type: 'module',
+          },
+        },
+      }),
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+    const context = {
+      resolve: async (source: string) => {
+        resolvedSources.push(source);
+        return source === expose ? { id: expose } : undefined;
+      },
+    } as any;
+
+    callHook(
+      plugin.config,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    const generated = await callHook(plugin.load, context, 'virtual:mf-exposes');
+
+    expect(generated).toContain('__loadRemote__remoteA_mf_1_shared_mf_1_helpers');
+    expect(resolvedSources).not.toContain('@graphql-typed-document-node/core');
+  });
+
   it('uses an inlined data-URL origin for dev host init in SSR/module-runner contexts, protocol relative fallback origin otherwise', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const plugin = pluginProxyRemoteEntry({

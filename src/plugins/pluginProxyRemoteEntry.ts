@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 import type { Plugin } from 'vite';
 import { normalizePathForImport } from '../utils/buildPaths';
+import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
 import {
   addCssAssetsToAllExports,
   collectCssAssets,
@@ -76,15 +77,11 @@ export default function ({
 
   function collectImportSources(code: string): Array<{ source: string; dynamic: boolean }> {
     const sources = new Map<string, boolean>();
-    const importRe =
-      /(?:^|[;\n\r])\s*import\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
 
-    for (const match of code.matchAll(importRe)) {
-      const source = match[1] || match[2];
-      if (source) {
-        const dynamic = !match[1];
-        sources.set(source, (sources.get(source) ?? true) && dynamic);
-      }
+    for (const { source, kind, syntax, typeOnly } of findModuleImportDescriptors(code)) {
+      if (syntax !== 'import' || typeOnly) continue;
+      const dynamic = kind === 'dynamic';
+      sources.set(source, (sources.get(source) ?? true) && dynamic);
     }
 
     return Array.from(sources, ([source, dynamic]) => ({ source, dynamic })).sort((a, b) =>
