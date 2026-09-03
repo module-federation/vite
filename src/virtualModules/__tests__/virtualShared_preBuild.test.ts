@@ -715,6 +715,9 @@ export const buttonBase = 1;`;
     }
     if (filePath.endsWith('node_modules/mock-package-export-method-call/index.js')) {
       return [
+        'class BaseCreator {',
+        '  export(userParams) { return userParams; }',
+        '}',
         'const key = globalThis.crypto.subtle;',
         'export function toJwk() {',
         "  return key.export({ format: 'jwk' });",
