@@ -21,7 +21,10 @@ function isTypeOnlyClause(clause: string): boolean {
   // `type` alone (or `type as X`) imports a runtime binding literally named
   // `type`, not a type-only specifier — the `type` modifier always needs a
   // following identifier (`type Foo`).
-  return specifiers.length > 0 && specifiers.every((specifier) => /^type\s+\S/.test(specifier));
+  return (
+    specifiers.length > 0 &&
+    specifiers.every((specifier) => /^type\s+(?!as(?:\s|$))\S/.test(specifier))
+  );
 }
 
 /**

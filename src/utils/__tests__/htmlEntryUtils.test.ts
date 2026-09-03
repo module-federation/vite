@@ -53,6 +53,12 @@ describe('findModuleImportSources', () => {
 });
 
 describe('findModuleImportDescriptors', () => {
+  it('treats an imported runtime binding named type as a value import', () => {
+    expect(findModuleImportDescriptors(`import { type as value } from 'remote/value';`)).toEqual([
+      { kind: 'static', syntax: 'import', source: 'remote/value', typeOnly: false },
+    ]);
+  });
+
   it('separates runtime imports from type-only imports', () => {
     expect(
       findModuleImportDescriptors(`
