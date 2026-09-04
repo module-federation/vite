@@ -552,6 +552,7 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/typed-destructuring.ts') ||
       filePath.endsWith('/repo/packages/decorated-export.ts') ||
       filePath.endsWith('/repo/packages/export-import-alias.ts') ||
+      filePath.endsWith('/repo/packages/export-property-key.ts') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts') ||
       filePath.endsWith('/repo/packages/cached-shared-source/index.ts') ||
       filePath.endsWith('/repo/packages/cached-shared-source/leaf.ts')
@@ -575,6 +576,14 @@ export default function createDefaultOnly() {}`;
 export interface Shape { value: string }
 export declare const declaredOnly: string;
 export default function createDefaultOnly() {}`;
+    }
+    if (filePath.endsWith('/repo/packages/export-property-key.ts')) {
+      return `export const messages = {
+  export: () => 'Export',
+  'import': () => 'Import',
+}
+type Options = { export?: boolean; import ?: boolean }
+export const visible = 2`;
     }
     if (filePath.endsWith('/repo/packages/default-only-export-lookalikes.js')) {
       return `// export*from"./comment.js";
@@ -1818,6 +1827,29 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(`export * from ${JSON.stringify(importPath)}`);
     expect(generatedCode).not.toContain('__mfApplySharedDefaultExport');
     expect(generatedCode).not.toContain('__mfSubscribeSharedCache(__mfModuleCache.share');
+  });
+
+  it('ignores members named export in object and type literals', () => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/export-property-key.ts',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expectLiveSingletonProxy(generatedCode, pkg, ['messages', 'visible']);
+    expect(generatedCode).not.toContain('export * from "/repo/packages/export-property-key.ts"');
   });
 
   it('ignores unmatched export syntax in comments, strings, and regular expressions', () => {
