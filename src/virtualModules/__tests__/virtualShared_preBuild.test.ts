@@ -428,6 +428,19 @@ vi.mock('../../utils/packageUtils', () => ({
         },
       };
     }
+    if (pkg === 'runtime-consumer') {
+      return {
+        path: '/repo/apps/remote/node_modules/runtime-consumer/package.json',
+        dir: '/repo/apps/remote/node_modules/runtime-consumer',
+        packageJson: {
+          name: 'runtime-consumer',
+          dependencies: {
+            '@module-federation/enhanced': '^2.9.0',
+            react: '^19.0.0',
+          },
+        },
+      };
+    }
   }),
   getPackageName: (packageString: string) => {
     const match = packageString.match(/^(?:@[^/]+\/)?[^/]+/);
@@ -3476,6 +3489,37 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
     expect(generatedCode).toContain('initPromise.then');
     expect(generatedCode).toContain('import("mock-import-id").then((mod) => {');
+    expect(generatedCode).not.toContain('await ');
+  });
+
+  it('uses eager fallback for peer-consumed singletons in remote builds', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: { './App': './src/App.jsx' },
+      shared: {
+        react: { singleton: true },
+        'runtime-consumer': { singleton: true },
+      },
+    });
+    const pkg = 'react';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '19.2.4',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^19.2.4',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).toContain('import * as __mfLocalShare from "mock-import-id";');
+    expect(generatedCode).toContain('__mfApplySharedDefaultExport(exportModule);');
+    expect(generatedCode).not.toContain('initPromise.then');
     expect(generatedCode).not.toContain('await ');
   });
 

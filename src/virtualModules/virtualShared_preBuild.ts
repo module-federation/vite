@@ -1032,13 +1032,15 @@ function getDependencyNames(packageJson: Record<string, unknown> | undefined) {
 
 function isSharedSingletonConsumedByPeer(
   pkg: string,
-  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions(),
+  requireFederationRuntimeDependency = false
 ) {
   const shared = options?.shared || {};
   // Subpath shares (for example `preact/hooks`) execute against their package
   // root during module evaluation. Keep the root singleton eager so that the
   // subpath cannot observe an as-yet-uninitialised lazy namespace.
   if (
+    !requireFederationRuntimeDependency &&
     Object.entries(shared).some(
       ([key, item]) =>
         key !== pkg && key.startsWith(`${pkg}/`) && item.shareConfig.singleton === true
@@ -1064,15 +1066,28 @@ function isSharedSingletonConsumedByPeer(
   // cache, leaving the consumer's top-level read of `pkg`'s bindings undefined.
   // This covers both cyclic graphs and acyclic ones where a package is shared
   // together with one of its subpath exports (see issue #823).
-  const reachesPkg = (current: string, seen: Set<string>): boolean => {
+  const reachesPkg = (
+    current: string,
+    seen: Set<string>,
+    hasFederationRuntimeDependency = false
+  ): boolean => {
     const packageJson = getSharedDependencyGraphPackageJson(current);
-    for (const dependency of getDependencyNames(packageJson)) {
+    const dependencies = getDependencyNames(packageJson);
+    const usesFederationRuntime = dependencies.some(
+      (dependency) =>
+        dependency === '@module-federation/enhanced' ||
+        dependency === '@module-federation/runtime' ||
+        dependency === '@module-federation/runtime-core'
+    );
+    const runtimeIsReachable = hasFederationRuntimeDependency || usesFederationRuntime;
+    for (const dependency of dependencies) {
       const sharedDependency = sharedKeyByPackageName.get(dependency);
       if (!sharedDependency) continue;
-      if (sharedDependency === pkg) return true;
+      if (sharedDependency === pkg)
+        return !requireFederationRuntimeDependency || runtimeIsReachable;
       if (seen.has(sharedDependency)) continue;
       seen.add(sharedDependency);
-      if (reachesPkg(sharedDependency, seen)) return true;
+      if (reachesPkg(sharedDependency, seen, runtimeIsReachable)) return true;
     }
     return false;
   };
@@ -2023,7 +2038,8 @@ export function writeLoadShareModule(
         shareItem.shareConfig.singleton === true) ||
       (command === 'build' &&
         isRemoteOnlyContainer(resolvedOptions) &&
-        (shareItem.shareConfig.singleton === true || isDefaultShareScope)));
+        (shareItem.shareConfig.singleton === true || isDefaultShareScope) &&
+        !isSharedSingletonConsumedByPeer(pkg, resolvedOptions, true)));
   const servesRemoteSingletonFallback =
     command !== 'build' &&
     isRemoteOnlyContainer(resolvedOptions) &&
