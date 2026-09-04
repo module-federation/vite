@@ -632,6 +632,9 @@ export const createThing = factory<Result, Options>()
 export const nestedRegistry: Map<string, WeakMap<object, any>> = new Map();
 export const identity = <T = string, U = number>(value: T) => value;
 export const assertedRegistry = <Map<object, any>>new Map(), secondaryRegistry = new Map()
+type Shape = Pick<Options, 'onClick'>
+let registry: Map<string, number>
+registry = new Map()
 export function pick<
   T extends string,
   R = T,
