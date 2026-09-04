@@ -262,9 +262,40 @@ export function excludeSharedSubDependencies(shared: NormalizedShared): void {
 }
 
 const sharedDependencyCache = new Map<string, Set<string>>();
+const sharedPackageDirectoryCache = new WeakMap<
+  NormalizedShared,
+  { cwd: string; entries: Map<string, string> }
+>();
+
+export function getSharedPackageFromFile(
+  importer: string | undefined,
+  shared: NormalizedShared,
+  cwd = getPackageDetectionCwd()
+): string | undefined {
+  if (!importer) return;
+  const nodeModulePackage = getPackageNameFromNodeModulePath(importer);
+  if (nodeModulePackage) return nodeModulePackage;
+  let cached = sharedPackageDirectoryCache.get(shared);
+  if (!cached || cached.cwd !== cwd) {
+    const entries = new Map<string, string>();
+    for (const key of Object.keys(shared)) {
+      const packageName = getPackageName(key);
+      const entry = getInstalledPackageEntry(packageName, { cwd });
+      if (entry && !isNodeModulePath(entry)) {
+        entries.set(path.dirname(normalizePathForImport(entry)), packageName);
+      }
+    }
+    cached = { cwd, entries };
+    sharedPackageDirectoryCache.set(shared, cached);
+  }
+  const normalizedImporter = normalizePathForImport(importer);
+  return [...cached.entries].find(
+    ([dir]) => normalizedImporter === dir || normalizedImporter.startsWith(`${dir}/`)
+  )?.[1];
+}
 
 /** Whether `dependency` is reachable through the shared package's manifest dependencies. */
-function isSharedPackageDependency(sharedKey: string, dependency: string) {
+export function isSharedPackageDependency(sharedKey: string, dependency: string) {
   const sharedPackage = getPackageName(sharedKey);
   let reachable = sharedDependencyCache.get(sharedPackage);
   if (!reachable) {
@@ -436,7 +467,6 @@ export function proxySharedModule(options: {
         _command = command;
         useRolldown = isRolldown;
         useDirectReactImport = isVinext || isAstro;
-
         if (command === 'serve') {
           excludeSharedSubDependencies(shared);
         }
@@ -580,7 +610,7 @@ export function proxySharedModule(options: {
         // A shared package's own files must keep ordinary internal module edges.
         // Compare package roots because `key` may be an explicit subpath or a
         // trailing-slash wildcard share key.
-        const importerPackage = importer ? getPackageNameFromNodeModulePath(importer) : undefined;
+        const importerPackage = getSharedPackageFromFile(importer, shared);
         if (importerPackage === getPackageName(key)) return;
         // A dependency of the shared package that imports it back (a package-level
         // cycle) keeps its ordinary edge too. Proxying it would place the loadShare

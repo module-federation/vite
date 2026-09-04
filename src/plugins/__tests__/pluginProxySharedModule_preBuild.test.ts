@@ -1131,6 +1131,46 @@ describe('pluginProxySharedModule_preBuild', () => {
     readFileSyncMock.mockReset().mockReturnValue('{}');
   });
 
+  it('does not proxy shared dependency cycle edges from workspace packages', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg) =>
+      pkg === 'react' ? '/repo/packages/react/index.js' : undefined
+    );
+    existsSyncMock.mockImplementation(
+      (p: string) => p === '/repo/apps/remote/node_modules/vue/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) =>
+      p.endsWith('/vue/package.json') ? '{"dependencies":{"react":"1"}}' : '{}'
+    );
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/packages/react/internal.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+  });
+
   it('does not proxy internal imports for wildcard shared package keys during build', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
