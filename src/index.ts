@@ -22,6 +22,8 @@ import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import {
   excludeSharedSubDependencies,
   findSharedKey,
+  getSharedPackageFromFile,
+  isSharedPackageDependency,
   proxySharedModule,
 } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
@@ -691,6 +693,14 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 if (isSharedResolverInternalImporter(importer)) return;
                 const key = findSharedKey(source, shared);
                 if (!key) return;
+                const importerPackage = getSharedPackageFromFile(importer, shared, root);
+                const reactDomSelfReference = isReactDomSelfReference(source, importer);
+                if (
+                  !reactDomSelfReference &&
+                  (importerPackage === getPackageName(key) ||
+                    (importerPackage && isSharedPackageDependency(key, importerPackage)))
+                )
+                  return;
                 if (isAssetLikeImport(source)) return;
                 const shareItem = shared[key];
                 const isReactSingleton =
@@ -744,11 +754,13 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (isSharedResolverInternalImporter(args.importer)) return;
                   const key = findSharedKey(args.path, shared);
                   if (!key || isAssetLikeImport(args.path)) return;
+                  const importerPackage = getSharedPackageFromFile(args.importer, shared, root);
                   if (
-                    getPackageNameFromNodeModulePath(args.importer) === getPackageName(args.path) &&
+                    importerPackage === getPackageName(args.path) &&
                     !isReactDomSelfReference(args.path, args.importer)
                   )
                     return;
+                  if (importerPackage && isSharedPackageDependency(key, importerPackage)) return;
                   addUsedShares(args.path, options);
                   if (args.kind === 'import-statement' || args.kind === 'dynamic-import') {
                     const shareItem = shared[key];
