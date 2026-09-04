@@ -614,11 +614,17 @@ Object.keys(dependency).forEach(function (key) {
       return "module['exports'] = { hidden: 1 };";
     }
     if (filePath.endsWith('/repo/packages/generic-initializer.ts')) {
-      return `export const definitionRefRegistry = new WeakMap<object, any>();
-export const createThing = factory<Result, Options>();
+      return `export const definitionRefRegistry = new WeakMap<object, any>()
+export const createThing = factory<Result, Options>()
 export const nestedRegistry: Map<string, WeakMap<object, any>> = new Map();
 export const identity = <T = string, U = number>(value: T) => value;
-export const assertedRegistry = <Map<object, any>>new Map();`;
+export const assertedRegistry = <Map<object, any>>new Map(), secondaryRegistry = new Map()
+export function pick<
+  T extends string,
+  R = T,
+>(value: T): R {
+  return value as unknown as R
+}`;
     }
     if (filePath.endsWith('/repo/packages/generic-and-multi.ts')) {
       return 'export const first = factory<Result, Options>(), second = 2;';
@@ -670,7 +676,7 @@ export const buttonBase = 1;`;
       return `export const visible = 1; export * as "a-b" from './dependency.js';`;
     }
     if (filePath.endsWith('/repo/packages/nested-destructuring.js')) {
-      return 'export const visible = 1; export const { nested: { a, b } } = obj;';
+      return 'export const visible = 1, { nested: { a, b } } = obj;';
     }
     if (filePath.endsWith('/repo/packages/defaulted-destructuring.js')) {
       return 'export const visible = 1; export const { a = fn(1, fake), b } = obj;';
@@ -1976,6 +1982,8 @@ describe('writeLoadShareModule', () => {
       'nestedRegistry',
       'identity',
       'assertedRegistry',
+      'pick',
+      'secondaryRegistry',
     ]);
     expect(generatedCode).not.toContain('export * from "/repo/packages/generic-initializer.ts"');
   });

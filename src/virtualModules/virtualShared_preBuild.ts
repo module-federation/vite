@@ -497,6 +497,18 @@ function getAdditionalTopLevelDeclaratorNames(
       const tokenStart = index;
       while (/[$_\u200C\u200D\p{ID_Continue}]/u.test(source[index + 1] || '')) index++;
       const token = source.slice(tokenStart, index + 1);
+      if (depth === 0 && templateFrames.length === 0 && token === 'export') {
+        let previous = tokenStart - 1;
+        while (/\s/.test(source[previous] || '')) previous--;
+        if (
+          source[previous] !== '.' &&
+          /^\s+(?:(?:async\s+)?function\b|(?:abstract\s+)?class\b|const\b|let\b|var\b|enum\b|namespace\b|module\b|interface\b|type\b|declare\b|default\b|\{|\*)/.test(
+            source.slice(index + 1)
+          )
+        ) {
+          return names;
+        }
+      }
       canStartRegex =
         /^(?:await|case|delete|in|instanceof|new|return|throw|typeof|void|yield)$/.test(token);
       continue;
