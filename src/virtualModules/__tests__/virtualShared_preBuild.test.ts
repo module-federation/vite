@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
+import { parseAst } from 'vite';
 import { normalizePathForImport } from '../../utils/buildPaths';
 import { getSharedExportConditions } from '../../utils/sharedExportConditions';
 import {
@@ -3743,6 +3744,9 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('const __mfApplyEagerShareExports = (mod) => {');
     expect(generatedCode).toContain('__mfApplyEagerShareExports(exportModule);');
     expect(generatedCode).not.toContain('initPromise.then');
+    // The eager export block declares `exportModule` itself; the module body must not declare it again.
+    expect(generatedCode.match(/\blet exportModule\b/g)).toHaveLength(1);
+    expect(() => parseAst(generatedCode)).not.toThrow();
   });
 
   it('does not treat parent package.json name mismatches as workspace package matches', () => {
