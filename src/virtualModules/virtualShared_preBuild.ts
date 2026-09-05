@@ -2215,9 +2215,14 @@ export function writeLoadShareModule(
         ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
         : '';
 
-  const moduleBody =
-    usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
-      ? `
+  // These export blocks declare `exportModule` themselves; the plain body must not declare it a second time.
+  const exportLineDeclaresModule =
+    usesDeferredSingletonFallback ||
+    usesDeferredTreeShakingFallback ||
+    usesEagerWorkspaceFallback ||
+    usesEntryInjectedRemoteFallback;
+  const moduleBody = exportLineDeclaresModule
+    ? `
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
