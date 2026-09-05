@@ -27,6 +27,14 @@ describe('findLikelyTypeArgumentEnd', () => {
     );
   });
 
+  it.each([
+    ["type Shape = Pick<Options, 'onClick'>\nconst later = 1", "<Options, 'onClick'>"],
+    ['let registry: Map<string, number>\nregistry = new Map()', '<string, number>'],
+    ['const registry = new WeakMap<object, any> // comment\nconst later = 1', '<object, any>'],
+  ])('ends the range at a line break in semicolon-less %s', (source, expected) => {
+    expect(findTypeArgumentRange(source)).toBe(expected);
+  });
+
   it('finds nested type arguments in a TypeScript angle-bracket assertion', () => {
     expect(findTypeArgumentRange('const registry = <Map<object, any>>new Map();')).toBe(
       '<Map<object, any>>'

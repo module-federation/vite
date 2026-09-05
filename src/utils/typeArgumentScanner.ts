@@ -62,6 +62,9 @@ function hasLikelyTypeArgumentFollower(
   let next = end + 1;
   while (next < source.length && (!codePositions[next] || /\s/.test(source[next]))) next++;
   if (next >= source.length || /[([.!?=;,)\]}:|&]/.test(source[next])) return true;
+  // A line break after `>` ends the statement in semicolon-less code: `a < b, c >` followed by a
+  // new line cannot continue a declarator list, so the range can only be type arguments.
+  if (source.slice(end + 1, next).includes('\n')) return true;
 
   const followingToken = source
     .slice(next)
