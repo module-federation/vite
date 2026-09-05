@@ -628,7 +628,8 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
   const __mfHostInit = await ${importExpression(initSrc)};
   await __mfHostInit.__tla;
   const { initHost } = __mfHostInit;
-  ${preloadBlock}${sharedPreloadBlock}${pendingShareLoadsAwait}
+  ${preloadBlock}
+  if (typeof __mfHostInit.preloadPendingShares === "function") await __mfHostInit.preloadPendingShares();${sharedPreloadBlock}${pendingShareLoadsAwait}
 })().then(() => ${entryImportExpression});
 `;
 

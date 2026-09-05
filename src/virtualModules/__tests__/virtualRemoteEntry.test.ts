@@ -506,6 +506,7 @@ vi.mock('../virtualRemotes', () => {
 vi.mock('../virtualShared_preBuild', () => {
   return {
     getPreBuildLibImportId: (pkg: string) => `virtual:prebuild:${pkg}`,
+    getLoadShareModulePath: (pkg: string) => `virtual:loadShare:${pkg}`,
     getTreeShakingSharedProviderImportId: (pkg: string) => `virtual:tree-provider:${pkg}`,
     getSharedNamedExports: (pkg: string) =>
       pkg === 'named-singleton'
@@ -949,6 +950,42 @@ describe('virtualRemoteEntry', () => {
     expect(hostInit).toContain(
       'const __mfHostInitShareBatches = [["react"],["@repro/react-consumer"]]'
     );
+  });
+
+  it('lets the build bootstrap evaluate still-unseeded share wrappers before the entry', async () => {
+    const share = (name: string, importFalse = false) => ({
+      name,
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        ...(importFalse ? { import: false as const } : {}),
+      },
+    });
+    normalizedSharedMock.mockReturnValue({
+      react: share('react'),
+      '@repro/host-only': share('@repro/host-only', true),
+      '@repro/react-consumer': share('@repro/react-consumer'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+    mod.addUsedShares('@repro/host-only');
+    mod.addUsedShares('@repro/react-consumer');
+
+    const buildInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+    // Wrappers of shares with a local fallback are listed; an import:false share has nothing to seed.
+    expect(buildInit).toContain(
+      'const __mfPendingShareImports = [["react", () => import("virtual:loadShare:react")], ["@repro/react-consumer", () => import("virtual:loadShare:@repro/react-consumer")]];'
+    );
+    expect(buildInit).toContain('export { initHost, hostInitPromise, preloadPendingShares };');
+    expect(buildInit).toContain(
+      'if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) return;'
+    );
+
+    const serveInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+    expect(serveInit).toContain('const __mfPendingShareImports = [];');
   });
 
   it('orders React package roots before their subpath shares', async () => {
@@ -2259,7 +2296,8 @@ describe('virtualRemoteEntry', () => {
         )(usedShared, attempted)
       ).resolves.not.toThrow();
 
-      expect(attempted).toEqual(['@repro/failing']);
+      // The failure blocks only the failing share; the unrelated one is still attempted.
+      expect(attempted).toEqual(['@repro/failing', '@repro/other']);
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('Failed to resolve runtime-only shared module "@repro/failing"'),
         expect.anything()
@@ -2267,6 +2305,96 @@ describe('virtualRemoteEntry', () => {
     } finally {
       errorSpy.mockRestore();
     }
+  });
+
+  it('seeds shares that do not depend on an unresolved runtime-only share', async () => {
+    const shareItem = (name: string, importFalse = false) => ({
+      name,
+      from: 'remote',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: '^1.0.0',
+        strictVersion: false,
+        ...(importFalse ? { import: false as const } : {}),
+      },
+    });
+    // `@repro/core` depends on `@repro/shared-lib` (see the packageUtils mock); `@repro/react-consumer` does not.
+    normalizedSharedMock.mockReturnValue({
+      '@repro/shared-lib': shareItem('@repro/shared-lib', true),
+      '@repro/core': shareItem('@repro/core'),
+      '@repro/react-consumer': shareItem('@repro/react-consumer'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('@repro/shared-lib');
+    mod.addUsedShares('@repro/core');
+    mod.addUsedShares('@repro/react-consumer');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'loaded-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+    expect(code).toContain('const __mfSeedPrerequisites = ');
+    const seedCode = getRuntimeSeedCode(code);
+    const deferredResolutionCode = getRuntimeDeferredResolutionCode(code);
+    const attempted: string[] = [];
+    const localShare = (name: string) => ({
+      ...shareItem(name),
+      scope: ['default'],
+      get: async () => () => ({ value: name }),
+    });
+    const usedShared = {
+      '@repro/shared-lib': { ...shareItem('@repro/shared-lib', true), scope: ['default'] },
+      '@repro/core': localShare('@repro/core'),
+      '@repro/react-consumer': localShare('@repro/react-consumer'),
+    };
+
+    const cache = await new Function(
+      'usedShared',
+      'attempted',
+      `return (async () => {
+        const __mfModuleCache = { share: {} };
+        const mfName = 'host';
+        const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+          const scopeName = Array.isArray(scope) ? scope[0] : scope || 'default';
+          return { canonical: scopeName + ':' + (singleton || !version ? pkg : pkg + '@' + version) };
+        };
+        const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+        const __mfReadSharedCacheOwner = () => undefined;
+        const __mfWriteSharedCache = (cache, descriptor, value) => {
+          cache[descriptor.canonical] = value;
+        };
+        const __mfReadTreeShakingSharedSelection = () => undefined;
+        const __mfResolveTreeShakingShared = async () => {};
+        // No provider ever registers the host-only share: it stays pending.
+        const __mfResolveImportFalseShared = async (pkg) => {
+          attempted.push(pkg);
+        };
+        ${seedCode}
+        ${deferredResolutionCode}
+        return __mfModuleCache.share;
+      })();`
+    )(usedShared, attempted);
+
+    expect(attempted).toEqual(['@repro/shared-lib']);
+    // The independent share is seeded; the unresolved share and its dependent are not.
+    expect(cache['default:@repro/react-consumer']).toEqual({ value: '@repro/react-consumer' });
+    expect(cache['default:@repro/core']).toBeUndefined();
+    expect(cache['default:@repro/shared-lib']).toBeUndefined();
   });
 
   it('bridges a lazy singleton before evaluating shared modules that capture it', async () => {
