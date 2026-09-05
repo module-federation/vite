@@ -27,6 +27,7 @@ import {
 } from './virtualRuntimeInitStatus';
 import {
   getConcreteSharedImportSource,
+  getLoadShareModulePath,
   getLocalProviderImportPath,
   getProjectResolvedImportPath,
   getSharedImportSource,
@@ -403,9 +404,8 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
   return orderSharedDependenciesFirst(sorted);
 }
 
-function getShareBatches(options?: NormalizedModuleFederationOptions, materializedOnly = true) {
-  const ordered = materializedOnly ? getMaterializedShares(options) : getOrderedUsedShares(options);
-  const levels = new Map<string, number>();
+/** Shared keys a share's package.json depends on (roots stand in for their subpaths, subpaths for their root), keyed by share. */
+function getSharePrerequisites(ordered: string[]) {
   const roots = new Map<string, string>();
   const subpaths = new Map<string, string[]>();
   for (const pkg of ordered) {
@@ -413,6 +413,7 @@ function getShareBatches(options?: NormalizedModuleFederationOptions, materializ
     if (pkg === packageName) roots.set(packageName, pkg);
     else subpaths.set(packageName, [...(subpaths.get(packageName) ?? []), pkg]);
   }
+  const prerequisitesByShare = new Map<string, string[]>();
   for (const pkg of ordered) {
     const packageName = getPackageName(pkg);
     const packageJson =
@@ -432,9 +433,19 @@ function getShareBatches(options?: NormalizedModuleFederationOptions, materializ
     } else if (pkg === packageName && packageName !== 'react' && packageName !== 'react-dom') {
       prerequisites.push(...(subpaths.get(packageName) ?? []));
     }
+    prerequisitesByShare.set(pkg, prerequisites);
+  }
+  return prerequisitesByShare;
+}
+
+function getShareBatches(options?: NormalizedModuleFederationOptions, materializedOnly = true) {
+  const ordered = materializedOnly ? getMaterializedShares(options) : getOrderedUsedShares(options);
+  const prerequisitesByShare = getSharePrerequisites(ordered);
+  const levels = new Map<string, number>();
+  for (const pkg of ordered) {
     levels.set(
       pkg,
-      prerequisites.reduce(
+      (prerequisitesByShare.get(pkg) ?? []).reduce(
         (level, dependency) => Math.max(level, (levels.get(dependency) ?? 0) + 1),
         0
       )
@@ -720,9 +731,23 @@ function generateRuntimeSharedCacheSeedCode(
   // exports undefined at module-evaluation time. Seed dependencies and a
   // package's own subpath shares before the package itself.
   const seedBatches = getShareBatches(options, false);
+  const seedOrder = seedBatches.flat();
+  // Shared prerequisites as positions in __mfSeedOrder, only for shares that have any: the deferred pass
+  // consults this to skip the dependents of an unresolved share.
+  const seedIndex = new Map(seedOrder.map((pkg, index) => [pkg, index]));
+  const seedPrerequisites = Object.fromEntries(
+    Array.from(getSharePrerequisites(seedOrder))
+      .filter(([, prerequisites]) => prerequisites.length > 0)
+      .map(([pkg, prerequisites]) => [
+        seedIndex.get(pkg),
+        prerequisites.map((prerequisite) => seedIndex.get(prerequisite)),
+      ])
+  );
   return `
-    const __mfSeedOrder = ${toSafeJsLiteral(seedBatches.flat())};
+    const __mfSeedOrder = ${toSafeJsLiteral(seedOrder)};
     const __mfSeedBatches = ${toSafeJsLiteral(seedBatches)};
+    const __mfSeedIndex = new Map(__mfSeedOrder.map((pkg, index) => [pkg, index]));
+    const __mfSeedPrerequisites = ${toSafeJsLiteral(seedPrerequisites)};
     // A share is normally skipped here until the dev scanner has observed a real
     // import and set materialize. An import:false share has no local fallback
     // though, so on a cold request (materialize not set yet) it must still be
@@ -2028,11 +2053,17 @@ export function generateRemoteEntry(
       }
     };
     // Resolve runtime-only dependencies and seed local fallbacks in dependency
-    // order. Stop at an unresolved provider so its consumers cannot capture an
-    // undefined or provisional singleton.
+    // order. An unresolved provider blocks its consumers, which would otherwise
+    // capture an undefined or provisional singleton; unrelated shares still seed.
     const __mfReadyDeferredSeedKeys = [];
+    const __mfBlockedSeedKeys = new Set();
     for (const pkg of __mfDeferredSeedKeys) {
       const share = usedShared[pkg];
+      const seedIndex = __mfSeedIndex.get(pkg);
+      if ((__mfSeedPrerequisites[seedIndex] || []).some((dependency) => __mfBlockedSeedKeys.has(dependency))) {
+        __mfBlockedSeedKeys.add(seedIndex);
+        continue;
+      }
       if (__mfIsRuntimeOnlySharePending(pkg)) {
         try {
           if (share.treeShaking) {
@@ -2041,16 +2072,18 @@ export function generateRemoteEntry(
             await __mfResolveImportFalseShared(pkg, share);
           }
         } catch (err) {
-          // A rejected provider is an unresolved provider: stop here as the comment above
-          // prescribes, instead of escalating to a container-wide init() failure.
+          // A rejected provider is an unresolved provider: block its consumers as the
+          // comment above prescribes, instead of escalating to a container-wide init() failure.
           console.error(
             \`[Module Federation] Failed to resolve runtime-only shared module "\${pkg}"\`,
             err
           );
-          break;
         }
       }
-      if (__mfIsRuntimeOnlySharePending(pkg)) break;
+      if (__mfIsRuntimeOnlySharePending(pkg)) {
+        __mfBlockedSeedKeys.add(seedIndex);
+        continue;
+      }
       __mfReadyDeferredSeedKeys.push(pkg);
     }
     await __mfSeedLocalShared(__mfReadyDeferredSeedKeys);
@@ -2125,6 +2158,27 @@ export function generateHostAutoInitCode(
   const shouldPreloadShares = resolvedOptions.shareStrategy !== 'loaded-first';
   const hostInitShareBatches = toSafeJsLiteral(getShareBatches(options, false));
   const cacheOwner = toSafeJsLiteral(resolvedOptions.name);
+  // Build-time wrappers of the shares this container bundles a fallback for. A share still unseeded after
+  // init() and the remote preloads (behind an unresolved runtime-only share) has a deferred wrapper that only
+  // registers its pending load once evaluated; evaluating it here puts that load in front of the bootstrap's
+  // pendingShareLoads barrier instead of inside the entry's own import graph, where module-scope reads would see it undefined.
+  const pendingShareImports =
+    _command === 'build'
+      ? getMaterializedShares(options)
+          .filter((pkg) => {
+            const shareItem = resolvedOptions.shared?.[pkg];
+            return (
+              Boolean(shareItem) &&
+              !pkg.endsWith('/') &&
+              shareItem.shareConfig.import !== false &&
+              !shareItem.shareConfig.treeShaking
+            );
+          })
+          .map(
+            (pkg) =>
+              `[${toSafeJsLiteral(pkg)}, () => import(${toSafeJsLiteral(getLoadShareModulePath(pkg, false, options))})]`
+          )
+      : [];
   const preferLocalVinextReact =
     hasPackageDependency('vinext') &&
     (!exportConditions?.includes('browser') || exportConditions.includes('worker'));
@@ -2207,7 +2261,21 @@ export function generateHostAutoInitCode(
       return hostInitPromise;
     }
     hostInitPromise = initHost();
-    export { initHost, hostInitPromise };
+    const __mfPendingShareImports = [${pendingShareImports.join(', ')}];
+    async function preloadPendingShares() {
+      if (__mfPendingShareImports.length === 0) return;
+      ${sharedCacheHelperCode}
+      await initHost();
+      const {usedShared} = await import("${getLocalSharedImportMapPath(options)}");
+      await Promise.all(__mfPendingShareImports.map(async ([pkg, load]) => {
+        const share = usedShared[pkg];
+        if (!share || share.materialize === false || share.treeShaking || share.shareConfig?.import === false) return;
+        const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+        if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) return;
+        await load().catch((err) => console.warn("[module-federation] shared preload failed:", pkg, err));
+      }));
+    }
+    export { initHost, hostInitPromise, preloadPendingShares };
     `;
 }
 export function writeHostAutoInit(
