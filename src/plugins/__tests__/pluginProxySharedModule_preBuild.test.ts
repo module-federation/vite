@@ -1171,6 +1171,53 @@ describe('pluginProxySharedModule_preBuild', () => {
     readFileSyncMock.mockReset().mockReturnValue('{}');
   });
 
+  it('keeps walking the dependency tree past an unresolvable optional peer when detecting cycles', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg) =>
+      pkg === 'react' ? '/repo/packages/react/index.js' : undefined
+    );
+    // vue -> (react-native: optional peer, not installed) -> forms -> react: the cycle closes through forms
+    existsSyncMock.mockImplementation(
+      (p: string) =>
+        p === '/repo/apps/remote/node_modules/vue/package.json' ||
+        p === '/repo/apps/remote/node_modules/forms/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p.endsWith('/vue/package.json')) {
+        return '{"peerDependencies":{"react-native":"*","forms":"1"},"peerDependenciesMeta":{"react-native":{"optional":true}}}';
+      }
+      if (p.endsWith('/forms/package.json')) return '{"dependencies":{"react":"1"}}';
+      return '{}';
+    });
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/packages/react/internal.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+  });
+
   it('does not proxy internal imports for wildcard shared package keys during build', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 

@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, realpathSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
@@ -21,6 +22,7 @@ import {
 import {
   getIsRolldown,
   getInstalledPackageJson,
+  type InstalledPackageJson,
   getInstalledPackageEntry,
   getPackageDetectionCwd,
   getPackageName,
@@ -294,6 +296,50 @@ export function getSharedPackageFromFile(
   )?.[1];
 }
 
+const dependencyManifestCache = new Map<string, InstalledPackageJson | undefined>();
+
+/**
+ * The manifest of `dep` as seen from `fromDir`: a plain `node_modules` walk-up first, because the
+ * cycle walk below visits every package in the tree and `getInstalledPackageJson`'s resolver is
+ * far too expensive for that many lookups; it stays the fallback for layouts the walk-up misses.
+ */
+function getDependencyManifest(dep: string, fromDir: string): InstalledPackageJson | undefined {
+  const cacheKey = `${fromDir}\0${dep}`;
+  if (dependencyManifestCache.has(cacheKey)) return dependencyManifestCache.get(cacheKey);
+  let found: InstalledPackageJson | undefined;
+  let currentDir = fromDir;
+  while (true) {
+    const packageJsonPath = path.join(currentDir, 'node_modules', dep, 'package.json');
+    if (existsSync(packageJsonPath)) {
+      try {
+        let dir = path.dirname(packageJsonPath);
+        try {
+          dir = realpathSync(dir);
+        } catch {
+          // Keep the symlink path when it cannot be resolved.
+        }
+        found = {
+          path: packageJsonPath,
+          dir,
+          packageJson: JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<
+            string,
+            unknown
+          >,
+        };
+      } catch {
+        // Unreadable manifest: fall through to the resolver below.
+      }
+      break;
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+  found ??= getInstalledPackageJson(dep, { cwd: fromDir, packageName: dep });
+  dependencyManifestCache.set(cacheKey, found);
+  return found;
+}
+
 /** Whether `dependency` is reachable through the shared package's manifest dependencies. */
 export function isSharedPackageDependency(sharedKey: string, dependency: string) {
   const sharedPackage = getPackageName(sharedKey);
@@ -302,8 +348,10 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
     reachable = new Set<string>();
     const visited = new Set<string>();
     const queue = [getInstalledPackageJson(sharedPackage, { packageName: sharedPackage })];
-    for (let installed = queue.shift(); installed; installed = queue.shift()) {
-      if (visited.has(installed.dir)) continue;
+    // An unresolvable dependency (an uninstalled optional peer, say) must not end the walk early.
+    while (queue.length) {
+      const installed = queue.shift();
+      if (!installed || visited.has(installed.dir)) continue;
       visited.add(installed.dir);
       const manifest = installed.packageJson as Record<string, Record<string, string> | undefined>;
       for (const dep of Object.keys({
@@ -312,7 +360,7 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
         ...manifest.optionalDependencies,
       })) {
         reachable.add(dep);
-        queue.push(getInstalledPackageJson(dep, { cwd: installed.dir, packageName: dep }));
+        queue.push(getDependencyManifest(dep, installed.dir));
       }
     }
     sharedDependencyCache.set(sharedPackage, reachable);
@@ -461,6 +509,7 @@ export function proxySharedModule(options: {
         resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
         sharedDependencyCache.clear();
+        dependencyManifestCache.clear();
         const isVinext = hasPackageDependency('vinext');
         const isAstro = hasPackageDependency('astro');
         const isRolldown = getIsRolldown(this);
