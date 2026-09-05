@@ -803,14 +803,24 @@ function getNamedExportsViaRegex(
     if (source[previousCodeIndex] === '.') continue;
 
     let nextCodeIndex = match.index + match[0].length;
-    while (/\s/.test(source[nextCodeIndex] || '')) nextCodeIndex++;
+    while (
+      nextCodeIndex < source.length &&
+      (/\s/.test(source[nextCodeIndex]) || !codePositions[nextCodeIndex])
+    ) {
+      nextCodeIndex++;
+    }
     if (source[nextCodeIndex] === '(') continue;
 
     // A property named `export` in an object or type literal (`export:`, `export?:`) is not one either.
     let memberIndex = nextCodeIndex;
     if (source[memberIndex] === '?') {
       memberIndex++;
-      while (/\s/.test(source[memberIndex] || '')) memberIndex++;
+      while (
+        memberIndex < source.length &&
+        (/\s/.test(source[memberIndex]) || !codePositions[memberIndex])
+      ) {
+        memberIndex++;
+      }
     }
     if (source[memberIndex] === ':') continue;
 

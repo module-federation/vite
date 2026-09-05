@@ -554,6 +554,7 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/decorated-export.ts') ||
       filePath.endsWith('/repo/packages/export-import-alias.ts') ||
       filePath.endsWith('/repo/packages/export-property-key.ts') ||
+      filePath.endsWith('/repo/packages/export-property-key-comments.ts') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts') ||
       filePath.endsWith('/repo/packages/cached-shared-source/index.ts') ||
       filePath.endsWith('/repo/packages/cached-shared-source/leaf.ts')
@@ -584,6 +585,13 @@ export default function createDefaultOnly() {}`;
   'import': () => 'Import',
 }
 type Options = { export?: boolean; import ?: boolean }
+export const visible = 2`;
+    }
+    if (filePath.endsWith('/repo/packages/export-property-key-comments.ts')) {
+      return `export const messages = {
+  export /* label */: () => 'Export',
+}
+type Options = { export /* label */ ? /* optional */ : boolean }
 export const visible = 2`;
     }
     if (filePath.endsWith('/repo/packages/default-only-export-lookalikes.js')) {
@@ -1854,6 +1862,30 @@ describe('writeLoadShareModule', () => {
 
     expectLiveSingletonProxy(generatedCode, pkg, ['messages', 'visible']);
     expect(generatedCode).not.toContain('export * from "/repo/packages/export-property-key.ts"');
+  });
+
+  it('ignores comments between export property names and their punctuation', () => {
+    const pkg = 'mock-package-with-reserved';
+    const importPath = '/repo/packages/export-property-key-comments.ts';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expectLiveSingletonProxy(generatedCode, pkg, ['messages', 'visible']);
+    expect(generatedCode).not.toContain(`export * from ${JSON.stringify(importPath)}`);
   });
 
   it('ignores unmatched export syntax in comments, strings, and regular expressions', () => {
