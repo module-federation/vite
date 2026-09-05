@@ -2230,7 +2230,7 @@ export function writeLoadShareModule(
     ${normalizeLocalShareModuleCode}
     ${exportLine}
   `
-      : `
+    : `
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
