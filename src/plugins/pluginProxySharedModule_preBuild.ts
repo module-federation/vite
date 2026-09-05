@@ -321,7 +321,10 @@ function getDependencyManifest(dep: string, fromDir: string): InstalledPackageJs
         found = {
           path: packageJsonPath,
           dir,
-          packageJson: JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<string, unknown>,
+          packageJson: JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<
+            string,
+            unknown
+          >,
         };
       } catch {
         // Unreadable manifest: fall through to the resolver below.
