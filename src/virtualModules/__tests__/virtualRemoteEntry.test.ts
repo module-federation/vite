@@ -420,6 +420,26 @@ vi.mock('../../utils/packageUtils', () => {
       return match ? match[0] : packageString;
     },
     getInstalledPackageJson: (pkg: string) => {
+      if (pkg === '@repro/aaa-host-only') {
+        return {
+          path: '/repo/packages/aaa-host-only/package.json',
+          dir: '/repo/packages/aaa-host-only',
+          packageJson: {
+            name: '@repro/aaa-host-only',
+            dependencies: { '@repro/zzz-consumer': 'workspace:*' },
+          },
+        };
+      }
+      if (pkg === '@repro/zzz-consumer') {
+        return {
+          path: '/repo/packages/zzz-consumer/package.json',
+          dir: '/repo/packages/zzz-consumer',
+          packageJson: {
+            name: '@repro/zzz-consumer',
+            dependencies: { '@repro/aaa-host-only': 'workspace:*' },
+          },
+        };
+      }
       if (pkg === '@repro/react-consumer') {
         return {
           path: '/repo/packages/react-consumer/package.json',
@@ -2400,6 +2420,84 @@ describe('virtualRemoteEntry', () => {
     expect(cache['default:@repro/react-consumer']).toEqual({ value: '@repro/react-consumer' });
     expect(cache['default:@repro/core']).toBeUndefined();
     expect(cache['default:@repro/shared-lib']).toBeUndefined();
+  });
+
+  it('does not seed a cycle member before its unresolved runtime-only prerequisite', async () => {
+    const shareItem = (name: string, importFalse = false) => ({
+      name,
+      from: 'remote',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: '^1.0.0',
+        strictVersion: false,
+        ...(importFalse ? { import: false as const } : {}),
+      },
+    });
+    normalizedSharedMock.mockReturnValue({
+      '@repro/aaa-host-only': shareItem('@repro/aaa-host-only', true),
+      '@repro/zzz-consumer': shareItem('@repro/zzz-consumer'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('@repro/aaa-host-only');
+    mod.addUsedShares('@repro/zzz-consumer');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'loaded-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+    const attempted: string[] = [];
+    const usedShared = {
+      '@repro/aaa-host-only': {
+        ...shareItem('@repro/aaa-host-only', true),
+        scope: ['default'],
+      },
+      '@repro/zzz-consumer': {
+        ...shareItem('@repro/zzz-consumer'),
+        scope: ['default'],
+        get: async () => () => ({ value: 'must stay blocked' }),
+      },
+    };
+
+    const cache = await new Function(
+      'usedShared',
+      'attempted',
+      `return (async () => {
+        const __mfModuleCache = { share: {} };
+        const mfName = 'host';
+        const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => ({
+          canonical: (Array.isArray(scope) ? scope[0] : scope || 'default') + ':' + pkg
+        });
+        const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+        const __mfReadSharedCacheOwner = () => undefined;
+        const __mfWriteSharedCache = (cache, descriptor, value) => {
+          cache[descriptor.canonical] = value;
+        };
+        const __mfReadTreeShakingSharedSelection = () => undefined;
+        const __mfResolveTreeShakingShared = async () => {};
+        const __mfResolveImportFalseShared = async (pkg) => attempted.push(pkg);
+        ${getRuntimeSeedCode(code)}
+        ${getRuntimeDeferredResolutionCode(code)}
+        return __mfModuleCache.share;
+      })();`
+    )(usedShared, attempted);
+
+    expect(attempted).toEqual(['@repro/aaa-host-only']);
+    expect(cache['default:@repro/aaa-host-only']).toBeUndefined();
+    expect(cache['default:@repro/zzz-consumer']).toBeUndefined();
   });
 
   it('bridges a lazy singleton before evaluating shared modules that capture it', async () => {
