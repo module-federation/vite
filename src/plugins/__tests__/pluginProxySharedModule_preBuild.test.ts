@@ -1317,6 +1317,43 @@ describe('pluginProxySharedModule_preBuild', () => {
     readFileSyncMock.mockReset().mockReturnValue('{}');
   });
 
+  it('walks past a nameless package.json when identifying an unshared workspace package', async () => {
+    normalizeModuleFederationOptions({ name: 'host', shared: {} });
+    hasPackageDependencyMock.mockReturnValue(false);
+    const manifests: Record<string, string> = {
+      '/repo/apps/remote/node_modules/vue/package.json':
+        '{"dependencies":{"bridge":"workspace:*"}}',
+      '/repo/packages/bridge/src/package.json': '{"type":"module"}',
+      '/repo/packages/bridge/package.json': '{"name":"bridge"}',
+    };
+    existsSyncMock.mockImplementation((p: string) => p in manifests);
+    readFileSyncMock.mockImplementation((p: string) => manifests[p] ?? '{}');
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/packages/bridge/src/title.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+  });
+
   it('still proxies imports from unshared workspace packages outside the shared package cycle', async () => {
     normalizeModuleFederationOptions({ name: 'host', shared: {} });
     hasPackageDependencyMock.mockReturnValue(false);
