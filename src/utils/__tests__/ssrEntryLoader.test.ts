@@ -5,6 +5,7 @@
  * We use vi.resetModules() + dynamic import in each test to get a fresh
  * module instance with empty caches.
  */
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -1261,6 +1262,44 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).toHaveLength(2);
     expect(written[0]).toContain('file:///host-a/shared.mjs');
     expect(written[1]).toContain('file:///host-b/shared.mjs');
+  });
+
+  it('uses a process-scoped temp-file cache directory and cleanup target', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const processOnce = vi.spyOn(process, 'once');
+    const entryUrl = 'http://localhost:5001/remoteEntry.ssr.js';
+    global.fetch = makeFetchMock({
+      [entryUrl]: {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export async function init() {}',
+      },
+    }) as unknown as typeof globalThis.fetch;
+
+    let exitHandler: (() => void) | undefined;
+    try {
+      const factory = await freshLoader();
+      await factory().loadEntry!({
+        remoteInfo: { name: 'r', entry: entryUrl },
+      });
+
+      const cacheDir = join(process.cwd(), 'node_modules', '.ssr-cache', String(process.pid));
+      expect(fsMock.mkdirSync).toHaveBeenCalledWith(cacheDir, { recursive: true });
+
+      const exitCall = processOnce.mock.calls.find(([event]) => event === 'exit');
+      expect(exitCall).toBeDefined();
+      exitHandler = exitCall?.[1] as (() => void) | undefined;
+      exitHandler?.();
+      expect(fsMock.rmSync).toHaveBeenCalledWith(cacheDir, {
+        recursive: true,
+        force: true,
+      });
+    } finally {
+      if (exitHandler) process.removeListener('exit', exitHandler);
+      processOnce.mockRestore();
+    }
   });
 });
 
