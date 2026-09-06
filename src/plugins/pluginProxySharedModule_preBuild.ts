@@ -231,7 +231,13 @@ function getWorkspacePackageNameFromFile(file: string): string | undefined {
       try {
         const manifestName = (JSON.parse(readFileSync(manifestPath, 'utf-8')) as { name?: unknown })
           .name;
-        name = typeof manifestName === 'string' ? manifestName : undefined;
+        if (typeof manifestName !== 'string') {
+          const parent = path.dirname(dir);
+          if (parent === dir) break;
+          dir = parent;
+          continue;
+        }
+        name = manifestName;
       } catch {
         name = undefined;
       }

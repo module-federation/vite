@@ -488,16 +488,48 @@ function isReactRouterBuildClientRouteInput(entry: string): boolean {
   return /[?&]__react-router-build-client-route(?:[=&]|$)/.test(entry);
 }
 
+/**
+ * Files whose JSX the compiler rewrites to an automatic-runtime import.
+ * Vite only applies the JSX transform to these extensions by default.
+ */
+const JSX_SOURCE_EXTENSIONS = ['.jsx', '.tsx'];
+
+type JsxTransformOptions = {
+  jsx?: string | { runtime?: string; importSource?: string; development?: boolean };
+  jsxImportSource?: string;
+  jsxDev?: boolean;
+};
+
+function getAutomaticJsxRuntime(config: ResolvedConfig): string | undefined {
+  for (const candidate of [config.oxc, config.esbuild]) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const transform = candidate as JsxTransformOptions;
+    const jsx = transform.jsx;
+    const runtime = typeof jsx === 'object' ? jsx.runtime : jsx;
+    if (runtime && runtime !== 'automatic') return undefined;
+    if (runtime !== 'automatic') continue;
+    const importSource =
+      (typeof jsx === 'object' ? jsx.importSource : undefined) ??
+      transform.jsxImportSource ??
+      'react';
+    const development =
+      (typeof jsx === 'object' ? jsx.development : undefined) ?? transform.jsxDev ?? true;
+    return `${importSource}/${development ? 'jsx-dev-runtime' : 'jsx-runtime'}`;
+  }
+  return undefined;
+}
+
 function registerEntryImports(
   options: NormalizedModuleFederationOptions,
   projectRoot: string,
   recordShared = true,
   entryFiles: string[] = []
-): void {
+): boolean {
   const sourceExtensions = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.vue', '.svelte'];
   const root = path.resolve(projectRoot);
   const pending: Array<{ file: string; preloadRemotes: boolean }> = [];
   const visited = new Map<string, boolean>();
+  let hasJsxSource = false;
   const enqueue = (
     request: string,
     importer = path.join(root, 'index.html'),
@@ -559,6 +591,7 @@ function registerEntryImports(
     if (visited.get(file) || (visited.has(file) && !preloadRemotes)) continue;
     visited.set(file, preloadRemotes);
     const code = getScannableModuleSource(file, readFileSync(file, 'utf8'));
+    if (JSX_SOURCE_EXTENSIONS.some((extension) => file.endsWith(extension))) hasJsxSource = true;
     for (const { source: request, kind, typeOnly } of findModuleImportDescriptors(code)) {
       const isStatic = kind === 'static' && !typeOnly;
       const remoteKey =
@@ -579,6 +612,22 @@ function registerEntryImports(
       }
     }
   }
+  return hasJsxSource;
+}
+
+// The compiler injects this import after the textual entry scan. Materialize
+// the resolved runtime and its configured root even when optimizeDeps is warm.
+function materializeAutomaticJsxRuntime(
+  options: NormalizedModuleFederationOptions,
+  runtime: string
+): boolean {
+  if (!findSharedKey(runtime, options.shared)) return false;
+  addUsedShares(runtime, options);
+  const packageName = getPackageName(runtime);
+  if (packageName !== runtime && findSharedKey(packageName, options.shared)) {
+    addUsedShares(packageName, options);
+  }
+  return true;
 }
 
 /**
@@ -589,6 +638,7 @@ function registerEntryImports(
 function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOptions): Plugin {
   const { shared, remotes } = options;
   const isLitShare = (pkg: string) => pkg === 'lit' || pkg.startsWith('lit/');
+  let hasClientJsxSource = false;
   return {
     name: 'vite:module-federation-early-init',
     enforce: 'pre',
@@ -648,7 +698,13 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         // bootstrap. Keep share/optimize-deps discovery serve-only, but scan
         // the same client entry graph during build so the bootstrap can wait
         // for only the remotes imported synchronously by that graph.
-        registerEntryImports(options, root, _command === 'serve', resolvedConfiguredEntryFiles);
+        const hasJsxSource = registerEntryImports(
+          options,
+          root,
+          _command === 'serve',
+          resolvedConfiguredEntryFiles
+        );
+        if (_command === 'serve') hasClientJsxSource = hasJsxSource;
       }
 
       // Create shared module virtual files EARLY and register shares eagerly
@@ -892,6 +948,13 @@ export default __mfShared.default ?? __mfShared;`,
     },
 
     configResolved(config) {
+      if (hasClientJsxSource) {
+        const automaticJsxRuntime = getAutomaticJsxRuntime(config);
+        if (automaticJsxRuntime && materializeAutomaticJsxRuntime(options, automaticJsxRuntime)) {
+          writeLocalSharedImportMap(options);
+        }
+      }
+
       const viteMajor = parseInt(viteVersion, 10);
       const hasRemotes = Object.keys(options.remotes).length > 0;
       const ssrCapabilities = getSsrCapabilities(
