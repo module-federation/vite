@@ -854,15 +854,30 @@ function generateRuntimeSharedCacheSeedCode(
         ${toSafeJsLiteral(shareStrategy)}
       ));
     };
-    const __mfFirstRuntimeSeedBarrierIndex = __mfSeedKeys.findIndex(
-      __mfNeedsPreInitSeedBarrier
+    const __mfExpandBlockedSeedKeys = (blocked) => {
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const pkg of __mfSeedKeys) {
+          const seedIndex = __mfSeedIndex.get(pkg);
+          if (blocked.has(seedIndex)) continue;
+          if ((__mfSeedPrerequisites[seedIndex] || []).some((dependency) => blocked.has(dependency))) {
+            blocked.add(seedIndex);
+            changed = true;
+          }
+        }
+      }
+      return blocked;
+    };
+    const __mfPreInitBlockedSeedKeys = __mfExpandBlockedSeedKeys(new Set(
+      __mfSeedKeys.filter(__mfNeedsPreInitSeedBarrier).map((pkg) => __mfSeedIndex.get(pkg))
+    ));
+    const __mfImmediateSeedKeys = __mfSeedKeys.filter(
+      (pkg) => !__mfPreInitBlockedSeedKeys.has(__mfSeedIndex.get(pkg))
     );
-    const __mfImmediateSeedKeys = __mfFirstRuntimeSeedBarrierIndex === -1
-      ? __mfSeedKeys
-      : __mfSeedKeys.slice(0, __mfFirstRuntimeSeedBarrierIndex);
-    var __mfDeferredSeedKeys = __mfFirstRuntimeSeedBarrierIndex === -1
-      ? []
-      : __mfSeedKeys.slice(__mfFirstRuntimeSeedBarrierIndex);
+    var __mfDeferredSeedKeys = __mfSeedKeys.filter(
+      (pkg) => __mfPreInitBlockedSeedKeys.has(__mfSeedIndex.get(pkg))
+    );
     await __mfSeedLocalShared(__mfImmediateSeedKeys);`;
 }
 
@@ -2060,10 +2075,6 @@ export function generateRemoteEntry(
     for (const pkg of __mfDeferredSeedKeys) {
       const share = usedShared[pkg];
       const seedIndex = __mfSeedIndex.get(pkg);
-      if ((__mfSeedPrerequisites[seedIndex] || []).some((dependency) => __mfBlockedSeedKeys.has(dependency))) {
-        __mfBlockedSeedKeys.add(seedIndex);
-        continue;
-      }
       if (__mfIsRuntimeOnlySharePending(pkg)) {
         try {
           if (share.treeShaking) {
@@ -2082,10 +2093,12 @@ export function generateRemoteEntry(
       }
       if (__mfIsRuntimeOnlySharePending(pkg)) {
         __mfBlockedSeedKeys.add(seedIndex);
-        continue;
       }
-      __mfReadyDeferredSeedKeys.push(pkg);
     }
+    __mfExpandBlockedSeedKeys(__mfBlockedSeedKeys);
+    __mfReadyDeferredSeedKeys.push(...__mfDeferredSeedKeys.filter(
+      (pkg) => !__mfBlockedSeedKeys.has(__mfSeedIndex.get(pkg))
+    ));
     await __mfSeedLocalShared(__mfReadyDeferredSeedKeys);
     initResolve(initRes)
     return initRes
