@@ -794,6 +794,44 @@ describe('ssrEntryLoaderPlugin — manifest SSR entry resolution', () => {
     const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
     expect(heads.length).toBeGreaterThan(0);
   });
+
+  it('ignores a JSON array posted as a manifest instead of treating it as an object', async () => {
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': {
+        ok: true,
+        json: [{ metaData: { ssrRemoteEntry: { name: 'trap.ssr.js' } } }],
+      },
+      'http://localhost:5001/remoteEntry.ssr.js': { ok: false },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+    expectFetchNotCalled(fetch, 'http://localhost:5001/trap.ssr.js');
+    const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
+    expect(heads.length).toBeGreaterThan(0);
+  });
+
+  it('ignores ssrRemoteEntry.name when it is not a string', async () => {
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: { ssrRemoteEntry: { name: { nested: true }, path: '', type: 'module' } },
+        },
+      },
+      'http://localhost:5001/remoteEntry.ssr.js': { ok: false },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('[object Object]'))).toBe(false);
+    const heads = fetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
+    expect(heads.length).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1420,6 +1458,43 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
         },
       },
     ]);
+  });
+
+  it('does not throw when the runner endpoint returns a JSON primitive', async () => {
+    const sharedFetchResults: unknown[] = [];
+    const factory = await freshLoaderWithRunner((runnerOptions) => ({
+      import: vi.fn(async () => {
+        sharedFetchResults.push(
+          await runnerOptions.transport.invoke({
+            type: 'custom',
+            event: 'vite:invoke',
+            data: { name: 'fetchModule', data: ['react'] },
+          })
+        );
+        return { init: vi.fn(), get: vi.fn() };
+      }),
+    }));
+    const fetch = makeFetchMock({
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:4175/__mf_runner__': {
+        ok: true,
+        json: null,
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    expect(sharedFetchResults).toEqual([{ error: { message: 'Invalid runner response' } }]);
   });
 
   it('returns null when ModuleRunner import throws (no silent fallback)', async () => {

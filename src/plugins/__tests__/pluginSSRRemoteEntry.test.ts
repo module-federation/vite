@@ -519,6 +519,66 @@ describe('pluginSSRRemoteEntry', () => {
       expect(secondResponse.body).toBe(firstResponse.body);
       expect(generateRemoteEntrySSR).toHaveBeenCalledTimes(1);
     });
+
+    it('serves hashed-filename SSR exposes without a literal [hash] placeholder', () => {
+      const plugins = pluginSSRRemoteEntry(makeOptions({ filename: 'remoteEntry-[hash]' }));
+      const mainPlugin = plugins[1];
+      const handlers: { path: string }[] = [];
+
+      callHook(
+        mainPlugin.configResolved,
+        {} as Rollup.PluginContext,
+        { base: '/', root: '/mock/cwd' } as unknown as ResolvedConfig
+      );
+      callHook(
+        mainPlugin.configureServer,
+        {} as Rollup.PluginContext,
+        {
+          config: { root: '/mock/cwd' },
+          environments: {},
+          middlewares: {
+            use(
+              pathOrHandler: string | ((req: unknown, res: unknown) => unknown),
+              handler?: unknown
+            ) {
+              if (typeof pathOrHandler === 'string') {
+                handlers.push({ path: pathOrHandler });
+              }
+              void handler;
+            },
+          },
+        } as never
+      );
+
+      const exposesPath = handlers.find((entry) => entry.path.includes('exposes.js'))?.path;
+      expect(exposesPath).toBe('/__mf_ssr__/remoteEntry.exposes.js');
+      expect(exposesPath).not.toContain('[hash');
+    });
+
+    it('resolves hashed-filename SSR exposes without a literal [hash] placeholder', () => {
+      const plugins = pluginSSRRemoteEntry(makeOptions({ filename: 'remoteEntry-[hash]' }));
+      const mainPlugin = plugins[1];
+      const exposesId = 'virtual:mf-exposes-ssr:__mfe_internal__remote';
+
+      expect(
+        callHook(
+          mainPlugin.resolveId,
+          {} as Rollup.PluginContext,
+          '/__mf_ssr__/remoteEntry.exposes.js',
+          undefined,
+          { isEntry: false }
+        )
+      ).toBe(exposesId);
+      expect(
+        callHook(
+          mainPlugin.resolveId,
+          {} as Rollup.PluginContext,
+          '/__mf_ssr__/remoteEntry-[hash].exposes.js',
+          undefined,
+          { isEntry: false }
+        )
+      ).toBeUndefined();
+    });
   });
 
   describe('main plugin — configureServer runner endpoint', () => {

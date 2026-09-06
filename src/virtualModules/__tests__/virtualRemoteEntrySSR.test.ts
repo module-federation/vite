@@ -4,6 +4,7 @@ import { addUsedShares, getUsedShares } from '../virtualRemoteEntry';
 import {
   generateRemoteEntrySSR,
   getRemoteEntrySSRId,
+  getSsrExposesFileName,
   getSsrRemoteEntryFileName,
 } from '../virtualRemoteEntrySSR';
 import { MODULE_CACHE_SHARE_SCOPE_KEY } from '../virtualRuntimeInitStatus';
@@ -93,6 +94,23 @@ describe('virtualRemoteEntrySSR', () => {
     it('never leaves a literal [hash] in the SSR filename', () => {
       expect(getSsrRemoteEntryFileName('remoteEntry-[hash].js')).not.toContain('[hash');
       expect(getSsrRemoteEntryFileName('mf-[hash:8]')).not.toContain('[hash');
+    });
+  });
+
+  describe('getSsrExposesFileName', () => {
+    it('maps remoteEntry.js to remoteEntry.exposes.js', () => {
+      expect(getSsrExposesFileName('remoteEntry.js')).toBe('remoteEntry.exposes.js');
+    });
+
+    it('strips [hash] placeholders to a stable exposes companion', () => {
+      expect(getSsrExposesFileName('remoteEntry-[hash]')).toBe('remoteEntry.exposes.js');
+      expect(getSsrExposesFileName('remoteEntry-[hash].js')).toBe('remoteEntry.exposes.js');
+      expect(getSsrExposesFileName('remote-entry-[hash:8].js')).toBe('remote-entry.exposes.js');
+    });
+
+    it('never leaves a literal [hash] in the exposes filename', () => {
+      expect(getSsrExposesFileName('remoteEntry-[hash].js')).not.toContain('[hash');
+      expect(getSsrExposesFileName('mf-[hash:8]')).not.toContain('[hash');
     });
   });
 

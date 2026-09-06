@@ -11,6 +11,7 @@ import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/vi
 import {
   generateRemoteEntrySSR,
   getRemoteEntrySSRId,
+  getSsrExposesFileName,
   getSsrRemoteEntryFileName,
 } from '../virtualModules/virtualRemoteEntrySSR';
 
@@ -218,6 +219,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
   let cachedSsrRemoteEntrySource: string | undefined;
   const ssrOutputFilename = getSsrRemoteEntryFileName(options.filename);
+  const ssrExposesFileName = getSsrExposesFileName(options.filename);
   let ssrOutputFiles = new Set<string>();
   let ssrOutputDir = '';
   let clientOutputDir = '';
@@ -478,7 +480,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Serve the SSR remote entry at a predictable URL.
         const ssrPath = `${base}/${ssrEntryFileName}`;
         server.middlewares.use(ssrPath, (_req, res) => {
-          const exposesUrl = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
+          const exposesUrl = `${base}/${ssrExposesFileName}`;
           const code = getSsrRemoteEntrySource().replace(
             JSON.stringify(virtualExposesSSRId),
             JSON.stringify(exposesUrl)
@@ -488,7 +490,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           res.end(code);
         });
 
-        const exposesPath = `${base}/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
+        const exposesPath = `${base}/${ssrExposesFileName}`;
         server.middlewares.use(exposesPath, (_req, res) => {
           res.setHeader('Content-Type', 'application/javascript');
           res.setHeader('Access-Control-Allow-Origin', '*');
@@ -506,7 +508,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // imports this path and Vite resolves it here so load() can serve it.
         const ssrDevPath = `/__mf_ssr__/${getSsrRemoteEntryFileName(options.filename)}`;
         if (id === ssrDevPath) return remoteEntrySSRId;
-        const exposesDevPath = `/__mf_ssr__/${options.filename.replace(/\.[^.]+$/, '')}.exposes.js`;
+        const exposesDevPath = `/__mf_ssr__/${ssrExposesFileName}`;
         if (id === exposesDevPath) return virtualExposesSSRId;
       },
 

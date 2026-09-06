@@ -2673,12 +2673,18 @@ describe('vite:module-federation-early-init', () => {
 
     const vanillaImportId = getLoadShareModulePath('zustand/vanilla', false);
     const reactImportId = getLoadShareModulePath('zustand/react', false);
+    const middlewareImportId = getLoadShareModulePath('zustand/middleware', false);
+    const shallowImportId = getLoadShareModulePath('zustand/shallow', false);
     const optimizeDeps = [...config.optimizeDeps.include, ...config.optimizeDeps.exclude];
 
     expect(VirtualModule.findById(vanillaImportId)?.code).toBeTruthy();
     expect(VirtualModule.findById(reactImportId)?.code).toBeTruthy();
+    expect(VirtualModule.findById(middlewareImportId)?.code).toBeTruthy();
+    expect(VirtualModule.findById(shallowImportId)?.code).toBeTruthy();
     expect(optimizeDeps).toContain('zustand/vanilla');
     expect(optimizeDeps).toContain('zustand/react');
+    expect(optimizeDeps).toContain('zustand/middleware');
+    expect(optimizeDeps).toContain('zustand/shallow');
   });
 
   it('includes shared react in dev optimizeDeps when react-redux is installed', () => {

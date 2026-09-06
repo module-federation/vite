@@ -275,4 +275,30 @@ describe('virtualRuntimeInitStatus', () => {
     expect(code).toContain('"name":"remote"');
     expect(code).toContain('"entry":"http://localhost:4174/remoteEntry.js"');
   });
+
+  it('maps configured remotes through the scoped runtime alias', async () => {
+    const { getRuntimeRemoteAlias, getSsrRuntimeRemotes } =
+      await import('../virtualRuntimeInitStatus');
+    const { normalizeModuleFederationOptions } =
+      await import('../../utils/normalizeModuleFederationOptions');
+
+    const options = normalizeModuleFederationOptions({
+      name: 'ssr-host',
+      remotes: {
+        remote: {
+          type: 'module',
+          name: 'remote',
+          entry: 'http://localhost:4174/remoteEntry.js',
+        },
+      },
+    });
+
+    expect(getSsrRuntimeRemotes(options.remotes, options)).toEqual([
+      {
+        name: getRuntimeRemoteAlias('remote', options),
+        entry: 'http://localhost:4174/remoteEntry.js',
+        type: 'module',
+      },
+    ]);
+  });
 });

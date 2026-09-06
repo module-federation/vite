@@ -175,9 +175,7 @@ async function getOrCreateRunner(
                 fetchTimeoutMs
               );
               const text = await readResponseTextBounded(res, fetchMaxBytes, runnerEndpoint);
-              const result = JSON.parse(text) as
-                | { result: unknown }
-                | { error: { message: string } };
+              const result = parseRunnerInvokeResult(JSON.parse(text));
               // Let the remote transform configured shares and resolve local-only
               // dependencies first. This preserves remote-owned React islands.
               if ('error' in result && payload.data.name === 'fetchModule') {
@@ -227,6 +225,47 @@ interface ManifestMetaData {
 
 interface Manifest {
   metaData?: ManifestMetaData;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseManifestEntry(
+  value: unknown
+): { name: string; path: string; type: string } | undefined {
+  if (!isPlainObject(value) || typeof value.name !== 'string' || value.name.length === 0) {
+    return undefined;
+  }
+  return {
+    name: value.name,
+    path: typeof value.path === 'string' ? value.path : '',
+    type: typeof value.type === 'string' ? value.type : 'module',
+  };
+}
+
+/** Network JSON is untyped until parsed. Keep the original object for version hashing. */
+function parseManifest(data: unknown): Manifest | null {
+  if (!isPlainObject(data)) return null;
+  return data as Manifest;
+}
+
+function parseRunnerInvokeResult(
+  data: unknown
+): { result: unknown } | { error: { message: string } } {
+  if (!isPlainObject(data)) {
+    return { error: { message: 'Invalid runner response' } };
+  }
+  if ('error' in data) {
+    const error = data.error;
+    const message =
+      isPlainObject(error) && typeof error.message === 'string'
+        ? error.message
+        : 'Unknown runner error';
+    return { error: { message } };
+  }
+  if ('result' in data) return { result: data.result };
+  return { result: data };
 }
 
 /**
@@ -317,7 +356,7 @@ async function fetchManifest(
     const res = await fetchWithTimeout(manifestUrl, {}, fetchTimeoutMs);
     if (!res.ok) return null;
     const text = await readResponseTextBounded(res, fetchMaxBytes, manifestUrl);
-    return JSON.parse(text) as Manifest;
+    return parseManifest(JSON.parse(text));
   } catch (error) {
     // Size-limit failures must fail closed; other discovery errors stay soft.
     if (isSsrFetchBodyTooLargeError(error)) throw error;
@@ -385,15 +424,15 @@ function resolveEntryAssetUrl(entry: { name: string; path?: string }, manifestUr
 }
 
 function resolveSSREntryUrl(manifest: Manifest, manifestUrl: string): SsrEntryCandidate | null {
-  const meta = manifest?.metaData;
-  if (!meta?.ssrRemoteEntry?.name) return null;
+  const entry = parseManifestEntry(manifest.metaData?.ssrRemoteEntry);
+  if (!entry) return null;
 
   const base = manifestUrl.replace(/\/[^/]+$/, '/');
-  const entryPath = (meta.ssrRemoteEntry.path || '') + meta.ssrRemoteEntry.name;
+  const entryPath = entry.path + entry.name;
   const url = new URL(entryPath, base).href;
   return {
     url,
-    type: meta.ssrRemoteEntry.type || 'module',
+    type: entry.type,
     versionKey: computeManifestVersionKey(manifest),
   };
 }
@@ -424,8 +463,8 @@ function resolveAssetBaseUrl(
   manifest: Manifest | null,
   manifestUrl: string
 ): string {
-  const remoteEntry = manifest?.metaData?.remoteEntry;
-  if (remoteEntry?.name) return resolveEntryAssetUrl(remoteEntry, manifestUrl);
+  const remoteEntry = parseManifestEntry(manifest?.metaData?.remoteEntry);
+  if (remoteEntry) return resolveEntryAssetUrl(remoteEntry, manifestUrl);
   if (!isManifestEntry(entryUrl)) return entryUrl;
   return new URL('remoteEntry.js', manifestUrl.replace(/\/[^/]+$/, '/')).href;
 }

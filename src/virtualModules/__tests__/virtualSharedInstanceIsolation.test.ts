@@ -16,7 +16,13 @@ import {
   writePreBuildLibPath,
 } from '../virtualShared_preBuild';
 import { generateRemoteEntry } from '../virtualRemoteEntry';
-import { getRuntimeInitStatusImportId, writeRuntimeInitStatus } from '../virtualRuntimeInitStatus';
+import { generateRemotes } from '../virtualRemotes';
+import { initVirtualModules } from '../index';
+import {
+  getRuntimeInitStatusImportId,
+  getRuntimeRemoteAlias,
+  writeRuntimeInitStatus,
+} from '../virtualRuntimeInitStatus';
 import { recordTreeShakingExports, setTreeShakingBuildMode } from '../../utils/treeShaking';
 import { getFederationScopeKey } from '../virtualModuleScope';
 
@@ -169,6 +175,32 @@ describe('shared virtual module instance isolation', () => {
     expect(codeB).not.toContain(`import(${JSON.stringify(runtimeInitB)})`);
     expect(codeB).toContain('https://b.invalid/ssr.js');
     expect(codeB).not.toContain('https://a.invalid/ssr.js');
+  });
+
+  it('registers SSR remotes under the same scoped names generateRemotes loadRemote uses', () => {
+    const options = normalizeModuleFederationOptions({
+      name: 'ssr-host',
+      remotes: {
+        remote: {
+          type: 'module',
+          name: 'remote',
+          entry: 'http://localhost:4174/remoteEntry.js',
+          entryGlobalName: 'remote',
+          shareScope: 'default',
+        },
+      },
+    });
+
+    initVirtualModules('serve', undefined, true, options);
+    const initCode = VirtualModule.findById(getRuntimeInitStatusImportId(options))?.code ?? '';
+    const remoteCode = generateRemotes('remote/App', 'serve', true, 'server', options);
+    const aliased = getRuntimeRemoteAlias('remote', options);
+
+    expect(remoteCode).toContain(`runtime.loadRemote(${JSON.stringify(`${aliased}/App`)})`);
+    expect(remoteCode).toContain(`"name":${JSON.stringify(aliased)}`);
+    expect(initCode).toContain(`"name":${JSON.stringify(aliased)}`);
+    expect(initCode).not.toMatch(/"name":"remote"/);
+    expect(remoteCode).not.toMatch(/"name":"remote"/);
   });
 
   it('does not combine tree-shaking providers across federation instances', () => {

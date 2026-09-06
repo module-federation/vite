@@ -268,6 +268,48 @@ describe('pluginDevRemoteHmr', () => {
     expect(server.watcher.off).toHaveBeenCalledTimes(3);
   });
 
+  it.each([
+    ['::', 'ws://localhost:4173/?token=dev-token'],
+    ['::1', 'ws://[::1]:4173/?token=dev-token'],
+  ] as const)('advertises a valid HMR WebSocket URL when server.host is %s', (host, wsUrl) => {
+    const { server, middlewares } = createServer({
+      config: {
+        server: {
+          host,
+          port: 4173,
+        },
+      },
+    });
+
+    const plugin = pluginDevRemoteHmr(
+      normalizeModuleFederationOptions({
+        name: 'remote-app',
+        dev: { remoteHmr: true },
+        exposes: { './Button': { import: './src/Button.tsx' } },
+        remotes: {},
+        virtualModuleDir: '__mf__virtual',
+      })
+    );
+
+    runConfigureServer(plugin, server);
+
+    const res = {
+      setHeader: vi.fn(),
+      end: vi.fn(),
+    };
+    middlewares[0](
+      { url: '/__mf_hmr' } as IncomingMessage,
+      res as unknown as ServerResponse<IncomingMessage>,
+      vi.fn()
+    );
+
+    expect(JSON.parse(res.end.mock.calls[0][0])).toEqual({
+      remote: 'remote-app',
+      event: 'mf:remote-update',
+      wsUrl,
+    });
+  });
+
   describe('react-refresh proxy middleware', () => {
     function makeRemotePlugin(opts: {
       exposes?: Record<string, string | { import: string }>;

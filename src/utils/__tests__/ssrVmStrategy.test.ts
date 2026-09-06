@@ -12,6 +12,9 @@
  * vi.resetModules() + dynamic import for a fresh instance.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { findSharedKey } from '../../plugins/pluginProxySharedModule_preBuild';
+import { findVmSharedKey } from '../ssrVmStrategy';
+import type { NormalizedShared } from '../normalizeModuleFederationOptions';
 
 const hasVmModules = await (async () => {
   const vm = (await import('vm')) as { SourceTextModule?: unknown };
@@ -71,6 +74,64 @@ describe('ssrVmStrategy — availability', () => {
       ...baseOptions,
     });
     expect(result).toBeNull();
+  });
+});
+
+function makeRuntimeShare(scope: string | string[] = 'default', shareConfig?: { import?: false }) {
+  return shareConfig ? { scope, shareConfig } : { scope };
+}
+
+describe('ssrVmStrategy — findVmSharedKey (browser matcher twin)', () => {
+  it('does not auto-map COMMON_SHARED_SUBPATHS when the parent uses import:false', () => {
+    // Twin of pluginProxySharedModule_preBuild findSharedKey's import:false case.
+    // Browser skips jsx-runtime after #1148; SSR findVmSharedKey must match.
+    const shared: NormalizedShared = {
+      react: {
+        name: 'react',
+        from: '',
+        version: '19.2.4',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          import: false,
+          requiredVersion: '^19.2.4',
+          strictVersion: false,
+        },
+      },
+    };
+
+    expect(findSharedKey('react', shared)).toBe('react');
+    expect(findSharedKey('react/jsx-runtime', shared)).toBeUndefined();
+    expect(findVmSharedKey('react', shared)).toBe('react');
+    expect(findVmSharedKey('react/jsx-runtime', shared)).toBeUndefined();
+
+    const withExplicit = {
+      ...shared,
+      'react/jsx-runtime': { ...shared.react, name: 'react/jsx-runtime' },
+    };
+    expect(findSharedKey('react/jsx-runtime', withExplicit)).toBe('react/jsx-runtime');
+    expect(findVmSharedKey('react/jsx-runtime', withExplicit)).toBe('react/jsx-runtime');
+  });
+
+  it('still auto-maps common subpaths when the parent is a local provider', () => {
+    const shared = { react: makeRuntimeShare('default') };
+    expect(findVmSharedKey('react/jsx-runtime', shared)).toBe('react');
+  });
+
+  it('prefers the longest trailing-slash wildcard prefix', () => {
+    const shorterFirst = {
+      '@scope/ui/': makeRuntimeShare('default'),
+      '@scope/ui/forms/': makeRuntimeShare('default'),
+    };
+    expect(findVmSharedKey('@scope/ui/forms/Button', shorterFirst)).toBe('@scope/ui/forms/');
+    expect(findVmSharedKey('@scope/ui/button', shorterFirst)).toBe('@scope/ui/');
+
+    const longerFirst = {
+      '@scope/ui/forms/': makeRuntimeShare('default'),
+      '@scope/ui/': makeRuntimeShare('default'),
+    };
+    expect(findVmSharedKey('@scope/ui/forms/Button', longerFirst)).toBe('@scope/ui/forms/');
+    expect(findVmSharedKey('@scope/ui/button', longerFirst)).toBe('@scope/ui/');
   });
 });
 
@@ -220,6 +281,75 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
 
     expect(namespace.value).toBe('negotiated');
     expect(loadShare).toHaveBeenCalledWith('@scope/ui/button');
+  });
+
+  it('does not negotiate common shared subpaths when the parent uses import:false', async () => {
+    const fallbackFile = await createFallbackSharedModule('mf-vm-import-false-subpath-');
+
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'import { value } from "react/jsx-runtime"; export { value };',
+      },
+    }) as unknown as typeof globalThis.fetch;
+
+    const loadShare = vi.fn(async () => () => ({ value: 'negotiated' }));
+    (globalThis as Record<string, unknown>).__FEDERATION__ = {
+      __INSTANCES__: [
+        {
+          options: {
+            shared: { react: { scope: 'default', shareConfig: { import: false } } },
+          },
+          loadShare,
+        },
+      ],
+    };
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions, resolvedShared: { 'react/jsx-runtime': fallbackFile } }
+    )) as { value: string };
+
+    expect(namespace.value).toBe('fallback');
+    expect(loadShare).not.toHaveBeenCalled();
+  });
+
+  it('prefers the longest trailing-slash wildcard when scopes differ', async () => {
+    const fallbackFile = await createFallbackSharedModule('mf-vm-wildcard-longest-');
+
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'import { value } from "@scope/ui/forms/Button"; export { value };',
+      },
+    }) as unknown as typeof globalThis.fetch;
+
+    const loadShare = vi.fn(async () => () => ({ value: 'forms-wildcard' }));
+    (globalThis as Record<string, unknown>).__FEDERATION__ = {
+      __INSTANCES__: [
+        {
+          options: {
+            // Shorter prefix first: first-key-wins would select `@scope/ui/`
+            // (scope "other") and skip this instance instead of matching forms/.
+            shared: {
+              '@scope/ui/': { scope: 'other' },
+              '@scope/ui/forms/': { scope: 'default' },
+            },
+          },
+          loadShare,
+        },
+      ],
+    };
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions, resolvedShared: { '@scope/ui/forms/Button': fallbackFile } }
+    )) as { value: string };
+
+    expect(namespace.value).toBe('forms-wildcard');
+    expect(loadShare).toHaveBeenCalledWith('@scope/ui/forms/Button');
   });
 
   it('does not treat arbitrary package subpaths as parent shared modules', async () => {

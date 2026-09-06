@@ -1,4 +1,5 @@
 import type { ViteDevServer } from 'vite';
+import { formatDevServerHostForOrigin } from '../../utils/devServerHost';
 import { mfWarn } from '../../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 import { shouldIgnoreFile } from '../pluginDevRemoteHmr';
@@ -45,12 +46,9 @@ function getRemoteHmrWsUrl(server: ViteDevServer) {
       : server.config.server.https
         ? 'wss'
         : 'ws';
-  const hostname =
-    hmr && typeof hmr === 'object' && hmr.host
-      ? hmr.host
-      : typeof server.config.server.host === 'string' && server.config.server.host !== '0.0.0.0'
-        ? server.config.server.host
-        : 'localhost';
+  const hostname = formatDevServerHostForOrigin(
+    hmr && typeof hmr === 'object' && hmr.host ? hmr.host : server.config.server.host
+  );
   const port =
     hmr && typeof hmr === 'object' && (hmr.clientPort || hmr.port)
       ? hmr.clientPort || hmr.port
@@ -61,12 +59,7 @@ function getRemoteHmrWsUrl(server: ViteDevServer) {
 
 function getLocalFallbackOrigin(server: ViteDevServer) {
   const protocol = server.config.server.https ? 'https' : 'http';
-  const host =
-    typeof server.config.server.host === 'string' &&
-    server.config.server.host !== '0.0.0.0' &&
-    server.config.server.host !== '::'
-      ? server.config.server.host
-      : 'localhost';
+  const host = formatDevServerHostForOrigin(server.config.server.host);
   const port = server.config.server.port || 5173;
   return `${protocol}://${host}:${port}`;
 }

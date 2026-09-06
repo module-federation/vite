@@ -45,6 +45,17 @@ export function getRuntimeRemoteAlias(alias: string, options?: NormalizedModuleF
   return `${getFederationScopeKey(options)}__${alias}`;
 }
 
+export function getSsrRuntimeRemotes(
+  remotes: NormalizedModuleFederationOptions['remotes'],
+  options?: NormalizedModuleFederationOptions
+) {
+  return Object.entries(remotes).map(([name, item]) => ({
+    name: getRuntimeRemoteAlias(name, options),
+    entry: item.entry,
+    type: item.type ?? 'module',
+  }));
+}
+
 export function getRuntimeInitGlobalKey(ownerImportId?: string) {
   return `__mf_init__${ownerImportId ?? virtualRuntimeInitStatus.getImportId()}__`;
 }

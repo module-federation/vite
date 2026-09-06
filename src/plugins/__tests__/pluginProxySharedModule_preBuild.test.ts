@@ -353,6 +353,35 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(findSharedKey('react-dom/client', shared)).toBe('react-dom');
     });
 
+    it('prefers the longest trailing-slash wildcard prefix', () => {
+      const wildcardShare = (name: string): NormalizedShared[string] => ({
+        name,
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: false,
+          requiredVersion: '^1.0.0',
+          strictVersion: false,
+        },
+      });
+
+      // Shorter prefix inserted first so first-key-wins would pick `@scope/ui/`.
+      const shorterFirst: NormalizedShared = {
+        '@scope/ui/': wildcardShare('@scope/ui/'),
+        '@scope/ui/forms/': wildcardShare('@scope/ui/forms/'),
+      };
+      expect(findSharedKey('@scope/ui/forms/Button', shorterFirst)).toBe('@scope/ui/forms/');
+      expect(findSharedKey('@scope/ui/button', shorterFirst)).toBe('@scope/ui/');
+
+      const longerFirst: NormalizedShared = {
+        '@scope/ui/forms/': wildcardShare('@scope/ui/forms/'),
+        '@scope/ui/': wildcardShare('@scope/ui/'),
+      };
+      expect(findSharedKey('@scope/ui/forms/Button', longerFirst)).toBe('@scope/ui/forms/');
+      expect(findSharedKey('@scope/ui/button', longerFirst)).toBe('@scope/ui/');
+    });
+
     it('caches per source without changing misses', () => {
       const shared = makeShared();
 
@@ -431,6 +460,77 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(findSharedKey('react-dom/profiling', shared)).toBe('react-dom');
       expect(findSharedKey('react-dom/server', shared)).toBeUndefined();
       expect(findSharedKey('react-dom/server.browser', shared)).toBeUndefined();
+    });
+
+    it('auto-maps solid-js jsx runtimes and zustand middleware/shallow for a local provider', () => {
+      const shared: NormalizedShared = {
+        'solid-js': {
+          name: 'solid-js',
+          from: '',
+          version: '1.9.0',
+          scope: 'default',
+          shareConfig: {
+            singleton: true,
+            requiredVersion: '^1.9.0',
+            strictVersion: false,
+          },
+        },
+        zustand: {
+          name: 'zustand',
+          from: '',
+          version: '5.0.0',
+          scope: 'default',
+          shareConfig: {
+            singleton: true,
+            requiredVersion: '^5.0.0',
+            strictVersion: false,
+          },
+        },
+      };
+
+      expect(findSharedKey('solid-js/jsx-runtime', shared)).toBe('solid-js');
+      expect(findSharedKey('solid-js/jsx-dev-runtime', shared)).toBe('solid-js');
+      expect(findSharedKey('solid-js/web', shared)).toBe('solid-js');
+      expect(findSharedKey('zustand/middleware', shared)).toBe('zustand');
+      expect(findSharedKey('zustand/shallow', shared)).toBe('zustand');
+      expect(findSharedKey('zustand/vanilla', shared)).toBe('zustand');
+      expect(findSharedKey('zustand/context', shared)).toBeUndefined();
+    });
+
+    it('does not auto-map solid-js or zustand common subpaths when the package uses import:false', () => {
+      const shared: NormalizedShared = {
+        'solid-js': {
+          name: 'solid-js',
+          from: '',
+          version: '1.9.0',
+          scope: 'default',
+          shareConfig: {
+            singleton: true,
+            import: false,
+            requiredVersion: '^1.9.0',
+            strictVersion: false,
+          },
+        },
+        zustand: {
+          name: 'zustand',
+          from: '',
+          version: '5.0.0',
+          scope: 'default',
+          shareConfig: {
+            singleton: true,
+            import: false,
+            requiredVersion: '^5.0.0',
+            strictVersion: false,
+          },
+        },
+      };
+
+      expect(findSharedKey('solid-js', shared)).toBe('solid-js');
+      expect(findSharedKey('solid-js/jsx-runtime', shared)).toBeUndefined();
+      expect(findSharedKey('solid-js/jsx-dev-runtime', shared)).toBeUndefined();
+      expect(findSharedKey('zustand', shared)).toBe('zustand');
+      expect(findSharedKey('zustand/middleware', shared)).toBeUndefined();
+      expect(findSharedKey('zustand/shallow', shared)).toBeUndefined();
     });
 
     it('keeps explicit react-dom server shares available', () => {

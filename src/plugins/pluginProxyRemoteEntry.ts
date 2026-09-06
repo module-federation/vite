@@ -14,6 +14,7 @@ import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap'
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
+import { formatDevServerHostForOrigin } from '../utils/devServerHost';
 import { ensureTrailingSlash, filterId, resolvePublicPath } from '../utils/pathNormalization';
 import {
   generateExposes,
@@ -244,10 +245,7 @@ export default function ({
         }
         if (isHostAutoInitId(id)) {
           if (_command === 'serve') {
-            const host =
-              typeof viteConfig.server?.host === 'string' && viteConfig.server.host !== '0.0.0.0'
-                ? viteConfig.server.host
-                : 'localhost';
+            const host = formatDevServerHostForOrigin(viteConfig.server?.host);
             const resolvedPublicPath = resolvePublicPath(
               options,
               viteConfig.base,

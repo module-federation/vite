@@ -183,6 +183,33 @@ describe('pluginCheckAliasConflicts', () => {
     );
   });
 
+  it('does not skip later shared keys when a global alias regex advances lastIndex', () => {
+    const plugin = checkAliasConflicts({
+      shared: {
+        react: createSharedItem('react', '18.0.0'),
+        'react-dom': createSharedItem('react-dom', '18.0.0'),
+      },
+    });
+
+    runConfigResolved(plugin, {
+      resolve: {
+        alias: [
+          {
+            find: /react/g,
+            replacement: '/path/to/project/vendor/react',
+          },
+        ],
+      },
+    });
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Shared module "react" is aliased')
+    );
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Shared module "react-dom" is aliased')
+    );
+  });
+
   it('should not warn for trailing slash shared modules pointing at same node_modules package', () => {
     const plugin = checkAliasConflicts({
       shared: {

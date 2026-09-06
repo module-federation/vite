@@ -744,6 +744,37 @@ describe('normalizeModuleFederationOption', () => {
       expect(shared['@scope/ui/']).toBeDefined();
     });
 
+    it('collapses solid-js/ and zustand/ to the package root', () => {
+      const shared = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          'solid-js/': {
+            singleton: true,
+          },
+          'zustand/': {
+            singleton: true,
+            import: false,
+          },
+        },
+      }).shared;
+
+      expect(shared['solid-js']).toMatchObject({
+        name: 'solid-js',
+        shareConfig: {
+          singleton: true,
+        },
+      });
+      expect(shared['solid-js/']).toBeUndefined();
+      expect(shared.zustand).toMatchObject({
+        name: 'zustand',
+        shareConfig: {
+          import: false,
+          singleton: true,
+        },
+      });
+      expect(shared['zustand/']).toBeUndefined();
+    });
+
     it('preserves consumer-only react/ with import: false as a namespace prefix', () => {
       const shared = normalizeModuleFederationOptions({
         ...minimalOptions,

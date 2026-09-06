@@ -1,6 +1,8 @@
 /**
- * Dynamic shared modules, such as "react/" and "react-dom/", can only be parsed during the build process;
- * This plugin allows me to wait until all modules are built, and then expose them together.
+ * Dynamic shared modules, such as the "react/" namespace prefix, can only be
+ * parsed during the build process. Trailing-slash `react-dom/` keys collapse to
+ * the package root after #1158, so they are not a dynamic prefix.
+ * This plugin waits until all modules are built, then exposes them together.
  */
 import type { Plugin } from 'vite';
 import { mfWarn } from '../utils/logger';

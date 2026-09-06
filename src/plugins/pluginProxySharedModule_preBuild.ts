@@ -13,12 +13,16 @@ import {
 } from '../utils/normalizeModuleFederationOptions';
 import {
   getCommonSharedSubpathFromNodeModulePath,
-  getCommonSharedSubpaths,
   getMatchingNodeModuleSubpath,
   isNodeModulePath,
   isAssetLikeImport,
   normalizeNodeModulePath,
 } from '../utils/pathNormalization';
+import {
+  findSharedKey,
+  invalidateSharedKeyMatcher,
+  matchesSharedSource,
+} from '../utils/sharedKeyMatcher';
 import {
   getIsRolldown,
   getInstalledPackageJson,
@@ -66,6 +70,8 @@ import {
   stripTreeShakingGraphQuery,
 } from '../virtualModules';
 
+export { findSharedKey, matchesSharedSource };
+
 function getPrebuildResolutionSource(pkgName: string, shareItem?: ShareItem): string {
   return getConcreteSharedImportSource(pkgName, shareItem) || pkgName;
 }
@@ -89,101 +95,6 @@ function isBuildConfigImporter(importer: string | undefined): boolean {
   return /(^|\/)(?:nuxt|vite|vitest|webpack|rollup|rspack)\.config\.[cm]?[jt]sx?$/.test(
     importer.replace(/\\/g, '/')
   );
-}
-
-export function matchesSharedSource(source: string, key: string): boolean {
-  const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
-  if (
-    keyBase === 'vue' &&
-    (source === 'vue/dist/vue.esm-bundler.js' || source === 'vue/dist/vue.runtime.esm-bundler.js')
-  ) {
-    return true;
-  }
-  if (key.endsWith('/')) return source === keyBase || source.startsWith(`${keyBase}/`);
-  if (getCommonSharedSubpaths(keyBase).includes(source)) return true;
-  return source === keyBase;
-}
-
-export function findSharedKey(
-  source: string,
-  shared: NormalizedShared | undefined
-): string | undefined {
-  return getSharedKeyMatcher(shared).find(source);
-}
-
-type SharedKeyMatcher = {
-  find(source: string): string | undefined;
-};
-
-const emptySharedKeyMatcher: SharedKeyMatcher = {
-  find: () => undefined,
-};
-
-const sharedKeyMatcherCache = new WeakMap<NormalizedShared, SharedKeyMatcher>();
-
-function getSharedKeyMatcher(shared: NormalizedShared | undefined): SharedKeyMatcher {
-  if (!shared) return emptySharedKeyMatcher;
-
-  const cached = sharedKeyMatcherCache.get(shared);
-  if (cached) return cached;
-
-  // Shared matching is on a hot resolve path. Precompute exact/subpath indexes
-  // once per normalized shared object, then cache repeated source lookups.
-  const keys = Object.keys(shared);
-  const exactKeys = new Set(keys);
-  const commonSubpathKeys = new Map<string, string>();
-  const wildcardKeys: Array<{ key: string; base: string }> = [];
-  let vueKey: string | undefined;
-
-  for (const key of keys) {
-    const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
-    const shareItem = shared[key];
-
-    if (!vueKey && keyBase === 'vue') vueKey = key;
-    if (key.endsWith('/')) wildcardKeys.push({ key, base: keyBase });
-
-    // `import: false` applies to the configured key only. Treating common
-    // subpaths as implicit shares creates unfulfillable runtime-only entries
-    // for hosts which provide the bare package but not every package export.
-    if (shareItem.shareConfig?.import !== false) {
-      for (const subpath of getCommonSharedSubpaths(keyBase)) {
-        if (!commonSubpathKeys.has(subpath)) commonSubpathKeys.set(subpath, key);
-      }
-    }
-  }
-
-  const sourceCache = new Map<string, string | undefined>();
-  const matcher: SharedKeyMatcher = {
-    find(source) {
-      if (sourceCache.has(source)) return sourceCache.get(source);
-
-      let result = exactKeys.has(source) ? source : undefined;
-
-      if (!result && vueKey) {
-        if (
-          source === 'vue/dist/vue.esm-bundler.js' ||
-          source === 'vue/dist/vue.runtime.esm-bundler.js'
-        ) {
-          result = vueKey;
-        }
-      }
-
-      if (!result) result = commonSubpathKeys.get(source);
-
-      if (!result) {
-        const wildcardKey = wildcardKeys.find(
-          ({ base }) => source === base || source.startsWith(`${base}/`)
-        );
-        result = wildcardKey?.key;
-      }
-
-      sourceCache.set(source, result);
-      return result;
-    },
-  };
-
-  sharedKeyMatcherCache.set(shared, matcher);
-  return matcher;
 }
 
 function findSharedKeyForSource(
@@ -257,7 +168,7 @@ export function excludeSharedSubDependencies(shared: NormalizedShared): void {
         sharedKeyByBase.delete(dep);
         // A matcher cached before this deletion would keep resolving the
         // removed key and hand callers an undefined shareItem.
-        sharedKeyMatcherCache.delete(shared);
+        invalidateSharedKeyMatcher(shared);
       }
     }
   }
@@ -408,8 +319,6 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
 
 export function proxySharedModule(options: {
   shared?: NormalizedShared;
-  include?: string | string[];
-  exclude?: string | string[];
   federationOptions?: NormalizedModuleFederationOptions;
   getParsePromise?: () => Promise<unknown>;
 }): Plugin[] {

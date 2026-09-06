@@ -15,20 +15,30 @@ export function getRemoteEntrySSRId(
   return `${REMOTE_ENTRY_SSR_ID}:${getVirtualModuleScopeKey(options)}`;
 }
 
-export function getSsrRemoteEntryFileName(browserFilename: string): string {
-  // Strip literal `[hash]` / `[hash:N]` placeholders so the SSR companion stays
-  // stable (`remoteEntry-[hash].js` → `remoteEntry.ssr.js`). Do not try to mirror
+function stripSsrFilenameHashPlaceholder(filename: string): string {
+  // Strip literal `[hash]` / `[hash:N]` placeholders so SSR companions stay
+  // stable (`remoteEntry-[hash].js` → `remoteEntry.js`). Do not try to mirror
   // the browser content hash in the SSR filename.
-  let filename = browserFilename;
-  if (filename.includes('[hash')) {
-    filename = filename.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
-    if (!/\.[^.]+$/.test(filename)) {
-      filename = `${filename}.js`;
-    }
+  if (!filename.includes('[hash')) return filename;
+  filename = filename.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
+  if (!/\.[^.]+$/.test(filename)) {
+    filename = `${filename}.js`;
   }
+  return filename;
+}
+
+export function getSsrRemoteEntryFileName(browserFilename: string): string {
+  const filename = stripSsrFilenameHashPlaceholder(browserFilename);
   const ext = filename.match(/\.[^.]+$/)?.[0] || '.js';
   const base = filename.slice(0, filename.length - ext.length);
   return `${base}.ssr${ext}`;
+}
+
+export function getSsrExposesFileName(browserFilename: string): string {
+  const filename = stripSsrFilenameHashPlaceholder(browserFilename);
+  const ext = filename.match(/\.[^.]+$/)?.[0];
+  const base = ext ? filename.slice(0, filename.length - ext.length) : filename;
+  return `${base}.exposes.js`;
 }
 
 /** Singleton map for SSR loadShare: expand `pkg/` via usedShares; never serialize the prefix. */

@@ -354,6 +354,22 @@ describe('injectEntryScript', () => {
       `<head><script type="module" src="/__mf__virtual/hostAutoInit.js"></script>`
     );
   });
+
+  it.each(['<head lang="en">', '<HEAD>', '<head data-capo>'])(
+    'injects into a non-exact head tag (%s)',
+    (headTag) => {
+      const html = `<html>${headTag}</head><body></body></html>`;
+      const result = injectEntryScript(html, INIT_SRC);
+      expect(result).toContain(
+        `${headTag}<script type="module" src="/__mf__virtual/hostAutoInit.js"></script>`
+      );
+    }
+  );
+
+  it('does not treat a header element as a head tag', () => {
+    const html = '<html><header></header><body></body></html>';
+    expect(injectEntryScript(html, INIT_SRC)).toBe(html);
+  });
 });
 
 describe('sanitizeDevEntryPath', () => {

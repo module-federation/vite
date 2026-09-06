@@ -25,7 +25,7 @@ import {
   fetchWithTimeout,
   readResponseTextBounded,
 } from './fetchWithTimeout';
-import { getCommonSharedSubpaths } from './pathNormalization';
+import { findSharedKey, type SharedKeyLookup } from './sharedKeyMatcher';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
@@ -96,42 +96,19 @@ export async function isVmStrategyAvailable(): Promise<boolean> {
 
 interface FederationInstanceLike {
   options?: {
-    shared?: Record<string, { scope?: string | string[] } | undefined>;
+    shared?: Record<
+      string,
+      { scope?: string | string[]; shareConfig?: { import?: unknown } } | undefined
+    >;
   };
   loadShare?: (name: string) => Promise<false | (() => unknown | undefined) | undefined>;
 }
 
-function findVmSharedKey(
+export function findVmSharedKey(
   specifier: string,
-  shared: Record<string, { scope?: string | string[] } | undefined> | undefined
+  shared: SharedKeyLookup | undefined
 ): string | undefined {
-  if (!shared) return;
-
-  const keys = Object.keys(shared);
-  if (Object.prototype.hasOwnProperty.call(shared, specifier)) return specifier;
-
-  const vueKey = keys.find((key) =>
-    key.endsWith('/') ? key.slice(0, -1) === 'vue' : key === 'vue'
-  );
-  if (
-    vueKey &&
-    (specifier === 'vue/dist/vue.esm-bundler.js' ||
-      specifier === 'vue/dist/vue.runtime.esm-bundler.js')
-  ) {
-    return vueKey;
-  }
-
-  const commonSubpathKey = keys.find((key) => {
-    const keyBase = key.endsWith('/') ? key.slice(0, -1) : key;
-    return getCommonSharedSubpaths(keyBase).includes(specifier);
-  });
-  if (commonSubpathKey) return commonSubpathKey;
-
-  return keys.find((key) => {
-    if (!key.endsWith('/')) return false;
-    const keyBase = key.slice(0, -1);
-    return specifier === keyBase || specifier.startsWith(`${keyBase}/`);
-  });
+  return findSharedKey(specifier, shared);
 }
 
 function getFederationInstances(): FederationInstanceLike[] {

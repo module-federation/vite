@@ -185,5 +185,9 @@ export function rewriteEntryScripts(
 
 export function injectEntryScript(html: string, initSrc: string): string {
   const src = sanitizeDevEntryPath(initSrc);
-  return html.replace('<head>', `<head><script type="module" src=${JSON.stringify(src)}></script>`);
+  const script = `<script type="module" src=${JSON.stringify(src)}></script>`;
+  // Match the first `<head>` even when it has attributes or differs in case.
+  // `\b` keeps `<header>` from being treated as a head tag. The original tag
+  // is preserved so exact `<head>` still becomes `<head><script…>`.
+  return html.replace(/<head\b[^>]*>/i, (openTag) => `${openTag}${script}`);
 }

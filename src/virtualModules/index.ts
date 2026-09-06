@@ -3,7 +3,7 @@ import {
   writeHostAutoInit,
   writeLocalSharedImportMap,
 } from './virtualRemoteEntry';
-import { writeRuntimeInitStatus } from './virtualRuntimeInitStatus';
+import { getSsrRuntimeRemotes, writeRuntimeInitStatus } from './virtualRuntimeInitStatus';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 export {
@@ -86,12 +86,6 @@ export function initVirtualModules(
     enableSsrInit,
     getHostAutoInitPath(options),
     options,
-    options
-      ? Object.entries(options.remotes).map(([name, item]) => ({
-          name,
-          entry: item.entry,
-          type: item.type ?? 'module',
-        }))
-      : undefined
+    options ? getSsrRuntimeRemotes(options.remotes, options) : undefined
   );
 }

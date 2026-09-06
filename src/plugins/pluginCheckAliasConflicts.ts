@@ -26,7 +26,12 @@ export function checkAliasConflicts(options: { shared?: NormalizedShared }): Plu
           return findPattern === sharedKey || sharedKey.startsWith(findPattern + '/');
         }
         if (findPattern instanceof RegExp) {
-          return findPattern.test(sharedKey);
+          // Global/sticky regexes advance lastIndex on .test; reset so later
+          // shared keys (e.g. `react-dom` after `react`) are not skipped.
+          findPattern.lastIndex = 0;
+          const matched = findPattern.test(sharedKey);
+          findPattern.lastIndex = 0;
+          return matched;
         }
 
         return false;

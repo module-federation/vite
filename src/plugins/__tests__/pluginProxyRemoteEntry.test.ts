@@ -261,6 +261,50 @@ describe('pluginProxyRemoteEntry', () => {
     );
   });
 
+  it.each([
+    ['::', '//localhost:4173'],
+    ['::1', '//[::1]:4173'],
+  ] as const)(
+    'uses a valid protocol-relative fallback origin when server.host is %s',
+    async (host, expectedOrigin) => {
+      normalizeModuleFederationOptions({ name: 'test' });
+      const plugin = pluginProxyRemoteEntry({
+        options: getDefaultMockOptions({ filename: 'remoteEntry.js' }),
+        remoteEntryId: 'virtual:mf-remote-entry',
+        virtualExposesId: 'virtual:mf-exposes',
+      });
+
+      callHook(
+        plugin.config,
+        {} as ConfigPluginContext,
+        {},
+        { command: 'serve', mode: 'development' }
+      );
+      callHook(
+        plugin.configResolved,
+        {} as MinimalPluginContextWithoutEnvironment,
+        {
+          root: '/repo',
+          base: '/',
+          server: { host, port: 4173 },
+        } as unknown as ResolvedConfig
+      );
+
+      const result = (await callHook(
+        plugin.transform,
+        {} as Rollup.TransformPluginContext,
+        '',
+        getHostAutoInitPath()
+      )) as {
+        code: string;
+      };
+
+      expect(result.code).toContain(
+        `const origin = typeof window !== 'undefined' && (true) ? window.origin : ${JSON.stringify(expectedOrigin)}`
+      );
+    }
+  );
+
   it('uses a dev-safe filename for hash-pattern host init remote entry imports', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const plugin = pluginProxyRemoteEntry({

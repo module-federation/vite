@@ -1570,16 +1570,6 @@ export function getPreBuildLibImportId(
   const importId = preBuildCacheMap[pkg].getImportId();
   return importId;
 }
-export function getPreBuildLibPath(
-  pkg: string,
-  options?: NormalizedModuleFederationOptions
-): string {
-  const { preBuildCacheMap } = getSharedVirtualModuleState(options);
-  if (!preBuildCacheMap[pkg]) {
-    preBuildCacheMap[pkg] = createScopedSharedVirtualModule(pkg, PREBUILD_TAG, options);
-  }
-  return preBuildCacheMap[pkg].getImportId();
-}
 export function getPreBuildShareItem(
   pkg: string,
   options?: NormalizedModuleFederationOptions
