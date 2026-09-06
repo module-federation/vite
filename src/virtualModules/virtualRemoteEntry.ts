@@ -376,18 +376,6 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
     const packageName = getPackageName(pkg);
     if (!configured.has(packageName) || pkg === packageName) configured.set(packageName, pkg);
   }
-  // A subpath share is served by its root package: `react/jsx-dev-runtime`
-  // resolves through react's own module graph, and the seed batches already
-  // order the root ahead of its subpaths. Materializing a subpath while leaving
-  // its root lazy would seed an incoherent half of one package, so pull the
-  // root in with it. Shares nothing imports are untouched and stay lazy.
-  for (const pkg of [...shares]) {
-    const packageName = getPackageName(pkg);
-    if (packageName === pkg) continue;
-    const rootShare = configured.get(packageName);
-    if (rootShare) shares.add(rootShare);
-  }
-
   const pending = [...shares];
   while (pending.length) {
     const pkg = pending.pop()!;

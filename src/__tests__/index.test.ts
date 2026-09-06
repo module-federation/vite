@@ -1351,6 +1351,15 @@ describe('vite:module-federation-early-init', () => {
         command: 'serve',
         mode: 'test',
       });
+      callHook(
+        early.configResolved,
+        {} as MinimalPluginContextWithoutEnvironment,
+        {
+          root,
+          command: 'serve',
+          oxc: { jsx: { runtime: 'automatic', importSource: 'react', development: true } },
+        } as ResolvedConfig
+      );
 
       const code = generateLocalSharedImportMap(owner._options);
       expect(code).toMatch(/"react\/jsx-dev-runtime": \{[\s\S]*?materialize: true,/);
@@ -1358,6 +1367,67 @@ describe('vite:module-federation-early-init', () => {
       expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
       // A configured share nothing imports still stays lazy.
       expect(code).toMatch(/"vue": \{[\s\S]*?materialize: false,/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
+      name: 'classic JSX',
+      jsx: { runtime: 'classic' },
+      shared: { react: {} },
+      materialized: [],
+      lazy: ['react', 'react/jsx-dev-runtime'],
+    },
+    {
+      name: 'a custom automatic runtime',
+      jsx: { runtime: 'automatic', importSource: 'preact', development: true },
+      shared: { react: {}, preact: {}, 'preact/jsx-dev-runtime': {} },
+      materialized: ['preact', 'preact/jsx-dev-runtime'],
+      lazy: ['react', 'react/jsx-dev-runtime'],
+    },
+  ])('respects $name when materializing JSX shares', ({ jsx, shared, materialized, lazy }) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-configured-jsx-runtime-'));
+    mkdirSync(path.join(root, 'src'));
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<script type="module" src="/src/main.jsx"></script>'
+    );
+    writeFileSync(path.join(root, 'src/main.jsx'), 'export default <div />');
+
+    try {
+      const plugins = federation({
+        name: 'configured-jsx-runtime',
+        shared: shared as ModuleFederationOptions['shared'],
+      }) as Plugin[];
+      const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+      const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+        | (Plugin & { _options: NormalizedModuleFederationOptions })
+        | undefined;
+      if (!early || !owner) throw new Error('module federation plugins not found');
+
+      runConfig(early, { meta: {} } as ConfigPluginContext, { root } as UserConfig, {
+        command: 'serve',
+        mode: 'test',
+      });
+      callHook(
+        early.configResolved,
+        {} as MinimalPluginContextWithoutEnvironment,
+        { root, command: 'serve', oxc: { jsx } } as ResolvedConfig
+      );
+
+      const code = generateLocalSharedImportMap(owner._options);
+      for (const share of materialized) {
+        expect(code).toMatch(
+          new RegExp(`${share.replace('/', '\\/')}": \\{[\\s\\S]*?materialize: true,`)
+        );
+      }
+      for (const share of lazy) {
+        expect(code).toMatch(
+          new RegExp(`${share.replace('/', '\\/')}": \\{[\\s\\S]*?materialize: false,`)
+        );
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
