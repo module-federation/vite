@@ -326,11 +326,14 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
   return reachable.has(dependency);
 }
 
-const sharedRuntimeDependencyCache = new Map<string, Set<string>>();
+const sharedRuntimeDependencyCache = new Map<
+  string,
+  { dependencies: Set<string>; complete: boolean }
+>();
 const SOURCE_FILE_RE = /\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/;
 const NON_RUNTIME_SOURCE_RE = /(?:\.d\.[cm]?ts|\.(?:test|spec|stories)\.[cm]?[jt]sx?)$/;
 const NON_RUNTIME_DIRS = new Set(['node_modules', '__tests__', 'dist', 'build']);
-/** Bundled artifacts of a published package never import workspace packages; skip them instead of scanning megabytes. */
+/** Keep local runtime walks bounded without skipping the package entry itself. */
 const MAX_SCANNED_SOURCE_BYTES = 256 * 1024;
 
 const BARE_PACKAGE_SPECIFIER_RE =
@@ -350,30 +353,40 @@ export function getRuntimeImportSpecifiers(code: string): string[] {
   );
 }
 
-function collectAllRuntimeImports(dir: string, into: Set<string>): void {
+function collectAllRuntimeImports(dir: string, into: Set<string>): boolean {
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
-    return;
+    return false;
   }
+  let complete = true;
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (!NON_RUNTIME_DIRS.has(entry.name))
-        collectAllRuntimeImports(path.join(dir, entry.name), into);
+      if (
+        !NON_RUNTIME_DIRS.has(entry.name) &&
+        !collectAllRuntimeImports(path.join(dir, entry.name), into)
+      ) {
+        complete = false;
+      }
       continue;
     }
     if (!SOURCE_FILE_RE.test(entry.name) || NON_RUNTIME_SOURCE_RE.test(entry.name)) continue;
     const file = path.join(dir, entry.name);
     let code: string;
     try {
-      if (statSync(file).size > MAX_SCANNED_SOURCE_BYTES) continue;
+      if (statSync(file).size > MAX_SCANNED_SOURCE_BYTES) {
+        complete = false;
+        continue;
+      }
       code = readFileSync(file, 'utf-8');
     } catch {
+      complete = false;
       continue;
     }
     for (const specifier of getRuntimeImportSpecifiers(code)) into.add(specifier);
   }
+  return complete;
 }
 
 const SOURCE_EXTENSIONS = ['', '.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx'];
@@ -397,19 +410,28 @@ function resolveLocalRuntimeImport(importer: string, specifier: string): string 
 
 function collectReachableRuntimeImports(entry: string, dir: string, into: Set<string>): boolean {
   const visited = new Set<string>();
-  const queue = [entry];
+  const queue = [{ file: entry, isEntry: true }];
   let scanned = false;
+  let complete = true;
   while (queue.length) {
-    const file = queue.shift()!;
+    const { file, isEntry } = queue.shift()!;
     const relative = path.relative(dir, file);
     if (relative.startsWith('..') || path.isAbsolute(relative) || visited.has(file)) continue;
     visited.add(file);
     let code: string;
     try {
-      if (statSync(file).size > MAX_SCANNED_SOURCE_BYTES) continue;
+      // The package entry must be scanned even when it is a large bundled file:
+      // its direct imports are the only evidence available for detecting a cycle
+      // back into an unshared workspace package. Keep the limit for files reached
+      // through local imports so one large bundle cannot make the whole walk expensive.
+      if (!isEntry && statSync(file).size > MAX_SCANNED_SOURCE_BYTES) {
+        complete = false;
+        continue;
+      }
       code = readFileSync(file, 'utf-8');
       scanned = true;
     } catch {
+      complete = false;
       continue;
     }
     for (const specifier of getRuntimeModuleSpecifiers(code)) {
@@ -418,10 +440,10 @@ function collectReachableRuntimeImports(entry: string, dir: string, into: Set<st
         continue;
       }
       const local = resolveLocalRuntimeImport(file, specifier);
-      if (local) queue.push(local);
+      if (local) queue.push({ file: local, isEntry: false });
     }
   }
-  return scanned;
+  return scanned && complete;
 }
 
 /**
@@ -438,9 +460,10 @@ export function isSharedPackageRuntimeDependency(
 ): boolean {
   const sharedPackage = getPackageName(sharedKey);
   const cacheKey = `${sharedKey}\0${JSON.stringify(conditions ?? null)}`;
-  let reachable = sharedRuntimeDependencyCache.get(cacheKey);
-  if (!reachable) {
-    reachable = new Set<string>();
+  let result = sharedRuntimeDependencyCache.get(cacheKey);
+  if (!result) {
+    const reachable = new Set<string>();
+    let complete = true;
     const visited = new Set<string>();
     const queue = [
       {
@@ -450,7 +473,10 @@ export function isSharedPackageRuntimeDependency(
     ];
     while (queue.length) {
       const { request, installed } = queue.shift()!;
-      if (!installed) continue;
+      if (!installed) {
+        complete = false;
+        continue;
+      }
       const visitKey = `${installed.dir}\0${request}`;
       if (visited.has(visitKey)) continue;
       visited.add(visitKey);
@@ -461,7 +487,10 @@ export function isSharedPackageRuntimeDependency(
         resolveSubpathWithRequire: false,
         ...(conditions !== undefined ? { conditions: [...conditions] } : {}),
       });
-      if (!entry || !collectReachableRuntimeImports(entry, installed.dir, specifiers)) {
+      if (!entry) {
+        if (!collectAllRuntimeImports(installed.dir, specifiers)) complete = false;
+      } else if (!collectReachableRuntimeImports(entry, installed.dir, specifiers)) {
+        complete = false;
         collectAllRuntimeImports(installed.dir, specifiers);
       }
       for (const specifier of specifiers) {
@@ -475,9 +504,13 @@ export function isSharedPackageRuntimeDependency(
         }
       }
     }
-    sharedRuntimeDependencyCache.set(cacheKey, reachable);
+    result = { dependencies: reachable, complete };
+    sharedRuntimeDependencyCache.set(cacheKey, result);
   }
-  return reachable.has(dependency);
+  return (
+    result.dependencies.has(dependency) ||
+    (!result.complete && isSharedPackageDependency(sharedKey, dependency))
+  );
 }
 
 export function proxySharedModule(options: {
