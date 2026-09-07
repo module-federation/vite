@@ -1698,6 +1698,12 @@ function getSharedCacheReadExpression(cacheDescriptor: string, treeShakingConsum
     : `__mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor})`;
 }
 
+/**
+ * Eager workspace singleton wrapper: reads the shared cache synchronously and falls back to the local
+ * namespace. Inside the fallback's own evaluation cycle that namespace is not initialized yet (undefined in
+ * a merged chunk, TDZ bindings otherwise), so the exports stay unassigned until the deferred cache write
+ * re-applies them; a host-provided copy re-applies them through the cache subscription as before.
+ */
 function generateEagerWorkspaceSingletonExports(
   namedExports: string[],
   importSource: string,
@@ -1730,8 +1736,10 @@ function generateEagerWorkspaceSingletonExports(
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
       Promise.resolve().then(() => {
-        if (__mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor}) === undefined) {
-          __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfNormalizeShareModule(__mfLocalShare), ${cacheOwner});
+        if (__mfReadSharedCache(__mfModuleCache.share, ${cacheDescriptor}) !== undefined) return;
+        const localShare = __mfInitializedLocalShare(__mfLocalShare);
+        if (localShare !== undefined) {
+          __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, localShare, ${cacheOwner});
         }
       });
       exportModule = __mfLocalShare;
@@ -1740,8 +1748,16 @@ function generateEagerWorkspaceSingletonExports(
     const __mfApplyEagerShareExports = (mod) => {
       ${assignments}
     };
+    const __mfApplyEagerShareExportsWhenReady = (mod) => {
+      if (mod === undefined) return;
+      try {
+        __mfApplyEagerShareExports(mod);
+      } catch (error) {
+        if (!(error instanceof ReferenceError)) throw error;
+      }
+    };
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyEagerShareExports);
-    __mfApplyEagerShareExports(exportModule);
+    __mfApplyEagerShareExportsWhenReady(exportModule);
     export { __mf_default as default };${namedExportLine}${mutableExportLine}`;
 }
 function generateLazyWorkspaceSingletonExports(
@@ -1929,6 +1945,15 @@ const normalizeLocalShareModuleCode = `const __mfNormalizeShareModule = (mod) =>
       return normalized && Object.getPrototypeOf(normalized) === null
         ? Object.assign({}, normalized)
         : normalized;
+    };`;
+const initializedLocalShareModuleCode = `const __mfInitializedLocalShare = (mod) => {
+      if (mod === undefined) return undefined;
+      try {
+        return __mfNormalizeShareModule(mod);
+      } catch (error) {
+        if (error instanceof ReferenceError) return undefined;
+        throw error;
+      }
     };`;
 
 export function writeLoadShareModule(
@@ -2228,6 +2253,7 @@ export function writeLoadShareModule(
     ${importLine}
     ${sharedCacheHelperCode}
     ${normalizeLocalShareModuleCode}
+    ${initializedLocalShareModuleCode}
     ${exportLine}
   `
     : `

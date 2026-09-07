@@ -13,6 +13,8 @@ const {
   hasPackageDependencyMock,
   existsSyncMock,
   readFileSyncMock,
+  readdirSyncMock,
+  statSyncMock,
   addUsedSharesMock,
   refreshHostAutoInitMock,
   writeLoadShareModuleMock,
@@ -26,6 +28,8 @@ const {
   hasPackageDependencyMock: vi.fn<(pkg: string, cwd?: string) => boolean>(),
   existsSyncMock: vi.fn<(path: string) => boolean>(() => false),
   readFileSyncMock: vi.fn<(path: string) => string>(() => '{}'),
+  readdirSyncMock: vi.fn<(dir: string, opts?: unknown) => unknown[]>(() => []),
+  statSyncMock: vi.fn<(file: string) => { size: number }>(() => ({ size: 128 })),
   addUsedSharesMock: vi.fn<(pkg: string) => void>(),
   refreshHostAutoInitMock: vi.fn<() => void>(),
   writeLoadShareModuleMock: vi.fn(),
@@ -49,6 +53,8 @@ vi.mock('fs', async (importOriginal) => {
     ...actual,
     existsSync: existsSyncMock,
     readFileSync: readFileSyncMock,
+    readdirSync: readdirSyncMock,
+    statSync: statSyncMock,
   };
 });
 
@@ -164,8 +170,11 @@ vi.mock('../../utils/VirtualModule', () => ({
 import {
   excludeSharedSubDependencies,
   findSharedKey,
+  getRuntimeImportSpecifiers,
   proxySharedModule,
 } from '../pluginProxySharedModule_preBuild';
+
+const sourceFile = (name: string) => ({ name, isDirectory: () => false, isFile: () => true });
 import {
   getResolvedLocalSharedImportMapId,
   getUsedShares,
@@ -1229,6 +1238,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(writeLoadShareModuleMock).toHaveBeenCalled();
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
   it('does not proxy shared dependency cycle edges from workspace packages', async () => {
@@ -1269,6 +1279,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
   it('does not proxy shared dependency cycle edges from unshared workspace packages', async () => {
@@ -1285,9 +1296,14 @@ describe('pluginProxySharedModule_preBuild', () => {
     );
     readFileSyncMock.mockImplementation((p: string) => {
       if (p.endsWith('/vue/package.json')) return '{"dependencies":{"bridge":"workspace:*"}}';
+      if (p.endsWith('/vue/index.js'))
+        return "import { title } from 'bridge';\nexport const Button = title;";
       if (p.endsWith('/bridge/package.json')) return '{"name":"bridge"}';
       return '{}';
     });
+    readdirSyncMock.mockImplementation((dir: string) =>
+      dir === '/repo/apps/remote/node_modules/vue' ? [sourceFile('index.js')] : []
+    );
 
     const plugins = proxySharedModule({ shared: makeShared() });
     const proxyPlugin = getProxyPlugin(plugins);
@@ -1315,6 +1331,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
   it('walks past a nameless package.json when identifying an unshared workspace package', async () => {
@@ -1323,11 +1340,15 @@ describe('pluginProxySharedModule_preBuild', () => {
     const manifests: Record<string, string> = {
       '/repo/apps/remote/node_modules/vue/package.json':
         '{"dependencies":{"bridge":"workspace:*"}}',
+      '/repo/apps/remote/node_modules/vue/index.js': "import { title } from 'bridge';",
       '/repo/packages/bridge/src/package.json': '{"type":"module"}',
       '/repo/packages/bridge/package.json': '{"name":"bridge"}',
     };
     existsSyncMock.mockImplementation((p: string) => p in manifests);
     readFileSyncMock.mockImplementation((p: string) => manifests[p] ?? '{}');
+    readdirSyncMock.mockImplementation((dir: string) =>
+      dir === '/repo/apps/remote/node_modules/vue' ? [sourceFile('index.js')] : []
+    );
 
     const plugins = proxySharedModule({ shared: makeShared() });
     const proxyPlugin = getProxyPlugin(plugins);
@@ -1398,6 +1419,102 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(writeLoadShareModuleMock).toHaveBeenCalled();
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
+  });
+
+  it('proxies imports from unshared workspace packages the shared package reaches only through its manifest', async () => {
+    normalizeModuleFederationOptions({ name: 'remote', shared: {} });
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg) => {
+      if (pkg === 'react') return '/repo/packages/react/index.js';
+      if (pkg === 'vue') return '/repo/apps/remote/node_modules/vue/index.js';
+      return undefined;
+    });
+    // vue -> types-only -> hooks by manifests, but vue's code never evaluates `types-only`: the
+    // manifest closure is not an evaluation cycle, so the import from `hooks` stays on the proxy.
+    // An ordinary edge here would bind `hooks` to the local fallback even when a host provides vue.
+    const files: Record<string, string> = {
+      '/repo/apps/remote/node_modules/vue/package.json':
+        '{"dependencies":{"types-only":"workspace:*"}}',
+      '/repo/apps/remote/node_modules/vue/index.js':
+        "import type { Shape } from 'types-only';\nexport const Button = 'button';",
+      // This file is shipped beside the entry but never imported by it.
+      '/repo/apps/remote/node_modules/vue/unused.js': "import 'hooks';",
+      '/repo/packages/types-only/package.json':
+        '{"name":"types-only","dependencies":{"hooks":"workspace:*"}}',
+      '/repo/packages/hooks/package.json': '{"name":"hooks"}',
+    };
+    existsSyncMock.mockImplementation((p: string) => p in files);
+    readFileSyncMock.mockImplementation((p: string) => files[p] ?? '{}');
+    readdirSyncMock.mockImplementation((dir: string) =>
+      dir === '/repo/apps/remote/node_modules/vue'
+        ? [sourceFile('index.js'), sourceFile('unused.js')]
+        : []
+    );
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/packages/hooks/src/use-service.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeDefined();
+    expect(writeLoadShareModuleMock).toHaveBeenCalled();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
+  });
+
+  it('collects runtime import specifiers and drops type-only statements', () => {
+    const code = `
+      import type { A } from 'types-a';
+      import { type A2, /* retained comment */ type A3 as Alias } from 'types-named';
+      import { type B, useB } from 'lib-b';
+      import { type as runtimeType } from 'runtime-type-export';
+      import 'side-effect';
+      import * as ns from "@scope/pkg/sub/path";
+      export type { C } from 'types-c';
+      export { type C2 } from 'types-export-named';
+      export { d } from './local';
+      // import 'commented-out';
+      /* import 'block-commented'; */
+      const lazy = () => import('lazy-pkg');
+      const legacy = require('legacy-pkg');
+      import { Readable } from 'stream';
+      import fs from 'node:fs';
+      var minified = x ? "from" + " " + getName(y) + "" : require("legacy-pkg/sub");
+      const importLookingText = "from 'not-an-import'";
+      const requireLookingText = "require('not-a-require')";
+      const regex = /from 'not-an-import'|require('not-a-require')/;
+      const jsx = <section></section>;
+      const jsxLazy = () => import('jsx-lazy');
+    `;
+    expect(getRuntimeImportSpecifiers(code)).toEqual([
+      'lib-b',
+      'runtime-type-export',
+      '@scope/pkg/sub/path',
+      'lazy-pkg',
+      'jsx-lazy',
+      'legacy-pkg',
+      'legacy-pkg/sub',
+      'side-effect',
+    ]);
   });
 
   it('keeps walking the dependency tree past an unresolvable optional peer when detecting cycles', async () => {
@@ -1445,6 +1562,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
   it('does not proxy internal imports for wildcard shared package keys during build', async () => {
@@ -1962,6 +2080,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     warnSpy.mockRestore();
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
   it('does not exclude shared sub-dependencies in build mode', () => {
@@ -2017,6 +2136,7 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
   it('preserves import false shared sub-dependencies in dev mode without warning', () => {
@@ -2077,6 +2197,7 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
   it('preserves singleton: true shared sub-dependencies in dev mode without warning', () => {
@@ -2137,6 +2258,7 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
   it('still removes non-singleton sub-dependencies when sibling singletons are preserved', () => {
@@ -2201,6 +2323,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     warnSpy.mockRestore();
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
   it('uses auto-detected workspace sources in serve prebuild resolution without null deref', async () => {

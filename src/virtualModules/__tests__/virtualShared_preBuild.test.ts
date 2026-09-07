@@ -3684,7 +3684,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       '__mfSubscribeSharedCache(__mfModuleCache.share, {"canonical":"default:workspace-cycle-a","aliases":["workspace-cycle-a"]}, __mfApplyEagerShareExports);'
     );
-    expect(generatedCode).toContain('__mfApplyEagerShareExports(exportModule);');
+    expect(generatedCode).toContain('__mfApplyEagerShareExportsWhenReady(exportModule);');
     expect(generatedCode).not.toContain('initPromise.then');
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode).toContain('Promise.resolve().then');
@@ -3738,11 +3738,164 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       '__mfSubscribeSharedCache(__mfModuleCache.share, {"canonical":"default:workspace-producer","aliases":["workspace-producer"]}, __mfApplyEagerShareExports);'
     );
-    expect(generatedCode).toContain('__mfApplyEagerShareExports(exportModule);');
+    expect(generatedCode).toContain('__mfApplyEagerShareExportsWhenReady(exportModule);');
     expect(generatedCode).toContain('export { __mf_0 as useProducer, __mf_1 as createProducer };');
     expect(generatedCode).not.toContain('export { useProducer, createProducer } from');
     expect(generatedCode).not.toContain('initPromise.then');
     expect(generatedCode).toContain('Promise.resolve().then');
+  });
+
+  it('leaves eager exports unassigned while the local fallback is still evaluating and applies them afterwards', async () => {
+    // A merged chunk can place the eager wrapper above its own fallback body (a package-level cycle
+    // through an unshared workspace importer): `__mfLocalShare` is still undefined when the wrapper
+    // evaluates. The wrapper must not throw there; the deferred cache write applies the exports once
+    // the fallback has initialized, and a host-provided copy still replaces them through the cache.
+    normalizeModuleFederationOptions({
+      name: 'host',
+      shared: {
+        'workspace-producer': { singleton: true },
+        'workspace-producer/extra': { singleton: true },
+        'workspace-consumer': { singleton: true },
+      },
+    });
+    const mockShareItem: ShareItem = {
+      name: 'workspace-producer',
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule('workspace-producer', mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const runnable = generatedCode
+      .replace(/^\s*import \* as __mfLocalShare from .*;$/m, 'var __mfLocalShare;')
+      .replace(/^\s*export \{[^\n]*$/gm, '');
+    const previousCache = (globalThis as Record<string, unknown>).__mf_module_cache__;
+    delete (globalThis as Record<string, unknown>).__mf_module_cache__;
+    try {
+      const wrapper = new Function(
+        `${runnable}
+        return {
+          set local(value) { __mfLocalShare = value; },
+          get useProducer() { return __mf_0; },
+          get default() { return __mf_default; },
+          cache: __mfModuleCache.share,
+          descriptor: __mfGetSharedCacheDescriptor("workspace-producer", true, "1.0.0", "default"),
+          write: __mfWriteSharedCache,
+        };`
+      )() as {
+        local: unknown;
+        useProducer: unknown;
+        default: unknown;
+        cache: Record<string, unknown>;
+        descriptor: unknown;
+        write: (cache: unknown, descriptor: unknown, value: unknown, owner: string) => void;
+      };
+
+      // Evaluated above its fallback: nothing assigned yet, and no TypeError from reading `undefined`.
+      expect(wrapper.useProducer).toBeUndefined();
+
+      const localProducer = () => 'local';
+      const localNamespace = Object.freeze(
+        Object.assign(Object.create(null), {
+          useProducer: localProducer,
+          createProducer: () => 'local',
+        })
+      );
+      wrapper.local = localNamespace;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(wrapper.useProducer).toBe(localProducer);
+      expect(wrapper.cache['default:workspace-producer']).toMatchObject({
+        useProducer: localProducer,
+      });
+
+      const hostProducer = () => 'host';
+      wrapper.write(
+        wrapper.cache,
+        wrapper.descriptor,
+        { useProducer: hostProducer, createProducer: () => 'host' },
+        'host'
+      );
+      expect(wrapper.useProducer).toBe(hostProducer);
+    } finally {
+      if (previousCache === undefined)
+        delete (globalThis as Record<string, unknown>).__mf_module_cache__;
+      else (globalThis as Record<string, unknown>).__mf_module_cache__ = previousCache;
+    }
+  });
+
+  it('does not publish an uninitialized local fallback from the deferred cache write', async () => {
+    // With top-level await in the merged chunk the deferred write can run before the fallback body has
+    // evaluated: writing `undefined` would fan out to every subscriber. The write is skipped and the
+    // seed step of `init()` (or a host copy) publishes the share later.
+    normalizeModuleFederationOptions({
+      name: 'host',
+      shared: {
+        'workspace-producer': { singleton: true },
+        'workspace-producer/extra': { singleton: true },
+        'workspace-consumer': { singleton: true },
+      },
+    });
+    const mockShareItem: ShareItem = {
+      name: 'workspace-producer',
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule('workspace-producer', mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const runnable = generatedCode
+      .replace(/^\s*import \* as __mfLocalShare from .*;$/m, 'var __mfLocalShare;')
+      .replace(/^\s*export \{[^\n]*$/gm, '');
+    const previousCache = (globalThis as Record<string, unknown>).__mf_module_cache__;
+    delete (globalThis as Record<string, unknown>).__mf_module_cache__;
+    try {
+      const wrapper = new Function(
+        `${runnable}
+        return {
+          set local(value) { __mfLocalShare = value; },
+          get useProducer() { return __mf_0; },
+          cache: __mfModuleCache.share,
+          descriptor: __mfGetSharedCacheDescriptor("workspace-producer", true, "1.0.0", "default"),
+          write: __mfWriteSharedCache,
+        };`
+      )() as {
+        local: unknown;
+        useProducer: unknown;
+        cache: Record<string, unknown>;
+        descriptor: unknown;
+        write: (cache: unknown, descriptor: unknown, value: unknown, owner: string) => void;
+      };
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(wrapper.useProducer).toBeUndefined();
+      expect('default:workspace-producer' in wrapper.cache).toBe(false);
+
+      const seededProducer = () => 'seeded';
+      const seededNamespace = { useProducer: seededProducer, createProducer: () => 'seeded' };
+      wrapper.local = seededNamespace;
+      wrapper.write(wrapper.cache, wrapper.descriptor, seededNamespace, 'host');
+      expect(wrapper.useProducer).toBe(seededProducer);
+    } finally {
+      if (previousCache === undefined)
+        delete (globalThis as Record<string, unknown>).__mf_module_cache__;
+      else (globalThis as Record<string, unknown>).__mf_module_cache__ = previousCache;
+    }
   });
 
   it('emits eager local exports for an explicitly eager leaf workspace singleton', () => {
@@ -3774,7 +3927,7 @@ describe('writeLoadShareModule', () => {
       'import * as __mfLocalShare from "/repo/packages/workspace-producer/src/index.ts";'
     );
     expect(generatedCode).toContain('const __mfApplyEagerShareExports = (mod) => {');
-    expect(generatedCode).toContain('__mfApplyEagerShareExports(exportModule);');
+    expect(generatedCode).toContain('__mfApplyEagerShareExportsWhenReady(exportModule);');
     expect(generatedCode).not.toContain('initPromise.then');
     // The eager export block declares `exportModule` itself; the module body must not declare it again.
     expect(generatedCode.match(/\blet exportModule\b/g)).toHaveLength(1);
