@@ -38,7 +38,17 @@ const {
   writeLoadShareModuleMock: vi.fn(),
   writeLocalSharedImportMapMock: vi.fn<() => void>(),
   writePreBuildLibPathMock: vi.fn(),
-  getInstalledPackageEntryMock: vi.fn<(pkg: string) => string | undefined>(() => undefined),
+  getInstalledPackageEntryMock: vi.fn<
+    (
+      pkg: string,
+      opts?: {
+        cwd?: string;
+        packageName?: string;
+        conditions?: string[];
+        resolveSubpathWithRequire?: boolean;
+      }
+    ) => string | undefined
+  >(() => undefined),
   hasTreeShakingSharedProviderMock: vi.fn<(pkg: string, shareItem?: unknown) => boolean>(
     () => false
   ),
@@ -1337,6 +1347,137 @@ describe('pluginProxySharedModule_preBuild', () => {
     readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
+  it('uses SSR export conditions when scanning shared runtime dependencies', async () => {
+    normalizeModuleFederationOptions({ name: 'remote', shared: {} });
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg, opts) => {
+      if (pkg !== 'react') return undefined;
+      return opts?.conditions?.includes('node')
+        ? '/repo/apps/remote/node_modules/react/node.js'
+        : '/repo/apps/remote/node_modules/react/browser.js';
+    });
+    existsSyncMock.mockImplementation(
+      (p: string) =>
+        p === '/repo/apps/remote/node_modules/react/package.json' ||
+        p === '/repo/packages/bridge/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p.endsWith('/react/package.json')) return '{"dependencies":{"bridge":"workspace:*"}}';
+      if (p.endsWith('/react/node.js'))
+        return "import { title } from 'bridge';\nexport const Button = title;";
+      if (p.endsWith('/react/browser.js')) return "export const Button = 'button';";
+      if (p.endsWith('/bridge/package.json')) return '{"name":"bridge"}';
+      return '{}';
+    });
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const clientResolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'react',
+      '/repo/packages/bridge/src/title.js',
+      { isEntry: false, ssr: false }
+    );
+
+    expect(clientResolution).toBeDefined();
+    writeLoadShareModuleMock.mockClear();
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'react',
+      '/repo/packages/bridge/src/title.js',
+      { isEntry: false, ssr: true }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(getInstalledPackageEntryMock).toHaveBeenCalledWith(
+      'react',
+      expect.objectContaining({ conditions: expect.arrayContaining(['node']) })
+    );
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
+  });
+
+  it('uses the importing subpath when scanning wildcard shared runtime dependencies', async () => {
+    normalizeModuleFederationOptions({ name: 'remote', shared: {} });
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg, opts) => {
+      if (pkg !== 'react/jsx-runtime') return undefined;
+      return opts?.resolveSubpathWithRequire === false && opts.conditions?.includes('node')
+        ? '/repo/apps/remote/node_modules/react/jsx-runtime.node.js'
+        : '/repo/apps/remote/node_modules/react/jsx-runtime.browser.js';
+    });
+    existsSyncMock.mockImplementation(
+      (p: string) =>
+        p === '/repo/apps/remote/node_modules/react/package.json' ||
+        p === '/repo/packages/bridge/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p.endsWith('/react/package.json')) return '{}';
+      if (p.endsWith('/react/jsx-runtime.node.js'))
+        return "import { title } from 'bridge';\nexport const jsx = title;";
+      if (p.endsWith('/react/jsx-runtime.browser.js')) return 'export const jsx = true;';
+      if (p.endsWith('/bridge/package.json')) return '{"name":"bridge"}';
+      return '{}';
+    });
+
+    const shared: NormalizedShared = {
+      'react/': {
+        ...makeShared().react,
+        name: 'react/',
+      },
+    };
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'react/jsx-runtime',
+      '/repo/packages/bridge/src/title.js',
+      { isEntry: false, ssr: true }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(getInstalledPackageEntryMock).toHaveBeenCalledWith(
+      'react/jsx-runtime',
+      expect.objectContaining({
+        conditions: expect.arrayContaining(['node']),
+        resolveSubpathWithRequire: false,
+      })
+    );
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
+  });
+
   it('follows a directory import to its index file when walking the shared package runtime imports', async () => {
     normalizeModuleFederationOptions({ name: 'remote', shared: {} });
     hasPackageDependencyMock.mockReturnValue(false);
@@ -1555,7 +1696,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     });
     statSyncMock.mockImplementation((p: string) => ({
       size: p.endsWith('/runtime.js') ? 300 * 1024 : 128,
-      isFile: () => true,
+      isFile: () => p.endsWith('/index.js') || p.endsWith('/runtime.js'),
     }));
 
     const plugins = proxySharedModule({ shared: makeShared() });
@@ -1580,6 +1721,56 @@ describe('pluginProxySharedModule_preBuild', () => {
     );
 
     expect(resolution).toBeDefined();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+    statSyncMock.mockReset().mockImplementation(() => ({ size: 128, isFile: () => true }));
+  });
+
+  it('keeps manifest-backed cycle edges when a reachable module exceeds the scan limit', async () => {
+    normalizeModuleFederationOptions({ name: 'host', shared: {} });
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg) =>
+      pkg === 'vue' ? '/repo/apps/remote/node_modules/vue/index.js' : undefined
+    );
+    existsSyncMock.mockImplementation(
+      (p: string) =>
+        p === '/repo/apps/remote/node_modules/vue/package.json' ||
+        p === '/repo/packages/bridge/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p.endsWith('/vue/package.json')) return '{"dependencies":{"bridge":"workspace:*"}}';
+      if (p.endsWith('/vue/index.js')) return "import './runtime';";
+      if (p.endsWith('/bridge/package.json')) return '{"name":"bridge"}';
+      return '{}';
+    });
+    statSyncMock.mockImplementation((p: string) => ({
+      size: p.endsWith('/runtime.js') ? 300 * 1024 : 128,
+      isFile: () => p.endsWith('/index.js') || p.endsWith('/runtime.js'),
+    }));
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/packages/bridge/src/title.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
     statSyncMock.mockReset().mockImplementation(() => ({ size: 128, isFile: () => true }));

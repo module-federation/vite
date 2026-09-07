@@ -37,6 +37,7 @@ import {
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
 import { PromiseStore } from '../utils/PromiseStore';
+import { getSharedExportConditions } from '../utils/sharedExportConditions';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
   collectTreeShakingImports,
@@ -325,7 +326,10 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
   return reachable.has(dependency);
 }
 
-const sharedRuntimeDependencyCache = new Map<string, Set<string>>();
+const sharedRuntimeDependencyCache = new Map<
+  string,
+  { dependencies: Set<string>; complete: boolean }
+>();
 const SOURCE_FILE_RE = /\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/;
 const NON_RUNTIME_SOURCE_RE = /(?:\.d\.[cm]?ts|\.(?:test|spec|stories)\.[cm]?[jt]sx?)$/;
 const NON_RUNTIME_DIRS = new Set(['node_modules', '__tests__', 'dist', 'build']);
@@ -349,30 +353,40 @@ export function getRuntimeImportSpecifiers(code: string): string[] {
   );
 }
 
-function collectAllRuntimeImports(dir: string, into: Set<string>): void {
+function collectAllRuntimeImports(dir: string, into: Set<string>): boolean {
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
-    return;
+    return false;
   }
+  let complete = true;
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (!NON_RUNTIME_DIRS.has(entry.name))
-        collectAllRuntimeImports(path.join(dir, entry.name), into);
+      if (
+        !NON_RUNTIME_DIRS.has(entry.name) &&
+        !collectAllRuntimeImports(path.join(dir, entry.name), into)
+      ) {
+        complete = false;
+      }
       continue;
     }
     if (!SOURCE_FILE_RE.test(entry.name) || NON_RUNTIME_SOURCE_RE.test(entry.name)) continue;
     const file = path.join(dir, entry.name);
     let code: string;
     try {
-      if (statSync(file).size > MAX_SCANNED_SOURCE_BYTES) continue;
+      if (statSync(file).size > MAX_SCANNED_SOURCE_BYTES) {
+        complete = false;
+        continue;
+      }
       code = readFileSync(file, 'utf-8');
     } catch {
+      complete = false;
       continue;
     }
     for (const specifier of getRuntimeImportSpecifiers(code)) into.add(specifier);
   }
+  return complete;
 }
 
 const SOURCE_EXTENSIONS = ['', '.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx'];
@@ -439,50 +453,64 @@ function collectReachableRuntimeImports(entry: string, dir: string, into: Set<st
  * the fallback's evaluation graph rather than the package's declared closure — in a monorepo the
  * latter covers far more than the module graph ever does.
  */
-export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: string): boolean {
-  const cached = sharedRuntimeDependencyCache.get(sharedKey);
-  if (cached) return cached.has(dependency);
-
+export function isSharedPackageRuntimeDependency(
+  sharedKey: string,
+  dependency: string,
+  conditions?: readonly string[]
+): boolean {
   const sharedPackage = getPackageName(sharedKey);
-  const reachable = new Set<string>();
-  const visited = new Set<string>();
-  const queue = [
-    {
-      request: sharedKey,
-      installed: getInstalledPackageJson(sharedPackage, { packageName: sharedPackage }),
-    },
-  ];
-  while (queue.length) {
-    const { request, installed } = queue.shift()!;
-    if (!installed) {
-      continue;
-    }
-    const visitKey = `${installed.dir}\0${request}`;
-    if (visited.has(visitKey)) continue;
-    visited.add(visitKey);
-    const specifiers = new Set<string>();
-    const entry = getInstalledPackageEntry(request, {
-      cwd: installed.dir,
-      packageName: getPackageName(request),
-    });
-    if (!entry) {
-      collectAllRuntimeImports(installed.dir, specifiers);
-    } else if (!collectReachableRuntimeImports(entry, installed.dir, specifiers)) {
-      collectAllRuntimeImports(installed.dir, specifiers);
-    }
-    for (const specifier of specifiers) {
-      const dep = getPackageName(specifier);
-      if (dep === sharedPackage) continue;
-      reachable.add(dep);
-      const manifest = getDependencyManifest(dep, installed.dir);
-      // Only workspace packages get bundled into the fallback; a node_modules package stays a leaf.
-      if (manifest && !isNodeModulePath(manifest.dir)) {
-        queue.push({ request: specifier, installed: manifest });
+  const cacheKey = `${sharedKey}\0${JSON.stringify(conditions ?? null)}`;
+  let result = sharedRuntimeDependencyCache.get(cacheKey);
+  if (!result) {
+    const reachable = new Set<string>();
+    let complete = true;
+    const visited = new Set<string>();
+    const queue = [
+      {
+        request: sharedKey,
+        installed: getInstalledPackageJson(sharedPackage, { packageName: sharedPackage }),
+      },
+    ];
+    while (queue.length) {
+      const { request, installed } = queue.shift()!;
+      if (!installed) {
+        complete = false;
+        continue;
+      }
+      const visitKey = `${installed.dir}\0${request}`;
+      if (visited.has(visitKey)) continue;
+      visited.add(visitKey);
+      const specifiers = new Set<string>();
+      const entry = getInstalledPackageEntry(request, {
+        cwd: installed.dir,
+        packageName: getPackageName(request),
+        resolveSubpathWithRequire: false,
+        ...(conditions !== undefined ? { conditions: [...conditions] } : {}),
+      });
+      if (!entry) {
+        if (!collectAllRuntimeImports(installed.dir, specifiers)) complete = false;
+      } else if (!collectReachableRuntimeImports(entry, installed.dir, specifiers)) {
+        complete = false;
+        collectAllRuntimeImports(installed.dir, specifiers);
+      }
+      for (const specifier of specifiers) {
+        const dep = getPackageName(specifier);
+        if (dep === sharedPackage) continue;
+        reachable.add(dep);
+        const manifest = getDependencyManifest(dep, installed.dir);
+        // Only workspace packages get bundled into the fallback; a node_modules package stays a leaf.
+        if (manifest && !isNodeModulePath(manifest.dir)) {
+          queue.push({ request: specifier, installed: manifest });
+        }
       }
     }
+    result = { dependencies: reachable, complete };
+    sharedRuntimeDependencyCache.set(cacheKey, result);
   }
-  sharedRuntimeDependencyCache.set(sharedKey, reachable);
-  return reachable.has(dependency);
+  return (
+    result.dependencies.has(dependency) ||
+    (!result.complete && isSharedPackageDependency(sharedKey, dependency))
+  );
 }
 
 export function proxySharedModule(options: {
@@ -495,6 +523,10 @@ export function proxySharedModule(options: {
   let _command = 'serve';
   let useDirectReactImport = false;
   let useRolldown = false;
+  let isProduction = false;
+  let rootResolveConditions: string[] | undefined;
+  let ssrResolveConditions: string[] | undefined;
+  let ssrTarget: 'node' | 'webworker' = 'node';
   const savePrebuild = new PromiseStore<string>();
   let devServer: ViteDevServer | undefined;
   // resolveId fires once per importing module. The loadShare virtual module,
@@ -507,9 +539,43 @@ export function proxySharedModule(options: {
   const hasAnalyzableShares = Object.values(shared).some((share) =>
     shouldAnalyzeSharedExports(share)
   );
+  type RuntimeDependencyContext = {
+    environment?: {
+      name?: string;
+      config?: {
+        consumer?: string;
+        build?: { ssr?: boolean | string };
+        isProduction?: boolean;
+        resolve?: { conditions?: string[] };
+      };
+    };
+  };
+  const getEnvironmentConfig = (context: unknown) =>
+    (context as RuntimeDependencyContext).environment?.config;
   const getEnvironmentConditions = (context: unknown): string[] | undefined =>
-    (context as { environment?: { config?: { resolve?: { conditions?: string[] } } } }).environment
-      ?.config?.resolve?.conditions;
+    getEnvironmentConfig(context)?.resolve?.conditions;
+  const getRuntimeDependencyConditions = (
+    context: unknown,
+    resolveOptions: { ssr?: boolean }
+  ): string[] => {
+    const environment = (context as RuntimeDependencyContext).environment;
+    const environmentConfig = environment?.config;
+    const isSsr =
+      resolveOptions.ssr === true ||
+      Boolean(_config?.build?.ssr) ||
+      environmentConfig?.consumer === 'server' ||
+      Boolean(environmentConfig?.build?.ssr) ||
+      environment?.name === 'ssr' ||
+      environment?.name === 'server';
+    return getSharedExportConditions({
+      environmentConditions: environmentConfig?.resolve?.conditions,
+      isProduction: environmentConfig?.isProduction ?? isProduction,
+      isSsr,
+      rootConditions: rootResolveConditions,
+      ssrConditions: ssrResolveConditions,
+      ssrTarget,
+    });
+  };
   const refreshTreeShakingForEnvironment = (context: unknown) =>
     refreshTreeShakingModules(
       federationOptions,
@@ -639,6 +705,14 @@ export function proxySharedModule(options: {
       },
       configResolved(config) {
         _config = config;
+        isProduction = config.isProduction;
+        rootResolveConditions = config.resolve?.conditions
+          ? [...config.resolve.conditions]
+          : undefined;
+        ssrResolveConditions = config.ssr?.resolve?.conditions
+          ? [...config.ssr.resolve.conditions]
+          : undefined;
+        ssrTarget = config.ssr?.target ?? 'node';
 
         // Write virtual module files and register provider metadata eagerly.
         // Materialization stays tied to imports observed by resolveId below.
@@ -791,8 +865,14 @@ export function proxySharedModule(options: {
           const importerIsUnsharedWorkspacePackage =
             !isNodeModulePath(importer!) &&
             !Object.keys(shared).some((sharedKey) => getPackageName(sharedKey) === importerPackage);
+          const runtimeDependencyRequest =
+            key.endsWith('/') && matchesSharedSource(source, key) ? source : key;
           const keepsOrdinaryEdge = importerIsUnsharedWorkspacePackage
-            ? isSharedPackageRuntimeDependency(key, importerPackage)
+            ? isSharedPackageRuntimeDependency(
+                runtimeDependencyRequest,
+                importerPackage,
+                getRuntimeDependencyConditions(this, resolveOptions)
+              )
             : isSharedPackageDependency(key, importerPackage);
           if (keepsOrdinaryEdge) return;
         }
