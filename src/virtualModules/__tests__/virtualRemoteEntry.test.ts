@@ -2900,6 +2900,48 @@ describe('virtualRemoteEntry', () => {
     expect(materializedBridgeCode).toContain('if (usedShare.canLiveRebind === false) return;');
   });
 
+  it("never bridges onto another container's consume-only stub", async () => {
+    optionsMock.shareStrategy = 'loaded-first';
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__provider',
+        name: 'provider',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'loaded-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    // A host's `import: false` share registers a scope entry whose get() throws "must be provided by
+    // host". Selected as the same-version provider (first registrant wins), it must be skipped before
+    // its get() runs, in both bridge passes — otherwise every provider init logs "Failed to bridge".
+    const guard = 'if (provider?.shareConfig?.import === false) return;';
+    const materializedBridgeCode = code.slice(
+      code.indexOf('const __mfBridgeMaterializedProvider ='),
+      code.indexOf('const __mfBridgeExternalSharedProvider =')
+    );
+    const externalBridgeCode = code.slice(
+      code.indexOf('const __mfBridgeExternalSharedProvider ='),
+      code.indexOf('for (const batch of __mfMaterializedShareBatches) await Promise.all(')
+    );
+    expect(materializedBridgeCode).toContain(guard);
+    expect(materializedBridgeCode.indexOf(guard)).toBeLessThan(
+      materializedBridgeCode.indexOf('const { version } = providerEntry;')
+    );
+    expect(externalBridgeCode).toContain(guard);
+    expect(externalBridgeCode.indexOf(guard)).toBeLessThan(
+      externalBridgeCode.indexOf('await __mfLoadPinnedRuntimeShare(')
+    );
+  });
+
   it('keeps the remote registry intact while pre-seeding version-first shares', async () => {
     optionsMock.shareStrategy = 'version-first';
     const mod = await import('../virtualRemoteEntry');

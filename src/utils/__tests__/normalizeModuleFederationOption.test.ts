@@ -69,6 +69,15 @@ describe('normalizeModuleFederationOption', () => {
     });
   });
 
+  it('preserves moduleParseTimeout: 0', () => {
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        moduleParseTimeout: 0,
+      }).moduleParseTimeout
+    ).toBe(0);
+  });
+
   it('preserves ssrExternals for the SSR remote entry', () => {
     expect(
       normalizeModuleFederationOptions({

@@ -443,7 +443,6 @@ function resolveInstalledPackageJson(
   };
   const findPackageInPnpmStore = (startDir: string): InstalledPackageJson | undefined => {
     let currentDir = startDir;
-    const rootDir = path.parse(currentDir).root;
 
     while (true) {
       const pnpmStoreDir = path.join(currentDir, 'node_modules', '.pnpm');
@@ -458,15 +457,15 @@ function resolveInstalledPackageJson(
           }
         } catch {}
       }
-      if (currentDir === rootDir) break;
-      currentDir = path.dirname(currentDir);
+      const parentDir = path.dirname(currentDir);
+      if (parentDir === currentDir) break;
+      currentDir = parentDir;
     }
   };
 
+  let resolvedPath: string | undefined;
   try {
     const projectRequire = createRequire(pathToFileURL(path.join(cwd, 'package.json')));
-    let resolvedPath: string | undefined;
-
     if (opts?.fromResolvedEntry) {
       resolvedPath = opts.fromResolvedEntry;
     } else {
@@ -476,50 +475,60 @@ function resolveInstalledPackageJson(
         resolvedPath = projectRequire.resolve(packageName);
       }
     }
-
-    let currentDir = path.dirname(resolvedPath);
-    const rootDir = path.parse(currentDir).root;
-    let matchingPackage: InstalledPackageJson | undefined;
-
-    while (true) {
-      const packageJsonPath = path.join(currentDir, 'package.json');
-      if (existsSync(packageJsonPath)) {
-        const packageJsonContent = readFileSync(packageJsonPath, 'utf-8');
-        try {
-          const packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>;
-          if (packageJson.name === packageName) {
-            const packageInfo = {
-              path: packageJsonPath,
-              dir: currentDir,
-              packageJson,
-            };
-            if (currentDir.endsWith(path.join('node_modules', packageName))) return packageInfo;
-            matchingPackage ??= packageInfo;
-          }
-        } catch (error) {
-          if (!(error instanceof SyntaxError)) throw error;
-        }
-      }
-      if (currentDir === rootDir) break;
-      currentDir = path.dirname(currentDir);
-    }
-    return matchingPackage;
   } catch {
-    let currentDir = cwd;
-    const rootDir = path.parse(currentDir).root;
-
-    while (true) {
-      const packageJsonPath = path.join(currentDir, 'node_modules', packageName, 'package.json');
-      const directCandidate = tryReadPackageJson(packageJsonPath);
-      if (directCandidate?.packageJson.name === packageName) return directCandidate;
-      if (currentDir === rootDir) break;
-      currentDir = path.dirname(currentDir);
-    }
-
-    return findPackageInPnpmStore(cwd);
+    resolvedPath = undefined;
+  }
+  // A Node core module resolves to its bare specifier (`readline`, `node:readline`), not to a file:
+  // there is no directory to walk up from, so look for an installed package of that name instead.
+  if (resolvedPath !== undefined && !path.isAbsolute(resolvedPath)) {
+    resolvedPath = undefined;
   }
 
-  return undefined;
+  if (resolvedPath !== undefined) {
+    try {
+      let currentDir = path.dirname(resolvedPath);
+      let matchingPackage: InstalledPackageJson | undefined;
+
+      while (true) {
+        const packageJsonPath = path.join(currentDir, 'package.json');
+        if (existsSync(packageJsonPath)) {
+          const packageJsonContent = readFileSync(packageJsonPath, 'utf-8');
+          try {
+            const packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>;
+            if (packageJson.name === packageName) {
+              const packageInfo = {
+                path: packageJsonPath,
+                dir: currentDir,
+                packageJson,
+              };
+              if (currentDir.endsWith(path.join('node_modules', packageName))) return packageInfo;
+              matchingPackage ??= packageInfo;
+            }
+          } catch (error) {
+            if (!(error instanceof SyntaxError)) throw error;
+          }
+        }
+        const parentDir = path.dirname(currentDir);
+        if (parentDir === currentDir) break;
+        currentDir = parentDir;
+      }
+      return matchingPackage;
+    } catch {
+      // Unreadable tree: fall through to the node_modules lookup below.
+    }
+  }
+
+  let currentDir = cwd;
+  while (true) {
+    const packageJsonPath = path.join(currentDir, 'node_modules', packageName, 'package.json');
+    const directCandidate = tryReadPackageJson(packageJsonPath);
+    if (directCandidate?.packageJson.name === packageName) return directCandidate;
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+
+  return findPackageInPnpmStore(cwd);
 }
 
 export function getInstalledPackageEntry(

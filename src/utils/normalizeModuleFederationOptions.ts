@@ -833,7 +833,7 @@ export function normalizeModuleFederationOptions(
     injectTreeShakingUsedExports: options.injectTreeShakingUsedExports,
     treeShakingSharedPlugins: options.treeShakingSharedPlugins,
     treeShakingSharedExcludePlugins: options.treeShakingSharedExcludePlugins,
-    moduleParseTimeout: options.moduleParseTimeout || 10,
+    moduleParseTimeout: options.moduleParseTimeout ?? 10,
     moduleParseIdleTimeout: options.moduleParseIdleTimeout,
     varFilename: options.varFilename,
     target: options.target,
