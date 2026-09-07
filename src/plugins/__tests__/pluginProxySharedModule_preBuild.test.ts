@@ -1425,9 +1425,11 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('proxies imports from unshared workspace packages the shared package reaches only through its manifest', async () => {
     normalizeModuleFederationOptions({ name: 'remote', shared: {} });
     hasPackageDependencyMock.mockReturnValue(false);
-    getInstalledPackageEntryMock.mockImplementation((pkg) =>
-      pkg === 'react' ? '/repo/packages/react/index.js' : undefined
-    );
+    getInstalledPackageEntryMock.mockImplementation((pkg) => {
+      if (pkg === 'react') return '/repo/packages/react/index.js';
+      if (pkg === 'vue') return '/repo/apps/remote/node_modules/vue/index.js';
+      return undefined;
+    });
     // vue -> types-only -> hooks by manifests, but vue's code never evaluates `types-only`: the
     // manifest closure is not an evaluation cycle, so the import from `hooks` stays on the proxy.
     // An ordinary edge here would bind `hooks` to the local fallback even when a host provides vue.
@@ -1436,6 +1438,8 @@ describe('pluginProxySharedModule_preBuild', () => {
         '{"dependencies":{"types-only":"workspace:*"}}',
       '/repo/apps/remote/node_modules/vue/index.js':
         "import type { Shape } from 'types-only';\nexport const Button = 'button';",
+      // This file is shipped beside the entry but never imported by it.
+      '/repo/apps/remote/node_modules/vue/unused.js': "import 'hooks';",
       '/repo/packages/types-only/package.json':
         '{"name":"types-only","dependencies":{"hooks":"workspace:*"}}',
       '/repo/packages/hooks/package.json': '{"name":"hooks"}',
@@ -1443,7 +1447,9 @@ describe('pluginProxySharedModule_preBuild', () => {
     existsSyncMock.mockImplementation((p: string) => p in files);
     readFileSyncMock.mockImplementation((p: string) => files[p] ?? '{}');
     readdirSyncMock.mockImplementation((dir: string) =>
-      dir === '/repo/apps/remote/node_modules/vue' ? [sourceFile('index.js')] : []
+      dir === '/repo/apps/remote/node_modules/vue'
+        ? [sourceFile('index.js'), sourceFile('unused.js')]
+        : []
     );
 
     const plugins = proxySharedModule({ shared: makeShared() });
@@ -1478,10 +1484,13 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('collects runtime import specifiers and drops type-only statements', () => {
     const code = `
       import type { A } from 'types-a';
+      import { type A2, /* retained comment */ type A3 as Alias } from 'types-named';
       import { type B, useB } from 'lib-b';
+      import { type as runtimeType } from 'runtime-type-export';
       import 'side-effect';
       import * as ns from "@scope/pkg/sub/path";
       export type { C } from 'types-c';
+      export { type C2 } from 'types-export-named';
       export { d } from './local';
       // import 'commented-out';
       /* import 'block-commented'; */
@@ -1490,14 +1499,21 @@ describe('pluginProxySharedModule_preBuild', () => {
       import { Readable } from 'stream';
       import fs from 'node:fs';
       var minified = x ? "from" + " " + getName(y) + "" : require("legacy-pkg/sub");
+      const importLookingText = "from 'not-an-import'";
+      const requireLookingText = "require('not-a-require')";
+      const regex = /from 'not-an-import'|require('not-a-require')/;
+      const jsx = <section></section>;
+      const jsxLazy = () => import('jsx-lazy');
     `;
     expect(getRuntimeImportSpecifiers(code)).toEqual([
       'lib-b',
-      'side-effect',
+      'runtime-type-export',
       '@scope/pkg/sub/path',
       'lazy-pkg',
+      'jsx-lazy',
       'legacy-pkg',
       'legacy-pkg/sub',
+      'side-effect',
     ]);
   });
 

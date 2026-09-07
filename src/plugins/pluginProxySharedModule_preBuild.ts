@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'url';
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { normalizePathForImport } from '../utils/buildPaths';
+import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
 import {
   getNormalizeModuleFederationOptions,
@@ -334,29 +335,21 @@ const MAX_SCANNED_SOURCE_BYTES = 256 * 1024;
 const BARE_PACKAGE_SPECIFIER_RE =
   /^(?:@[^\s'"`()\/]+\/)?[^\s'"`()\/.@][^\s'"`()\/]*(?:\/[^\s'"`()]*)?$/;
 
-/** Bare specifiers a source file imports at runtime: `import type` / `export type` statements are dropped. */
-export function getRuntimeImportSpecifiers(code: string): string[] {
-  const stripped = code
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^[ \t]*\/\/.*$/gm, '')
-    .replace(
-      /\b(?:import|export)\s+type\s+(?:\{[^}]*\}|\*\s+as\s+\w+|\w+(?:\s*,\s*\{[^}]*\})?)\s*from\s*(['"])[^'"\n]*\1/g,
-      ''
-    );
-  const specifiers: string[] = [];
-  const specifierRe =
-    /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)(['"])([^'"\n]+)\1/g;
-  for (const match of stripped.matchAll(specifierRe)) {
-    const specifier = match[2];
-    // Only bare package specifiers name a dependency: paths, virtual ids, Node builtins and the
-    // string fragments a minified bundle happens to place after `import`/`from` do not.
-    if (!BARE_PACKAGE_SPECIFIER_RE.test(specifier) || isBuiltin(specifier)) continue;
-    specifiers.push(specifier);
-  }
-  return specifiers;
+/** Module specifiers evaluated by a source file. */
+function getRuntimeModuleSpecifiers(code: string): string[] {
+  return findModuleImportDescriptors(code)
+    .filter(({ typeOnly }) => !typeOnly)
+    .map(({ source }) => source);
 }
 
-function collectRuntimeImports(dir: string, into: Set<string>): void {
+/** Bare specifiers a source file imports at runtime. */
+export function getRuntimeImportSpecifiers(code: string): string[] {
+  return getRuntimeModuleSpecifiers(code).filter(
+    (specifier) => BARE_PACKAGE_SPECIFIER_RE.test(specifier) && !isBuiltin(specifier)
+  );
+}
+
+function collectAllRuntimeImports(dir: string, into: Set<string>): void {
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -366,7 +359,7 @@ function collectRuntimeImports(dir: string, into: Set<string>): void {
   for (const entry of entries) {
     if (entry.isDirectory()) {
       if (!NON_RUNTIME_DIRS.has(entry.name))
-        collectRuntimeImports(path.join(dir, entry.name), into);
+        collectAllRuntimeImports(path.join(dir, entry.name), into);
       continue;
     }
     if (!SOURCE_FILE_RE.test(entry.name) || NON_RUNTIME_SOURCE_RE.test(entry.name)) continue;
@@ -382,6 +375,47 @@ function collectRuntimeImports(dir: string, into: Set<string>): void {
   }
 }
 
+const SOURCE_EXTENSIONS = ['', '.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx'];
+
+function resolveLocalRuntimeImport(importer: string, specifier: string): string | undefined {
+  if (!specifier.startsWith('.')) return;
+  const resolved = path.resolve(path.dirname(importer), specifier);
+  const candidates = SOURCE_EXTENSIONS.flatMap((extension) => [
+    `${resolved}${extension}`,
+    path.join(resolved, `index${extension}`),
+  ]);
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
+function collectReachableRuntimeImports(entry: string, dir: string, into: Set<string>): boolean {
+  const visited = new Set<string>();
+  const queue = [entry];
+  let scanned = false;
+  while (queue.length) {
+    const file = queue.shift()!;
+    const relative = path.relative(dir, file);
+    if (relative.startsWith('..') || path.isAbsolute(relative) || visited.has(file)) continue;
+    visited.add(file);
+    let code: string;
+    try {
+      if (statSync(file).size > MAX_SCANNED_SOURCE_BYTES) continue;
+      code = readFileSync(file, 'utf-8');
+      scanned = true;
+    } catch {
+      continue;
+    }
+    for (const specifier of getRuntimeModuleSpecifiers(code)) {
+      if (BARE_PACKAGE_SPECIFIER_RE.test(specifier) && !isBuiltin(specifier)) {
+        into.add(specifier);
+        continue;
+      }
+      const local = resolveLocalRuntimeImport(file, specifier);
+      if (local) queue.push(local);
+    }
+  }
+  return scanned;
+}
+
 /**
  * Whether `dependency` is reachable from the shared package through the imports its source files
  * (and those of the workspace packages they pull in) actually evaluate. Unlike the manifest walk
@@ -391,27 +425,42 @@ function collectRuntimeImports(dir: string, into: Set<string>): void {
  */
 export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: string): boolean {
   const sharedPackage = getPackageName(sharedKey);
-  let reachable = sharedRuntimeDependencyCache.get(sharedPackage);
+  let reachable = sharedRuntimeDependencyCache.get(sharedKey);
   if (!reachable) {
     reachable = new Set<string>();
     const visited = new Set<string>();
-    const queue = [getInstalledPackageJson(sharedPackage, { packageName: sharedPackage })];
+    const queue = [
+      {
+        request: sharedKey,
+        installed: getInstalledPackageJson(sharedPackage, { packageName: sharedPackage }),
+      },
+    ];
     while (queue.length) {
-      const installed = queue.shift();
-      if (!installed || visited.has(installed.dir)) continue;
-      visited.add(installed.dir);
+      const { request, installed } = queue.shift()!;
+      if (!installed) continue;
+      const visitKey = `${installed.dir}\0${request}`;
+      if (visited.has(visitKey)) continue;
+      visited.add(visitKey);
       const specifiers = new Set<string>();
-      collectRuntimeImports(installed.dir, specifiers);
+      const entry = getInstalledPackageEntry(request, {
+        cwd: installed.dir,
+        packageName: getPackageName(request),
+      });
+      if (!entry || !collectReachableRuntimeImports(entry, installed.dir, specifiers)) {
+        collectAllRuntimeImports(installed.dir, specifiers);
+      }
       for (const specifier of specifiers) {
         const dep = getPackageName(specifier);
         if (dep === sharedPackage) continue;
         reachable.add(dep);
         const manifest = getDependencyManifest(dep, installed.dir);
         // Only workspace packages get bundled into the fallback; a node_modules package stays a leaf.
-        if (manifest && !isNodeModulePath(manifest.dir)) queue.push(manifest);
+        if (manifest && !isNodeModulePath(manifest.dir)) {
+          queue.push({ request: specifier, installed: manifest });
+        }
       }
     }
-    sharedRuntimeDependencyCache.set(sharedPackage, reachable);
+    sharedRuntimeDependencyCache.set(sharedKey, reachable);
   }
   return reachable.has(dependency);
 }
