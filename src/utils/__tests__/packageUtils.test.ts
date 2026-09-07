@@ -55,6 +55,42 @@ describe('getInstalledPackageJson', () => {
     );
   });
 
+  it('returns undefined for a Node core module instead of walking up from its bare specifier', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-core-module-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    mkdirSync(hostDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+
+    // `require.resolve('readline')` returns 'readline' itself, not a file path
+    expect(getInstalledPackageJson('readline', { cwd: hostDir })).toBeUndefined();
+    expect(getInstalledPackageJson('node:readline', { cwd: hostDir })).toBeUndefined();
+  });
+
+  it('finds an installed package that shares its name with a Node core module', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-core-module-shadow-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', 'util');
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: 'util', version: '0.12.5', main: './util.js' })
+    );
+    writeFileSync(path.join(packageDir, 'util.js'), 'module.exports = {};');
+
+    // `require.resolve('util')` still prefers the core module, so the lookup must fall back to node_modules
+    const installed = getInstalledPackageJson('util', { cwd: hostDir });
+
+    expect(installed?.packageJson.version).toBe('0.12.5');
+    expect(normalizePathForImport(installed?.path || '')).toContain(
+      '/apps/host/node_modules/util/package.json'
+    );
+  });
+
   it('caches lookups per (cwd, pkg) instead of re-reading the filesystem every call', () => {
     const packageName = 'mf-test-cache-pkg';
     const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-cache-'));
