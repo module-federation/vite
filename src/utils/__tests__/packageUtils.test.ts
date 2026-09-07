@@ -202,7 +202,7 @@ describe('getInstalledPackageJson', () => {
     writeFileSync(path.join(packageDir, 'dist/index.cjs'), 'module.exports = {};');
 
     expect(getInstalledPackageEntry(packageName, { cwd: hostDir })).toBe(
-      path.join(packageDir, 'dist/index.js')
+      realpathSync(path.join(packageDir, 'dist/index.js'))
     );
   });
 
