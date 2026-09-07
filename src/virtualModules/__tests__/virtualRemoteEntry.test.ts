@@ -1013,6 +1013,26 @@ describe('virtualRemoteEntry', () => {
     expect(hostInit).not.toContain('preloadPendingShares');
   });
 
+  it('lists concrete pending wrappers configured through a shared wildcard', async () => {
+    normalizedSharedMock.mockReturnValue({
+      'react/': {
+        name: 'react/',
+        version: '19.2.4',
+        scope: 'default',
+        shareConfig: { singleton: true, strictVersion: false },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react/jsx-runtime');
+
+    const buildCode = mod.generatePendingSharesCode('build');
+
+    expect(buildCode).toContain(
+      'const __mfPendingShareImports = [["react/jsx-runtime", () => import("virtual:loadShare:react/jsx-runtime")]];'
+    );
+  });
+
   it('orders React package roots before their subpath shares', async () => {
     const share = (name: string) => ({
       name,
