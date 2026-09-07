@@ -972,7 +972,12 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
   it('finishes fetching circular relative import graphs', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
-    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const written: string[] = [];
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (_path: unknown, code: unknown) => {
+        written.push(String(code));
+      }
+    );
     const fetch = makeFetchMock({
       'http://localhost:5001/remoteEntry.ssr.js': {
         ok: true,
@@ -999,6 +1004,10 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expectFetchCalled(fetch, 'http://localhost:5001/remoteEntry.ssr.js');
     expectFetchCalled(fetch, 'http://localhost:5001/assets/cycle.js');
     expect(fsMock.writeFileSync).toHaveBeenCalledTimes(2);
+    // Every generated edge must use the same cache-busting URL as the root
+    // import. Otherwise a cycle back to the root evaluates it a second time.
+    expect(written).toHaveLength(2);
+    expect(written.every((code) => code.includes('?v=unversioned'))).toBe(true);
   });
 
   it('fetches a zero-whitespace relative side-effect import', async () => {

@@ -2340,13 +2340,9 @@ export function generatePendingSharesCode(
     command === 'build'
       ? getMaterializedShares(options)
           .filter((pkg) => {
-            const shareItem = resolvedOptions.shared?.[pkg];
-            return (
-              Boolean(shareItem) &&
-              !pkg.endsWith('/') &&
-              shareItem.shareConfig.import !== false &&
-              !shareItem.shareConfig.treeShaking
-            );
+            const shareItem = getShareItemForPreload(pkg, resolvedOptions);
+            if (!shareItem || pkg.endsWith('/')) return false;
+            return shareItem.shareConfig.import !== false && !shareItem.shareConfig.treeShaking;
           })
           .map(
             (pkg) =>
