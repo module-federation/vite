@@ -325,7 +325,10 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
   return reachable.has(dependency);
 }
 
-const sharedRuntimeDependencyCache = new Map<string, Set<string>>();
+const sharedRuntimeDependencyCache = new Map<
+  string,
+  { dependencies: Set<string>; complete: boolean }
+>();
 const SOURCE_FILE_RE = /\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/;
 const NON_RUNTIME_SOURCE_RE = /(?:\.d\.[cm]?ts|\.(?:test|spec|stories)\.[cm]?[jt]sx?)$/;
 const NON_RUNTIME_DIRS = new Set(['node_modules', '__tests__', 'dist', 'build']);
@@ -398,6 +401,7 @@ function collectReachableRuntimeImports(entry: string, dir: string, into: Set<st
   const visited = new Set<string>();
   const queue = [entry];
   let scanned = false;
+  let complete = true;
   while (queue.length) {
     const file = queue.shift()!;
     const relative = path.relative(dir, file);
@@ -405,10 +409,14 @@ function collectReachableRuntimeImports(entry: string, dir: string, into: Set<st
     visited.add(file);
     let code: string;
     try {
-      if (statSync(file).size > MAX_SCANNED_SOURCE_BYTES) continue;
+      if (statSync(file).size > MAX_SCANNED_SOURCE_BYTES) {
+        complete = false;
+        continue;
+      }
       code = readFileSync(file, 'utf-8');
       scanned = true;
     } catch {
+      complete = false;
       continue;
     }
     for (const specifier of getRuntimeModuleSpecifiers(code)) {
@@ -420,7 +428,7 @@ function collectReachableRuntimeImports(entry: string, dir: string, into: Set<st
       if (local) queue.push(local);
     }
   }
-  return scanned;
+  return scanned && complete;
 }
 
 /**
@@ -431,45 +439,56 @@ function collectReachableRuntimeImports(entry: string, dir: string, into: Set<st
  * latter covers far more than the module graph ever does.
  */
 export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: string): boolean {
+  const cached = sharedRuntimeDependencyCache.get(sharedKey);
+  if (cached) return !cached.complete || cached.dependencies.has(dependency);
+
   const sharedPackage = getPackageName(sharedKey);
-  let reachable = sharedRuntimeDependencyCache.get(sharedKey);
-  if (!reachable) {
-    reachable = new Set<string>();
-    const visited = new Set<string>();
-    const queue = [
-      {
-        request: sharedKey,
-        installed: getInstalledPackageJson(sharedPackage, { packageName: sharedPackage }),
-      },
-    ];
-    while (queue.length) {
-      const { request, installed } = queue.shift()!;
-      if (!installed) continue;
-      const visitKey = `${installed.dir}\0${request}`;
-      if (visited.has(visitKey)) continue;
-      visited.add(visitKey);
-      const specifiers = new Set<string>();
-      const entry = getInstalledPackageEntry(request, {
-        cwd: installed.dir,
-        packageName: getPackageName(request),
-      });
-      if (!entry || !collectReachableRuntimeImports(entry, installed.dir, specifiers)) {
-        collectAllRuntimeImports(installed.dir, specifiers);
-      }
-      for (const specifier of specifiers) {
-        const dep = getPackageName(specifier);
-        if (dep === sharedPackage) continue;
-        reachable.add(dep);
-        const manifest = getDependencyManifest(dep, installed.dir);
-        // Only workspace packages get bundled into the fallback; a node_modules package stays a leaf.
-        if (manifest && !isNodeModulePath(manifest.dir)) {
-          queue.push({ request: specifier, installed: manifest });
-        }
+  const reachable = new Set<string>();
+  let complete = true;
+  const visited = new Set<string>();
+  const queue = [
+    {
+      request: sharedKey,
+      installed: getInstalledPackageJson(sharedPackage, { packageName: sharedPackage }),
+    },
+  ];
+  while (queue.length) {
+    const { request, installed } = queue.shift()!;
+    if (!installed) {
+      complete = false;
+      continue;
+    }
+    const visitKey = `${installed.dir}\0${request}`;
+    if (visited.has(visitKey)) continue;
+    visited.add(visitKey);
+    const specifiers = new Set<string>();
+    const entry = getInstalledPackageEntry(request, {
+      cwd: installed.dir,
+      packageName: getPackageName(request),
+    });
+    if (!entry) {
+      collectAllRuntimeImports(installed.dir, specifiers);
+    } else if (!collectReachableRuntimeImports(entry, installed.dir, specifiers)) {
+      complete = false;
+      collectAllRuntimeImports(installed.dir, specifiers);
+    }
+    for (const specifier of specifiers) {
+      const dep = getPackageName(specifier);
+      if (dep === sharedPackage) continue;
+      reachable.add(dep);
+      const manifest = getDependencyManifest(dep, installed.dir);
+      // Only workspace packages get bundled into the fallback; a node_modules package stays a leaf.
+      if (manifest && !isNodeModulePath(manifest.dir)) {
+        queue.push({ request: specifier, installed: manifest });
       }
     }
-    sharedRuntimeDependencyCache.set(sharedKey, reachable);
   }
-  return reachable.has(dependency);
+  const result = { dependencies: reachable, complete };
+  sharedRuntimeDependencyCache.set(sharedKey, result);
+  // An incomplete scan cannot prove that the dependency is absent. Keep the
+  // ordinary edge in that case so a missed cycle never gets a loadShare glue
+  // module inserted into the fallback evaluation graph.
+  return !complete || reachable.has(dependency);
 }
 
 export function proxySharedModule(options: {

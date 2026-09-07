@@ -1484,6 +1484,59 @@ describe('pluginProxySharedModule_preBuild', () => {
     readdirSyncMock.mockReset().mockReturnValue([]);
   });
 
+  it('keeps ordinary edges when a shared entry exceeds the runtime scan limit', async () => {
+    normalizeModuleFederationOptions({ name: 'host', shared: {} });
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg) =>
+      pkg === 'vue' ? '/repo/apps/remote/node_modules/vue/index.js' : undefined
+    );
+    existsSyncMock.mockImplementation(
+      (p: string) =>
+        p === '/repo/apps/remote/node_modules/vue/package.json' ||
+        p === '/repo/apps/remote/node_modules/vue/index.js' ||
+        p === '/repo/packages/bridge/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p === '/repo/apps/remote/node_modules/vue/index.js') return "import 'bridge';";
+      if (p === '/repo/packages/bridge/package.json') return '{"name":"bridge"}';
+      return '{}';
+    });
+    readdirSyncMock.mockImplementation((dir: string) =>
+      dir === '/repo/apps/remote/node_modules/vue' ? [sourceFile('index.js')] : []
+    );
+    statSyncMock.mockImplementation((p: string) => ({
+      size: p.endsWith('/index.js') ? 300 * 1024 : 128,
+      isFile: () => true,
+    }));
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/packages/bridge/src/title.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
+    statSyncMock.mockReset().mockImplementation(() => ({ size: 128, isFile: () => true }));
+  });
+
   it('proxies imports from unshared workspace packages the shared package reaches only through its manifest', async () => {
     normalizeModuleFederationOptions({ name: 'remote', shared: {} });
     hasPackageDependencyMock.mockReturnValue(false);
