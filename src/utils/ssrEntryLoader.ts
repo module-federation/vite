@@ -783,6 +783,10 @@ function isVitePreloadHelperSpecifier(specifier: string): boolean {
   return specifier.includes('preload-helper');
 }
 
+function getTempFileImportUrl(filePath: string, versionKey: string): string {
+  return `file://${filePath}?v=${encodeURIComponent(versionKey)}`;
+}
+
 /**
  * Fetch an HTTP ESM module, transform it, write it to a temp .js file and
  * return the file path. Recursively does the same for HTTP transitive imports
@@ -875,7 +879,10 @@ async function fetchEsmToTempFile(
             contextKey,
             fetchMaxBytes
           );
-          subMap.set(u, `file://${tmpPath}`);
+          // Keep every generated edge on the same versioned ESM URL as the
+          // root import. Without this query, a cycle back to the root resolves
+          // `file:///.../root.js` separately from `file:///.../root.js?v=...`.
+          subMap.set(u, getTempFileImportUrl(tmpPath, versionKey));
         })
     );
 
