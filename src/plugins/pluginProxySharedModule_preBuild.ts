@@ -384,7 +384,14 @@ function resolveLocalRuntimeImport(importer: string, specifier: string): string 
     `${resolved}${extension}`,
     path.join(resolved, `index${extension}`),
   ]);
-  return candidates.find((candidate) => existsSync(candidate));
+  // `./components` names a directory that exists, but only its index file can be scanned.
+  return candidates.find((candidate) => {
+    try {
+      return statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  });
 }
 
 function collectReachableRuntimeImports(entry: string, dir: string, into: Set<string>): boolean {
