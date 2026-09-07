@@ -1537,6 +1537,54 @@ describe('pluginProxySharedModule_preBuild', () => {
     statSyncMock.mockReset().mockImplementation(() => ({ size: 128, isFile: () => true }));
   });
 
+  it('proxies unrelated workspace imports when a reachable module exceeds the runtime scan limit', async () => {
+    normalizeModuleFederationOptions({ name: 'host', shared: {} });
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg) =>
+      pkg === 'vue' ? '/repo/apps/remote/node_modules/vue/index.js' : undefined
+    );
+    existsSyncMock.mockImplementation(
+      (p: string) =>
+        p === '/repo/apps/remote/node_modules/vue/package.json' ||
+        p === '/repo/packages/widgets/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p.endsWith('/vue/index.js')) return "import './runtime';";
+      if (p.endsWith('/widgets/package.json')) return '{"name":"widgets"}';
+      return '{}';
+    });
+    statSyncMock.mockImplementation((p: string) => ({
+      size: p.endsWith('/runtime.js') ? 300 * 1024 : 128,
+      isFile: () => true,
+    }));
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/packages/widgets/src/panel.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeDefined();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+    statSyncMock.mockReset().mockImplementation(() => ({ size: 128, isFile: () => true }));
+  });
+
   it('proxies imports from unshared workspace packages the shared package reaches only through its manifest', async () => {
     normalizeModuleFederationOptions({ name: 'remote', shared: {} });
     hasPackageDependencyMock.mockReturnValue(false);

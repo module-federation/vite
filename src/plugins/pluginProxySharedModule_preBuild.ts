@@ -325,14 +325,11 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
   return reachable.has(dependency);
 }
 
-const sharedRuntimeDependencyCache = new Map<
-  string,
-  { dependencies: Set<string>; complete: boolean }
->();
+const sharedRuntimeDependencyCache = new Map<string, Set<string>>();
 const SOURCE_FILE_RE = /\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/;
 const NON_RUNTIME_SOURCE_RE = /(?:\.d\.[cm]?ts|\.(?:test|spec|stories)\.[cm]?[jt]sx?)$/;
 const NON_RUNTIME_DIRS = new Set(['node_modules', '__tests__', 'dist', 'build']);
-/** Bundled artifacts of a published package never import workspace packages; skip them instead of scanning megabytes. */
+/** Keep local runtime walks bounded without skipping the package entry itself. */
 const MAX_SCANNED_SOURCE_BYTES = 256 * 1024;
 
 const BARE_PACKAGE_SPECIFIER_RE =
@@ -399,17 +396,21 @@ function resolveLocalRuntimeImport(importer: string, specifier: string): string 
 
 function collectReachableRuntimeImports(entry: string, dir: string, into: Set<string>): boolean {
   const visited = new Set<string>();
-  const queue = [entry];
+  const queue = [{ file: entry, isEntry: true }];
   let scanned = false;
   let complete = true;
   while (queue.length) {
-    const file = queue.shift()!;
+    const { file, isEntry } = queue.shift()!;
     const relative = path.relative(dir, file);
     if (relative.startsWith('..') || path.isAbsolute(relative) || visited.has(file)) continue;
     visited.add(file);
     let code: string;
     try {
-      if (statSync(file).size > MAX_SCANNED_SOURCE_BYTES) {
+      // The package entry must be scanned even when it is a large bundled file:
+      // its direct imports are the only evidence available for detecting a cycle
+      // back into an unshared workspace package. Keep the limit for files reached
+      // through local imports so one large bundle cannot make the whole walk expensive.
+      if (!isEntry && statSync(file).size > MAX_SCANNED_SOURCE_BYTES) {
         complete = false;
         continue;
       }
@@ -425,7 +426,7 @@ function collectReachableRuntimeImports(entry: string, dir: string, into: Set<st
         continue;
       }
       const local = resolveLocalRuntimeImport(file, specifier);
-      if (local) queue.push(local);
+      if (local) queue.push({ file: local, isEntry: false });
     }
   }
   return scanned && complete;
@@ -440,11 +441,10 @@ function collectReachableRuntimeImports(entry: string, dir: string, into: Set<st
  */
 export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: string): boolean {
   const cached = sharedRuntimeDependencyCache.get(sharedKey);
-  if (cached) return !cached.complete || cached.dependencies.has(dependency);
+  if (cached) return cached.has(dependency);
 
   const sharedPackage = getPackageName(sharedKey);
   const reachable = new Set<string>();
-  let complete = true;
   const visited = new Set<string>();
   const queue = [
     {
@@ -455,7 +455,6 @@ export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: 
   while (queue.length) {
     const { request, installed } = queue.shift()!;
     if (!installed) {
-      complete = false;
       continue;
     }
     const visitKey = `${installed.dir}\0${request}`;
@@ -469,7 +468,6 @@ export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: 
     if (!entry) {
       collectAllRuntimeImports(installed.dir, specifiers);
     } else if (!collectReachableRuntimeImports(entry, installed.dir, specifiers)) {
-      complete = false;
       collectAllRuntimeImports(installed.dir, specifiers);
     }
     for (const specifier of specifiers) {
@@ -483,12 +481,8 @@ export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: 
       }
     }
   }
-  const result = { dependencies: reachable, complete };
-  sharedRuntimeDependencyCache.set(sharedKey, result);
-  // An incomplete scan cannot prove that the dependency is absent. Keep the
-  // ordinary edge in that case so a missed cycle never gets a loadShare glue
-  // module inserted into the fallback evaluation graph.
-  return !complete || reachable.has(dependency);
+  sharedRuntimeDependencyCache.set(sharedKey, reachable);
+  return reachable.has(dependency);
 }
 
 export function proxySharedModule(options: {
