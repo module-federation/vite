@@ -700,8 +700,10 @@ async function getSSRCacheDir(): Promise<string> {
       // walks up from the app root and finds the correct node_modules — the
       // plugin may be bundled deep in .output/server/_libs/ which can resolve
       // to a different (hoisted) version of shared packages like react.
-      const dir = join(process.cwd(), 'node_modules', '.ssr-cache');
-      // Clean up temp files on process exit to avoid accumulation.
+      // Keep each Node process in its own directory so one process cannot
+      // remove another process's in-flight or cached SSR modules on exit.
+      const dir = join(process.cwd(), 'node_modules', '.ssr-cache', String(process.pid));
+      // Clean up this process's temp files on exit to avoid accumulation.
       process.once('exit', () => {
         try {
           rmSync(dir, { recursive: true, force: true });
