@@ -29,7 +29,10 @@ const {
   existsSyncMock: vi.fn<(path: string) => boolean>(() => false),
   readFileSyncMock: vi.fn<(path: string) => string>(() => '{}'),
   readdirSyncMock: vi.fn<(dir: string, opts?: unknown) => unknown[]>(() => []),
-  statSyncMock: vi.fn<(file: string) => { size: number }>(() => ({ size: 128 })),
+  statSyncMock: vi.fn<(file: string) => { size: number; isFile: () => boolean }>(() => ({
+    size: 128,
+    isFile: () => true,
+  })),
   addUsedSharesMock: vi.fn<(pkg: string) => void>(),
   refreshHostAutoInitMock: vi.fn<() => void>(),
   writeLoadShareModuleMock: vi.fn(),
@@ -1332,6 +1335,65 @@ describe('pluginProxySharedModule_preBuild', () => {
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
     readdirSyncMock.mockReset().mockReturnValue([]);
+  });
+
+  it('follows a directory import to its index file when walking the shared package runtime imports', async () => {
+    normalizeModuleFederationOptions({ name: 'remote', shared: {} });
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg) => {
+      if (pkg === 'react') return '/repo/packages/react/index.js';
+      if (pkg === 'vue') return '/repo/apps/remote/node_modules/vue/index.js';
+      return undefined;
+    });
+    // vue's entry is a barrel over a DIRECTORY: `./components` exists on disk, but only its index
+    // file can be read. Stopping at the directory would lose everything the entry re-exports and
+    // turn the vue -> bridge -> vue cycle edge back into loadShare glue.
+    const directory = '/repo/apps/remote/node_modules/vue/components';
+    const files: Record<string, string> = {
+      '/repo/apps/remote/node_modules/vue/package.json':
+        '{"dependencies":{"bridge":"workspace:*"}}',
+      '/repo/apps/remote/node_modules/vue/index.js': "export * from './components';",
+      [`${directory}/index.js`]: "import { title } from 'bridge';\nexport const Button = title;",
+      '/repo/packages/bridge/package.json': '{"name":"bridge"}',
+    };
+    existsSyncMock.mockImplementation((p: string) => p in files || p === directory);
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p === directory) throw Object.assign(new Error('EISDIR'), { code: 'EISDIR' });
+      return files[p] ?? '{}';
+    });
+    statSyncMock.mockImplementation((p: string) => {
+      if (!(p in files) && p !== directory)
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return { size: 128, isFile: () => p !== directory };
+    });
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/packages/bridge/src/title.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+    statSyncMock.mockReset().mockImplementation(() => ({ size: 128, isFile: () => true }));
   });
 
   it('walks past a nameless package.json when identifying an unshared workspace package', async () => {
