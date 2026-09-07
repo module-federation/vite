@@ -37,6 +37,7 @@ import {
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
 import { PromiseStore } from '../utils/PromiseStore';
+import { getSharedExportConditions } from '../utils/sharedExportConditions';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
   collectTreeShakingImports,
@@ -430,9 +431,14 @@ function collectReachableRuntimeImports(entry: string, dir: string, into: Set<st
  * the fallback's evaluation graph rather than the package's declared closure — in a monorepo the
  * latter covers far more than the module graph ever does.
  */
-export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: string): boolean {
+export function isSharedPackageRuntimeDependency(
+  sharedKey: string,
+  dependency: string,
+  conditions?: readonly string[]
+): boolean {
   const sharedPackage = getPackageName(sharedKey);
-  let reachable = sharedRuntimeDependencyCache.get(sharedKey);
+  const cacheKey = `${sharedKey}\0${JSON.stringify(conditions ?? null)}`;
+  let reachable = sharedRuntimeDependencyCache.get(cacheKey);
   if (!reachable) {
     reachable = new Set<string>();
     const visited = new Set<string>();
@@ -452,6 +458,8 @@ export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: 
       const entry = getInstalledPackageEntry(request, {
         cwd: installed.dir,
         packageName: getPackageName(request),
+        resolveSubpathWithRequire: false,
+        ...(conditions !== undefined ? { conditions: [...conditions] } : {}),
       });
       if (!entry || !collectReachableRuntimeImports(entry, installed.dir, specifiers)) {
         collectAllRuntimeImports(installed.dir, specifiers);
@@ -467,7 +475,7 @@ export function isSharedPackageRuntimeDependency(sharedKey: string, dependency: 
         }
       }
     }
-    sharedRuntimeDependencyCache.set(sharedKey, reachable);
+    sharedRuntimeDependencyCache.set(cacheKey, reachable);
   }
   return reachable.has(dependency);
 }
@@ -482,6 +490,10 @@ export function proxySharedModule(options: {
   let _command = 'serve';
   let useDirectReactImport = false;
   let useRolldown = false;
+  let isProduction = false;
+  let rootResolveConditions: string[] | undefined;
+  let ssrResolveConditions: string[] | undefined;
+  let ssrTarget: 'node' | 'webworker' = 'node';
   const savePrebuild = new PromiseStore<string>();
   let devServer: ViteDevServer | undefined;
   // resolveId fires once per importing module. The loadShare virtual module,
@@ -494,9 +506,43 @@ export function proxySharedModule(options: {
   const hasAnalyzableShares = Object.values(shared).some((share) =>
     shouldAnalyzeSharedExports(share)
   );
+  type RuntimeDependencyContext = {
+    environment?: {
+      name?: string;
+      config?: {
+        consumer?: string;
+        build?: { ssr?: boolean | string };
+        isProduction?: boolean;
+        resolve?: { conditions?: string[] };
+      };
+    };
+  };
+  const getEnvironmentConfig = (context: unknown) =>
+    (context as RuntimeDependencyContext).environment?.config;
   const getEnvironmentConditions = (context: unknown): string[] | undefined =>
-    (context as { environment?: { config?: { resolve?: { conditions?: string[] } } } }).environment
-      ?.config?.resolve?.conditions;
+    getEnvironmentConfig(context)?.resolve?.conditions;
+  const getRuntimeDependencyConditions = (
+    context: unknown,
+    resolveOptions: { ssr?: boolean }
+  ): string[] => {
+    const environment = (context as RuntimeDependencyContext).environment;
+    const environmentConfig = environment?.config;
+    const isSsr =
+      resolveOptions.ssr === true ||
+      Boolean(_config?.build?.ssr) ||
+      environmentConfig?.consumer === 'server' ||
+      Boolean(environmentConfig?.build?.ssr) ||
+      environment?.name === 'ssr' ||
+      environment?.name === 'server';
+    return getSharedExportConditions({
+      environmentConditions: environmentConfig?.resolve?.conditions,
+      isProduction: environmentConfig?.isProduction ?? isProduction,
+      isSsr,
+      rootConditions: rootResolveConditions,
+      ssrConditions: ssrResolveConditions,
+      ssrTarget,
+    });
+  };
   const refreshTreeShakingForEnvironment = (context: unknown) =>
     refreshTreeShakingModules(
       federationOptions,
@@ -626,6 +672,14 @@ export function proxySharedModule(options: {
       },
       configResolved(config) {
         _config = config;
+        isProduction = config.isProduction;
+        rootResolveConditions = config.resolve?.conditions
+          ? [...config.resolve.conditions]
+          : undefined;
+        ssrResolveConditions = config.ssr?.resolve?.conditions
+          ? [...config.ssr.resolve.conditions]
+          : undefined;
+        ssrTarget = config.ssr?.target ?? 'node';
 
         // Write virtual module files and register provider metadata eagerly.
         // Materialization stays tied to imports observed by resolveId below.
@@ -778,8 +832,14 @@ export function proxySharedModule(options: {
           const importerIsUnsharedWorkspacePackage =
             !isNodeModulePath(importer!) &&
             !Object.keys(shared).some((sharedKey) => getPackageName(sharedKey) === importerPackage);
+          const runtimeDependencyRequest =
+            key.endsWith('/') && matchesSharedSource(source, key) ? source : key;
           const keepsOrdinaryEdge = importerIsUnsharedWorkspacePackage
-            ? isSharedPackageRuntimeDependency(key, importerPackage)
+            ? isSharedPackageRuntimeDependency(
+                runtimeDependencyRequest,
+                importerPackage,
+                getRuntimeDependencyConditions(this, resolveOptions)
+              )
             : isSharedPackageDependency(key, importerPackage);
           if (keepsOrdinaryEdge) return;
         }
