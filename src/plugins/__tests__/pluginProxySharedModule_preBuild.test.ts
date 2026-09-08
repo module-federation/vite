@@ -2055,6 +2055,57 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(addUsedSharesMock).not.toHaveBeenCalled();
   });
 
+  it('does not materialize unused providers during build setup', () => {
+    const plugins = proxySharedModule({
+      shared: makeShared(),
+      federationOptions: { exposes: {} } as any,
+    });
+    const proxyPlugin = getProxyPlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+    callHook(
+      proxyPlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      { experimental: { rolldownDev: false } } as unknown as ResolvedConfig
+    );
+
+    expect(addUsedSharesMock).not.toHaveBeenCalled();
+  });
+
+  it('materializes configured providers for exposing builds', () => {
+    const shared = makeShared();
+    const plugins = proxySharedModule({
+      shared,
+      federationOptions: { exposes: { './App': { import: './src/App' } } } as any,
+    });
+    const proxyPlugin = getProxyPlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+    callHook(
+      proxyPlugin.configResolved,
+      {} as MinimalPluginContextWithoutEnvironment,
+      { experimental: { rolldownDev: false } } as unknown as ResolvedConfig
+    );
+
+    expect(addUsedSharesMock).toHaveBeenCalledTimes(Object.keys(shared).length);
+  });
+
   it('keeps common shared subpaths when resolving node_modules paths', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 

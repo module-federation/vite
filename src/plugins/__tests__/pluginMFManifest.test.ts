@@ -166,6 +166,7 @@ async function runGenerateBundleWithManifest(
           shareConfig: {
             requiredVersion: string;
             singleton?: boolean;
+            eager?: boolean;
             treeShaking?: {
               mode?: 'server-calc' | 'runtime-infer';
               usedExports?: string[];
@@ -1033,6 +1034,27 @@ describe('pluginMFManifest', () => {
     const sharedAssets = manifest.shared[0].assets.js;
     expect([...sharedAssets.sync, ...sharedAssets.async]).toContain('antd-full.js');
     expect([...sharedAssets.sync, ...sharedAssets.async]).not.toContain('antd-tree.js');
+  });
+
+  it('classifies non-eager shared provider assets as async', async () => {
+    const bundle = makeBundle();
+    bundle['shared.js'] = createChunk('shared.js', ['/node_modules/vue/index.js']);
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      bundle,
+      usedShares: new Set(['vue']),
+      shareItems: {
+        vue: {
+          version: '3.5.0',
+          shareConfig: { requiredVersion: '^3.5.0', eager: false },
+        },
+      },
+    });
+
+    expect(JSON.parse(emitted['mf-manifest.json']).shared[0].assets.js).toEqual({
+      sync: [],
+      async: ['shared.js'],
+    });
   });
 
   it('marks unsafe tree-shaking usage as full-bundle-only', async () => {

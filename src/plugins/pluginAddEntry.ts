@@ -55,12 +55,13 @@ interface AddEntryOptions {
 // Tree-shaken shares deliberately keep their complete provider as a lazy
 // fallback. Preloading every virtual MF chunk would fetch that fallback
 // before runtime provider selection has a chance to choose the optimized
-// provider — so `__prebuild__` chunks are always excluded.
+// provider — so provider chunks are always excluded. `__loadShare__` chunks
+// perform their own materialization check before loading a provider.
 // Virtual MF chunk file names vary in their underscore prefix depending on
 // how the bundler sanitizes the virtual id (`_virtual_mf…`, `virtual_mf…`,
 // `__virtual_mf…`), so match by substring.
 const isPreloadableVirtualMfChunk = (name: string) =>
-  name.includes('virtual_mf') && !name.includes('__prebuild__');
+  name.includes('virtual_mf') && !name.includes('__prebuild__') && !name.includes('__loadShare__');
 
 const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
   (name) => name === 'hostInit',

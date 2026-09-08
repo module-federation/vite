@@ -472,6 +472,14 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             fileToShareKey.get(modulePath)
           );
 
+          for (const shareKey of getUsedShares(mfOptions)) {
+            const shareItem = getNormalizeShareItem(shareKey, mfOptions);
+            const assets = filesMap[shareKey];
+            if (!assets || shareItem?.shareConfig.eager === true) continue;
+            assets.js.async.push(...assets.js.sync.splice(0));
+            assets.css.async.push(...assets.css.sync.splice(0));
+          }
+
           // Add all CSS assets to every export if bundleAllCSS is enabled
           if (mfOptions.bundleAllCSS) {
             addCssAssetsToAllExports(filesMap, allCssAssets);
