@@ -157,6 +157,37 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(namespace.got).toBe('hello-from-chunk');
   });
 
+  it('loads concurrent entries that share a non-leaf module', async () => {
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/first.js': {
+        ok: true,
+        text: 'import { value } from "./shared.js"; export const result = `first-${value}`;',
+      },
+      'http://localhost:5001/second.js': {
+        ok: true,
+        text: 'import { value } from "./shared.js"; export const result = `second-${value}`;',
+      },
+      'http://localhost:5001/shared.js': {
+        ok: true,
+        text: 'import { value } from "./leaf.js"; export { value };',
+      },
+      'http://localhost:5001/leaf.js': {
+        ok: true,
+        text: 'export const value = "shared";',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+
+    const [first, second] = (await Promise.all([
+      strategy.loadViaVmStrategy('http://localhost:5001/first.js', { ...baseOptions }),
+      strategy.loadViaVmStrategy('http://localhost:5001/second.js', { ...baseOptions }),
+    ])) as [{ result: string }, { result: string }];
+
+    expect(first.result).toBe('first-shared');
+    expect(second.result).toBe('second-shared');
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+  });
+
   it('links bare shared imports through the host federation share scope', async () => {
     global.fetch = makeFetchMock({
       'http://localhost:5001/remoteEntry.ssr.js': {
