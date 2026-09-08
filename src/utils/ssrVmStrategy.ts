@@ -192,6 +192,7 @@ function createSyntheticModule(vm: VmApi, specifier: string, namespace: unknown)
 const httpModuleCache = new Map<string, Promise<VmModule>>();
 // Evaluated entry namespaces, same keying.
 const namespaceCache = new Map<string, Promise<unknown>>();
+const linkQueues = new WeakMap<object, Promise<void>>();
 
 const contextIds = new WeakMap<object, number>();
 let nextContextId = 1;
@@ -288,6 +289,25 @@ async function linkModule(
   return createSyntheticModule(vm, specifier, await loadBareModule(specifier, options));
 }
 
+async function linkModuleGraph(
+  module: VmModule,
+  linker: Linker,
+  cacheContext: object
+): Promise<void> {
+  const previous = linkQueues.get(cacheContext) ?? Promise.resolve();
+  const current = previous
+    .catch(() => {})
+    .then(async () => {
+      if (module.status === 'unlinked') await module.link(linker);
+    });
+  linkQueues.set(cacheContext, current);
+  try {
+    await current;
+  } finally {
+    if (linkQueues.get(cacheContext) === current) linkQueues.delete(cacheContext);
+  }
+}
+
 async function importDynamically(
   vm: VmApi,
   specifier: string,
@@ -296,7 +316,7 @@ async function importDynamically(
 ): Promise<VmModule> {
   const linker: Linker = (spec, referencer) => linkModule(vm, spec, referencer, options);
   const module = await linker(specifier, referencingModule);
-  if (module.status === 'unlinked') await module.link(linker);
+  await linkModuleGraph(module, linker, options.cacheContext);
   if (module.status === 'linked') await module.evaluate();
   return module;
 }
@@ -321,7 +341,7 @@ export async function loadViaVmStrategy(
         const entryModule = await getHttpModule(vm, entryUrl, options);
         const linker: Linker = (specifier, referencingModule) =>
           linkModule(vm, specifier, referencingModule, options);
-        if (entryModule.status === 'unlinked') await entryModule.link(linker);
+        await linkModuleGraph(entryModule, linker, options.cacheContext);
         if (entryModule.status === 'linked') await entryModule.evaluate();
         return entryModule.namespace;
       })().catch((error) => {
