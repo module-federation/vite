@@ -62,7 +62,15 @@ const isNodeServer = (): boolean => {
 // shared-module map. The transport closes over resolvedShared, so different
 // hosts (or federation instances) must not reuse a runner configured for
 // another host's filesystem.
-const runnerCache = new Map<string, Promise<unknown>>();
+type CachedModuleRunner = {
+  import: (id: string) => Promise<unknown>;
+  clearCache?: () => void;
+};
+
+const runnerCache = new Map<
+  string,
+  { remoteOrigin: string; promise: Promise<CachedModuleRunner | null> }
+>();
 
 function getSortedRecordEntries(record: Record<string, string>): [string, string][] {
   return Object.entries(record).sort(([left], [right]) => left.localeCompare(right));
@@ -85,7 +93,7 @@ async function getModuleRunnerModule(): Promise<{
       };
     },
     evaluator?: unknown
-  ) => { import: (id: string) => Promise<unknown> };
+  ) => CachedModuleRunner;
   ESModulesEvaluator: new () => unknown;
 } | null> {
   const moduleRunnerId = ['vite', 'module-runner'].join('/');
@@ -151,7 +159,8 @@ async function getOrCreateRunner(
   fetchMaxBytes: number
 ): Promise<unknown> {
   const cacheKey = getRunnerCacheKey(remoteOrigin, resolvedShared, fetchTimeoutMs, fetchMaxBytes);
-  if (runnerCache.has(cacheKey)) return runnerCache.get(cacheKey)!;
+  const cached = runnerCache.get(cacheKey);
+  if (cached) return cached.promise;
   const promise = (async () => {
     const viteRunner = await getModuleRunnerModule();
     if (!viteRunner) return null;
@@ -196,7 +205,7 @@ async function getOrCreateRunner(
       return null;
     }
   })();
-  runnerCache.set(cacheKey, promise);
+  runnerCache.set(cacheKey, { remoteOrigin, promise });
   return promise;
 }
 
@@ -652,6 +661,22 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
   }
 }
 
+function clearRunnerCaches(remoteEntryUrl?: string): void {
+  let remoteOrigin: string | undefined;
+  if (remoteEntryUrl) {
+    try {
+      remoteOrigin = new URL(remoteEntryUrl).origin;
+    } catch {
+      return;
+    }
+  }
+
+  for (const cached of runnerCache.values()) {
+    if (remoteOrigin && cached.remoteOrigin !== remoteOrigin) continue;
+    void cached.promise.then((runner) => runner?.clearCache?.()).catch(() => {});
+  }
+}
+
 /**
  * Drop the loader's caches so the next `loadEntry` re-resolves and re-fetches
  * remote SSR entries. Pass a remote entry URL to scope the invalidation to one
@@ -680,6 +705,8 @@ export function revalidate(remoteEntryUrl?: string): void {
     tempFileCache.clear();
     tempFilePathCache.clear();
   }
+
+  clearRunnerCaches(remoteEntryUrl);
 
   const federation = (
     globalThis as {

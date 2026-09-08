@@ -1327,7 +1327,9 @@ type RunnerOptions = {
 };
 
 async function freshLoaderWithRunner(
-  runnerFactory: (options: RunnerOptions) => { import: (id: string) => Promise<unknown> } | null
+  runnerFactory: (
+    options: RunnerOptions
+  ) => { import: (id: string) => Promise<unknown>; clearCache?: () => void } | null
 ) {
   vi.resetModules();
   const runnerModule = {
@@ -1368,8 +1370,8 @@ async function freshLoaderWithRunner(
     return runnerModule;
   });
   vi.doMock('module', () => ({ default: { createRequire }, createRequire }));
-  const { default: factory } = await import('../ssrEntryLoader');
-  return factory;
+  const { default: factory, revalidate } = await import('../ssrEntryLoader');
+  return { factory, revalidate };
 }
 
 describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
@@ -1377,7 +1379,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     const mockMod = { init: vi.fn(), get: vi.fn() };
     const mockImport = vi.fn().mockResolvedValue(mockMod);
 
-    const factory = await freshLoaderWithRunner(() => ({ import: mockImport }));
+    const { factory } = await freshLoaderWithRunner(() => ({ import: mockImport }));
 
     const fetch = makeFetchMock({
       'http://localhost:4175/mf-manifest.json': {
@@ -1403,6 +1405,52 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     expect(result).toBe(mockMod);
   });
 
+  it('clears the matching ModuleRunner cache on explicit revalidation', async () => {
+    let marker = 'v1';
+    let cachedModule: { init: unknown; get: unknown; marker: string } | undefined;
+    const runner = {
+      import: vi.fn(async () => {
+        cachedModule ??= { init: vi.fn(), get: vi.fn(), marker };
+        return cachedModule;
+      }),
+      clearCache: vi.fn(() => {
+        cachedModule = undefined;
+      }),
+    };
+    const { factory, revalidate } = await freshLoaderWithRunner(() => runner);
+
+    const fetch = makeFetchMock({
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    const plugin = factory();
+    const first = await plugin.loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    marker = 'v2';
+    revalidate('http://localhost:4175/remoteEntry.js');
+    await vi.waitFor(() => expect(runner.clearCache).toHaveBeenCalledOnce());
+    const second = await plugin.loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    expect((first as unknown as { marker: string }).marker).toBe('v1');
+    expect((second as unknown as { marker: string }).marker).toBe('v2');
+  });
+
   it('preserves remote module resolution and isolates runners by host', async () => {
     const hostReactPaths = [
       '/host-a/node_modules/react/index.js',
@@ -1410,7 +1458,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     ];
     const sharedFetchResults: unknown[] = [];
 
-    const factory = await freshLoaderWithRunner((runnerOptions) => ({
+    const { factory } = await freshLoaderWithRunner((runnerOptions) => ({
       import: vi.fn(async () => {
         sharedFetchResults.push(
           await runnerOptions.transport.invoke({
@@ -1466,7 +1514,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
 
   it('falls back to a host shared module when remote resolution fails', async () => {
     const sharedFetchResults: unknown[] = [];
-    const factory = await freshLoaderWithRunner((runnerOptions) => ({
+    const { factory } = await freshLoaderWithRunner((runnerOptions) => ({
       import: vi.fn(async () => {
         sharedFetchResults.push(
           await runnerOptions.transport.invoke({
@@ -1510,7 +1558,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
 
   it('does not throw when the runner endpoint returns a JSON primitive', async () => {
     const sharedFetchResults: unknown[] = [];
-    const factory = await freshLoaderWithRunner((runnerOptions) => ({
+    const { factory } = await freshLoaderWithRunner((runnerOptions) => ({
       import: vi.fn(async () => {
         sharedFetchResults.push(
           await runnerOptions.transport.invoke({
