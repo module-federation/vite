@@ -722,10 +722,11 @@ export function proxySharedModule(options: {
         // in the config hook (createEarlyVirtualModulesPlugin), so Vite
         // pre-bundles them upfront without triggering re-optimization.
         const isRolldown = getIsRolldown(this);
-        // Build output can emit the shared map before every consumer has been
-        // transformed, so retain its established eager seed set. Dev resolves
-        // imports incrementally and can distinguish configured from consumed.
-        const registerConfiguredShare = _command === 'serve' ? addConfiguredShare : addUsedShares;
+        const resolvedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
+        const registerConfiguredShare =
+          _command === 'build' && Object.keys(resolvedOptions.exposes).length > 0
+            ? addUsedShares
+            : addConfiguredShare;
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/')) return;
           if (useDirectReactImport && key === 'react') {
