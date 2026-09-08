@@ -62,7 +62,15 @@ const isNodeServer = (): boolean => {
 // shared-module map. The transport closes over resolvedShared, so different
 // hosts (or federation instances) must not reuse a runner configured for
 // another host's filesystem.
-const runnerCache = new Map<string, Promise<unknown>>();
+type CachedModuleRunner = {
+  import: (id: string) => Promise<unknown>;
+  clearCache?: () => void;
+};
+
+const runnerCache = new Map<
+  string,
+  { remoteOrigin: string; promise: Promise<CachedModuleRunner | null> }
+>();
 
 function getSortedRecordEntries(record: Record<string, string>): [string, string][] {
   return Object.entries(record).sort(([left], [right]) => left.localeCompare(right));
@@ -85,7 +93,7 @@ async function getModuleRunnerModule(): Promise<{
       };
     },
     evaluator?: unknown
-  ) => { import: (id: string) => Promise<unknown> };
+  ) => CachedModuleRunner;
   ESModulesEvaluator: new () => unknown;
 } | null> {
   const moduleRunnerId = ['vite', 'module-runner'].join('/');
@@ -151,7 +159,8 @@ async function getOrCreateRunner(
   fetchMaxBytes: number
 ): Promise<unknown> {
   const cacheKey = getRunnerCacheKey(remoteOrigin, resolvedShared, fetchTimeoutMs, fetchMaxBytes);
-  if (runnerCache.has(cacheKey)) return runnerCache.get(cacheKey)!;
+  const cached = runnerCache.get(cacheKey);
+  if (cached) return cached.promise;
   const promise = (async () => {
     const viteRunner = await getModuleRunnerModule();
     if (!viteRunner) return null;
@@ -196,7 +205,7 @@ async function getOrCreateRunner(
       return null;
     }
   })();
-  runnerCache.set(cacheKey, promise);
+  runnerCache.set(cacheKey, { remoteOrigin, promise });
   return promise;
 }
 
@@ -272,10 +281,21 @@ function parseRunnerInvokeResult(
  * Version key for a resolved SSR entry. Derived from the remote's manifest
  * content so a redeploy at the same URL produces a different key, which in
  * turn produces different temp-file names — busting both our caches and
- * Node's ESM module cache. Convention-resolved entries (no manifest) get a
- * stable placeholder key and cannot be revalidated automatically.
+ * Node's ESM module cache. Convention-resolved entries (no manifest) use a
+ * stable placeholder key for ordinary loads; explicit `revalidate()` calls
+ * advance a process-local generation so the next import is fresh.
  */
 const UNVERSIONED = 'unversioned';
+const unversionedGenerations = new Map<string, number>();
+let unversionedGlobalGeneration = 0;
+
+function getUnversionedVersionKey(remoteEntryUrl: string): string {
+  return `${UNVERSIONED}-${unversionedGlobalGeneration}-${unversionedGenerations.get(remoteEntryUrl) ?? 0}`;
+}
+
+function bumpUnversionedGeneration(remoteEntryUrl: string): void {
+  unversionedGenerations.set(remoteEntryUrl, (unversionedGenerations.get(remoteEntryUrl) ?? 0) + 1);
+}
 
 // FNV-1a — cheap, dependency-free, stable across processes. Not cryptographic;
 // only used to key caches and temp file names.
@@ -495,16 +515,20 @@ function buildSsrEntryCandidates(
     candidates.push({
       url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
       type: 'module',
-      versionKey: UNVERSIONED,
+      versionKey: getUnversionedVersionKey(ctx.entryUrl),
     });
   }
 
   candidates.push(
-    { url: `${base}.ssr.js`, type: 'module', versionKey: UNVERSIONED },
+    {
+      url: `${base}.ssr.js`,
+      type: 'module',
+      versionKey: getUnversionedVersionKey(ctx.entryUrl),
+    },
     {
       url: `${remoteOrigin}/__mf_ssr__/${filename}.ssr.js`,
       type: 'module',
-      versionKey: UNVERSIONED,
+      versionKey: getUnversionedVersionKey(ctx.entryUrl),
     }
   );
 
@@ -528,7 +552,11 @@ async function resolveSSREntryImpl(
   fetchMaxBytes: number
 ): Promise<SsrEntryCandidate | null> {
   if (isSsrEntry(remoteEntryUrl)) {
-    return { url: remoteEntryUrl, type: 'module', versionKey: UNVERSIONED };
+    return {
+      url: remoteEntryUrl,
+      type: 'module',
+      versionKey: getUnversionedVersionKey(remoteEntryUrl),
+    };
   }
 
   // For JS entries, probe the dedicated server build before fetching the manifest.
@@ -539,7 +567,7 @@ async function resolveSSREntryImpl(
       {
         url: `${remoteOrigin}/__mf_server__/${filename}.ssr.js`,
         type: 'module',
-        versionKey: UNVERSIONED,
+        versionKey: getUnversionedVersionKey(remoteEntryUrl),
       },
       fetchTimeoutMs
     );
@@ -633,6 +661,22 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
   }
 }
 
+function clearRunnerCaches(remoteEntryUrl?: string): void {
+  let remoteOrigin: string | undefined;
+  if (remoteEntryUrl) {
+    try {
+      remoteOrigin = new URL(remoteEntryUrl).origin;
+    } catch {
+      return;
+    }
+  }
+
+  for (const cached of runnerCache.values()) {
+    if (remoteOrigin && cached.remoteOrigin !== remoteOrigin) continue;
+    void cached.promise.then((runner) => runner?.clearCache?.()).catch(() => {});
+  }
+}
+
 /**
  * Drop the loader's caches so the next `loadEntry` re-resolves and re-fetches
  * remote SSR entries. Pass a remote entry URL to scope the invalidation to one
@@ -645,6 +689,7 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
  */
 export function revalidate(remoteEntryUrl?: string): void {
   if (remoteEntryUrl) {
+    bumpUnversionedGeneration(remoteEntryUrl);
     for (const key of ssrEntryCache.keys()) {
       if (key.endsWith(`::${remoteEntryUrl}`)) ssrEntryCache.delete(key);
     }
@@ -654,11 +699,14 @@ export function revalidate(remoteEntryUrl?: string): void {
     }
     dropRemoteCaches(remoteEntryUrl);
   } else {
+    unversionedGlobalGeneration += 1;
     ssrEntryCache.clear();
     manifestFetchCache.clear();
     tempFileCache.clear();
     tempFilePathCache.clear();
   }
+
+  clearRunnerCaches(remoteEntryUrl);
 
   const federation = (
     globalThis as {
