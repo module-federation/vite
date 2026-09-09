@@ -2205,8 +2205,14 @@ export function generateHostAutoInitCode(
               const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
               if (
                 __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined &&
-                __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) ${
-                  _command === 'serve' ? '!== undefined' : `=== ${cacheOwner}`
+                ${
+                  _command === 'serve'
+                    ? `__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined`
+                    : // A singleton negotiates against every remote under this strategy, so the
+                      // pre-init seed above can only ever record this container's own provisional
+                      // guess for it. Re-run loadShare() to let the runtime confirm or upgrade that
+                      // guess once remotes have registered, instead of treating it as final.
+                      `(!share.shareConfig?.singleton && __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) === ${cacheOwner})`
                 }
               ) return;
               // An import:false share has nothing to load until a foreign provider
