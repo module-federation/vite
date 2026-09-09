@@ -1,3 +1,5 @@
+import { basename, extname } from 'node:path';
+
 /**
  * Rebase an import path for a bootstrap file that moved from root into `dir`.
  *
@@ -56,4 +58,29 @@ export const EXTERNAL_URL_RE = /^(?:[a-z]+:|\/\/)/i;
 export function isAbsoluteUrl(src: string): boolean {
   if (/^[a-z]:[\\/]/i.test(src)) return false;
   return EXTERNAL_URL_RE.test(src);
+}
+
+// Matches literal `[hash]` / `[hash:N]` placeholders together with the separator
+// that usually precedes them, so `remoteEntry-[hash].js` collapses to
+// `remoteEntry.js` rather than `remoteEntry-.js`.
+// Only ever used with String.prototype.replace, which resets lastIndex.
+const HASH_PLACEHOLDER_RE = /(?:[._-]?\[hash(?::\d+)?\])/g;
+
+/**
+ * Resolve a bundler `filename` template that still contains `[hash]` placeholders
+ * into the concrete, stable file name Module Federation serves.
+ *
+ * The federation entries are emitted by us rather than hashed by the bundler, so
+ * the placeholder is dropped instead of being substituted. When stripping it also
+ * removes the extension (`mf-[hash:8]` → `mf`), `.js` is appended so the result
+ * stays a loadable module. The extension check deliberately looks at the basename
+ * only — a dotted directory (`assets/v1.2/entry`) must not be mistaken for one.
+ */
+export function resolveHashPlaceholderFileName(fileName: string): string {
+  if (!fileName.includes('[hash')) return fileName;
+
+  const normalized = fileName.replace(HASH_PLACEHOLDER_RE, '');
+  const baseName = basename(normalized);
+
+  return extname(baseName) ? normalized : `${normalized}.js`;
 }

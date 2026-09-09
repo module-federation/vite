@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAbsoluteUrl, rebaseImport } from '../buildPaths';
+import { isAbsoluteUrl, rebaseImport, resolveHashPlaceholderFileName } from '../buildPaths';
 
 describe('rebaseImport', () => {
   it('strips dir prefix from absolute path and makes relative', () => {
@@ -86,5 +86,40 @@ describe('isAbsoluteUrl', () => {
     expect(isAbsoluteUrl('./hostInit.js')).toBe(false);
     expect(isAbsoluteUrl('/static/js/hostInit.js')).toBe(false);
     expect(isAbsoluteUrl('static/js/hostInit.js')).toBe(false);
+  });
+});
+
+describe('resolveHashPlaceholderFileName', () => {
+  it('returns names without a placeholder unchanged', () => {
+    expect(resolveHashPlaceholderFileName('remoteEntry.js')).toBe('remoteEntry.js');
+    expect(resolveHashPlaceholderFileName('assets/remoteEntry.js')).toBe('assets/remoteEntry.js');
+  });
+
+  it('strips the placeholder along with its separator', () => {
+    expect(resolveHashPlaceholderFileName('remoteEntry-[hash].js')).toBe('remoteEntry.js');
+    expect(resolveHashPlaceholderFileName('remoteEntry.[hash].js')).toBe('remoteEntry.js');
+    expect(resolveHashPlaceholderFileName('remoteEntry_[hash].js')).toBe('remoteEntry.js');
+  });
+
+  it('supports sized placeholders', () => {
+    expect(resolveHashPlaceholderFileName('remote-entry-[hash:8].js')).toBe('remote-entry.js');
+  });
+
+  it('appends .js when stripping leaves no extension', () => {
+    expect(resolveHashPlaceholderFileName('remoteEntry-[hash]')).toBe('remoteEntry.js');
+    expect(resolveHashPlaceholderFileName('mf-[hash:8]')).toBe('mf.js');
+  });
+
+  it('treats a dotted directory as a directory, not an extension', () => {
+    expect(resolveHashPlaceholderFileName('assets/v1.2/remoteEntry-[hash]')).toBe(
+      'assets/v1.2/remoteEntry.js'
+    );
+    expect(resolveHashPlaceholderFileName('static/js.v2/mf-[hash:8]')).toBe('static/js.v2/mf.js');
+  });
+
+  it('is stable across repeated calls (global regex lastIndex)', () => {
+    for (let i = 0; i < 3; i++) {
+      expect(resolveHashPlaceholderFileName('remoteEntry-[hash].js')).toBe('remoteEntry.js');
+    }
   });
 });

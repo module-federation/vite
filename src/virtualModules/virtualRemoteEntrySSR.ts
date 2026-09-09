@@ -2,6 +2,7 @@ import {
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
+import { resolveHashPlaceholderFileName } from '../utils/buildPaths';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
 import { expandSharedPrefixKey, getUsedShares } from './virtualRemoteEntry';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
@@ -15,29 +16,27 @@ export function getRemoteEntrySSRId(
   return `${REMOTE_ENTRY_SSR_ID}:${getVirtualModuleScopeKey(options)}`;
 }
 
-function stripSsrFilenameHashPlaceholder(filename: string): string {
-  // Strip literal `[hash]` / `[hash:N]` placeholders so SSR companions stay
-  // stable (`remoteEntry-[hash].js` → `remoteEntry.js`). Do not try to mirror
-  // the browser content hash in the SSR filename.
-  if (!filename.includes('[hash')) return filename;
-  filename = filename.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
-  if (!/\.[^.]+$/.test(filename)) {
-    filename = `${filename}.js`;
-  }
-  return filename;
+// Trailing extension of a file name, e.g. `.js` in `remoteEntry.ssr.js`.
+const FILE_EXTENSION_RE = /\.[^.]+$/;
+
+// SSR companions keep a stable name instead of mirroring the browser content
+// hash, so `[hash]` placeholders are stripped rather than substituted. The
+// shared helper is used so the SSR name is derived exactly like the browser
+// one — see resolveHashPlaceholderFileName.
+function getSsrFileNameParts(browserFilename: string): { base: string; ext: string | undefined } {
+  const filename = resolveHashPlaceholderFileName(browserFilename);
+  const ext = FILE_EXTENSION_RE.exec(filename)?.[0];
+  const base = ext ? filename.slice(0, filename.length - ext.length) : filename;
+  return { base, ext };
 }
 
 export function getSsrRemoteEntryFileName(browserFilename: string): string {
-  const filename = stripSsrFilenameHashPlaceholder(browserFilename);
-  const ext = filename.match(/\.[^.]+$/)?.[0] || '.js';
-  const base = filename.slice(0, filename.length - ext.length);
-  return `${base}.ssr${ext}`;
+  const { base, ext } = getSsrFileNameParts(browserFilename);
+  return `${base}.ssr${ext ?? '.js'}`;
 }
 
 export function getSsrExposesFileName(browserFilename: string): string {
-  const filename = stripSsrFilenameHashPlaceholder(browserFilename);
-  const ext = filename.match(/\.[^.]+$/)?.[0];
-  const base = ext ? filename.slice(0, filename.length - ext.length) : filename;
+  const { base } = getSsrFileNameParts(browserFilename);
   return `${base}.exposes.js`;
 }
 
