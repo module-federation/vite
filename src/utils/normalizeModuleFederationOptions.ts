@@ -843,10 +843,7 @@ export function normalizeModuleFederationOptions(
     disableSnapshot: options.disableSnapshot,
     experiments: normalizeExperiments(options.experiments),
   };
-  if (
-    normalized.experiments.ssrMode === 'ISLAND' &&
-    Object.prototype.hasOwnProperty.call(normalized.shared, 'react')
-  ) {
+  if (normalized.experiments.ssrMode === 'ISLAND' && Object.hasOwn(normalized.shared, 'react')) {
     mfWarn(
       'Island expose generation is disabled because experiments.ssrMode is "ISLAND" and React is configured as shared. ' +
         'Remove "react" from shared to generate island exposes, or remove ssrMode to use standard shared rendering.'

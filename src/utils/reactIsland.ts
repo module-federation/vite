@@ -79,7 +79,7 @@ export function getReactIslandExposes(
   root: string
 ): ReadonlySet<string> {
   if (options.experiments.ssrMode !== 'ISLAND') return new Set();
-  if (Object.prototype.hasOwnProperty.call(options.shared, 'react')) return new Set();
+  if (Object.hasOwn(options.shared, 'react')) return new Set();
 
   const islandExposes = new Set<string>();
   for (const [key, expose] of Object.entries(options.exposes)) {

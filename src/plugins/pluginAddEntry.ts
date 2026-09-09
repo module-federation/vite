@@ -541,10 +541,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
                 Object.entries(federationOptions.shared).find(
                   ([key]) => key.endsWith('/') && pkg.startsWith(key)
                 )?.[1];
-              const isExplicitShare = Object.prototype.hasOwnProperty.call(
-                federationOptions.shared,
-                pkg
-              );
+              const isExplicitShare = Object.hasOwn(federationOptions.shared, pkg);
               return (
                 shareItem?.shareConfig?.singleton === true &&
                 shareItem?.shareConfig?.import !== false &&

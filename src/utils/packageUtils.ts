@@ -274,7 +274,7 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
             if (value !== undefined) return value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {
-              if (!Object.prototype.hasOwnProperty.call(cache, alias)) continue;
+              if (!Object.hasOwn(cache, alias)) continue;
               const aliasValue = cache[alias];
               if (aliasValue !== undefined) {
                 cache[descriptor.canonical] = aliasValue;

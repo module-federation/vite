@@ -242,11 +242,11 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
     command === 'serve' &&
     isConsumerProject &&
     (typeof manifestOptions !== 'object' ||
-      !Object.prototype.hasOwnProperty.call(manifestOptions, 'disableAssetsAnalyze'));
+      !Object.hasOwn(manifestOptions, 'disableAssetsAnalyze'));
 
   const getConfiguredDisableAssetsAnalyze = (command: string | undefined) => {
     if (typeof manifestOptions === 'object' && manifestOptions !== null) {
-      if (Object.prototype.hasOwnProperty.call(manifestOptions, 'disableAssetsAnalyze')) {
+      if (Object.hasOwn(manifestOptions, 'disableAssetsAnalyze')) {
         return manifestOptions.disableAssetsAnalyze === true;
       }
     }
