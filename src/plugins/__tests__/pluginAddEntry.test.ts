@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { escapeRegExp } from '../../utils/regexEscape';
 import type {
   ConfigEnv,
   ConfigPluginContext,
@@ -1526,9 +1527,7 @@ describe('pluginAddEntry', () => {
     if (typeof result !== 'string') throw new Error('transformIndexHtml should return html string');
 
     const proxyPrefix = toViteEncodedId('virtual:mf-html-entry-proxy?');
-    const proxyIdMatch = result.match(
-      new RegExp(`src="(${proxyPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"]*)"`)
-    );
+    const proxyIdMatch = result.match(new RegExp(`src="(${escapeRegExp(proxyPrefix)}[^"]*)"`));
     expect(proxyIdMatch).not.toBeNull();
 
     const proxyId = decodeURIComponent(proxyIdMatch![1]).replace(/&amp;/g, '&');
@@ -1597,9 +1596,7 @@ describe('pluginAddEntry', () => {
 
     // Extract the proxy module ID from the rewritten HTML and load it
     const proxyPrefix = toViteEncodedId('virtual:mf-html-entry-proxy?');
-    const proxyIdMatch = result.match(
-      new RegExp(`src="(${proxyPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"]*)"`)
-    );
+    const proxyIdMatch = result.match(new RegExp(`src="(${escapeRegExp(proxyPrefix)}[^"]*)"`));
     expect(proxyIdMatch).not.toBeNull();
     const proxyId = decodeURIComponent(proxyIdMatch![1]).replace(/&amp;/g, '&');
     const code = await runLoad(servePlugin, proxyId);
