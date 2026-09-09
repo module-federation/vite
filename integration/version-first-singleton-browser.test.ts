@@ -6,7 +6,7 @@ import path from 'node:path';
 import { build } from 'vite';
 import { describe, expect, it } from 'vitest';
 import { federation } from '../src';
-import { setPackageDetectionCwd } from '../src/utils/packageUtils';
+import { getPackageDetectionCwd, setPackageDetectionCwd } from '../src/utils/packageUtils';
 import { FIXTURES } from './helpers/build';
 
 type StaticServer = {
@@ -122,6 +122,7 @@ function hostOptions(remoteEntry: string) {
 
 describe('version-first singleton static import browser bootstrap', () => {
   it('resolves both host and remote static imports to the higher negotiated version', async () => {
+    const originalPackageDetectionCwd = getPackageDetectionCwd();
     const workspace = await mkdtemp(path.join(tmpdir(), 'mf-version-first-singleton-browser-'));
     let remoteServer: StaticServer | undefined;
     let hostServer: StaticServer | undefined;
@@ -184,11 +185,13 @@ describe('version-first singleton static import browser bootstrap', () => {
       expect(hostSaw).toBe('1.5.0');
       expect(remoteSaw).toBe('1.5.0');
       expect(pageErrors).toEqual([]);
+      expect(consoleErrors).toEqual([]);
     } finally {
       await browser?.close();
       await hostServer?.close();
       await remoteServer?.close();
       await rm(workspace, { recursive: true, force: true });
+      setPackageDetectionCwd(originalPackageDetectionCwd);
     }
   }, 60_000);
 });
