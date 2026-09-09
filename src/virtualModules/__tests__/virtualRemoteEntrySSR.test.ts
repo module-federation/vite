@@ -95,6 +95,13 @@ describe('virtualRemoteEntrySSR', () => {
       expect(getSsrRemoteEntryFileName('remoteEntry-[hash].js')).not.toContain('[hash');
       expect(getSsrRemoteEntryFileName('mf-[hash:8]')).not.toContain('[hash');
     });
+
+    it('keeps a dotted output directory intact', () => {
+      expect(getSsrRemoteEntryFileName('assets/v1.2/remoteEntry-[hash]')).toBe(
+        'assets/v1.2/remoteEntry.ssr.js'
+      );
+      expect(getSsrRemoteEntryFileName('static/js.v2/mf-[hash:8]')).toBe('static/js.v2/mf.ssr.js');
+    });
   });
 
   describe('getSsrExposesFileName', () => {
@@ -111,6 +118,13 @@ describe('virtualRemoteEntrySSR', () => {
     it('never leaves a literal [hash] in the exposes filename', () => {
       expect(getSsrExposesFileName('remoteEntry-[hash].js')).not.toContain('[hash');
       expect(getSsrExposesFileName('mf-[hash:8]')).not.toContain('[hash');
+    });
+
+    it('keeps a dotted output directory intact', () => {
+      expect(getSsrExposesFileName('assets/v1.2/remoteEntry-[hash]')).toBe(
+        'assets/v1.2/remoteEntry.exposes.js'
+      );
+      expect(getSsrExposesFileName('static/js.v2/mf-[hash:8]')).toBe('static/js.v2/mf.exposes.js');
     });
   });
 

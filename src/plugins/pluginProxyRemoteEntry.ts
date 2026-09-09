@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 import type { Plugin } from 'vite';
-import { normalizePathForImport } from '../utils/buildPaths';
+import { normalizePathForImport, resolveHashPlaceholderFileName } from '../utils/buildPaths';
 import { findModuleImportDescriptors, getScannableModuleSource } from '../utils/htmlEntryUtils';
 import {
   addCssAssetsToAllExports,
@@ -29,15 +29,6 @@ interface ProxyRemoteEntryParams {
   remoteEntryId: string;
   virtualExposesId: string;
   getParsePromise?: () => Promise<unknown>;
-}
-
-function resolveDevHashEntryFileName(fileName: string) {
-  if (!fileName.includes('[hash')) return fileName;
-
-  const normalized = fileName.replace(/(?:[._-]?\[hash(?::\d+)?\])/g, '');
-  const baseName = path.basename(normalized);
-
-  return path.extname(baseName) ? normalized : `${normalized}.js`;
 }
 
 function resolveAbsoluteDevRemoteEntryUrl(publicPath: string, fileName: string): string {
@@ -252,7 +243,7 @@ export default function ({
               originalConfigBase
             );
             const devPublicPath = resolvedPublicPath === 'auto' ? '/' : resolvedPublicPath;
-            const remoteEntryFileName = resolveDevHashEntryFileName(options.filename);
+            const remoteEntryFileName = resolveHashPlaceholderFileName(options.filename);
             const isAbsolutePublicPath = /^https?:\/\//i.test(devPublicPath);
             const remoteEntryUrl = JSON.stringify(
               isAbsolutePublicPath
