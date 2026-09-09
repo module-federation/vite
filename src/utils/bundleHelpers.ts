@@ -1,4 +1,5 @@
 import type { OutputBundleItem } from './cssModuleHelpers';
+import { escapeRegExp } from './regexEscape';
 
 type BundleChunkLike = { type: 'chunk'; fileName: string; code: string };
 type BundleAssetLike = { type: 'asset'; fileName: string };
@@ -14,10 +15,6 @@ type SystemProxyInfo = {
 
 function isOutputChunk(chunk: BundleLike[string]): chunk is BundleChunkLike {
   return chunk.type === 'chunk';
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**

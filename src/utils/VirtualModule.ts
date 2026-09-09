@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import { packageNameDecode, packageNameEncode } from '../utils/packageUtils';
 import { createModuleFederationError } from './logger';
+import { escapeRegExp } from './regexEscape';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 
 export function getSuffix(name: string): string {
@@ -35,10 +36,6 @@ export const VITE_ENCODED_NULL_BYTE_PREFIX = `${VITE_ID_PREFIX}${VITE_NULL_BYTE_
 // Separates a federation instance's internalName from its per-generation
 // owner id inside scoped virtual module names.
 export const MF_OWNER_INFIX = '__mf_owner__';
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 export function createViteEncodedIdPrefixRegExp(sourcePrefix = ''): RegExp {
   return new RegExp(`^(?:${escapeRegExp(VITE_ENCODED_NULL_BYTE_PREFIX)})?${sourcePrefix}`);

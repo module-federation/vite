@@ -5,6 +5,7 @@ import { resolveRemoteConsumer } from '../utils/remoteConsumerTarget';
 import { getSsrCapabilities } from '../utils/ssrCapabilities';
 import { getInstalledPackageEntry } from '../utils/packageUtils';
 import { filterId } from '../utils/pathNormalization';
+import { escapeRegExp } from '../utils/regexEscape';
 import {
   getReactIslandImportRemoteId,
   getReactIslandServerImportId,
@@ -15,10 +16,6 @@ import { addUsedRemote, getRemoteVirtualModule, refreshHostAutoInit } from '../v
 
 function isNodeModulesImporter(importer?: string) {
   return importer?.includes('/node_modules/') || importer?.includes('\\node_modules\\');
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function appendAlias(config: Record<string, any>, alias: { find: RegExp; replacement: string }) {

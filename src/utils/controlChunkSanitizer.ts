@@ -1,4 +1,5 @@
 import { isIdentifierReferenced } from './bundleHelpers';
+import { escapeRegExp } from './regexEscape';
 
 const FEDERATION_CONTROL_CHUNK_HINTS = [
   'hostInit',
@@ -87,7 +88,7 @@ export function sanitizeFederationControlChunk(
 
   if (fileName.includes('localSharedImportMap')) {
     const remoteEntryImportRegex = new RegExp(
-      `import\\s*["'][^"']*${filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']\\s*;?`,
+      `import\\s*["'][^"']*${escapeRegExp(filename)}["']\\s*;?`,
       'g'
     );
     nextCode = nextCode.replace(remoteEntryImportRegex, '');
