@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +11,7 @@ import type {
   ConfigPluginContext,
   ConfigEnv,
   UserConfig,
+  ViteDevServer,
   Rollup,
 } from 'vite';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
@@ -17,6 +19,12 @@ import { callHook } from '../../utils/__tests__/viteHookHelpers';
 
 const hasPackageDependency = vi.hoisted(() => vi.fn(() => false));
 const networkInterfaces = vi.hoisted(() => vi.fn());
+const devWorker = vi.hoisted(() => ({
+  connect: vi.fn(),
+  process: { send: vi.fn() },
+  terminate: vi.fn(),
+  id: 'test-worker',
+}));
 
 vi.mock('../../utils/packageUtils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/packageUtils')>();
@@ -30,6 +38,17 @@ vi.mock('os', async (importOriginal) => {
   const actual = await importOriginal<typeof import('os')>();
   const mockedOs = { ...actual, networkInterfaces };
   return { ...mockedOs, default: mockedOs };
+});
+
+vi.mock('@module-federation/dts-plugin/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@module-federation/dts-plugin/core')>();
+  return {
+    ...actual,
+    rpc: {
+      ...actual.rpc,
+      createRpcWorker: () => devWorker,
+    },
+  };
 });
 
 import {
@@ -269,5 +288,61 @@ describe('pluginDts dev FEDERATION_IPV4', () => {
 
     expect(config.define?.['FEDERATION_IPV4']).toBe(JSON.stringify('10.10.10.10'));
     expect(networkInterfaces).not.toHaveBeenCalled();
+  });
+});
+
+describe('pluginDts dev updates', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('debounces watcher events and clears the pending update on close', () => {
+    const normalized = normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: { './button': './src/button.ts' },
+      dts: { generateTypes: true, consumeTypes: false },
+    });
+    const devPlugin = pluginDts(normalized).find(
+      (plugin) => plugin.name === 'module-federation-dts-dev'
+    );
+    if (!devPlugin) throw new Error('dev plugin missing');
+
+    runConfig(devPlugin, {});
+    runConfigResolved(devPlugin, {
+      root: process.cwd(),
+      base: '/',
+      build: { outDir: 'dist' },
+    } as ResolvedConfig);
+
+    const watcher = new EventEmitter();
+    const httpServer = new EventEmitter();
+    callHook(
+      devPlugin.configureServer,
+      {} as MinimalPluginContextWithoutEnvironment,
+      {
+        watcher,
+        httpServer,
+        middlewares: { use: vi.fn() },
+      } as unknown as ViteDevServer
+    );
+
+    watcher.emit('change', 'one.ts');
+    watcher.emit('add', 'two.ts');
+    watcher.emit('unlink', 'three.ts');
+    vi.advanceTimersByTime(299);
+    expect(devWorker.process.send).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(devWorker.process.send).toHaveBeenCalledTimes(1);
+
+    watcher.emit('change', 'four.ts');
+    httpServer.emit('close');
+    vi.advanceTimersByTime(300);
+    expect(devWorker.process.send).toHaveBeenCalledTimes(1);
+    expect(devWorker.terminate).toHaveBeenCalledTimes(1);
   });
 });

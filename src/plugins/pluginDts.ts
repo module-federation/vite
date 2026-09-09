@@ -69,6 +69,7 @@ const getIPv4 = () => {
 };
 
 const DEV_TYPES_FOLDER = '.dev-server';
+const UPDATE_DEBOUNCE_MS = 300;
 
 type DevWorkerOptions = DTSManagerOptions & {
   name: string;
@@ -487,12 +488,17 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
           disableHotTypesReload: devOptions.disableHotTypesReload,
         });
 
-        const update = () => devWorker?.update();
+        let updateTimer: ReturnType<typeof setTimeout> | undefined;
+        const update = () => {
+          clearTimeout(updateTimer);
+          updateTimer = setTimeout(() => devWorker?.update(), UPDATE_DEBOUNCE_MS);
+        };
         server.watcher.on('change', update);
         server.watcher.on('add', update);
         server.watcher.on('unlink', update);
 
         server.httpServer?.once('close', () => {
+          clearTimeout(updateTimer);
           devWorker?.exit();
           server.watcher.off('change', update);
           server.watcher.off('add', update);
