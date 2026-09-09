@@ -347,7 +347,7 @@ vi.mock('../../utils/packageUtils', () => {
             if (value !== undefined) return value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {
-              if (!Object.hasOwn(cache, alias)) continue;
+              if (!Object.prototype.hasOwnProperty.call(cache, alias)) continue;
               const aliasValue = cache[alias];
               if (aliasValue !== undefined) {
                 cache[descriptor.canonical] = aliasValue;
