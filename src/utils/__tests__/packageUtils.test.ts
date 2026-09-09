@@ -588,7 +588,7 @@ describe('getSharedCacheKey', () => {
       },
       constructorValue
     );
-    expect(Object.prototype.hasOwnProperty.call(cache, 'constructor')).toBe(true);
+    expect(Object.hasOwn(cache, 'constructor')).toBe(true);
     expect(cache.constructor).toBe(constructorValue);
     expect(Object.getPrototypeOf(cache)).toBe(originalPrototype);
 
@@ -601,7 +601,7 @@ describe('getSharedCacheKey', () => {
       },
       protoValue
     );
-    expect(Object.prototype.hasOwnProperty.call(cache, '__proto__')).toBe(true);
+    expect(Object.hasOwn(cache, '__proto__')).toBe(true);
     expect(cache.__proto__).toBe(protoValue);
     expect(Object.getPrototypeOf(cache)).toBe(originalPrototype);
   });

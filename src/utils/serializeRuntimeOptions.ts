@@ -89,7 +89,7 @@ export function serializeRuntimeOptions(options: Record<string, unknown>): strin
 
         const properties: string[] = [];
         for (const key in val) {
-          if (Object.prototype.hasOwnProperty.call(val, key)) {
+          if (Object.hasOwn(val, key)) {
             properties.push(`${toSafeJsLiteral(key)}: ${valueToCode(val[key])}`);
           }
         }
@@ -109,7 +109,7 @@ export function serializeRuntimeOptions(options: Record<string, unknown>): strin
 
   // Iterate over the properties of the root 'options' object
   for (const key in options) {
-    if (Object.prototype.hasOwnProperty.call(options, key)) {
+    if (Object.hasOwn(options, key)) {
       topLevelProps.push(`${toSafeJsLiteral(key)}: ${valueToCode(options[key])}`);
     }
   }

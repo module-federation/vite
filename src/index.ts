@@ -252,8 +252,13 @@ function appendResolveAlias(config: UserConfig, alias: ResolveAliasEntry): void 
   ];
 }
 
+// `<dir>/index.js` runtime entry, captured as (directory, extension) so the
+// sibling `helpers` module can be addressed with the same extension.
+const RUNTIME_INDEX_ENTRY_RE = /^(.*[\\/])index(\.[cm]?js)$/;
+const TRAILING_SLASH_RE = /\/$/;
+
 function getRuntimeHelpersImplementation(runtimeImplementation: string): string {
-  const indexEntryMatch = runtimeImplementation.match(/^(.*[\\/])index(\.[cm]?js)$/);
+  const indexEntryMatch = RUNTIME_INDEX_ENTRY_RE.exec(runtimeImplementation);
   if (indexEntryMatch) {
     return normalizePathForImport(`${indexEntryMatch[1]}helpers${indexEntryMatch[2]}`);
   }
@@ -269,7 +274,7 @@ function getRuntimeHelpersImplementation(runtimeImplementation: string): string 
     return normalizePathForImport(path.join(runtimeImplementation, 'helpers'));
   }
 
-  return `${runtimeImplementation.replace(/\/$/, '')}/helpers`;
+  return `${runtimeImplementation.replace(TRAILING_SLASH_RE, '')}/helpers`;
 }
 
 const UNSAFE_JS_SOURCE_CHAR_MAP: Record<string, string> = {
@@ -2103,11 +2108,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
                 const getDefaultDisableAssetsAnalyze = (cfgCommand: string | undefined) =>
                   cfgCommand === 'serve' &&
                   (typeof manifest !== 'object' ||
-                    !Object.prototype.hasOwnProperty.call(manifest, 'disableAssetsAnalyze'));
+                    !Object.hasOwn(manifest, 'disableAssetsAnalyze'));
 
                 const getConfiguredDisableAssetsAnalyze = (cfgCommand: string | undefined) => {
                   if (typeof manifest === 'object' && manifest !== null) {
-                    if (Object.prototype.hasOwnProperty.call(manifest, 'disableAssetsAnalyze')) {
+                    if (Object.hasOwn(manifest, 'disableAssetsAnalyze')) {
                       return manifest.disableAssetsAnalyze === true;
                     }
                   }

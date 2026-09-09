@@ -2161,7 +2161,7 @@ describe('vite:module-federation-early-init', () => {
         g: getAugmentedNamespace
       });
       function getDefaultExportFromCjs(x) {
-        return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
+        return x && x.__esModule && Object.hasOwn(x, "default") ? x["default"] : x;
       }
       function getAugmentedNamespace(n) {
         return n;
