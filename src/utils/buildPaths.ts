@@ -1,5 +1,3 @@
-import { basename, extname } from 'node:path';
-
 /**
  * Rebase an import path for a bootstrap file that moved from root into `dir`.
  *
@@ -66,6 +64,15 @@ export function isAbsoluteUrl(src: string): boolean {
 // Only ever used with String.prototype.replace, which resets lastIndex.
 const HASH_PLACEHOLDER_RE = /(?:[._-]?\[hash(?::\d+)?\])/g;
 
+function hasFileExtension(fileName: string): boolean {
+  const baseName = fileName.slice(
+    Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\')) + 1
+  );
+  const extensionIndex = baseName.lastIndexOf('.');
+
+  return extensionIndex > 0;
+}
+
 /**
  * Resolve a bundler `filename` template that still contains `[hash]` placeholders
  * into the concrete, stable file name Module Federation serves.
@@ -80,7 +87,5 @@ export function resolveHashPlaceholderFileName(fileName: string): string {
   if (!fileName.includes('[hash')) return fileName;
 
   const normalized = fileName.replace(HASH_PLACEHOLDER_RE, '');
-  const baseName = basename(normalized);
-
-  return extname(baseName) ? normalized : `${normalized}.js`;
+  return hasFileExtension(normalized) ? normalized : `${normalized}.js`;
 }

@@ -117,6 +117,12 @@ describe('resolveHashPlaceholderFileName', () => {
     expect(resolveHashPlaceholderFileName('static/js.v2/mf-[hash:8]')).toBe('static/js.v2/mf.js');
   });
 
+  it('handles Windows path separators', () => {
+    expect(resolveHashPlaceholderFileName('assets\\v1.2\\remoteEntry-[hash]')).toBe(
+      'assets\\v1.2\\remoteEntry.js'
+    );
+  });
+
   it('is stable across repeated calls (global regex lastIndex)', () => {
     for (let i = 0; i < 3; i++) {
       expect(resolveHashPlaceholderFileName('remoteEntry-[hash].js')).toBe('remoteEntry.js');
