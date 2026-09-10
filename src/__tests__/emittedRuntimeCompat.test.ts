@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { createCodePositionMap } from '../utils/codePositionMap';
 
 /**
  * Guard for the JavaScript baseline of the code we *emit*.
@@ -21,9 +22,22 @@ const BASELINE = 'ES2021';
 
 const REPO_SRC = path.resolve(__dirname, '..');
 
-// Modules whose template literals become browser-executed code.
+// Modules whose generated strings become browser-executed code.
 const BROWSER_EMITTING_MODULES = [
+  'index.ts',
+  'plugins/hmr/react.ts',
+  'plugins/hmr/vue.ts',
+  'plugins/pluginAddEntry.ts',
+  'plugins/pluginDevRemoteHmr.ts',
+  'plugins/pluginExternalRuntimeCore.ts',
+  'plugins/pluginProxyRemoteEntry.ts',
+  'plugins/pluginReactMixedModeGuard.ts',
+  'plugins/pluginRemoteNamedExports.ts',
+  'plugins/pluginVarRemoteEntry.ts',
+  'utils/bundleHelpers.ts',
   'utils/packageUtils.ts',
+  'utils/reactIsland.ts',
+  'utils/serializeRuntimeOptions.ts',
   'virtualModules/virtualExposes.ts',
   'virtualModules/virtualRemoteEntry.ts',
   'virtualModules/virtualRemotes.ts',
@@ -43,7 +57,7 @@ const SSR_ONLY_MODULES = [
  */
 const POST_BASELINE_APIS: { name: string; since: string; pattern: RegExp }[] = [
   { name: 'Object.hasOwn', since: 'ES2022', pattern: /\bObject\.hasOwn\s*\(/g },
-  { name: 'Array.prototype.at', since: 'ES2022', pattern: /\.at\s*\(\s*-?\d/g },
+  { name: 'Array.prototype.at', since: 'ES2022', pattern: /\.at\s*\(/g },
   { name: 'structuredClone', since: 'ES2022', pattern: /\bstructuredClone\s*\(/g },
   { name: 'Array.prototype.findLast', since: 'ES2023', pattern: /\.findLast(?:Index)?\s*\(/g },
   {
@@ -57,22 +71,19 @@ const POST_BASELINE_APIS: { name: string; since: string; pattern: RegExp }[] = [
     pattern: /\b(?:Object|Map)\.groupBy\s*\(/g,
   },
   { name: 'Array.fromAsync', since: 'ES2024', pattern: /\bArray\.fromAsync\s*\(/g },
+  { name: 'Promise.withResolvers', since: 'ES2024', pattern: /\bPromise\.withResolvers\s*\(/g },
 ];
 
 type TemplateChunk = { text: string; line: number };
 
 /**
- * Collect the literal text of every template literal in `source`, excluding the
- * `${...}` expressions — those are build-time TypeScript, not emitted output.
- *
- * A regex cannot do this: template literals nest, and backticks appear inside
- * ordinary strings and comments. This walks the source with a small mode stack
- * instead, which is enough to keep `${}` interpolations out of the results.
+ * Collect every string and template-literal chunk in `source`, excluding
+ * `${...}` expressions. Regex locations come from the shared source scanner so
+ * backticks inside regexes cannot corrupt the lightweight template walk.
  */
-function collectTemplateChunks(source: string): TemplateChunk[] {
+function collectRuntimeStringChunks(source: string): TemplateChunk[] {
   const chunks: TemplateChunk[] = [];
-  // Each template frame accumulates its literal text; each expression frame
-  // tracks brace depth so the matching `}` returns us to the template.
+  const codePositions = createCodePositionMap(source);
   const stack: ({ kind: 'tpl'; text: string; line: number } | { kind: 'expr'; depth: number })[] =
     [];
   let line = 1;
@@ -87,8 +98,6 @@ function collectTemplateChunks(source: string): TemplateChunk[] {
 
     if (c === '\n') line++;
 
-    // Comments and quoted strings are skipped wholesale, but only when we are
-    // not inside template text (where they are just characters).
     if (!inTemplateText()) {
       if (c === '/' && next === '/') {
         while (i < source.length && source[i] !== '\n') i++;
@@ -103,21 +112,33 @@ function collectTemplateChunks(source: string): TemplateChunk[] {
         i += 2;
         continue;
       }
+      if (stack.length === 0 && c === '/' && !codePositions[i]) {
+        i++;
+        while (i < source.length && !codePositions[i]) i++;
+        continue;
+      }
       if (c === "'" || c === '"') {
         const quote = c;
+        const startLine = line;
+        let text = '';
         i++;
         while (i < source.length && source[i] !== quote) {
-          if (source[i] === '\\') i++;
-          else if (source[i] === '\n') line++;
+          if (source[i] === '\\') {
+            text += source.slice(i, i + 2);
+            i += 2;
+            continue;
+          }
+          if (source[i] === '\n') line++;
+          text += source[i];
           i++;
         }
+        chunks.push({ text, line: startLine });
         i++;
         continue;
       }
     }
 
     if (c === '\\' && inTemplateText()) {
-      // Keep escapes verbatim; they cannot open or close anything.
       const frame = top() as { kind: 'tpl'; text: string };
       frame.text += source.slice(i, i + 2);
       i += 2;
@@ -155,9 +176,7 @@ function collectTemplateChunks(source: string): TemplateChunk[] {
       continue;
     }
 
-    if (inTemplateText()) {
-      (top() as { text: string }).text += c;
-    }
+    if (inTemplateText()) (top() as { text: string }).text += c;
     i++;
   }
 
@@ -168,7 +187,7 @@ function findViolations(relativePath: string) {
   const source = readFileSync(path.join(REPO_SRC, relativePath), 'utf8');
   const violations: string[] = [];
 
-  for (const chunk of collectTemplateChunks(source)) {
+  for (const chunk of collectRuntimeStringChunks(source)) {
     for (const { name, since, pattern } of POST_BASELINE_APIS) {
       pattern.lastIndex = 0;
       if (pattern.test(chunk.text)) {
@@ -194,19 +213,49 @@ describe(`emitted browser runtime stays at ${BASELINE}`, () => {
       '`;',
     ].join('\n');
 
-    const chunks = collectTemplateChunks(sample);
+    const chunks = collectRuntimeStringChunks(sample);
     expect(chunks).toHaveLength(1);
     expect(POST_BASELINE_APIS[0].pattern.test(chunks[0].text)).toBe(true);
   });
 
   it('ignores ${} expressions, which are build-time code', () => {
     const sample = 'const code = `before ${Object.hasOwn(a, b) ? `yes` : `no`} after`;';
-    const chunks = collectTemplateChunks(sample);
+    const chunks = collectRuntimeStringChunks(sample);
     const combined = chunks.map((c) => c.text).join('|');
 
     expect(combined).not.toContain('Object.hasOwn');
     expect(combined).toContain('before ');
     expect(combined).toContain(' after');
+  });
+
+  it('detects .at() calls with non-literal indexes', () => {
+    const sample = 'export const code = `const last = items.at(index);`;';
+    const chunks = collectRuntimeStringChunks(sample);
+
+    expect(POST_BASELINE_APIS[1].pattern.test(chunks[0].text)).toBe(true);
+  });
+
+  it('scans emitted code assembled from quoted strings', () => {
+    const sample = `export const code = ['Object.hasOwn(cache, key)'].join('\\n');`;
+    const combined = collectRuntimeStringChunks(sample)
+      .map((chunk) => chunk.text)
+      .join('|');
+
+    expect(combined).toContain('Object.hasOwn');
+  });
+
+  it('does not treat backticks inside regexes as templates', () => {
+    const sample = [
+      'const templateToken = /[`]/;',
+      'const buildTimeOnly = Object.hasOwn(config, "value");',
+      'export const code = `safe`;',
+    ].join('\n');
+    const combined = collectRuntimeStringChunks(sample)
+      .map((chunk) => chunk.text)
+      .join('|');
+
+    expect(combined).not.toContain('Object.hasOwn');
+    expect(combined).toContain('safe');
   });
 
   it('keeps SSR generators out of the browser baseline', () => {
