@@ -2201,6 +2201,12 @@ export function generateHostAutoInitCode(
           ${
             shouldPreloadShares
               ? `
+          const __mfHasAlternativeSharedVersion = (pkg, share) =>
+            (Array.isArray(share.scope) ? share.scope : [share.scope || 'default']).some(
+              (scopeName) => Object.keys(runtime.shareScopeMap?.[scopeName]?.[pkg] || {}).some(
+                (version) => version !== share.version
+              )
+            );
           const __mfHostInitShareBatches = ${hostInitShareBatches};
           for (const __mfHostInitShareBatch of __mfHostInitShareBatches) {
             await Promise.all(__mfHostInitShareBatch.map(async (pkg) => {
@@ -2220,7 +2226,10 @@ export function generateHostAutoInitCode(
                       // pre-init seed above can only ever record this container's own provisional
                       // guess for it. Re-run loadShare() to let the runtime confirm or upgrade that
                       // guess once remotes have registered, instead of treating it as final.
-                      `(!share.shareConfig?.singleton && __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) === ${cacheOwner})`
+                      `(
+                        (!share.shareConfig?.singleton && __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) === ${cacheOwner}) ||
+                        (share.shareConfig?.singleton && !__mfHasAlternativeSharedVersion(pkg, share))
+                      )`
                 }
               ) return;
               // An import:false share has nothing to load until a foreign provider
