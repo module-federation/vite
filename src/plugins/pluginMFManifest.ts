@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { Plugin } from 'vite';
+import packageJson from '../../package.json' with { type: 'json' };
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
@@ -332,7 +333,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
                     : undefined,
                   types: resolveTypesMeta(mfOptions.dts),
                   globalName: name,
-                  pluginVersion: '0.2.5',
+                  pluginVersion: packageJson.version,
                   publicPath,
                 },
               });
@@ -657,7 +658,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         varRemoteEntry,
         types: resolveTypesMeta(options.dts),
         globalName: name,
-        pluginVersion: '0.2.5',
+        pluginVersion: packageJson.version,
         ...(!!getPublicPath ? { getPublicPath } : { publicPath }),
       },
       ...(disableAssetsAnalyze ? {} : { shared }),
