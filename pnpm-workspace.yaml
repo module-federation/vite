@@ -5,9 +5,10 @@ packages:
   - "."
 
 overrides:
+  "adm-zip@>=0.5.9 <=0.6.0": "github:rizatsk/adm-zip#7d90dea2bfd35bc4761d6c8cf822f26b59aeef77"
   "browserslist@<=4.28.6": "4.28.7"
   "fast-uri@>=3.0.0 <3.1.6": "3.1.6"
-  "js-yaml@>=4.0.0 <4.3.1": "4.3.1"
+  "js-yaml@>=4.0.0 <4.3.2": "4.3.2"
   "nanoid@>=3.0.0 <3.3.18": "3.3.18"
   "postcss@<8.5.23": "8.5.25"
   "postcss-selector-parser@>=6.1.0 <6.1.3": "6.1.3"

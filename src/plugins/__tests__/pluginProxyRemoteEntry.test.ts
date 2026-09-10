@@ -56,6 +56,21 @@ describe('pluginProxyRemoteEntry', () => {
     expect(codeA).not.toContain('import("vue")');
   });
 
+  it('keeps an equal-version singleton seed instead of splitting its dependency graph', () => {
+    const options = normalizeModuleFederationOptions({
+      name: 'host',
+      shared: { react: { singleton: true } },
+    });
+    addUsedShares('react', options);
+
+    const code = generateHostAutoInitCode('remoteEntryImport', 'build', options);
+
+    expect(code).toContain('(version) => version !== share.version');
+    expect(code).toContain(
+      '(share.shareConfig?.singleton && !__mfHasAlternativeSharedVersion(pkg, share))'
+    );
+  });
+
   it('refreshes nested remote dependencies before generating virtual exposes', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const expose = resolve('integration/fixtures/nested-remote-transitive/exposed-widget.js');
