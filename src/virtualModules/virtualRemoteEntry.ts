@@ -1254,9 +1254,9 @@ export function generateRemoteEntry(
     return exposesMapPromise
   }
 
-  async function init(shared = {}, initScope = []) {
+  async function init(shared = {}, initScope = [], remoteEntryInitOptions = {}) {
     ${sharedCacheHelperCode}
-    const getShareScope = (scopeName) => ${hasMultipleShareScopes} ? (shared?.[scopeName] || {}) : shared;
+    const getShareScope = (scopeName) => remoteEntryInitOptions.shareScopeMap?.[scopeName] ?? (${hasMultipleShareScopes} ? (shared?.[scopeName] || {}) : shared);
     const getShareScopeNames = (share) => {
       const configuredScopes = Array.isArray(share?.scope) ? share.scope : [share?.scope || shareScopeName];
       if (!${hasMultipleShareScopes}) return configuredScopes;
@@ -2128,9 +2128,9 @@ export function generateRemoteEntry(
   ${
     guardHostAutoInit
       ? `let __mfInitPromise;
-  function __mfGuardedInit(shared, initScope) {
+  function __mfGuardedInit(shared, initScope, remoteEntryInitOptions) {
     if (shared === undefined && __mfInitPromise) return __mfInitPromise;
-    __mfInitPromise = init(shared, initScope);
+    __mfInitPromise = init(shared, initScope, remoteEntryInitOptions);
     return __mfInitPromise;
   }
   export { __mfGuardedInit as init, getExposes as get }`

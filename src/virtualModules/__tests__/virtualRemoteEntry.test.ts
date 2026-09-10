@@ -1196,6 +1196,12 @@ describe('virtualRemoteEntry', () => {
     );
 
     expect(code).toContain('const shareScopeNames = Array.isArray(["default","scope1"])');
+    expect(code).toContain(
+      'async function init(shared = {}, initScope = [], remoteEntryInitOptions = {})'
+    );
+    expect(code).toContain(
+      'remoteEntryInitOptions.shareScopeMap?.[scopeName] ?? (true ? (shared?.[scopeName] || {}) : shared)'
+    );
     expect(code).toContain('const getShareScopeName = (pkg, share) =>');
     expect(code).toContain('return [...new Set([...configuredScopes, ...shareScopeNames])]');
     expect(code).toContain('getShareScope(getShareScopeName(pkg, usedShare))');
@@ -1700,13 +1706,17 @@ describe('virtualRemoteEntry', () => {
       const guardStart = code.indexOf('let __mfInitPromise;');
       const guardEnd = code.indexOf('export { __mfGuardedInit', guardStart);
       const guardCode = code.slice(guardStart, guardEnd);
+      expect(guardCode).toContain('init(shared, initScope, remoteEntryInitOptions)');
       const scopedInit = Promise.resolve({ shareScopeMap: { default: {} } });
       const init = vi.fn(() => scopedInit);
       const guardedInit = new Function('init', `${guardCode}; return __mfGuardedInit;`)(init);
+      const initScope: unknown[] = [];
+      const remoteEntryInitOptions = { shareScopeMap: { default: {} } };
 
-      expect(guardedInit({ react: {} }, [])).toBe(scopedInit);
+      expect(guardedInit({ react: {} }, initScope, remoteEntryInitOptions)).toBe(scopedInit);
       expect(guardedInit()).toBe(scopedInit);
       expect(init).toHaveBeenCalledOnce();
+      expect(init).toHaveBeenCalledWith({ react: {} }, initScope, remoteEntryInitOptions);
       expect(guardCode).not.toContain('await ');
     }
   );
