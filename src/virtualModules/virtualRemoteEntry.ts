@@ -379,6 +379,7 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
   const pending = [...shares];
   while (pending.length) {
     const pkg = pending.pop()!;
+    const share = getNormalizeShareItem(pkg, resolvedOptions);
     const packageName = getPackageName(pkg);
     const packageJson =
       getInstalledPackageJson(pkg)?.packageJson ??
@@ -390,7 +391,14 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
     };
     for (const dependency of Object.keys(dependencies)) {
       const sharedDependency = configured.get(dependency);
-      if (sharedDependency && !shares.has(sharedDependency)) {
+      const dependencyShare = sharedDependency
+        ? getNormalizeShareItem(sharedDependency, resolvedOptions)
+        : undefined;
+      if (
+        sharedDependency &&
+        !shares.has(sharedDependency) &&
+        dependencyShare?.scope === share?.scope
+      ) {
         shares.add(sharedDependency);
         pending.push(sharedDependency);
       }
