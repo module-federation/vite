@@ -14,6 +14,7 @@ import type {
   ResolvedConfig,
 } from 'vite';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
+import packageJson from '../../../package.json' with { type: 'json' };
 
 import manifestPlugin from '../pluginMFManifest';
 
@@ -297,6 +298,7 @@ describe('pluginMFManifest', () => {
     const stats = JSON.parse(emitted['mf-stats.json']);
 
     expect(manifest).toHaveProperty('metaData');
+    expect(manifest.metaData.pluginVersion).toBe(packageJson.version);
     expect(stats).toHaveProperty('buildOutput');
     expect(
       stats.buildOutput.find((chunk: { fileName: string }) => chunk.fileName === 'remoteEntry.js')
@@ -739,6 +741,7 @@ describe('pluginMFManifest', () => {
     const manifest = JSON.parse(source);
 
     expect(manifest.metaData.remoteEntry.name).toBe('remoteEntry.js');
+    expect(manifest.metaData.pluginVersion).toBe(packageJson.version);
     expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry.ssr.js');
     expect(manifest.exposes[0].assets.js.sync).toEqual(['remoteEntry.js']);
   });
