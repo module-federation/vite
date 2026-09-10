@@ -415,13 +415,12 @@ const __mfCurrentScript = document.currentScript;
       !viteConfig?.build?.ssr &&
       normalizedOptions.shareStrategy === 'loaded-first';
     if (normalizedOptions.shareStrategy === 'loaded-first' && !isLoadedFirstClientBuild) return [];
+    // Warm remote-entry URLs from registered remotes (keys), not imported
+    // modules. Config registration must not loadRemote("."), but the entry
+    // still needs to download for version-first share negotiation.
     const remoteSources = isLoadedFirstClientBuild
       ? Array.from(getPreloadRemotes(normalizedOptions))
-      : Object.entries(getUsedRemotesMap(federationOptions))
-          .flatMap(([, remotes]) => Array.from(remotes))
-          .filter(
-            (remote) => !federationOptions || !isDynamicOnlyRemote(remote, federationOptions)
-          );
+      : Object.keys(getUsedRemotesMap(federationOptions));
     return Array.from(
       new Set(
         remoteSources.flatMap((remote) => {
@@ -494,8 +493,9 @@ const __mfCurrentScript = document.currentScript;
             (remote) => !federationOptions || !isDynamicOnlyRemote(remote, federationOptions)
           );
 
-    // Bare ids may represent a root (`.`) expose, so preload them too. Failures
-    // remain non-blocking for version-first through Promise.allSettled below.
+    // Preload actually imported modules only. A configured remote alias is
+    // registered for initializeSharing, but does not imply a root (`.`) expose.
+    // Failures remain non-blocking for version-first through Promise.allSettled.
     const remotePreloads = shouldPreloadRemotes
       ? remoteSources
           .sort()

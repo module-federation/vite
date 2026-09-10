@@ -3,6 +3,7 @@ import { SERVER_ENV_GUARD } from '../../utils/ssrCapabilities';
 import VirtualModule from '../../utils/VirtualModule';
 import {
   addUsedRemote,
+  ensureUsedRemote,
   generateRemotes,
   getRemoteVirtualModule,
   getStaticRemotes,
@@ -588,6 +589,28 @@ describe('generateRemotes', () => {
     addUsedRemote('remote', 'remote/CardB', optionsB);
     expect([...getUsedRemotesMap(optionsA).remote]).toEqual(['remote/CardA']);
     expect([...getUsedRemotesMap(optionsB).remote]).toEqual(['remote/CardB']);
+  });
+
+  it('registers a remote for init without treating the alias as an imported module', () => {
+    const options = {
+      internalName: 'host',
+      remotes: {
+        remote: {
+          entryGlobalName: 'remote',
+          name: 'remote',
+          type: 'module',
+          entry: 'http://localhost:4174/remoteEntry.js',
+          shareScope: 'default',
+        },
+      },
+    } as never;
+
+    ensureUsedRemote('remote', options);
+    expect(Object.keys(getUsedRemotesMap(options))).toEqual(['remote']);
+    expect([...getUsedRemotesMap(options).remote]).toEqual([]);
+
+    addUsedRemote('remote', 'remote/AppWebComponent', options);
+    expect([...getUsedRemotesMap(options).remote]).toEqual(['remote/AppWebComponent']);
   });
 
   it('does not reuse pending or loaded remotes across federation instances', async () => {

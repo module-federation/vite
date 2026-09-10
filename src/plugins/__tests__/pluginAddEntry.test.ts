@@ -53,6 +53,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', async () => {
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import {
   addUsedRemote,
+  ensureUsedRemote,
   getUsedRemotesMap,
   markDynamicRemote,
   markPreloadRemote,
@@ -1159,7 +1160,7 @@ describe('pluginAddEntry', () => {
     expect(result).toContain('entry=%2F_nuxt%2Fentry.async.js');
   });
 
-  it('preloads scoped remote subpaths and the bare scoped remote key', async () => {
+  it('preloads imported scoped remote subpaths without the config-registered bare alias', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-scoped-'));
     const htmlFile = path.join(tempDir, 'index.html');
     fs.writeFileSync(
@@ -1173,7 +1174,8 @@ describe('pluginAddEntry', () => {
         '</html>',
       ].join('\n')
     );
-    addUsedRemote('@scope/remote', '@scope/remote');
+    // Config registration records the remote key; only imported modules preload.
+    ensureUsedRemote('@scope/remote');
     addUsedRemote('@scope/remote', '@scope/remote/Button');
 
     const plugins = addEntry({
@@ -1209,11 +1211,60 @@ describe('pluginAddEntry', () => {
     expect(result?.code).toContain(
       '__mfPreloadRemote("@scope/remote/Button", "@scope/remote/Button")'
     );
-    expect(result?.code).toContain('__mfPreloadRemote("@scope/remote", "@scope/remote")');
+    expect(result?.code).not.toContain('__mfPreloadRemote("@scope/remote", "@scope/remote")');
     expect(result?.code).toContain('runtime.loadRemote(runtimeRemote)');
     // A preload failure must not abort host bootstrap.
     expect(result?.code).toContain('await Promise.allSettled(__mfRemotePreloads);');
     expect(result?.code).not.toContain('Promise.all(__mfRemotePreloads)');
+  });
+
+  it('preloads a bare remote alias only when the app imported the root expose', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-bare-root-'));
+    fs.writeFileSync(
+      path.join(tempDir, 'index.html'),
+      [
+        '<!doctype html>',
+        '<html>',
+        '  <body>',
+        '    <script type="module" src="/src/main.ts"></script>',
+        '  </body>',
+        '</html>',
+      ].join('\n')
+    );
+    addUsedRemote('@scope/remote', '@scope/remote');
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const servePlugin = plugins[0];
+    const buildPlugin = plugins[1];
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfig(
+      buildPlugin,
+      {} as ConfigPluginContext,
+      { build: { rollupOptions: {} } },
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(buildPlugin, 'export const app = true;', '/src/main.ts')) as
+      | { code: string }
+      | undefined;
+
+    expect(result?.code).toContain('__mfPreloadRemote("@scope/remote", "@scope/remote")');
+    expect(result?.code).toContain('runtime.loadRemote(runtimeRemote)');
   });
 
   it('prefetches module-type remote entries before host init for version-first', async () => {
@@ -1279,6 +1330,52 @@ describe('pluginAddEntry', () => {
     expect(prefetchIndex).toBeLessThan(code.indexOf('(async () => {'));
     expect(prefetchIndex).toBeLessThan(code.indexOf('await initHost();'));
     expect(code).not.toMatch(/^await /m);
+  });
+
+  it('prefetches configured remote entries without loadRemote of an unimported bare alias', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-register-prefetch-'));
+    const federationOptions = {
+      internalName: 'host',
+      name: 'host',
+      shareStrategy: 'version-first',
+      shared: {},
+      remotes: {
+        remote: {
+          entry: 'http://localhost:5001/remoteEntry.js',
+          entryGlobalName: 'remote',
+          name: 'remote',
+          type: 'module',
+          shareScope: 'default',
+        },
+      },
+    } as any;
+    ensureUsedRemote('remote', federationOptions);
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      federationOptions,
+    });
+    const buildPlugin = plugins[1];
+    runConfigResolved(buildPlugin, {
+      root: tempDir,
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: { input: '/src/main.ts' } },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(buildPlugin, 'export const app = true;', '/src/main.ts')) as
+      | { code: string }
+      | undefined;
+    const code = result?.code ?? '';
+
+    expect(code).toContain(
+      'const __mfRemoteEntryPrefetchUrls = ["http://localhost:5001/remoteEntry.js"];'
+    );
+    expect(code).not.toContain('__mfPreloadRemote("remote", "remote")');
+    expect(code).not.toContain('runtime.loadRemote(runtimeRemote)');
+    expect(code).toContain('await initHost();');
   });
 
   it('skips remote preload in the host bootstrap when shareStrategy is loaded-first', async () => {
