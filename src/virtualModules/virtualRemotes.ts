@@ -116,8 +116,17 @@ function recordUsedRemote(
   remoteKey: string,
   remoteModule: string
 ) {
+  ensureUsedRemoteKey(map, remoteKey).add(remoteModule);
+}
+
+function ensureUsedRemoteKey(map: Record<string, Set<string>>, remoteKey: string) {
   if (!map[remoteKey]) map[remoteKey] = new Set();
-  map[remoteKey].add(remoteModule);
+  return map[remoteKey];
+}
+
+export function ensureUsedRemote(remoteKey: string, options?: NormalizedModuleFederationOptions) {
+  ensureUsedRemoteKey(usedRemotesMap, remoteKey);
+  if (options) ensureUsedRemoteKey(getScopedUsedRemotesMap(options), remoteKey);
 }
 
 export function addUsedRemote(

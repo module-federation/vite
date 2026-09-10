@@ -1551,9 +1551,92 @@ describe('vite:module-federation-early-init', () => {
         mode: 'test',
       });
 
+      expect(Object.keys(getUsedRemotesMap(owner._options))).toContain('modules');
       expect([...getUsedRemotesMap(owner._options).modules]).toContain('modules/authSlice');
+      expect([...getUsedRemotesMap(owner._options).modules]).not.toContain('modules');
       expect([...getUsedRemotesMap(owner._options).modules]).not.toContain('modules/lazy');
       expect(getPreloadRemotes(owner._options)).toEqual(new Set(['modules/authSlice']));
+      expect(generateLocalSharedImportMap(owner._options)).toContain('alias: "modules"');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('registers configured remotes for version-first init without importing the bare alias', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-entry-remote-init-'));
+    mkdirSync(path.join(root, 'src'));
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<script type="module" src="/src/main.ts"></script>'
+    );
+    writeFileSync(path.join(root, 'src/main.ts'), 'import "remote/AppWebComponent"');
+
+    try {
+      const plugins = federation({
+        name: 'entry-remote-init',
+        shareStrategy: 'version-first',
+        remotes: {
+          remote: {
+            name: 'remote',
+            type: 'module',
+            entry: 'http://localhost:5001/remoteEntry.js',
+          },
+        },
+      }) as Plugin[];
+      const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+      const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+        | (Plugin & { _options: NormalizedModuleFederationOptions })
+        | undefined;
+      if (!early || !owner) throw new Error('module federation plugins not found');
+
+      runConfig(early, { meta: {} } as ConfigPluginContext, { root } as UserConfig, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      expect(Object.keys(getUsedRemotesMap(owner._options))).toEqual(['remote']);
+      expect([...getUsedRemotesMap(owner._options).remote]).toEqual(['remote/AppWebComponent']);
+      expect(generateLocalSharedImportMap(owner._options)).toContain('alias: "remote"');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps unused configured remotes in version-first usedRemotes without a root expose', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-entry-unused-remote-'));
+    mkdirSync(path.join(root, 'src'));
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<script type="module" src="/src/main.ts"></script>'
+    );
+    writeFileSync(path.join(root, 'src/main.ts'), 'export default 1');
+
+    try {
+      const plugins = federation({
+        name: 'entry-unused-remote',
+        shareStrategy: 'version-first',
+        remotes: {
+          remote: {
+            name: 'remote',
+            type: 'module',
+            entry: 'http://localhost:5001/remoteEntry.js',
+          },
+        },
+      }) as Plugin[];
+      const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+      const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+        | (Plugin & { _options: NormalizedModuleFederationOptions })
+        | undefined;
+      if (!early || !owner) throw new Error('module federation plugins not found');
+
+      runConfig(early, { meta: {} } as ConfigPluginContext, { root } as UserConfig, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      expect(Object.keys(getUsedRemotesMap(owner._options))).toEqual(['remote']);
+      expect([...getUsedRemotesMap(owner._options).remote]).toEqual([]);
+      expect(generateLocalSharedImportMap(owner._options)).toContain('alias: "remote"');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

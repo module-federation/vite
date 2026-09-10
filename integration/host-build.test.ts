@@ -131,7 +131,56 @@ describe('host build', () => {
     );
     expect(prefetchIndex).toBeLessThan(bootstrapCode.indexOf('await initHost()'));
     expect(bootstrapCode).toContain('__mfPreloadRemote(');
+    expect(bootstrapCode).toMatch(
+      /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1\/Module", "remote1\/Module"\)/
+    );
+    expect(bootstrapCode).not.toMatch(
+      /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1", "remote1"\)/
+    );
     expect(bootstrapCode).not.toMatch(/^await /m);
+  });
+
+  it('does not loadRemote a version-first bare alias when only a subpath is used', async () => {
+    const output = await buildFixture({
+      fixture: 'basic-host',
+      mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: 'html' },
+    });
+    const bootstrapAsset = output.output.find(
+      (item) => item.type === 'asset' && item.fileName.includes('mf-entry-bootstrap')
+    );
+    const bootstrapCode = (bootstrapAsset as unknown as { source: string }).source;
+    const localSharedImportMap = findChunk(output, 'localSharedImportMap');
+
+    expect(bootstrapCode).toContain(
+      'import(/* @vite-ignore */ __mfRemoteEntryPrefetchUrl).catch(() => {});'
+    );
+    expect(bootstrapCode).toContain('"http://localhost:3001/remoteEntry.js"');
+    expect(bootstrapCode).toContain('await initHost();');
+    expect(bootstrapCode).not.toMatch(
+      /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1", "remote1"\)/
+    );
+    expect(bootstrapCode).not.toContain('remote1/Module');
+    expect(localSharedImportMap!.code).toMatch(
+      /name: "__mfe_internal__hostApp__mf_owner__\d+__remote1"/
+    );
+    expect(localSharedImportMap!.code).toContain('alias: "remote1"');
+  });
+
+  it('still preloads a version-first bare remote when the host imports the root expose', async () => {
+    const output = await buildFixture({
+      fixture: 'bare-remote-host',
+      mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: 'html' },
+    });
+    const bootstrapAsset = output.output.find(
+      (item) => item.type === 'asset' && item.fileName.includes('mf-entry-bootstrap')
+    );
+    const bootstrapCode = (bootstrapAsset as unknown as { source: string }).source;
+
+    expect(bootstrapCode).toMatch(
+      /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1", "remote1"\)/
+    );
+    expect(bootstrapCode).toContain('runtime.loadRemote(runtimeRemote)');
+    expect(bootstrapCode).toContain('await Promise.allSettled(__mfRemotePreloads);');
   });
 
   it('transforms remote module imports into federation loadRemote() calls', async () => {
@@ -164,12 +213,11 @@ describe('host build', () => {
     expect(bootstrapAsset?.source).toContain('const __mfHostInit = await __mfImport(');
     expect(bootstrapAsset?.source).toContain('await __mfHostInit.__tla;');
     expect(bootstrapAsset?.source).toContain('const { initHost } = __mfHostInit;');
-    expect(bootstrapAsset?.source).toContain('const runtime = await initHost();');
-    expect(bootstrapAsset?.source).toMatch(
+    expect(bootstrapAsset?.source).toContain('await initHost();');
+    expect(bootstrapAsset?.source).not.toMatch(
       /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1", "remote1"\)/
     );
     expect(bootstrapAsset?.source).not.toContain('remote1/Module');
-    expect(bootstrapAsset?.source).toContain('runtime.loadRemote(runtimeRemote)');
     expect(bootstrapAsset?.source).toContain('})().then(() => __mfImport(');
     expect(bootstrapAsset?.source).toContain('globalThis.System.import(src)');
     expect(bootstrapAsset?.source).toContain('hostInit');
@@ -227,9 +275,10 @@ describe('host build', () => {
     expect(getChunkNames(output).some((name) => name.includes('hostInit'))).toBe(true);
     expect(getAllChunkCode(output)).toContain('initializeSharing');
     const entryBootstrap = output.output.find(
-      (item) => item.type === 'chunk' && item.code.includes('__mfRemotePreloads')
+      (item) => item.type === 'chunk' && item.code.includes('await initHost()')
     );
-    expect(entryBootstrap?.code).toMatch(
+    expect(entryBootstrap?.code).toBeDefined();
+    expect(entryBootstrap?.code).not.toMatch(
       /__mfPreloadRemote\("__mfe_internal__hostApp__mf_owner__\d+__remote1", "remote1"\)/
     );
     expect(entryBootstrap?.code).not.toMatch(/__mfPreloadRemote\([^)]*remote1\/Module/);

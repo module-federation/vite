@@ -31,6 +31,7 @@ export {
 
 export {
   addUsedRemote,
+  ensureUsedRemote,
   getRemoteVirtualModule,
   getUsedRemotesMap,
   markDynamicRemote,

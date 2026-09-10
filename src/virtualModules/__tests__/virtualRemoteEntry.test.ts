@@ -1639,6 +1639,24 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('name: "catalogContainer"');
   });
 
+  it('includes version-first remotes registered without imported modules', async () => {
+    normalizedRemotesMock.mockReturnValue({
+      catalog: {
+        entryGlobalName: 'catalog',
+        name: 'catalogContainer',
+        type: 'module',
+        entry: 'http://localhost:4174/remoteEntry.js',
+      },
+    });
+    usedRemotesMapMock.mockReturnValue({ catalog: new Set() });
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateLocalSharedImportMap();
+
+    expect(code).toContain('alias: "catalog"');
+    expect(code).toContain('name: "catalogContainer"');
+  });
+
   it('does not eagerly preload remotes during host auto init', async () => {
     usedRemotesMapMock.mockReturnValue({
       remote: new Set(['remote', 'remote/remote-app']),

@@ -107,6 +107,7 @@ import {
 } from './virtualModules/virtualRemoteEntry';
 import {
   addUsedRemote,
+  ensureUsedRemote,
   markPreloadRemote,
   markStaticRemote,
 } from './virtualModules/virtualRemotes';
@@ -680,9 +681,11 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       // first written. In build, remoteEntry can be traced before app modules
       // hit the remote alias resolver, which otherwise leaves usedRemotes empty
       // in the emitted localSharedImportMap chunk.
+      // Register the remote key only — a configured alias is not an imported
+      // root (`.`) expose. Actual modules are recorded when the app imports them.
       if (remotes && Object.keys(remotes).length > 0) {
         for (const key of Object.keys(remotes)) {
-          addUsedRemote(key, key, options);
+          ensureUsedRemote(key, options);
         }
         if (_command === 'serve') {
           config.optimizeDeps = config.optimizeDeps || {};
