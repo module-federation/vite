@@ -55,7 +55,6 @@ import {
   generateLocalSharedImportMap,
   getPreBuildShareItem,
   getLoadShareModulePath,
-  getPreBuildLibImportId,
   getLocalSharedImportMapPath,
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
@@ -334,11 +333,14 @@ function isConfiguredSharedPackage(pkg: string, shared: NormalizedShared): boole
 /**
  * Local fallback graphs must stay version-coherent. If the importer is the
  * `__prebuild__` wrapper (or a file) of shared package P, and the source is
- * another shared package P depends on, resolve to that sibling's local
- * `__prebuild__` instead of `__loadShare__`.
+ * another shared package P depends on, skip `__loadShare__` so Vite resolves
+ * the ordinary local module.
  *
- * Otherwise an eager local `react-dom` fallback evaluates against the host's
- * shared `react` and throws React #527 when the patches differ.
+ * Rewriting that edge to `__loadShare__` lets an eager local `react-dom`
+ * fallback evaluate against the host's shared `react` and throw React #527
+ * when the patches differ. Rewriting it to `__prebuild__` is not safe either:
+ * production unwraps `__prebuild__X` back to X, which re-enters this plugin
+ * and can leave a bare specifier (`ENOENT: open 'react'`).
  *
  * Reverse/cycle edges keep the ordinary local module. `import: false` shares
  * have no local fallback and must stay on loadShare. This does not change
@@ -943,16 +945,15 @@ export function proxySharedModule(options: {
               ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
               : source;
         // Cross-package imports from a local fallback graph (tagged `__prebuild__`
-        // or files of shared package P) must use the sibling local prebuild, not
+        // or files of shared package P) must keep the ordinary local module, not
         // the host `__loadShare__` wrapper. `shouldSkipTaggedImporterProxy` only
-        // skips a wrapper's own fallback import.
+        // skips a wrapper's own fallback import. Do not `this.resolve` a sibling
+        // `__prebuild__` id: production unwraps it back to the same source and
+        // re-enters this plugin (circular resolve → bare specifier ENOENT).
         if (
           shouldResolveSharedImportToLocalPrebuild(source, importer, key, shared, importerPackage)
         ) {
-          writePreBuildLibPath(shareSource, shared[key], federationOptions);
-          return this.resolve(getPreBuildLibImportId(shareSource, federationOptions), importer, {
-            skipSelf: true,
-          });
+          return;
         }
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {
