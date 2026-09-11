@@ -326,6 +326,49 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
   return reachable.has(dependency);
 }
 
+function isConfiguredSharedPackage(pkg: string, shared: NormalizedShared): boolean {
+  return Object.keys(shared).some((key) => getPackageName(key) === pkg);
+}
+
+/**
+ * Local fallback graphs that import another shared package (react-dom → react)
+ * are coherent-fallback edges. `?commonjs-proxy` importers must skip
+ * `__loadShare__`/`__prebuild__` so Vite resolves the bare specifier; rewriting
+ * them to `__prebuild__` unwraps and ENOENTs on Vite 6/7. Other importers still
+ * use `__loadShare__` so renderer and hooks share the negotiated singleton.
+ *
+ * Reverse/cycle edges keep the ordinary local module. `import: false` shares
+ * have no local fallback and must stay on loadShare. This does not change
+ * which shares use deferred vs eager fallback templates (#1173).
+ */
+export function shouldResolveSharedImportToLocalPrebuild(
+  source: string,
+  importer: string | undefined,
+  sharedKey: string,
+  shared: NormalizedShared,
+  importerPackage?: string
+): boolean {
+  if (!importer || shared[sharedKey]?.shareConfig.import === false) return false;
+
+  const prebuildImporter = importer.includes(PREBUILD_TAG)
+    ? VirtualModule.findModule(PREBUILD_TAG, importer)
+    : undefined;
+  const fallbackPackage = prebuildImporter
+    ? getPackageName(prebuildImporter.name)
+    : importerPackage;
+  if (!fallbackPackage || !isConfiguredSharedPackage(fallbackPackage, shared)) return false;
+
+  const sourcePackage = getPackageName(sharedKey);
+  if (fallbackPackage === sourcePackage) return false;
+  if (prebuildImporter && matchesSharedSource(source, prebuildImporter.name)) return false;
+
+  const dependencyRoot = prebuildImporter?.name ?? fallbackPackage;
+  if (!isSharedPackageDependency(dependencyRoot, sourcePackage)) return false;
+  if (isSharedPackageDependency(sharedKey, fallbackPackage)) return false;
+
+  return true;
+}
+
 const sharedRuntimeDependencyCache = new Map<
   string,
   { dependencies: Set<string>; complete: boolean }
@@ -896,11 +939,22 @@ export function proxySharedModule(options: {
             : isNodeModulePath(source)
               ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
               : source;
-        // Cross-package shared imports (react-dom → react) must use `__loadShare__`
-        // so the renderer and hooks close over the same negotiated singleton.
-        // Do not `this.resolve` a sibling `__prebuild__` id: production unwraps
-        // it back to the same source and re-enters this plugin (circular resolve
-        // → `?commonjs-proxy` bare specifier ENOENT on Vite 6/7).
+        // `?commonjs-proxy` importers must not resolve a sibling `__prebuild__`
+        // (production unwraps it back to the bare specifier and ENOENTs on
+        // Vite 6/7). Other coherent fallback edges still use `__loadShare__`
+        // so renderer and hooks close over the same negotiated singleton.
+        if (
+          shouldResolveSharedImportToLocalPrebuild(
+            source,
+            importer,
+            key,
+            shared,
+            importerPackage
+          ) &&
+          importer?.includes('?commonjs-proxy')
+        ) {
+          return;
+        }
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {
           materializedLoadShareSources.add(shareSource);
