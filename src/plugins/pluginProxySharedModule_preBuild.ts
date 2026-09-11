@@ -55,6 +55,7 @@ import {
   generateLocalSharedImportMap,
   getPreBuildShareItem,
   getLoadShareModulePath,
+  getPreBuildLibImportId,
   getLocalSharedImportMapPath,
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
@@ -324,6 +325,51 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
     sharedDependencyCache.set(sharedPackage, reachable);
   }
   return reachable.has(dependency);
+}
+
+function isConfiguredSharedPackage(pkg: string, shared: NormalizedShared): boolean {
+  return Object.keys(shared).some((key) => getPackageName(key) === pkg);
+}
+
+/**
+ * Local fallback graphs must stay version-coherent. If the importer is the
+ * `__prebuild__` wrapper (or a file) of shared package P, and the source is
+ * another shared package P depends on, resolve to that sibling's local
+ * `__prebuild__` instead of `__loadShare__`.
+ *
+ * Otherwise an eager local `react-dom` fallback evaluates against the host's
+ * shared `react` and throws React #527 when the patches differ.
+ *
+ * Reverse/cycle edges keep the ordinary local module. `import: false` shares
+ * have no local fallback and must stay on loadShare. This does not change
+ * which shares use deferred vs eager fallback templates (#1173).
+ */
+export function shouldResolveSharedImportToLocalPrebuild(
+  source: string,
+  importer: string | undefined,
+  sharedKey: string,
+  shared: NormalizedShared,
+  importerPackage?: string
+): boolean {
+  if (!importer || shared[sharedKey]?.shareConfig.import === false) return false;
+
+  const prebuildImporter = importer.includes(PREBUILD_TAG)
+    ? VirtualModule.findModule(PREBUILD_TAG, importer)
+    : undefined;
+  const fallbackPackage = prebuildImporter
+    ? getPackageName(prebuildImporter.name)
+    : importerPackage;
+  if (!fallbackPackage || !isConfiguredSharedPackage(fallbackPackage, shared)) return false;
+
+  const sourcePackage = getPackageName(sharedKey);
+  if (fallbackPackage === sourcePackage) return false;
+  if (prebuildImporter && matchesSharedSource(source, prebuildImporter.name)) return false;
+
+  const dependencyRoot = prebuildImporter?.name ?? fallbackPackage;
+  if (!isSharedPackageDependency(dependencyRoot, sourcePackage)) return false;
+  if (isSharedPackageDependency(sharedKey, fallbackPackage)) return false;
+
+  return true;
 }
 
 const sharedRuntimeDependencyCache = new Map<
@@ -896,6 +942,18 @@ export function proxySharedModule(options: {
             : isNodeModulePath(source)
               ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
               : source;
+        // Cross-package imports from a local fallback graph (tagged `__prebuild__`
+        // or files of shared package P) must use the sibling local prebuild, not
+        // the host `__loadShare__` wrapper. `shouldSkipTaggedImporterProxy` only
+        // skips a wrapper's own fallback import.
+        if (
+          shouldResolveSharedImportToLocalPrebuild(source, importer, key, shared, importerPackage)
+        ) {
+          writePreBuildLibPath(shareSource, shared[key], federationOptions);
+          return this.resolve(getPreBuildLibImportId(shareSource, federationOptions), importer, {
+            skipSelf: true,
+          });
+        }
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {
           materializedLoadShareSources.add(shareSource);
