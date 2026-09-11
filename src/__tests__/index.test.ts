@@ -3939,3 +3939,86 @@ describe('experiments.externalRuntime / provideExternalRuntime', () => {
     ).toBe(false);
   });
 });
+
+describe('ssrEntryLoader strategy injection', () => {
+  const hostRemotes = {
+    remoteApp: {
+      type: 'module' as const,
+      name: 'remoteApp',
+      entry: 'http://localhost:4174/remoteEntry.js',
+      shareScope: 'default',
+    },
+  };
+
+  function injectSsrEntryLoader(overrides: Partial<ModuleFederationOptions> = {}) {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      remotes: hostRemotes,
+      ...overrides,
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-early-init'
+    );
+    const optionsPlugin = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+      | (Plugin & { _options: NormalizedModuleFederationOptions })
+      | undefined;
+    if (!earlyInitPlugin || !optionsPlugin) {
+      throw new Error('module federation plugins not found');
+    }
+
+    const resolverMock = vi.mocked(resolveImportPath);
+    const originalImplementation = resolverMock.getMockImplementation();
+    resolverMock.mockImplementation((id: string) => {
+      if (id === '@module-federation/vite/ssrEntryLoader') {
+        return '/plugin/lib/utils/ssrEntryLoader.js';
+      }
+      return originalImplementation!(id);
+    });
+    try {
+      callHook(
+        earlyInitPlugin.configResolved,
+        {} as MinimalPluginContextWithoutEnvironment,
+        { command: 'build', root: process.cwd() } as ResolvedConfig
+      );
+    } finally {
+      resolverMock.mockImplementation(originalImplementation!);
+    }
+
+    return optionsPlugin._options.runtimePlugins.find((plugin) => {
+      const specifier = typeof plugin === 'string' ? plugin : plugin[0];
+      return specifier === '@module-federation/vite/ssrEntryLoader';
+    });
+  }
+
+  it('injects resolvedShared without strategy when ssrEntryLoader is omitted', () => {
+    const injected = injectSsrEntryLoader();
+    expect(injected).toEqual([
+      '@module-federation/vite/ssrEntryLoader',
+      { resolvedShared: expect.any(Object) },
+    ]);
+    expect((injected as [string, Record<string, unknown>])[1]).not.toHaveProperty('strategy');
+  });
+
+  it('passes strategy with resolvedShared when ssrEntryLoader.strategy is set', () => {
+    const injected = injectSsrEntryLoader({ ssrEntryLoader: { strategy: 'vm' } });
+    expect(injected).toEqual([
+      '@module-federation/vite/ssrEntryLoader',
+      {
+        resolvedShared: expect.any(Object),
+        strategy: 'vm',
+      },
+    ]);
+  });
+
+  it('passes an explicit temp-file strategy with resolvedShared', () => {
+    const injected = injectSsrEntryLoader({ ssrEntryLoader: { strategy: 'temp-file' } });
+    expect(injected).toEqual([
+      '@module-federation/vite/ssrEntryLoader',
+      {
+        resolvedShared: expect.any(Object),
+        strategy: 'temp-file',
+      },
+    ]);
+  });
+});
