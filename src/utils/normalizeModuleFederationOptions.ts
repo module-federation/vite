@@ -492,6 +492,14 @@ function normalizeExperiments(
   };
 }
 
+function normalizeSsrEntryLoader(
+  ssrEntryLoader: ModuleFederationOptions['ssrEntryLoader']
+): SsrEntryLoaderConfig | undefined {
+  const strategy = ssrEntryLoader?.strategy;
+  if (strategy !== 'temp-file' && strategy !== 'vm') return undefined;
+  return { strategy };
+}
+
 export type ModuleFederationOptions = {
   exposes?: Record<string, string | { import: string }> | undefined;
   filename?: string;
@@ -599,6 +607,13 @@ export type ModuleFederationOptions = {
    */
   ssrExternals?: string[];
   /**
+   * Options for the auto-injected `@module-federation/vite/ssrEntryLoader`.
+   * When omitted, the loader uses the `'temp-file'` strategy. Set
+   * `strategy: 'vm'` to opt into `vm.SourceTextModule` evaluation while keeping
+   * the computed `resolvedShared` map.
+   */
+  ssrEntryLoader?: SsrEntryLoaderConfig;
+  /**
    * Experimental Module Federation capabilities.
    *
    * @see https://module-federation.io/configure/experiments
@@ -621,6 +636,22 @@ export interface PluginExperimentsOptions {
   /** Generate the React SSR/hydration island capability for eligible exposes. */
   ssrMode?: 'ISLAND';
 }
+
+export type SsrEntryLoaderStrategy = 'temp-file' | 'vm';
+
+export type SsrEntryLoaderConfig = {
+  /**
+   * How the auto-injected `@module-federation/vite/ssrEntryLoader` evaluates
+   * remote SSR entries.
+   *
+   * - `'temp-file'` (default when omitted): fetch the ESM graph, rewrite
+   *   specifiers, write temp files and `import()` them.
+   * - `'vm'`: evaluate the graph with `vm.SourceTextModule`. Requires
+   *   `--experimental-vm-modules`; the loader emits a single warning and
+   *   falls back to `'temp-file'` when that API is unavailable.
+   */
+  strategy?: SsrEntryLoaderStrategy;
+};
 
 export interface NormalizedExperimentsOptions {
   externalRuntime: boolean;
@@ -838,6 +869,7 @@ export function normalizeModuleFederationOptions(
     varFilename: options.varFilename,
     target: options.target,
     ssrExternals: options.ssrExternals,
+    ssrEntryLoader: normalizeSsrEntryLoader(options.ssrEntryLoader),
     disableRemote: options.disableRemote,
     disableShared: options.disableShared,
     disableSnapshot: options.disableSnapshot,

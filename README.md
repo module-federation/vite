@@ -242,6 +242,27 @@ You can specify the place the host initialization file is injected with the **ho
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
 
+## SSR entry loading strategy
+
+SSR hosts can choose how HTTP ESM remote entries are evaluated during build and preview:
+
+```ts
+federation({
+  name: "host",
+  remotes: {
+    // ...
+  },
+  ssrEntryLoader: {
+    strategy: "vm",
+  },
+});
+```
+
+- `"temp-file"` (default) fetches the remote graph, rewrites imports to host-resolved shared packages, writes temporary files, and loads them with `import()`.
+- `"vm"` evaluates the graph in memory with `vm.SourceTextModule` and resolves shared packages through the Module Federation share scope.
+
+The `"vm"` strategy requires Node.js to run with `--experimental-vm-modules`. When unavailable, the loader warns once and falls back to `"temp-file"`. Vite 8 development uses `ModuleRunner`; this option primarily affects build and preview SSR entry loading.
+
 ## Runtime capability optimization
 
 Runtime features that a build never uses can be removed at build time:
