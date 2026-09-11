@@ -191,7 +191,6 @@ import {
   findSharedKey,
   getRuntimeImportSpecifiers,
   proxySharedModule,
-  shouldKeepSharedImportOnLocalModule,
 } from '../pluginProxySharedModule_preBuild';
 
 const sourceFile = (name: string) => ({ name, isDirectory: () => false, isFile: () => true });
@@ -1112,15 +1111,11 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(preBuildShareItemMap.has('vue')).toBe(true);
   });
 
-  it('does not proxy react-dom fallback imports of react through loadShare', async () => {
-    // Production eager local react-dom evaluates `import 'react'`. Rewriting
-    // that edge to `__loadShare__react` binds host React into a lower-patch
-    // local renderer and throws React #527. Skipping the proxy keeps the
-    // ordinary local module (same family as the fallback). Resolving to
-    // `__prebuild__react` is not safe: production unwraps it back to `react`
-    // and re-enters this plugin, leaving a bare specifier
-    // (`ENOENT: open 'react'`). See
-    // https://github.com/tonoizer/react-mf-patch-skew-repro
+  it('proxies react-dom fallback imports of react through loadShare, not prebuild', async () => {
+    // Singleton renderers and hooks must close over the same negotiated React.
+    // Resolving this edge to `__prebuild__react` is not safe: production unwraps
+    // it back to `react` and re-enters this plugin, leaving a bare specifier
+    // (`ENOENT: open 'react'` from `?commonjs-proxy` on Vite 6/7).
     hasPackageDependencyMock.mockReturnValue(false);
     existsSyncMock.mockImplementation(
       (p: string) =>
@@ -1154,31 +1149,26 @@ describe('pluginProxySharedModule_preBuild', () => {
       { command: 'build', mode: 'production' } as ConfigEnv
     );
 
-    const reactDomFile = '/repo/apps/remote/node_modules/react-dom/index.js';
-    expect(
-      shouldKeepSharedImportOnLocalModule('react', reactDomFile, 'react', makeShared(), 'react-dom')
-    ).toBe(true);
-
     writeLoadShareModuleMock.mockClear();
-    writePreBuildLibPathMock.mockClear();
     const resolveMock = vi.fn(async (id: string) => ({ id: `/resolved/${id}` }));
     const resolution = await callHook(
       sharedResolvePlugin.resolveId,
       { resolve: resolveMock } as any,
       'react',
-      reactDomFile,
+      '/repo/apps/remote/node_modules/react-dom/index.js',
       { isEntry: false }
     );
 
-    expect(resolution).toBeUndefined();
-    expect(resolveMock).not.toHaveBeenCalled();
-    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+    expect((resolution as { id: string }).id).toContain('__loadShare__');
+    expect((resolution as { id: string }).id).not.toContain('__prebuild__');
+    expect(resolveMock.mock.calls.some(([id]) => String(id).includes('__prebuild__'))).toBe(false);
+    expect(writeLoadShareModuleMock).toHaveBeenCalled();
 
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
   });
 
-  it('does not proxy react-dom/client fallback imports of react through loadShare', async () => {
+  it('proxies react-dom/client fallback imports of react through loadShare, not prebuild', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
     existsSyncMock.mockImplementation(
       (p: string) =>
@@ -1221,22 +1211,25 @@ describe('pluginProxySharedModule_preBuild', () => {
     );
 
     writeLoadShareModuleMock.mockClear();
+    const resolveMock = vi.fn(async (id: string) => ({ id: `/resolved/${id}` }));
     const resolution = await callHook(
       sharedResolvePlugin.resolveId,
-      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      { resolve: resolveMock } as any,
       'react',
       '/repo/apps/remote/node_modules/react-dom/client.js',
       { isEntry: false }
     );
 
-    expect(resolution).toBeUndefined();
-    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+    expect((resolution as { id: string }).id).toContain('__loadShare__');
+    expect((resolution as { id: string }).id).not.toContain('__prebuild__');
+    expect(resolveMock.mock.calls.some(([id]) => String(id).includes('__prebuild__'))).toBe(false);
+    expect(writeLoadShareModuleMock).toHaveBeenCalled();
 
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
   });
 
-  it('does not proxy tagged __prebuild__ react-dom imports of react through loadShare', async () => {
+  it('proxies tagged __prebuild__ react-dom imports of react through loadShare, not prebuild', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
     existsSyncMock.mockImplementation(
       (p: string) =>
@@ -1271,28 +1264,26 @@ describe('pluginProxySharedModule_preBuild', () => {
       { command: 'build', mode: 'production' } as ConfigEnv
     );
 
-    const prebuildImporter = '/virtual/__prebuild__react-dom__prebuild__.js';
-    expect(shouldKeepSharedImportOnLocalModule('react', prebuildImporter, 'react', shared)).toBe(
-      true
-    );
-
     writeLoadShareModuleMock.mockClear();
+    const resolveMock = vi.fn(async (id: string) => ({ id: `/resolved/${id}` }));
     const resolution = await callHook(
       sharedResolvePlugin.resolveId,
-      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      { resolve: resolveMock } as any,
       'react',
-      prebuildImporter,
+      '/virtual/__prebuild__react-dom__prebuild__.js',
       { isEntry: false }
     );
 
-    expect(resolution).toBeUndefined();
-    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+    expect((resolution as { id: string }).id).toContain('__loadShare__');
+    expect((resolution as { id: string }).id).not.toContain('__prebuild__');
+    expect(resolveMock.mock.calls.some(([id]) => String(id).includes('__prebuild__'))).toBe(false);
+    expect(writeLoadShareModuleMock).toHaveBeenCalled();
 
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
   });
 
-  it('does not proxy commonjs-proxy prebuild importers of sibling react through loadShare', async () => {
+  it('proxies commonjs-proxy prebuild importers of sibling react through loadShare, not prebuild', async () => {
     // vite-vite remote (Rollup) wraps the virtual prebuild as `?commonjs-proxy`.
     // Returning a sibling `__prebuild__` id from that importer re-enters
     // resolve-prebuild unwrap and fails with ENOENT on the bare specifier.
@@ -1340,9 +1331,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       { isEntry: false }
     );
 
-    expect(resolution).toBeUndefined();
-    expect(resolveMock).not.toHaveBeenCalled();
-    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+    expect((resolution as { id: string }).id).toContain('__loadShare__');
+    expect((resolution as { id: string }).id).not.toContain('__prebuild__');
+    expect(resolveMock.mock.calls.some(([id]) => String(id).includes('__prebuild__'))).toBe(false);
+    expect(writeLoadShareModuleMock).toHaveBeenCalled();
 
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
@@ -1369,10 +1361,6 @@ describe('pluginProxySharedModule_preBuild', () => {
     });
 
     const shared = makeShared();
-    expect(shouldKeepSharedImportOnLocalModule('react', '/src/main.ts', 'react', shared)).toBe(
-      false
-    );
-
     const plugins = proxySharedModule({ shared });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
@@ -1417,16 +1405,6 @@ describe('pluginProxySharedModule_preBuild', () => {
     const shared = makeShared();
     shared.react.shareConfig.import = false;
 
-    expect(
-      shouldKeepSharedImportOnLocalModule(
-        'react',
-        '/repo/apps/remote/node_modules/react-dom/index.js',
-        'react',
-        shared,
-        'react-dom'
-      )
-    ).toBe(false);
-
     const plugins = proxySharedModule({ shared });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
@@ -1441,15 +1419,17 @@ describe('pluginProxySharedModule_preBuild', () => {
       { command: 'build', mode: 'production' } as ConfigEnv
     );
 
+    const resolveMock = vi.fn(async (id: string) => ({ id: `/resolved/${id}` }));
     const resolution = await callHook(
       sharedResolvePlugin.resolveId,
-      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      { resolve: resolveMock } as any,
       'react',
       '/repo/apps/remote/node_modules/react-dom/index.js',
       { isEntry: false }
     );
 
     expect((resolution as { id: string }).id).toContain('__loadShare__');
+    expect(resolveMock.mock.calls.some(([id]) => String(id).includes('__prebuild__'))).toBe(false);
 
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
