@@ -1289,11 +1289,17 @@ describe('pluginAddEntry', () => {
           type: 'var',
           shareScope: 'default',
         },
+        manifest: {
+          entry: 'http://localhost:5003/mf-manifest.json',
+          name: 'manifest',
+          type: 'module',
+        },
       },
     } as any;
     addUsedRemote('remote', 'remote/Route', federationOptions);
     addUsedRemote('remote', 'remote/Button', federationOptions);
     addUsedRemote('legacy', 'legacy/Widget', federationOptions);
+    addUsedRemote('manifest', 'manifest/App', federationOptions);
 
     const plugins = addEntry({
       entryName: 'hostInit',
@@ -1319,6 +1325,7 @@ describe('pluginAddEntry', () => {
       'const __mfRemoteEntryPrefetchUrls = ["http://localhost:5001/remoteEntry.js"];'
     );
     expect(code).not.toContain('http://localhost:5002/remoteEntry.js');
+    expect(code).not.toContain('http://localhost:5003/mf-manifest.json');
     // A prefetch failure must stay silent; loadRemote reports real errors later.
     expect(code).toContain(
       'import(/* @vite-ignore */ __mfRemoteEntryPrefetchUrl).catch(() => {});'
