@@ -171,6 +171,23 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
     import {loadShare} from "@module-federation/runtime";
     ${eagerImports}
     ${normalizeRuntimeShareCode}
+    const __mfGetCachedReactFamily = (keys, reactKeys, localVersion, requiredExport) => {
+      const cache = globalThis.__mf_module_cache__?.share;
+      const react = reactKeys.map((key) => cache?.[key]).find((value) => value !== undefined);
+      const reactVersion = react?.version ?? react?.default?.version;
+      const actual = String(reactVersion || '').split(/[^0-9]+/).map(Number);
+      const expected = String(localVersion || '').split(/[^0-9]+/).map(Number);
+      for (let index = 0; index < Math.max(actual.length, expected.length); index++) {
+        if ((actual[index] || 0) < (expected[index] || 0)) return undefined;
+        if ((actual[index] || 0) > (expected[index] || 0)) break;
+      }
+      for (const key of keys) {
+        const cached = cache?.[key];
+        if (cached === undefined) continue;
+        if (!requiredExport || typeof cached?.[requiredExport] === 'function' || typeof cached?.default?.[requiredExport] === 'function') return cached;
+      }
+      return undefined;
+    };
     const importMap = {
       ${orderedShares
         .map((pkg, index) => {
@@ -196,6 +213,17 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
         .map((key) => {
           const shareItem = getNormalizeShareItem(key, resolvedOptions);
           if (!shareItem) return null;
+          const isReactFamily = key.startsWith('react/') || key === 'react-dom/client';
+          const cacheKeys = [key, ...(key === 'react-dom/client' ? ['react-dom'] : [])].flatMap(
+            (pkg) => {
+              const descriptor = getSharedCacheDescriptor(pkg, shareItem);
+              return [descriptor.canonical, ...(descriptor.aliases ?? [])];
+            }
+          );
+          const reactCacheKeys = ['react'].flatMap((pkg) => {
+            const descriptor = getSharedCacheDescriptor(pkg, shareItem);
+            return [descriptor.canonical, ...(descriptor.aliases ?? [])];
+          });
           const detectedNamedExports = getSharedNamedExports(key, shareItem);
           const canLiveRebind =
             shareItem.shareConfig.import === false || detectedNamedExports !== undefined;
@@ -246,6 +274,18 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
             async get () {
               if (${shareItem.shareConfig.import === false}) {
                 throw new Error(\`[Module Federation] Shared module '\${${toSafeJsLiteral(key)}}' must be provided by host\`);
+              }
+              const cachedSingleton = ${shareItem.shareConfig.singleton && isReactFamily}
+                ? __mfGetCachedReactFamily(
+                    ${toSafeJsLiteral(cacheKeys)},
+                    ${toSafeJsLiteral(reactCacheKeys)},
+                    ${toSafeJsLiteral(shareItem.version)},
+                    ${toSafeJsLiteral(key === 'react-dom/client' ? 'createRoot' : undefined)}
+                  )
+                : undefined
+              if (cachedSingleton !== undefined) {
+                usedShared[${toSafeJsLiteral(key)}].loaded = true
+                return function () { return cachedSingleton }
               }
               usedShared[${toSafeJsLiteral(key)}].loaded = true
               const {${toSafeJsLiteral(key)}: pkgDynamicImport} = importMap
@@ -793,10 +833,26 @@ function generateRuntimeSharedCacheSeedCode(
           );
           return;
         }
-        const pendingExternalProvider = typeof __mfGetPendingExternalSharedProvider === 'function'
-          ? __mfGetPendingExternalSharedProvider(pkg, share)
+        const externalProvider = typeof __mfGetExternalSharedProvider === 'function'
+          ? __mfGetExternalSharedProvider(pkg, share)
           : undefined;
-        if (pendingExternalProvider && !pendingExternalProvider.lib && !pendingExternalProvider.loaded) {
+        if (externalProvider) {
+          let externalFactory = externalProvider.lib;
+          if (!externalFactory && externalProvider.loading) externalFactory = await externalProvider.loading;
+          if (!externalFactory && externalProvider.loaded && typeof externalProvider.get === 'function') {
+            externalFactory = await externalProvider.get();
+          }
+          if (externalFactory) {
+            const externalModule = typeof externalFactory === "function" ? externalFactory() : externalFactory;
+            const externalResolved = await Promise.resolve(externalModule);
+            ${normalizeRuntimeShareCode}
+            __mfWriteSharedCache(
+              __mfModuleCache.share,
+              cacheDescriptor,
+              __mfNormalizeRuntimeShare(externalResolved),
+              externalProvider.from
+            );
+          }
           return;
         }
         const providerKey = cacheDescriptor.canonical;
@@ -1379,28 +1435,32 @@ export function generateRemoteEntry(
       const parts = pkg.split('/');
       return pkg.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
     };
-    const __mfGetPendingExternalSharedProvider = (pkg, share, versionMap) => {
+    const __mfGetExternalSharedProvider = (pkg, share, versionMap, includePackage) => {
       if (typeof __mfSelectExternalSharedProvider !== 'function') return undefined;
       const packageName = __mfGetSharePackageName(pkg);
-      const candidates = packageName === pkg
+      const candidates = !includePackage || packageName === pkg
         ? [[pkg, share]]
         : [[pkg, share], [packageName, usedShared[packageName]]];
       for (const [candidatePkg, candidateShare] of candidates) {
         if (!candidateShare) continue;
         const candidateVersionMap = versionMap
           ? (candidatePkg === pkg ? versionMap : initialShared[candidatePkg])
-          : ${hasMultipleShareScopes ? 'getShareVersions(candidatePkg, candidateShare)' : 'shared[candidatePkg]'};
+          : (initialShared[candidatePkg] ?? ${hasMultipleShareScopes ? 'getShareVersions(candidatePkg, candidateShare)' : 'shared[candidatePkg]'});
         const provider = __mfSelectExternalSharedProvider(
           candidateVersionMap,
           candidatePkg,
           candidateShare,
           '${options.shareStrategy}'
         );
-        if (provider && isWebpackProvider(provider) && !provider.lib && !provider.loaded) {
-          return provider;
-        }
+        if (provider) return provider;
       }
       return undefined;
+    };
+    const __mfGetPendingExternalSharedProvider = (pkg, share, versionMap) => {
+      const provider = __mfGetExternalSharedProvider(pkg, share, versionMap, true);
+      return provider && isWebpackProvider(provider) && !provider.lib && !provider.loaded
+        ? provider
+        : undefined;
     };
     // handling circular init calls before an external provider can re-enter this container
     ${

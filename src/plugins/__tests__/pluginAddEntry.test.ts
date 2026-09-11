@@ -907,6 +907,14 @@ describe('pluginAddEntry', () => {
 
     expect(internalResult).toBeUndefined();
 
+    const localMapResult = await runTransform(
+      buildPlugin,
+      "const requiredExport = 'createRoot';",
+      '\0virtual:mf-localSharedImportMap:__mfe_internal__host__mf_owner__1'
+    );
+
+    expect(localMapResult).toBeUndefined();
+
     const entryResult = (await runTransform(
       buildPlugin,
       'import { hydrateRoot } from "react-dom/client";\nhydrateRoot(document, app);',

@@ -679,7 +679,9 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
   function isFederationInternalVirtualId(id: string) {
     const normalized = decodeViteId(id).replace(/^\0+/, '');
     return (
-      normalized.includes('virtual:mf:') || /__(?:loadShare|prebuild|loadRemote)__/.test(normalized)
+      normalized.includes('virtual:mf:') ||
+      normalized.startsWith('virtual:mf-') ||
+      /__(?:loadShare|prebuild|loadRemote)__/.test(normalized)
     );
   }
 
