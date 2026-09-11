@@ -673,6 +673,83 @@ describe('virtualRemoteEntry', () => {
     );
   });
 
+  it('reuses a cached singleton family before importing its local fallback', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react-dom/client');
+
+    const hostRenderer = { marker: 'host-react-dom', createRoot: () => undefined };
+    const previousCache = (globalThis as any).__mf_module_cache__;
+    (globalThis as any).__mf_module_cache__ = {
+      share: {
+        'default:react': { version: '19.2.8' },
+        'default:react-dom': hostRenderer,
+      },
+      remote: {},
+    };
+    let localLoads = 0;
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:react-dom/client")', 'loadLocal()')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+
+    try {
+      const generated = new Function('loadLocal', code)(async () => {
+        localLoads++;
+        return { marker: 'local-react-dom-client' };
+      });
+      const factory = await generated.usedShared['react-dom/client'].get();
+
+      expect(factory()).toBe(hostRenderer);
+      expect(localLoads).toBe(0);
+    } finally {
+      if (previousCache === undefined) delete (globalThis as any).__mf_module_cache__;
+      else (globalThis as any).__mf_module_cache__ = previousCache;
+    }
+  });
+
+  it('does not use cached react-dom as react-dom/client', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react-dom/client');
+
+    const previousCache = (globalThis as any).__mf_module_cache__;
+    (globalThis as any).__mf_module_cache__ = {
+      share: {
+        'default:react': { version: '19.2.8' },
+        'default:react-dom': { marker: 'host-react-dom' },
+      },
+      remote: {},
+    };
+    let localLoads = 0;
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:react-dom/client")', 'loadLocal()')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+
+    try {
+      const generated = new Function('loadLocal', code)(async () => {
+        localLoads++;
+        return { marker: 'local-react-dom-client' };
+      });
+      const factory = await generated.usedShared['react-dom/client'].get();
+
+      expect(factory()).toEqual({ marker: 'local-react-dom-client' });
+      expect(localLoads).toBe(1);
+    } finally {
+      if (previousCache === undefined) delete (globalThis as any).__mf_module_cache__;
+      else (globalThis as any).__mf_module_cache__ = previousCache;
+    }
+  });
+
   it('materializes direct React for vinext RSC hosts', async () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'vinext');
     const mod = await import('../virtualRemoteEntry');
@@ -2695,6 +2772,75 @@ describe('virtualRemoteEntry', () => {
     expect(orderedRuntimeSeed).toBeGreaterThan(globalBridgeEnd);
   });
 
+  it('seeds a materialized external singleton without loading its local fallback', async () => {
+    const shared = {
+      name: 'react-dom/client',
+      from: 'remote',
+      version: '19.2.8',
+      scope: 'default',
+      shareConfig: { singleton: true, requiredVersion: '^19.0.0' },
+    };
+    normalizedSharedMock.mockReturnValue({ 'react-dom/client': shared });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react-dom/client');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+    const hostRenderer = { marker: 'host-react-dom-client' };
+    const externalProvider = { from: 'host', lib: () => hostRenderer };
+    const state = { localLoads: 0 };
+    const usedShared = {
+      'react-dom/client': {
+        ...shared,
+        scope: ['default'],
+        get: async () => {
+          state.localLoads++;
+          return () => ({ marker: 'local-react-dom-client' });
+        },
+      },
+    };
+
+    const cached = await new Function(
+      'usedShared',
+      'state',
+      'externalProvider',
+      `return (async () => {
+        const __mfModuleCache = { share: {} };
+        const mfName = 'remote';
+        const initialShared = { 'react-dom/client': { '19.2.8': externalProvider } };
+        const __mfGetSharedCacheDescriptor = (pkg) => ({ canonical: 'default:' + pkg });
+        const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+        const __mfReadSharedCacheOwner = () => undefined;
+        const __mfWriteSharedCache = (cache, descriptor, value) => {
+          cache[descriptor.canonical] = value;
+        };
+        const __mfReadTreeShakingSharedSelection = () => undefined;
+        const __mfSelectExternalSharedProvider = () => externalProvider;
+        const __mfGetExternalSharedProvider = () => externalProvider;
+        ${getRuntimeSeedCode(code)}
+        await __mfSeedLocalShared(['react-dom/client']);
+        return __mfModuleCache.share['default:react-dom/client'];
+      })();`
+    )(usedShared, state, externalProvider);
+
+    expect(state.localLoads).toBe(0);
+    expect(cached).toBe(hostRenderer);
+  });
+
   it('seeds a root host singleton before version-first remote initialization', async () => {
     const hostReactShare = {
       name: 'react',
@@ -3633,7 +3779,7 @@ describe('virtualRemoteEntry', () => {
       'if (__mfGetPendingExternalSharedProvider(pkg, usedShare)) return;'
     );
     expect(code).toContain(
-      "const pendingExternalProvider = typeof __mfGetPendingExternalSharedProvider === 'function'"
+      "const externalProvider = typeof __mfGetExternalSharedProvider === 'function'"
     );
     expect(code).toContain(
       'if (__mfGetPendingExternalSharedProvider(pkg, share, initialShared[pkg])) return;'
