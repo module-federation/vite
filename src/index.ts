@@ -1586,6 +1586,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               return 'runtimeInit';
             }
             if (id.includes(LOAD_SHARE_TAG)) {
+              const pkg = getCachedLoadSharePkg(id);
+              const key = pkg && findSharedKey(pkg, shared);
+              if (useCodeSplitting && key && shared[key].shareConfig.eager === true) {
+                return 'loadShare-eager';
+              }
               // Use the virtual module path as the chunk name
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';

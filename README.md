@@ -368,7 +368,7 @@ The `externalRuntime` rewrite applies to the browser remote graph; SSR remote en
 
 Do not set `build.rollupOptions.output.codeSplitting` or
 `build.rolldownOptions.output.codeSplitting` to `false` — it will be **ignored** (with a warning).
-Module Federation requires chunk splitting so `loadShare` and `runtimeInitStatus` stay isolated for correct bootstrap order.
+Module Federation requires chunk splitting so `runtimeInitStatus` and deferred `loadShare` wrappers stay isolated for correct bootstrap order. Eager `loadShare` wrappers are coalesced into one `loadShare-eager` chunk on Vite 8+ to reduce startup requests.
 
 ### `codeSplitting.groups` (Vite 8+ / Rolldown)
 
