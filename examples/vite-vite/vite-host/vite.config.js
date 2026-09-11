@@ -6,6 +6,9 @@ const treeShakingMode = ['server-calc', 'runtime-infer'].includes(process.env.TR
   ? process.env.TREE_SHAKING_MODE
   : undefined;
 const eagerShared = process.env.EAGER_SHARED === 'true';
+const eagerManifestPort = process.env.EAGER_MANIFEST_PORT
+  ? Number(process.env.EAGER_MANIFEST_PORT)
+  : undefined;
 const externalRuntime = process.env.EXTERNAL_RUNTIME === '1';
 const antdShared = {
   singleton: true,
@@ -102,7 +105,7 @@ export default defineConfig({
     port: 5175,
   },
   preview: {
-    port: 5175,
+    port: eagerManifestPort ?? 5175,
   },
   // base: 'http://localhost:5175',
   plugins: [
@@ -111,6 +114,7 @@ export default defineConfig({
     secondaryFederation,
   ],
   build: {
+    outDir: eagerManifestPort ? 'dist-eager-manifest' : 'dist',
     target: 'chrome89',
     // This host runs on Vite 8 (Rolldown) so it exercises the
     // `codeSplitting.groups` composition path. The plugin installs its
