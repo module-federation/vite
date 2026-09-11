@@ -194,4 +194,85 @@ describe('version-first singleton static import browser bootstrap', () => {
       setPackageDetectionCwd(originalPackageDetectionCwd);
     }
   }, 60_000);
+
+  it('uses the same negotiated React instance for hooks and the local renderer fallback', async () => {
+    const originalPackageDetectionCwd = getPackageDetectionCwd();
+    const workspace = await mkdtemp(path.join(tmpdir(), 'mf-react-skew-browser-'));
+    let remoteServer: StaticServer | undefined;
+    let hostServer: StaticServer | undefined;
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      const remoteOutDir = path.join(workspace, 'remote');
+      const hostOutDir = path.join(workspace, 'host');
+      await buildFixtureTo('react-skew-remote', remoteOutDir, {
+        name: 'reactSkewRemote',
+        filename: 'remoteEntry.js',
+        exposes: {
+          './Module': path.resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js'),
+        },
+        shareStrategy: 'version-first',
+        shared: {
+          react: { singleton: true, requiredVersion: '^19.2.4' },
+        },
+        hostInitInjectLocation: 'entry',
+        dts: false,
+      });
+      remoteServer = await serveDirectory(remoteOutDir);
+
+      await buildFixtureTo('react-skew-host', hostOutDir, {
+        name: 'reactSkewHost',
+        filename: 'remoteEntry.js',
+        remotes: {
+          remote: {
+            name: 'remote',
+            entry: `${remoteServer.origin}/remoteEntry.js`,
+            type: 'module',
+          },
+        },
+        shareStrategy: 'version-first',
+        shared: {
+          react: { singleton: true, requiredVersion: '^19.2.4' },
+          'react-dom/client': { singleton: true, requiredVersion: '^19.2.4' },
+        },
+        hostInitInjectLocation: 'entry',
+        dts: false,
+      });
+      hostServer = await serveDirectory(hostOutDir);
+
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+
+      await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
+      try {
+        await page.waitForFunction(
+          () => document.querySelector('#app')?.textContent === 'rendered',
+          undefined,
+          { timeout: 5_000 }
+        );
+      } catch (error) {
+        throw new Error(
+          JSON.stringify(
+            {
+              cause: String(error),
+              pageErrors,
+              content: await page.content(),
+            },
+            null,
+            2
+          )
+        );
+      }
+
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser?.close();
+      await hostServer?.close();
+      await remoteServer?.close();
+      await rm(workspace, { recursive: true, force: true });
+      setPackageDetectionCwd(originalPackageDetectionCwd);
+    }
+  }, 60_000);
 });
