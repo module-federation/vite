@@ -100,6 +100,53 @@ describe('ssrEntryLoaderPlugin factory', () => {
   });
 });
 
+describe('ssrEntryLoaderPlugin — vm fallback', () => {
+  it('warns once and falls back to temp-file when vm modules are unavailable', async () => {
+    vi.doMock('../ssrVmStrategy', () => ({
+      isVmStrategyAvailable: vi.fn(async () => false),
+      loadViaVmStrategy: vi.fn(),
+    }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const { default: factory } = await freshLoaderModule();
+      const fsMock = await import('fs');
+      const fetch = makeFetchMock({
+        'http://localhost:5001/mf-manifest.json': {
+          ok: true,
+          json: {
+            metaData: {
+              ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
+            },
+          },
+        },
+        'http://localhost:5001/remoteEntry.ssr.js': {
+          ok: true,
+          headers: { 'content-type': 'application/javascript' },
+          text: 'export async function init() {} export async function get() {}',
+        },
+      });
+      global.fetch = fetch as unknown as typeof globalThis.fetch;
+      const plugin = factory({ strategy: 'vm' });
+      const remote = {
+        remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+      };
+
+      const first = await plugin.loadEntry!(remote);
+      const second = await plugin.loadEntry!(remote);
+
+      expect(first).toBeUndefined();
+      expect(second).toBeUndefined();
+      expect(fsMock.writeFileSync).toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('falling back'));
+    } finally {
+      warn.mockRestore();
+      vi.doUnmock('../ssrVmStrategy');
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Browser guard
 // ---------------------------------------------------------------------------
