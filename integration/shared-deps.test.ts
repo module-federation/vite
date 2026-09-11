@@ -1,6 +1,8 @@
 import { resolve } from 'path';
 import { describe, expect, it, vi } from 'vitest';
+import { version as viteVersion } from 'vite';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
+import { getPackageDetectionCwd, setPackageDetectionCwd } from '../src/utils/packageUtils';
 import { isRollupChunk } from './helpers/assertions';
 import { buildFixture, FIXTURES } from './helpers/build';
 import { findChunk, getAllChunkCode, parseManifest } from './helpers/matchers';
@@ -300,5 +302,46 @@ describe('shared dependencies', () => {
     const sharedEntry = shared.find((s) => s.name === 'mock-shared-dep');
     expect(sharedEntry).toBeDefined();
     expect(sharedEntry?.singleton).toBe(true);
+  });
+
+  it('builds CJS react-dom/client that requires react without bare-specifier ENOENT', async () => {
+    // Locks the Vite 6/7 production regression from
+    // https://github.com/module-federation/vite/pull/1279#pullrequestreview-5183240256
+    // Redirecting react-dom's `require('react')` to virtual `__prebuild__react`
+    // made Rollup's CommonJS transform emit `?commonjs-proxy` whose bare
+    // `react` import failed with ENOENT. Keep the ordinary local module edge.
+    const fixtureRoot = resolve(FIXTURES, 'cjs-react-shared');
+    const originalPackageDetectionCwd = getPackageDetectionCwd();
+    setPackageDetectionCwd(fixtureRoot);
+    let output: Awaited<ReturnType<typeof buildFixture>>;
+    try {
+      output = await buildFixture({
+        fixture: 'cjs-react-shared',
+        mfOptions: {
+          name: 'cjsReactShared',
+          filename: 'remoteEntry.js',
+          shareStrategy: 'version-first',
+          hostInitInjectLocation: 'entry',
+          shared: {
+            react: { singleton: true },
+            'react-dom': { singleton: true },
+            'react-dom/client': { singleton: true },
+          },
+          dts: false,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
+      expect(message, `vite@${viteVersion} production CJS react graph`).not.toMatch(
+        /Could not load react|ENOENT: no such file or directory, open 'react'/
+      );
+      throw error;
+    } finally {
+      setPackageDetectionCwd(originalPackageDetectionCwd);
+    }
+
+    const allCode = getAllChunkCode(output);
+    expect(allCode).toContain('loadShare');
+    expect(allCode).not.toContain("open 'react'");
   });
 });

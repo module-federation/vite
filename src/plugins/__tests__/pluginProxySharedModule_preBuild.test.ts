@@ -191,7 +191,7 @@ import {
   findSharedKey,
   getRuntimeImportSpecifiers,
   proxySharedModule,
-  shouldResolveSharedImportToLocalPrebuild,
+  shouldKeepSharedImportOnLocalModule,
 } from '../pluginProxySharedModule_preBuild';
 
 const sourceFile = (name: string) => ({ name, isDirectory: () => false, isFile: () => true });
@@ -1156,13 +1156,7 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const reactDomFile = '/repo/apps/remote/node_modules/react-dom/index.js';
     expect(
-      shouldResolveSharedImportToLocalPrebuild(
-        'react',
-        reactDomFile,
-        'react',
-        makeShared(),
-        'react-dom'
-      )
+      shouldKeepSharedImportOnLocalModule('react', reactDomFile, 'react', makeShared(), 'react-dom')
     ).toBe(true);
 
     writeLoadShareModuleMock.mockClear();
@@ -1278,9 +1272,9 @@ describe('pluginProxySharedModule_preBuild', () => {
     );
 
     const prebuildImporter = '/virtual/__prebuild__react-dom__prebuild__.js';
-    expect(
-      shouldResolveSharedImportToLocalPrebuild('react', prebuildImporter, 'react', shared)
-    ).toBe(true);
+    expect(shouldKeepSharedImportOnLocalModule('react', prebuildImporter, 'react', shared)).toBe(
+      true
+    );
 
     writeLoadShareModuleMock.mockClear();
     const resolution = await callHook(
@@ -1375,7 +1369,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     });
 
     const shared = makeShared();
-    expect(shouldResolveSharedImportToLocalPrebuild('react', '/src/main.ts', 'react', shared)).toBe(
+    expect(shouldKeepSharedImportOnLocalModule('react', '/src/main.ts', 'react', shared)).toBe(
       false
     );
 
@@ -1424,7 +1418,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     shared.react.shareConfig.import = false;
 
     expect(
-      shouldResolveSharedImportToLocalPrebuild(
+      shouldKeepSharedImportOnLocalModule(
         'react',
         '/repo/apps/remote/node_modules/react-dom/index.js',
         'react',

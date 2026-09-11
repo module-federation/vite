@@ -346,7 +346,7 @@ function isConfiguredSharedPackage(pkg: string, shared: NormalizedShared): boole
  * have no local fallback and must stay on loadShare. This does not change
  * which shares use deferred vs eager fallback templates (#1173).
  */
-export function shouldResolveSharedImportToLocalPrebuild(
+export function shouldKeepSharedImportOnLocalModule(
   source: string,
   importer: string | undefined,
   sharedKey: string,
@@ -950,9 +950,7 @@ export function proxySharedModule(options: {
         // skips a wrapper's own fallback import. Do not `this.resolve` a sibling
         // `__prebuild__` id: production unwraps it back to the same source and
         // re-enters this plugin (circular resolve → bare specifier ENOENT).
-        if (
-          shouldResolveSharedImportToLocalPrebuild(source, importer, key, shared, importerPackage)
-        ) {
+        if (shouldKeepSharedImportOnLocalModule(source, importer, key, shared, importerPackage)) {
           return;
         }
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
