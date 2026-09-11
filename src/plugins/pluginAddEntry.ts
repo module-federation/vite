@@ -431,7 +431,8 @@ const __mfCurrentScript = document.currentScript;
           );
           return registration &&
             (registration.type === 'module' || registration.type === 'esm') &&
-            /^(?:https?:)?\/\//.test(registration.entry)
+            /^(?:https?:)?\/\//.test(registration.entry) &&
+            !/\.json(?:[?#]|$)/i.test(registration.entry)
             ? [registration.entry]
             : [];
         })
