@@ -9,12 +9,14 @@ import {
 } from '../utils/normalizeModuleFederationOptions';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
 import {
+  getLoadShareModulePath,
   getLocalSharedImportMapPath,
   getUsedRemotesMap,
   getUsedShares,
   TREE_SHAKING_GRAPH_QUERY,
   TREE_SHAKING_PROVIDER_TAG,
 } from '../virtualModules';
+import { getIsRolldown } from '../utils/packageUtils';
 
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import {
@@ -112,14 +114,54 @@ function collectImportedCss(chunks: OutputChunkWithViteMetadata[]): string[] {
   return Array.from(css);
 }
 
+/**
+ * Collects the virtual module ids of the `__loadShare__` wrappers belonging to shares
+ * that are not eager.
+ *
+ * Such a wrapper resolves its share through the host at runtime, so it is a deferred
+ * dependency even though the expose statically imports it. Advertising it as a sync
+ * asset makes a preloader fetch a provider the host is going to supply anyway.
+ */
+function collectDeferredShareModules(
+  options: NormalizedModuleFederationOptions,
+  isRolldown: boolean
+): Set<string> {
+  const deferred = new Set<string>();
+  for (const shareKey of getUsedShares(options)) {
+    if (getNormalizeShareItem(shareKey, options)?.shareConfig.eager === true) continue;
+    deferred.add(normalizeVirtualModuleId(getLoadShareModulePath(shareKey, isRolldown, options)));
+  }
+  return deferred;
+}
+
+/**
+ * True when the chunk exists to load a deferred share rather than expose code.
+ *
+ * `chunk.moduleIds` carry Rollup's `\0` virtual-module prefix while
+ * `getLoadShareModulePath` returns the unprefixed id, so both sides are normalized —
+ * the same comparison `isContainerBootstrapChunk` makes.
+ */
+function isDeferredShareChunk(
+  chunk: OutputBundleItem | undefined,
+  deferredShareModules: Set<string>
+): boolean {
+  if (!chunk || chunk.type !== 'chunk' || deferredShareModules.size === 0) return false;
+  return [chunk.facadeModuleId, ...(chunk.moduleIds ?? [])].some(
+    (id) => typeof id === 'string' && deferredShareModules.has(normalizeVirtualModuleId(id))
+  );
+}
+
 function expandExposeAssets(
   filesMap: PreloadMap,
   exposeModules: string[],
   bundle: Record<string, OutputBundleItem>,
   remoteEntryFileName: string | undefined,
-  options: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions,
+  isRolldown: boolean
 ): void {
   if (exposeModules.length === 0) return;
+
+  const deferredShareModules = collectDeferredShareModules(options, isRolldown);
 
   const containerChunks = remoteEntryFileName
     ? collectStaticChunks(bundle, [remoteEntryFileName])
@@ -166,15 +208,21 @@ function expandExposeAssets(
     const assets = filesMap[exposeModule];
     if (!assets) continue;
 
-    const syncChunks = collectStaticChunks(bundle, assets.js.sync);
+    const allSyncChunks = collectStaticChunks(bundle, assets.js.sync);
+    const syncChunks = allSyncChunks.filter(
+      (chunk) => !isDeferredShareChunk(chunk, deferredShareModules)
+    );
+    const deferredChunks = allSyncChunks.filter((chunk) =>
+      isDeferredShareChunk(chunk, deferredShareModules)
+    );
     const sync = Array.from(
       new Set([...bootstrapAssets, ...syncChunks.map((chunk) => chunk.fileName)])
     );
     const syncSet = new Set(sync);
-    const asyncChunks = collectStaticChunks(bundle, assets.js.async);
-    const async = asyncChunks
-      .map((chunk) => chunk.fileName)
-      .filter((fileName) => !syncSet.has(fileName));
+    const asyncChunks = [...collectStaticChunks(bundle, assets.js.async), ...deferredChunks];
+    const async = Array.from(new Set(asyncChunks.map((chunk) => chunk.fileName))).filter(
+      (fileName) => !syncSet.has(fileName)
+    );
 
     assets.js.sync = sync;
     assets.js.async = async;
@@ -445,7 +493,14 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             },
             { root, stripKnownJsExtensions: true }
           );
-          expandExposeAssets(filesMap, exposesModules, bundle, foundRemoteEntryFile, mfOptions);
+          expandExposeAssets(
+            filesMap,
+            exposesModules,
+            bundle,
+            foundRemoteEntryFile,
+            mfOptions,
+            getIsRolldown(this)
+          );
 
           // Process shared modules
           const fileToShareKey = await buildFileToShareKeyMap(

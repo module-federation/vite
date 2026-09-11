@@ -21,6 +21,13 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
+      command:
+        'EAGER_SHARED=true EAGER_MANIFEST_PORT=5185 pnpm --filter examples-vite-vite-host run preview',
+      url: 'http://localhost:5185',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
       command: 'pnpm --filter examples-vite-runtime-register-host run preview',
       url: 'http://localhost:4175',
       reuseExistingServer: !process.env.CI,
@@ -62,6 +69,15 @@ export default defineConfig({
       testMatch: 'remote-preview.spec.ts',
       use: {
         baseURL: 'http://localhost:5176',
+        browserName: 'chromium',
+      },
+    },
+    {
+      name: 'vite-vite-eager-manifest',
+      testDir: 'e2e/vite-vite/tests',
+      testMatch: 'eager-manifest.spec.ts',
+      use: {
+        baseURL: 'http://localhost:5185',
         browserName: 'chromium',
       },
     },
