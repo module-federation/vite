@@ -50,6 +50,8 @@ import type {
   PluginExperimentsOptions,
   PluginManifestOptions,
   ShareItem,
+  SsrEntryLoaderConfig,
+  SsrEntryLoaderStrategy,
   TreeShakingConfig,
 } from './utils/normalizeModuleFederationOptions';
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
@@ -1010,7 +1012,15 @@ export default __mfShared.default ?? __mfShared;`,
       const ssrEntryLoaderSpecifier = SSR_ENTRY_LOADER_SPECIFIER;
       try {
         resolveImportPath(ssrEntryLoaderSpecifier);
-        options.runtimePlugins.push([ssrEntryLoaderSpecifier, { resolvedShared }]);
+        options.runtimePlugins.push([
+          ssrEntryLoaderSpecifier,
+          {
+            resolvedShared,
+            ...(options.ssrEntryLoader?.strategy
+              ? { strategy: options.ssrEntryLoader.strategy }
+              : {}),
+          },
+        ]);
       } catch {
         // lib/ not built yet — skip silently
       }
@@ -1586,6 +1596,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               return 'runtimeInit';
             }
             if (id.includes(LOAD_SHARE_TAG)) {
+              const pkg = getCachedLoadSharePkg(id);
+              const key = pkg && findSharedKey(pkg, shared);
+              if (useCodeSplitting && key && shared[key].shareConfig.eager === true) {
+                return 'loadShare-eager';
+              }
               // Use the virtual module path as the chunk name
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';
@@ -2193,5 +2208,7 @@ export {
   type ModuleFederationOptions,
   type PluginExperimentsOptions,
   type PluginManifestOptions,
+  type SsrEntryLoaderConfig,
+  type SsrEntryLoaderStrategy,
   type TreeShakingConfig,
 };
