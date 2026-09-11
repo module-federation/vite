@@ -2365,6 +2365,10 @@ export function generatePendingSharesCode(
           .filter((pkg) => {
             const shareItem = getShareItemForPreload(pkg, resolvedOptions);
             if (!shareItem || pkg.endsWith('/')) return false;
+            // An eager share is already a static import of the local shared import map, so it is
+            // evaluated before the entry either way and the barrier has nothing to seed. Seeding it
+            // anyway is what makes every eager share a dynamic entry, and so a chunk of its own.
+            if (shareItem.shareConfig.eager) return false;
             return shareItem.shareConfig.import !== false && !shareItem.shareConfig.treeShaking;
           })
           .map(

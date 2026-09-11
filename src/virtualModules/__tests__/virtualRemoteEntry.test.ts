@@ -1033,6 +1033,38 @@ describe('virtualRemoteEntry', () => {
     );
   });
 
+  it('leaves eager shares out of the build bootstrap: they are already static imports', async () => {
+    const share = (name: string, eager = false) => ({
+      name,
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        ...(eager ? { eager: true } : {}),
+      },
+    });
+    normalizedSharedMock.mockReturnValue({
+      react: share('react'),
+      'eager-shared': share('eager-shared', true),
+    });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+    mod.addUsedShares('eager-shared');
+
+    const localMap = mod.generateLocalSharedImportMap();
+    const buildCode = mod.generatePendingSharesCode('build');
+
+    // The import map already imports the eager share statically, so it is evaluated before the entry
+    // either way; seeding it as well would only make it a dynamic entry, and so a chunk of its own.
+    expect(localMap).toContain('from "virtual:prebuild:eager-shared";');
+    expect(buildCode).toContain(
+      'const __mfPendingShareImports = [["react", () => import("virtual:loadShare:react")]];'
+    );
+    expect(buildCode).not.toContain('virtual:loadShare:eager-shared');
+  });
+
   it('orders React package roots before their subpath shares', async () => {
     const share = (name: string) => ({
       name,
