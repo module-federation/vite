@@ -173,6 +173,7 @@ async function runGenerateBundleWithManifest(
             requiredVersion: string;
             singleton?: boolean;
             eager?: boolean;
+            import?: false;
             treeShaking?: {
               mode?: 'server-calc' | 'runtime-infer';
               usedExports?: string[];
@@ -1108,6 +1109,31 @@ describe('pluginMFManifest', () => {
       usedShares: new Set(['vue']),
       shareItems: {
         vue: { version: '3.5.0', shareConfig: { requiredVersion: '^3.5.0', eager: true } },
+      },
+    });
+
+    const exposeAssets = JSON.parse(emitted['mf-manifest.json']).exposes[0].assets.js;
+    expect(exposeAssets.sync).toContain(wrapperFile);
+    expect(exposeAssets.async).not.toContain(wrapperFile);
+  });
+
+  it('keeps an eager host-provided share wrapper synchronous', async () => {
+    const wrapperFile = 'assets/loadShare-vue.js';
+    const exposed = createChunk('assets/exposed.js', ['/src/exposed.js']);
+    exposed.imports = [wrapperFile];
+    const wrapper = createChunk(wrapperFile, [
+      '\0virtual:mf:basicRemote__loadShare__vue__loadShare__.js',
+    ]);
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      bundle: { ...makeBundle(), 'assets/exposed.js': exposed, [wrapperFile]: wrapper },
+      exposePaths: { './exposed': { import: './src/exposed.js' } },
+      usedShares: new Set(['vue']),
+      shareItems: {
+        vue: {
+          version: '3.5.0',
+          shareConfig: { requiredVersion: '^3.5.0', eager: true, import: false },
+        },
       },
     });
 

@@ -15,7 +15,7 @@ const antdShared = {
     : {}),
 };
 const shared = {
-  vue: {},
+  vue: eagerShared ? { import: false } : {},
   'react/': {
     singleton: true,
     requiredVersion: '^19.2.4',
@@ -60,6 +60,9 @@ function routeInstanceMarker(plugins, acceptsImporter) {
 const primaryFederation = routeInstanceMarker(
   federation({
     name: 'viteViteHost',
+    exposes: {
+      './EagerManifestFixture': './src/EagerManifestFixture.jsx',
+    },
     remotes: {
       '@namespace/viteViteRemote': 'http://localhost:5176/testbase/mf-manifest.json',
     },

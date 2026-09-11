@@ -8,6 +8,28 @@ import { expect, test } from '@playwright/test';
  * shared deps, default imports, named imports, CJS interop, etc.
  */
 test.describe('vite-vite host preview', () => {
+  test('classifies eager and deferred share wrappers in the built manifest', async ({
+    request,
+  }) => {
+    const response = await request.get('/mf-manifest.json');
+    expect(response.ok()).toBe(true);
+
+    const manifest = await response.json();
+    const exposed = manifest.exposes.find(
+      ({ name }: { name: string }) => name === 'EagerManifestFixture'
+    );
+    expect(exposed).toBeDefined();
+
+    const { sync, async } = exposed.assets.js;
+    expect(sync.some((asset: string) => asset.includes('loadShare-eager'))).toBe(true);
+    expect(async.some((asset: string) => asset.includes('__loadShare__vue__loadShare__'))).toBe(
+      true
+    );
+    expect(sync.some((asset: string) => asset.includes('__loadShare__vue__loadShare__'))).toBe(
+      false
+    );
+  });
+
   test('renders host app with React shared dep', async ({ page }) => {
     await page.goto('/');
     const heading = page.getByRole('heading', { name: 'MF HOST Demo', exact: true });

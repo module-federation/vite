@@ -15,7 +15,7 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: 'pnpm run preview-vv:ci',
+      command: 'EAGER_SHARED=true pnpm run preview-vv:ci',
       url: 'http://localhost:5175',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
