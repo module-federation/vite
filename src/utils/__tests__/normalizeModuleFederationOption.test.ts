@@ -57,6 +57,7 @@ describe('normalizeModuleFederationOption', () => {
       moduleParseIdleTimeout: undefined,
       target: undefined,
       ssrExternals: undefined,
+      ssrEntryLoader: undefined,
       disableRemote: undefined,
       disableShared: undefined,
       disableSnapshot: undefined,
@@ -85,6 +86,37 @@ describe('normalizeModuleFederationOption', () => {
         ssrExternals: ['sharp'],
       }).ssrExternals
     ).toEqual(['sharp']);
+  });
+
+  it('normalizes ssrEntryLoader.strategy when set', () => {
+    expect(normalizeModuleFederationOptions(minimalOptions).ssrEntryLoader).toBeUndefined();
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrEntryLoader: {},
+      }).ssrEntryLoader
+    ).toBeUndefined();
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrEntryLoader: { strategy: 'vm' },
+      }).ssrEntryLoader
+    ).toEqual({ strategy: 'vm' });
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrEntryLoader: { strategy: 'temp-file' },
+      }).ssrEntryLoader
+    ).toEqual({ strategy: 'temp-file' });
+  });
+
+  it('drops invalid ssrEntryLoader.strategy values', () => {
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrEntryLoader: { strategy: 'unknown' as 'vm' },
+      }).ssrEntryLoader
+    ).toBeUndefined();
   });
 
   it('normalizes experiments.ssrMode as an explicit island opt-in', () => {

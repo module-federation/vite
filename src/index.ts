@@ -50,6 +50,8 @@ import type {
   PluginExperimentsOptions,
   PluginManifestOptions,
   ShareItem,
+  SsrEntryLoaderConfig,
+  SsrEntryLoaderStrategy,
   TreeShakingConfig,
 } from './utils/normalizeModuleFederationOptions';
 import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
@@ -1010,7 +1012,15 @@ export default __mfShared.default ?? __mfShared;`,
       const ssrEntryLoaderSpecifier = SSR_ENTRY_LOADER_SPECIFIER;
       try {
         resolveImportPath(ssrEntryLoaderSpecifier);
-        options.runtimePlugins.push([ssrEntryLoaderSpecifier, { resolvedShared }]);
+        options.runtimePlugins.push([
+          ssrEntryLoaderSpecifier,
+          {
+            resolvedShared,
+            ...(options.ssrEntryLoader?.strategy
+              ? { strategy: options.ssrEntryLoader.strategy }
+              : {}),
+          },
+        ]);
       } catch {
         // lib/ not built yet — skip silently
       }
@@ -2193,5 +2203,7 @@ export {
   type ModuleFederationOptions,
   type PluginExperimentsOptions,
   type PluginManifestOptions,
+  type SsrEntryLoaderConfig,
+  type SsrEntryLoaderStrategy,
   type TreeShakingConfig,
 };
