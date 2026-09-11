@@ -110,11 +110,12 @@ function createChunk(fileName: string, code: string): Rollup.OutputBundle[string
   } as unknown as Rollup.OutputBundle[string];
 }
 
-function getEsmShimsPlugin(): FederationPlugin {
+function getEsmShimsPlugin(shared?: ModuleFederationOptions['shared']): FederationPlugin {
   const plugin = (
     federation({
       name: 'host',
       filename: 'remoteEntry.js',
+      shared,
     }) as Plugin[]
   ).find((entry) => entry.name === 'module-federation-esm-shims');
 
@@ -922,6 +923,29 @@ describe('module-federation-esm-shims', () => {
     expect(Array.isArray(config.build.rolldownOptions.output.codeSplitting.groups)).toBe(true);
     expect(config.build.rolldownOptions.output.manualChunks).toBeUndefined();
     expect(mfWarn).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces eager loadShare wrappers without grouping deferred shares', () => {
+    const plugin = getEsmShimsPlugin({
+      react: { eager: true },
+      vue: { eager: true },
+      lodash: { eager: false },
+    });
+    const config: any = { build: { rolldownOptions: { output: {} } } };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+
+    const name = federationNameFn(config.build.rolldownOptions.output);
+    expect(name('virtual:mf:host__loadShare__react__loadShare__.js')).toBe('loadShare-eager');
+    expect(name('virtual:mf:host__loadShare__vue__loadShare__.js')).toBe('loadShare-eager');
+    expect(name('virtual:mf:host__loadShare__lodash__loadShare__.js')).toContain(
+      '__loadShare__lodash__loadShare__'
+    );
+    expect(
+      config.build.rollupOptions.output.manualChunks(
+        'virtual:mf:host__loadShare__react__loadShare__.js'
+      )
+    ).toContain('__loadShare__react__loadShare__');
   });
 
   it('keeps user codeSplitting groups below the federation groups', () => {
