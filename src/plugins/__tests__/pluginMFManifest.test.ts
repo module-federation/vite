@@ -46,6 +46,11 @@ vi.mock('../../utils/treeShaking', () => ({
 vi.mock('../../virtualModules', () => ({
   getLocalSharedImportMapPath: ({ internalName }: { internalName: string }) =>
     `virtual:mf-localSharedImportMap:${internalName}__mf_owner__1`,
+  getLoadShareModulePath: (
+    pkg: string,
+    _isRolldown: boolean,
+    { internalName }: { internalName: string }
+  ) => `virtual:mf:${internalName}__loadShare__${pkg}__loadShare__.js`,
   getUsedRemotesMap,
   getUsedShares,
   getPreBuildLibImportId,
@@ -1058,6 +1063,57 @@ describe('pluginMFManifest', () => {
       sync: [],
       async: ['shared.js'],
     });
+  });
+
+  it('classifies a non-eager share wrapper in an expose closure as async', async () => {
+    // expandExposeAssets folds the expose's whole static closure into sync, and that
+    // closure carries the per-share __loadShare__ wrappers. A non-eager share resolves
+    // through the host at runtime, so preloading its wrapper fetches a provider the
+    // host is going to supply.
+    const wrapperFile = 'assets/loadShare-vue.js';
+    const exposed = createChunk('assets/exposed.js', ['/src/exposed.js']);
+    exposed.imports = [wrapperFile];
+    const wrapper = createChunk(wrapperFile, [
+      // Rollup prefixes virtual module ids with \0; the plugin normalizes both sides.
+      '\0virtual:mf:basicRemote__loadShare__vue__loadShare__.js',
+    ]);
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      bundle: { ...makeBundle(), 'assets/exposed.js': exposed, [wrapperFile]: wrapper },
+      exposePaths: { './exposed': { import: './src/exposed.js' } },
+      usedShares: new Set(['vue']),
+      shareItems: {
+        vue: { version: '3.5.0', shareConfig: { requiredVersion: '^3.5.0', eager: false } },
+      },
+    });
+
+    const exposeAssets = JSON.parse(emitted['mf-manifest.json']).exposes[0].assets.js;
+    expect(exposeAssets.sync).not.toContain(wrapperFile);
+    expect(exposeAssets.async).toContain(wrapperFile);
+    // The expose's own chunk is untouched.
+    expect(exposeAssets.sync).toContain('assets/exposed.js');
+  });
+
+  it('keeps an eager share wrapper in an expose closure synchronous', async () => {
+    const wrapperFile = 'assets/loadShare-vue.js';
+    const exposed = createChunk('assets/exposed.js', ['/src/exposed.js']);
+    exposed.imports = [wrapperFile];
+    const wrapper = createChunk(wrapperFile, [
+      '\0virtual:mf:basicRemote__loadShare__vue__loadShare__.js',
+    ]);
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      bundle: { ...makeBundle(), 'assets/exposed.js': exposed, [wrapperFile]: wrapper },
+      exposePaths: { './exposed': { import: './src/exposed.js' } },
+      usedShares: new Set(['vue']),
+      shareItems: {
+        vue: { version: '3.5.0', shareConfig: { requiredVersion: '^3.5.0', eager: true } },
+      },
+    });
+
+    const exposeAssets = JSON.parse(emitted['mf-manifest.json']).exposes[0].assets.js;
+    expect(exposeAssets.sync).toContain(wrapperFile);
+    expect(exposeAssets.async).not.toContain(wrapperFile);
   });
 
   it('marks unsafe tree-shaking usage as full-bundle-only', async () => {
