@@ -326,6 +326,43 @@ export function isSharedPackageDependency(sharedKey: string, dependency: string)
   return reachable.has(dependency);
 }
 
+function isConfiguredSharedPackage(pkg: string, shared: NormalizedShared): boolean {
+  return Object.keys(shared).some((key) => getPackageName(key) === pkg);
+}
+
+function shouldKeepSharedImportLocal(
+  source: string,
+  importer: string | undefined,
+  sharedKey: string,
+  shared: NormalizedShared,
+  importerPackage?: string
+): boolean {
+  if (!importer || shared[sharedKey]?.shareConfig.import === false) return false;
+
+  const prebuildImporter = importer.includes(PREBUILD_TAG)
+    ? VirtualModule.findModule(PREBUILD_TAG, importer)
+    : undefined;
+  const fallbackPackage = prebuildImporter
+    ? getPackageName(prebuildImporter.name)
+    : importerPackage;
+  if (!fallbackPackage || !isConfiguredSharedPackage(fallbackPackage, shared)) return false;
+
+  const sourcePackage = getPackageName(sharedKey);
+  // Patch-skew #527 is a react-dom fallback evaluating against a different
+  // react instance. Workspace shared packages (UI kits, routers, …) that
+  // merely peer-depend on react must stay on loadShare — resolving them to
+  // the raw CJS entry makes Vite DEV serve /@fs/.../jsx-runtime.js without
+  // named `jsx` exports (gioboa react example).
+  if (fallbackPackage !== 'react-dom' || sourcePackage !== 'react') return false;
+  if (prebuildImporter && matchesSharedSource(source, prebuildImporter.name)) return false;
+
+  const dependencyRoot = prebuildImporter?.name ?? fallbackPackage;
+  if (!isSharedPackageDependency(dependencyRoot, sourcePackage)) return false;
+  if (isSharedPackageDependency(sharedKey, fallbackPackage)) return false;
+
+  return true;
+}
+
 const sharedRuntimeDependencyCache = new Map<
   string,
   { dependencies: Set<string>; complete: boolean }
@@ -896,6 +933,11 @@ export function proxySharedModule(options: {
             : isNodeModulePath(source)
               ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
               : source;
+        if (shouldKeepSharedImportLocal(source, importer, key, shared, importerPackage)) {
+          const localSource = getPrebuildResolutionSource(shareSource, shared[key]);
+          // A sibling prebuild would re-enter Vite's CommonJS proxy on Vite 5–7.
+          return tryResolveFromProjectRoot(localSource) || localSource;
+        }
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {
           materializedLoadShareSources.add(shareSource);
