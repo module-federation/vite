@@ -330,18 +330,7 @@ function isConfiguredSharedPackage(pkg: string, shared: NormalizedShared): boole
   return Object.keys(shared).some((key) => getPackageName(key) === pkg);
 }
 
-/**
- * Local fallback graphs that import another shared package (react-dom → react)
- * are coherent-fallback edges. `?commonjs-proxy` importers must skip
- * `__loadShare__`/`__prebuild__` so Vite resolves the bare specifier; rewriting
- * them to `__prebuild__` unwraps and ENOENTs on Vite 6/7. Other importers still
- * use `__loadShare__` so renderer and hooks share the negotiated singleton.
- *
- * Reverse/cycle edges keep the ordinary local module. `import: false` shares
- * have no local fallback and must stay on loadShare. This does not change
- * which shares use deferred vs eager fallback templates (#1173).
- */
-export function shouldResolveSharedImportToLocalPrebuild(
+function shouldKeepSharedImportLocal(
   source: string,
   importer: string | undefined,
   sharedKey: string,
@@ -939,21 +928,10 @@ export function proxySharedModule(options: {
             : isNodeModulePath(source)
               ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
               : source;
-        // `?commonjs-proxy` importers must not resolve a sibling `__prebuild__`
-        // (production unwraps it back to the bare specifier and ENOENTs on
-        // Vite 6/7). Other coherent fallback edges still use `__loadShare__`
-        // so renderer and hooks close over the same negotiated singleton.
-        if (
-          shouldResolveSharedImportToLocalPrebuild(
-            source,
-            importer,
-            key,
-            shared,
-            importerPackage
-          ) &&
-          importer?.includes('?commonjs-proxy')
-        ) {
-          return;
+        if (shouldKeepSharedImportLocal(source, importer, key, shared, importerPackage)) {
+          const localSource = getPrebuildResolutionSource(shareSource, shared[key]);
+          // A sibling prebuild would re-enter Vite's CommonJS proxy on Vite 5–7.
+          return tryResolveFromProjectRoot(localSource) || localSource;
         }
         const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {

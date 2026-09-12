@@ -195,7 +195,7 @@ describe('version-first singleton static import browser bootstrap', () => {
     }
   }, 60_000);
 
-  it('uses the same negotiated React instance for hooks and the local renderer fallback', async () => {
+  it('keeps eager React fallbacks coherent across patch versions', async () => {
     const originalPackageDetectionCwd = getPackageDetectionCwd();
     const workspace = await mkdtemp(path.join(tmpdir(), 'mf-react-skew-browser-'));
     let remoteServer: StaticServer | undefined;
@@ -214,6 +214,7 @@ describe('version-first singleton static import browser bootstrap', () => {
         shareStrategy: 'version-first',
         shared: {
           react: { singleton: true, requiredVersion: '^19.2.4' },
+          'react-dom/client': { singleton: true, requiredVersion: '^19.2.4' },
         },
         hostInitInjectLocation: 'entry',
         dts: false,

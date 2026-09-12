@@ -3,8 +3,6 @@ node_modules
 !integration/fixtures/react-skew-host/node_modules/**
 !integration/fixtures/react-skew-remote/node_modules/
 !integration/fixtures/react-skew-remote/node_modules/**
-!integration/fixtures/cjs-react-shared/node_modules/
-!integration/fixtures/cjs-react-shared/node_modules/**
 dist
 .DS_Store
 .idea
