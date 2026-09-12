@@ -1146,6 +1146,68 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(resolution).toBe('/repo/apps/remote/node_modules/react/index.js');
     expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
   });
+
+  it('keeps workspace shared package imports of react/jsx-runtime on loadShare', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    existsSyncMock.mockImplementation(
+      (file: string) =>
+        file === '/repo/packages/shared-ui/package.json' ||
+        file === '/repo/packages/shared-ui/dist/package.json' ||
+        file === '/repo/apps/remote/node_modules/react/package.json'
+    );
+    readFileSyncMock.mockImplementation((file: string) =>
+      file.includes('/shared-ui/')
+        ? JSON.stringify({
+            name: '@mf-vite-example/shared-ui',
+            peerDependencies: { react: '19.2.4' },
+          })
+        : JSON.stringify({ name: 'react' })
+    );
+    getInstalledPackageEntryMock.mockImplementation((pkg) => {
+      if (pkg === '@mf-vite-example/shared-ui') return '/repo/packages/shared-ui/dist/index.js';
+      if (pkg === 'react') return '/repo/apps/remote/node_modules/react/index.js';
+      return undefined;
+    });
+
+    const shared = makeShared();
+    shared['@mf-vite-example/shared-ui'] = {
+      name: '@mf-vite-example/shared-ui',
+      from: '',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: false,
+        strictVersion: false,
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    callHook(
+      proxyPlugin.config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'serve', mode: 'development' } as ConfigEnv
+    );
+
+    writeLoadShareModuleMock.mockClear();
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      'react/jsx-runtime',
+      '/repo/packages/shared-ui/dist/index.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toEqual({ id: '/resolved/mock-import-id' });
+    expect(resolution).not.toBe('/repo/apps/remote/node_modules/react/index.js');
+    expect(writeLoadShareModuleMock).toHaveBeenCalled();
+  });
+
   it('does not proxy an explicit subpath share fallback to its package root wrapper', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
     getInstalledPackageEntryMock.mockImplementation((pkg) =>

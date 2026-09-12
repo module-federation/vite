@@ -348,7 +348,12 @@ function shouldKeepSharedImportLocal(
   if (!fallbackPackage || !isConfiguredSharedPackage(fallbackPackage, shared)) return false;
 
   const sourcePackage = getPackageName(sharedKey);
-  if (fallbackPackage === sourcePackage) return false;
+  // Patch-skew #527 is a react-dom fallback evaluating against a different
+  // react instance. Workspace shared packages (UI kits, routers, …) that
+  // merely peer-depend on react must stay on loadShare — resolving them to
+  // the raw CJS entry makes Vite DEV serve /@fs/.../jsx-runtime.js without
+  // named `jsx` exports (gioboa react example).
+  if (fallbackPackage !== 'react-dom' || sourcePackage !== 'react') return false;
   if (prebuildImporter && matchesSharedSource(source, prebuildImporter.name)) return false;
 
   const dependencyRoot = prebuildImporter?.name ?? fallbackPackage;
