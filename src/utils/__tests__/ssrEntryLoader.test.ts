@@ -1498,6 +1498,61 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     expect((second as unknown as { marker: string }).marker).toBe('v2');
   });
 
+  it('clears the ModuleRunner cache when maxAgeMs detects a manifest version change', async () => {
+    let marker = 'v1';
+    let cachedModule: { init: unknown; get: unknown; marker: string } | undefined;
+    const runner = {
+      import: vi.fn(async () => {
+        cachedModule ??= { init: vi.fn(), get: vi.fn(), marker };
+        return cachedModule;
+      }),
+      clearCache: vi.fn(() => {
+        cachedModule = undefined;
+      }),
+    };
+    const { factory } = await freshLoaderWithRunner(() => runner);
+
+    const responses = {
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            buildInfo: { buildVersion: '1.0.0' },
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:4175/__mf_ssr__/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+      },
+    };
+    global.fetch = makeFetchMock(responses) as unknown as typeof globalThis.fetch;
+
+    const plugin = factory({ maxAgeMs: 0 });
+    const first = await plugin.loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    marker = 'v2';
+    responses['http://localhost:4175/mf-manifest.json'] = {
+      ok: true,
+      json: {
+        metaData: {
+          buildInfo: { buildVersion: '2.0.0' },
+          ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+        },
+      },
+    };
+    const second = await plugin.loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    expect(runner.clearCache).toHaveBeenCalledOnce();
+    expect((first as unknown as { marker: string }).marker).toBe('v1');
+    expect((second as unknown as { marker: string }).marker).toBe('v2');
+  });
+
   it('preserves remote module resolution and isolates runners by host', async () => {
     const hostReactPaths = [
       '/host-a/node_modules/react/index.js',

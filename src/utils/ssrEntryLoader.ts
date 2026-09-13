@@ -623,7 +623,8 @@ async function getSSREntry(
 
   // Stale: re-fetch the manifest and re-resolve. If the version key changed
   // (remote redeployed at the same URL), the new key flows into temp-file
-  // names, so the fresh entry is imported instead of Node's cached module.
+  // names and the ModuleRunner cache is cleared, so the fresh entry is
+  // imported instead of a cached module.
   const previous = await cached.promise.catch(() => null);
   manifestFetchCache.delete(
     makeUrlCacheKey(getManifestUrl(remoteEntryUrl), fetchTimeoutMs, fetchMaxBytes)
@@ -633,6 +634,7 @@ async function getSSREntry(
 
   if (previous && next && previous.versionKey !== next.versionKey) {
     dropRemoteCaches(remoteEntryUrl);
+    await clearRunnerCaches(remoteEntryUrl);
   }
   return record.promise;
 }
@@ -661,7 +663,7 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
   }
 }
 
-function clearRunnerCaches(remoteEntryUrl?: string): void {
+async function clearRunnerCaches(remoteEntryUrl?: string): Promise<void> {
   let remoteOrigin: string | undefined;
   if (remoteEntryUrl) {
     try {
@@ -671,10 +673,17 @@ function clearRunnerCaches(remoteEntryUrl?: string): void {
     }
   }
 
-  for (const cached of runnerCache.values()) {
-    if (remoteOrigin && cached.remoteOrigin !== remoteOrigin) continue;
-    void cached.promise.then((runner) => runner?.clearCache?.()).catch(() => {});
-  }
+  await Promise.all(
+    [...runnerCache.values()]
+      .filter((cached) => !remoteOrigin || cached.remoteOrigin === remoteOrigin)
+      .map(async (cached) => {
+        try {
+          (await cached.promise)?.clearCache?.();
+        } catch {
+          // A failed runner must not prevent another runner from being cleared.
+        }
+      })
+  );
 }
 
 /**
@@ -706,7 +715,7 @@ export function revalidate(remoteEntryUrl?: string): void {
     tempFilePathCache.clear();
   }
 
-  clearRunnerCaches(remoteEntryUrl);
+  void clearRunnerCaches(remoteEntryUrl);
 
   const federation = (
     globalThis as {
