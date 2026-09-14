@@ -158,6 +158,9 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
   const useDirectReactImport = shouldUseDirectReactImport();
   const orderedShares = getOrderedUsedShares(options);
   const sharesToMaterialize = new Set(getMaterializedShares(options));
+  const hasConsumeOnlyShare = orderedShares.some(
+    (pkg) => getNormalizeShareItem(pkg, resolvedOptions)?.shareConfig.import === false
+  );
   const eagerImports = orderedShares
     .map((pkg, index) => {
       const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
@@ -190,19 +193,41 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
       }
       return undefined;
     };
+    ${
+      hasConsumeOnlyShare
+        ? `// A consume-only share has no local module: its entry is the same shape for every key, so one helper builds it instead of a literal per key
+    const __mfHostOnly = (name) => async () => {
+      throw new Error(\`[Module Federation] Shared module '\${name}' must be provided by host\`);
+    };
+    const __mfConsumeOnly = (name, version, scope, materialize, shareConfig) => ({
+      name,
+      version,
+      scope: [scope],
+      loaded: false,
+      materialize,
+      eager: shareConfig.eager,
+      from: ${toSafeJsLiteral(resolvedOptions.name)},
+      canLiveRebind: true,
+      get: __mfHostOnly(name),
+      shareConfig: { ...shareConfig, import: false },
+    });`
+        : ''
+    }
     const importMap = {
       ${orderedShares
         .map((pkg, index) => {
           const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
+          if (shareItem?.shareConfig.import === false) {
+            return `
+        ${toSafeJsLiteral(pkg)}: __mfHostOnly(${toSafeJsLiteral(pkg)})`;
+          }
           return `
         ${toSafeJsLiteral(pkg)}: async () => {
           ${
-            shareItem?.shareConfig.import === false
-              ? `throw new Error(\`[Module Federation] Shared module '\${${toSafeJsLiteral(pkg)}}' must be provided by host\`);`
-              : shareItem?.shareConfig.eager
-                ? `let pkg = __mfEagerShare_${index};
+            shareItem?.shareConfig.eager
+              ? `let pkg = __mfEagerShare_${index};
             return pkg;`
-                : `let pkg = await import(${toSafeJsLiteral(getLocalSharedPackagePath(pkg, shareItem, options))});
+              : `let pkg = await import(${toSafeJsLiteral(getLocalSharedPackagePath(pkg, shareItem, options))});
             return pkg;`
           }
         }
@@ -233,6 +258,11 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           // export surface is unknown. Keep that share on its coherent local
           // namespace instead of selecting a different tree provider.
           const treeShakingConfig = canLiveRebind ? shareItem.shareConfig.treeShaking : undefined;
+          // Without tree-shaking metadata a consume-only entry carries nothing key-specific beyond its config: one call, not ~350 bytes of literal
+          if (shareItem.shareConfig.import === false && !treeShakingConfig) {
+            return `
+          ${toSafeJsLiteral(key)}: __mfConsumeOnly(${toSafeJsLiteral(key)}, ${toSafeJsLiteral(shareItem.version)}, ${toSafeJsLiteral(shareItem.scope)}, ${sharesToMaterialize.has(key)}, {singleton: ${shareItem.shareConfig.singleton}, requiredVersion: ${toSafeJsLiteral(shareItem.shareConfig.requiredVersion)}, strictVersion: ${shareItem.shareConfig.strictVersion}, eager: ${Boolean(shareItem.shareConfig.eager)}})`;
+          }
           const treeShakingUsage = treeShakingConfig
             ? getTreeShakingExportUsage(key, shareItem, shareItem.name, options)
             : undefined;

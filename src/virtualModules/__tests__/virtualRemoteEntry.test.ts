@@ -894,6 +894,59 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('virtual:prebuild:custom-import');
   });
 
+  it('builds a consume-only entry through one helper with the shape the literal had', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('host-only');
+    mod.addUsedShares('react');
+
+    const code = mod.generateLocalSharedImportMap();
+    // One helper call per consume-only key; the literal stays for shares with a local module
+    expect(code).toContain('"host-only": __mfConsumeOnly("host-only", "19.2.4", "default", ');
+    expect(code).toContain('"host-only": __mfHostOnly("host-only")');
+    expect(code).toMatch(/"react": \{[\s\S]*?get \(\) \{/);
+
+    const generated = new Function(
+      code
+        .replace(
+          'import {loadShare} from "@module-federation/runtime";',
+          'const loadShare = () => {};'
+        )
+        .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }')
+    )();
+    const share = generated.usedShared['host-only'];
+    expect(share).toMatchObject({
+      name: 'host-only',
+      version: '19.2.4',
+      scope: ['default'],
+      loaded: false,
+      eager: false,
+      from: 'host',
+      canLiveRebind: true,
+      shareConfig: {
+        singleton: true,
+        requiredVersion: '^19.2.4',
+        strictVersion: false,
+        eager: false,
+        import: false,
+      },
+    });
+    expect(typeof share.materialize).toBe('boolean');
+    await expect(share.get()).rejects.toThrow("Shared module 'host-only' must be provided by host");
+  });
+
+  it('omits the consume-only helpers when no share is consume-only', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateLocalSharedImportMap();
+    expect(code).not.toContain('__mfHostOnly');
+    expect(code).not.toContain('__mfConsumeOnly');
+  });
+
   it('marks only export-complete shared proxies as rebindable', async () => {
     const mod = await import('../virtualRemoteEntry');
 
@@ -914,7 +967,8 @@ describe('virtualRemoteEntry', () => {
         new RegExp(`${JSON.stringify(pkg)}: \\{[\\s\\S]*?canLiveRebind: (true|false),`)
       )?.[1];
 
-    expect(canLiveRebind('host-only')).toBe('true');
+    // A consume-only entry is built by the helper, which fixes canLiveRebind to true
+    expect(code).toContain('"host-only": __mfConsumeOnly("host-only"');
     expect(canLiveRebind('non-singleton')).toBe('true');
     expect(canLiveRebind('named-singleton')).toBe('true');
     expect(canLiveRebind('default-only-singleton')).toBe('true');
