@@ -95,6 +95,7 @@ import {
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
   refreshRemoteModuleForEnvironment,
+  REMOTE_ENTRY_ID,
   TREE_SHAKING_GRAPH_QUERY,
   TREE_SHAKING_PROVIDER_TAG,
   writeLocalSharedImportMap,
@@ -1139,6 +1140,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       return (
         id.includes(getHostAutoInitPath(options)) ||
         id.includes(getPendingSharesPath(options)) ||
+        // Every federation() instance in the build emits its own remote entry
+        // chunk, so every instance's `load` hook observes every other
+        // instance's remote entry id too. Matching only this instance's own
+        // remoteEntryId here left the other instances' ids in this instance's
+        // parseStartSet; since generating a remote entry itself waits on this
+        // parsePromise, two or more instances waited on each other forever and
+        // never resolved until moduleParseIdleTimeout forced it. Excluding the
+        // shared REMOTE_ENTRY_ID prefix keeps every instance's remote entry
+        // out of parse tracking regardless of which instance loads it.
+        id.includes(REMOTE_ENTRY_ID) ||
         id.includes(remoteEntryId) ||
         id.includes(virtualExposesId) ||
         id.includes('virtual:mf-localSharedImportMap') ||

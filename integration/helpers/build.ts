@@ -12,6 +12,11 @@ export interface BuildFixtureOptions {
    */
   fixture?: string;
   mfOptions?: Partial<ModuleFederationOptions>;
+  // Additional federation() instances to include alongside `mfOptions`, each
+  // merged against the same defaults. Lets a test build with more than one
+  // federation() plugin in a single config, the way a host that consumes
+  // several independently packaged remotes would.
+  extraMfOptions?: Partial<ModuleFederationOptions>[];
   viteConfig?: Partial<ViteUserConfig>;
 }
 
@@ -40,7 +45,7 @@ function mergeDefaults<T extends object>(overrides: Partial<T> | undefined, defa
 }
 
 export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.RollupOutput> {
-  const { fixture = 'basic-remote', mfOptions, viteConfig } = opts ?? {};
+  const { fixture = 'basic-remote', mfOptions, extraMfOptions, viteConfig } = opts ?? {};
 
   const defaultMfOptions = {
     name: 'basicRemote',
@@ -51,6 +56,9 @@ export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.R
   } satisfies Parameters<typeof federation>[0];
 
   const mergedMfOptions = mergeDefaults(mfOptions, defaultMfOptions);
+  const extraMergedMfOptions = (extraMfOptions ?? []).map((extra) =>
+    mergeDefaults(extra, defaultMfOptions)
+  );
 
   const defaultViteConfig: ViteUserConfig = {
     root: resolve(FIXTURES, fixture),
@@ -66,7 +74,10 @@ export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.R
 
   const result = await build({
     ...mergedViteConfig,
-    plugins: [federation(mergedMfOptions)],
+    plugins: [
+      federation(mergedMfOptions),
+      ...extraMergedMfOptions.map((extra) => federation(extra)),
+    ],
   });
 
   // Vite returns RollupOutput[] only with multiple rollupOptions.output entries.

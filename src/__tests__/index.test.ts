@@ -507,6 +507,90 @@ describe('module parse wiring', () => {
     );
   });
 
+  it("does not deadlock remote entry generation when federation instances load each other's remote entry", async () => {
+    // Regression for a build-time deadlock: every federation() instance emits
+    // its own remote entry chunk, so every instance's parseStart.load hook
+    // also observes every *other* instance's remote entry id. Excluding only
+    // this instance's own remoteEntryId left the other instances' ids in this
+    // instance's parseStartSet, and generating a remote entry itself waits on
+    // this instance's parsePromise — so two or more instances waited on each
+    // other forever and only ever finished via moduleParseIdleTimeout forcing
+    // a resolve.
+    const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+    process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
+    let pluginSets: Plugin[][];
+    try {
+      pluginSets = ['a', 'b'].map(
+        (name) =>
+          federation({
+            name: 'host',
+            filename: `remoteEntry-${name}.js`,
+          }) as Plugin[]
+      );
+    } finally {
+      if (previousNoTestEnvCheck === undefined) {
+        delete process.env.MFE_VITE_NO_TEST_ENV_CHECK;
+      } else {
+        process.env.MFE_VITE_NO_TEST_ENV_CHECK = previousNoTestEnvCheck;
+      }
+    }
+
+    const instances = pluginSets.map((plugins) => {
+      const parseStart = plugins.find((plugin) => plugin.name === 'parseStart');
+      const parseEnd = plugins.find((plugin) => plugin.name === 'parseEnd');
+      const proxyRemoteEntry = plugins.find((plugin) => plugin.name === 'proxyRemoteEntry');
+      const federationOptionsPlugin = plugins.find(
+        (plugin) => plugin.name === 'module-federation-vite'
+      );
+      if (!parseStart || !parseEnd || !proxyRemoteEntry || !federationOptionsPlugin) {
+        throw new Error('module federation plugins not found');
+      }
+      const options = (
+        federationOptionsPlugin as Plugin & {
+          _options: NormalizedModuleFederationOptions;
+        }
+      )._options;
+      runConfig(
+        proxyRemoteEntry,
+        {} as ConfigPluginContext,
+        {},
+        { command: 'build', mode: 'test' }
+      );
+      return { parseStart, parseEnd, proxyRemoteEntry, remoteEntryId: getRemoteEntryId(options) };
+    });
+    const ctx = {} as any;
+
+    for (const instance of instances) {
+      await callHook(instance.parseStart.buildStart, ctx, undefined as never);
+    }
+
+    // Every instance emits its own remote entry chunk (also pure hosts, for the
+    // shared scope init), so both remote entry ids are loaded early in the
+    // build and every instance's parseStart.load hook observes both of them.
+    for (const observer of instances) {
+      for (const owner of instances) {
+        callHook(observer.parseStart.load, ctx, owner.remoteEntryId);
+      }
+      callHook(observer.parseStart.load, ctx, '/src/main.ts');
+    }
+
+    const pendingRemoteEntries = instances.map((instance) =>
+      Promise.resolve(callHook(instance.proxyRemoteEntry.load, ctx, instance.remoteEntryId))
+    );
+
+    for (const observer of instances) {
+      callHook(observer.parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
+    }
+
+    const resolved = await Promise.all(pendingRemoteEntries.map(resolvesQuickly));
+
+    // Clean up the parse timers without waiting for the production timeout.
+    for (const instance of instances) callHook(instance.parseEnd.buildEnd, ctx);
+    await Promise.all(pendingRemoteEntries);
+
+    expect(resolved).toEqual([true, true]);
+  });
+
   it('does not wait for generated load-share or prebuild modules', async () => {
     const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
     process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
