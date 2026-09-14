@@ -1601,6 +1601,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               if (useCodeSplitting && key && shared[key].shareConfig.eager === true) {
                 return 'loadShare-eager';
               }
+              // A consume-only share's wrapper holds no fallback, so nothing in it can close a
+              // cycle across wrappers: isolating it only turns each such share into a request
+              // of its own. Leave those to the bundler's own chunking.
+              if (key && shared[key].shareConfig.import === false) return null;
               // Use the virtual module path as the chunk name
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';

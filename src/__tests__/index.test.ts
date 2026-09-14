@@ -925,6 +925,32 @@ describe('module-federation-esm-shims', () => {
     expect(mfWarn).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves consume-only loadShare wrappers to the bundler instead of a chunk each', () => {
+    const plugin = getEsmShimsPlugin({
+      react: { import: false },
+      'react-dom': { import: false, singleton: true },
+      lodash: {},
+    });
+    const config: any = { build: { rolldownOptions: { output: {} } } };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+
+    const name = federationNameFn(config.build.rolldownOptions.output);
+    // No fallback in the wrapper: nothing to isolate, so the bundler decides.
+    expect(name('virtual:mf:host__loadShare__react__loadShare__.js')).toBeNull();
+    expect(name('virtual:mf:host__loadShare__react_mf_2_dom__loadShare__.js')).toBeNull();
+    // A wrapper with a fallback keeps its own chunk.
+    expect(name('virtual:mf:host__loadShare__lodash__loadShare__.js')).toContain(
+      '__loadShare__lodash__loadShare__'
+    );
+    // Rollup (Vite 5-7) isolates through manualChunks, the same way.
+    expect(
+      config.build.rollupOptions.output.manualChunks(
+        'virtual:mf:host__loadShare__react__loadShare__.js'
+      )
+    ).toBeUndefined();
+  });
+
   it('coalesces eager loadShare wrappers without grouping deferred shares', () => {
     const plugin = getEsmShimsPlugin({
       react: { eager: true },

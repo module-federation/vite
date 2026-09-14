@@ -128,7 +128,11 @@ function collectDeferredShareModules(
 ): Set<string> {
   const deferred = new Set<string>();
   for (const shareKey of getUsedShares(options)) {
-    if (getNormalizeShareItem(shareKey, options)?.shareConfig.eager === true) continue;
+    const shareConfig = getNormalizeShareItem(shareKey, options)?.shareConfig;
+    if (shareConfig?.eager === true) continue;
+    // A consume-only wrapper has no fallback and is not isolated into a chunk of its
+    // own: it lives inside the consumer chunk, which must keep its own classification.
+    if (shareConfig?.import === false) continue;
     deferred.add(normalizeVirtualModuleId(getLoadShareModulePath(shareKey, isRolldown, options)));
   }
   return deferred;
