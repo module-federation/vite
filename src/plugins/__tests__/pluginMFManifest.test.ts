@@ -1142,6 +1142,32 @@ describe('pluginMFManifest', () => {
     expect(exposeAssets.async).not.toContain(wrapperFile);
   });
 
+  it('keeps an expose chunk that inlines a consume-only share wrapper synchronous', async () => {
+    // A non-eager import:false wrapper is not isolated into a chunk of its own (there is
+    // no fallback to isolate), so the bundler folds it into the consumer. Carrying that
+    // module must not reclassify the expose's own chunk as a deferred share.
+    const exposed = createChunk('assets/exposed.js', [
+      '/src/exposed.js',
+      '\0virtual:mf:basicRemote__loadShare__vue__loadShare__.js',
+    ]);
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      bundle: { ...makeBundle(), 'assets/exposed.js': exposed },
+      exposePaths: { './exposed': { import: './src/exposed.js' } },
+      usedShares: new Set(['vue']),
+      shareItems: {
+        vue: {
+          version: '3.5.0',
+          shareConfig: { requiredVersion: '^3.5.0', eager: false, import: false },
+        },
+      },
+    });
+
+    const exposeAssets = JSON.parse(emitted['mf-manifest.json']).exposes[0].assets.js;
+    expect(exposeAssets.sync).toContain('assets/exposed.js');
+    expect(exposeAssets.async).not.toContain('assets/exposed.js');
+  });
+
   it('marks unsafe tree-shaking usage as full-bundle-only', async () => {
     getTreeShakingExportUsage.mockReturnValue({ kind: 'full' });
 

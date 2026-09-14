@@ -195,15 +195,14 @@ describe('remote loadShare (import: false — host-provided)', () => {
       mfOptions: REMOTE_IMPORT_FALSE,
     });
 
+    // An import:false wrapper has no fallback to isolate, so it is not a chunk of its
+    // own — find it by the code it generates rather than by a chunk name.
     const loadShareChunk = output.output
       .filter((c) => c.type === 'chunk')
-      .find((c) => c.fileName.includes('__loadShare__'));
+      .find((c) => (c as { code: string }).code.includes('__mfApplyHostProvidedExports'));
 
     expect(loadShareChunk).toBeDefined();
     const code = (loadShareChunk as { code: string }).code;
-
-    // Must use __mfApplyHostProvidedExports
-    expect(code).toContain('__mfApplyHostProvidedExports');
 
     // The else branch (cache hit) must apply synchronously
     // Structure: if (exportModule === void 0) initPromise.then(...) else { __mfApplyHostProvidedExports(exportModule) }
@@ -212,7 +211,7 @@ describe('remote loadShare (import: false — host-provided)', () => {
     expect(elseMatch).not.toBeNull();
 
     // Must NOT register a pending share load in the else branch
-    const elseIndex = code.lastIndexOf('else');
+    const elseIndex = elseMatch!.index!;
     const afterElse = code.slice(elseIndex, elseIndex + 200);
     expect(afterElse).not.toContain('pendingShareLoads');
   });
