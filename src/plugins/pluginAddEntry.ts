@@ -18,7 +18,10 @@ import {
 } from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
-import { getNormalizeModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import {
+  getNormalizeModuleFederationOptions,
+  isRemoteOnlyContainer,
+} from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import {
   decodeViteId,
@@ -531,8 +534,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
     const sharedPreloadSources =
       _command === 'serve' &&
       waitsForInit &&
-      Object.keys(normalizedOptions.exposes || {}).length > 0 &&
-      Object.keys(normalizedOptions.remotes || {}).length === 0 &&
+      isRemoteOnlyContainer(normalizedOptions) &&
       federationOptions
         ? Array.from(getUsedShares(federationOptions))
             .filter((pkg) => !pkg.endsWith('/'))

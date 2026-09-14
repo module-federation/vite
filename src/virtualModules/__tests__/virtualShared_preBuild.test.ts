@@ -3560,6 +3560,35 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
+  it('defers singleton fallback in remote builds that also consume remotes', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      exposes: { './App': './src/App.jsx' },
+      remotes: { sub: { type: 'module', name: 'sub', entry: '/sub/remoteEntry.js' } },
+      shared: { lit: { singleton: true } },
+    });
+    const pkg = 'lit';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '3.3.2',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
+    expect(generatedCode).toContain('initPromise.then');
+    expect(generatedCode).toContain('import("mock-import-id").then((mod) => {');
+    expect(generatedCode).not.toContain('await ');
+  });
+
   it('uses eager fallback for peer-consumed singletons in remote builds', () => {
     normalizeModuleFederationOptions({
       name: 'remote',

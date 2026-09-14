@@ -806,6 +806,30 @@ export function getNormalizeModuleFederationOptions() {
   return config;
 }
 
+export function hasRemotes(
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
+  return Object.keys(options.remotes || {}).length > 0;
+}
+
+export function isRemoteContainer(
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
+  return Object.keys(options.exposes || {}).length > 0;
+}
+
+export function isRemoteOnlyContainer(
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
+  return isRemoteContainer(options) && !hasRemotes(options);
+}
+
+export function isLocalOnlyContainer(
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
+  return !isRemoteContainer(options) && !hasRemotes(options);
+}
+
 export function isExplicitSharedKey(key: string, options?: NormalizedModuleFederationOptions) {
   return (
     (options ? explicitSharedKeysByOptions.get(options) : explicitSharedKeys)?.has(key) ?? false

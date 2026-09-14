@@ -491,6 +491,9 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       injectTreeShakingUsedExports: optionsMock.injectTreeShakingUsedExports,
     }),
     isExplicitSharedKey: (key: string) => key in normalizedSharedMock(),
+    hasRemotes: (options: { remotes?: object }) => Object.keys(options?.remotes ?? {}).length > 0,
+    isRemoteContainer: (options: { exposes?: object }) =>
+      Object.keys(options?.exposes ?? {}).length > 0,
     getNormalizeShareItem: (pkg: string) => ({
       name: pkg,
       from: '',

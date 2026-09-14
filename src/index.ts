@@ -54,7 +54,11 @@ import type {
   SsrEntryLoaderStrategy,
   TreeShakingConfig,
 } from './utils/normalizeModuleFederationOptions';
-import { normalizeModuleFederationOptions } from './utils/normalizeModuleFederationOptions';
+import {
+  hasRemotes,
+  isRemoteContainer,
+  normalizeModuleFederationOptions,
+} from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import {
   getIsRolldown,
@@ -966,11 +970,10 @@ export default __mfShared.default ?? __mfShared;`,
       }
 
       const viteMajor = parseInt(viteVersion, 10);
-      const hasRemotes = Object.keys(options.remotes).length > 0;
       const ssrCapabilities = getSsrCapabilities(
         viteMajor,
         config.command as 'serve' | 'build',
-        hasRemotes
+        hasRemotes(options)
       );
       if (!ssrCapabilities.injectSsrEntryLoader) return;
 
@@ -1106,7 +1109,7 @@ function resolveInjectExternalRuntimeCorePlugin(): string {
 function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOptions): void {
   const { experiments } = options;
   if (experiments.provideExternalRuntime) {
-    if (Object.keys(options.exposes).length > 0) {
+    if (isRemoteContainer(options)) {
       throw createModuleFederationError(
         'You can only set provideExternalRuntime: true in pure consumer which not expose modules.'
       );

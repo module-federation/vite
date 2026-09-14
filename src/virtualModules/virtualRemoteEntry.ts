@@ -1,7 +1,9 @@
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  hasRemotes,
   isExplicitSharedKey,
+  isRemoteContainer,
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
@@ -1179,9 +1181,7 @@ export function generateRemoteEntry(
   );
   const hasMultipleShareScopes = Array.isArray(options.shareScope);
   const guardHostAutoInit =
-    command === 'build' &&
-    Object.keys(options.exposes ?? {}).length > 0 &&
-    Object.keys(options.remotes ?? {}).length > 0;
+    command === 'build' && isRemoteContainer(options) && hasRemotes(options);
   const materializedShareBatches = toSafeJsLiteral(getShareBatches(options, false));
   const runtimeImports = [
     'init as runtimeInit',
