@@ -17,6 +17,7 @@ export {
   getResolvedLocalSharedImportMapId,
   getRemoteEntryId,
   getUsedShares,
+  REMOTE_ENTRY_ID,
   refreshHostAutoInit,
   refreshPendingShares,
   getPendingSharesPath,

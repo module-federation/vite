@@ -99,6 +99,7 @@ import {
   LOAD_SHARE_TAG,
   PREBUILD_TAG,
   refreshRemoteModuleForEnvironment,
+  REMOTE_ENTRY_ID,
   TREE_SHAKING_GRAPH_QUERY,
   TREE_SHAKING_PROVIDER_TAG,
   writeLocalSharedImportMap,
@@ -1142,7 +1143,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       return (
         id.includes(getHostAutoInitPath(options)) ||
         id.includes(getPendingSharesPath(options)) ||
-        id.includes(remoteEntryId) ||
+        id.includes(REMOTE_ENTRY_ID) ||
         id.includes(virtualExposesId) ||
         id.includes('virtual:mf-localSharedImportMap') ||
         id.includes(LOAD_SHARE_TAG) ||

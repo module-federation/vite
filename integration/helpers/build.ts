@@ -11,7 +11,7 @@ export interface BuildFixtureOptions {
    * @default 'basic-remote'
    */
   fixture?: string;
-  mfOptions?: Partial<ModuleFederationOptions>;
+  mfOptions?: Partial<ModuleFederationOptions> | Partial<ModuleFederationOptions>[];
   viteConfig?: Partial<ViteUserConfig>;
 }
 
@@ -50,7 +50,9 @@ export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.R
     dts: false,
   } satisfies Parameters<typeof federation>[0];
 
-  const mergedMfOptions = mergeDefaults(mfOptions, defaultMfOptions);
+  const mergedMfOptions = (Array.isArray(mfOptions) ? mfOptions : [mfOptions]).map((options) =>
+    mergeDefaults(options, defaultMfOptions)
+  );
 
   const defaultViteConfig: ViteUserConfig = {
     root: resolve(FIXTURES, fixture),
@@ -66,7 +68,7 @@ export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.R
 
   const result = await build({
     ...mergedViteConfig,
-    plugins: [federation(mergedMfOptions)],
+    plugins: mergedMfOptions.map((options) => federation(options)),
   });
 
   // Vite returns RollupOutput[] only with multiple rollupOptions.output entries.
