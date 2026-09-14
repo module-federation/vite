@@ -284,10 +284,10 @@ function getModuleFederationVitePluginWithImportFalse(implementation?: string): 
   return plugin;
 }
 
-function resolvesQuickly(promise: Promise<unknown>) {
+function resolvesQuickly(promise: Promise<unknown>, ms = 25) {
   return Promise.race([
     promise.then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), 25)),
+    new Promise((resolve) => setTimeout(() => resolve(false), ms)),
   ]);
 }
 
@@ -582,7 +582,15 @@ describe('module parse wiring', () => {
       callHook(observer.parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
     }
 
-    const resolved = await Promise.all(pendingRemoteEntries.map(resolvesQuickly));
+    // A larger race window than the default resolvesQuickly() budget: this
+    // path calls generateRemoteEntry() for two instances (heavier than the
+    // single-instance/lighter-load calls elsewhere), so a slower CI runner can
+    // legitimately need more than 25ms even once graph-complete resolves it.
+    // 500ms still clearly distinguishes that from moduleParseIdleTimeout's
+    // default 10s stall.
+    const resolved = await Promise.all(
+      pendingRemoteEntries.map((promise) => resolvesQuickly(promise, 500))
+    );
 
     // Clean up the parse timers without waiting for the production timeout.
     for (const instance of instances) callHook(instance.parseEnd.buildEnd, ctx);
