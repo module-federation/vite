@@ -1140,11 +1140,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       return (
         id.includes(getHostAutoInitPath(options)) ||
         id.includes(getPendingSharesPath(options)) ||
-        // Not redundant with remoteEntryId below: this also matches sibling
-        // instances, whose remote entries are generated behind their own
-        // parsePromise and deadlock every instance when tracked here (#1285).
         id.includes(REMOTE_ENTRY_ID) ||
-        id.includes(remoteEntryId) ||
         id.includes(virtualExposesId) ||
         id.includes('virtual:mf-localSharedImportMap') ||
         id.includes(LOAD_SHARE_TAG) ||

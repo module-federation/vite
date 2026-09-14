@@ -557,7 +557,6 @@ describe('module parse wiring', () => {
       await callHook(instance.parseStart.buildStart, ctx, undefined as never);
     }
 
-    // Both remote entries reach both instances' load hooks, as in a real build.
     for (const observer of instances) {
       for (const owner of instances) {
         callHook(observer.parseStart.load, ctx, owner.remoteEntryId);
@@ -580,13 +579,12 @@ describe('module parse wiring', () => {
       callHook(observer.parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
     }
 
-    // The graph-complete check runs on a 10ms timer; a deadlocked instance
-    // instead waits for the parse timeout, which this never advances to.
+    // Past the 10ms completion check, short of the parse timeout that would
+    // mask a deadlock. Sample before buildEnd, which force-resolves anyway.
     await vi.advanceTimersByTimeAsync(100);
     const generatedBeforeBuildEnd = generated.map((state) => state.done);
     vi.useRealTimers();
 
-    // buildEnd force-resolves the barrier, so release it only after sampling.
     for (const instance of instances) callHook(instance.parseEnd.buildEnd, ctx);
     await Promise.all(pendingRemoteEntries);
 

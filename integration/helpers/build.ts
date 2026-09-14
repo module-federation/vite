@@ -11,7 +11,6 @@ export interface BuildFixtureOptions {
    * @default 'basic-remote'
    */
   fixture?: string;
-  /** An array builds one federation() instance per entry, as a multi-instance config does. */
   mfOptions?: Partial<ModuleFederationOptions> | Partial<ModuleFederationOptions>[];
   viteConfig?: Partial<ViteUserConfig>;
 }

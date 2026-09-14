@@ -4,8 +4,6 @@ import { buildFixture } from './helpers/build';
 
 describe('multi-instance parse barrier', () => {
   it('builds without stalling on moduleParseIdleTimeout when two federation() instances share a config', async () => {
-    // Before #1285 each instance tracked its sibling's remote entry and both
-    // stalled until the idle timeout warned.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await buildFixture({
