@@ -284,11 +284,19 @@ function getModuleFederationVitePluginWithImportFalse(implementation?: string): 
   return plugin;
 }
 
-function resolvesQuickly(promise: Promise<unknown>) {
-  return Promise.race([
-    promise.then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), 25)),
-  ]);
+// Runs the barrier's 10ms completion check, stopping short of the parse
+// timeout that would force-resolve a real deadlock and hide it. Needs fake
+// timers, and must be called before buildEnd, which also force-resolves.
+async function resolvedBeforeParseTimeout(promises: Promise<unknown>[]) {
+  const states = promises.map((promise) => {
+    const state = { done: false };
+    void promise.then(() => {
+      state.done = true;
+    });
+    return state;
+  });
+  await vi.advanceTimersByTimeAsync(100);
+  return states.map((state) => state.done);
 }
 
 function runConfig(
@@ -474,6 +482,7 @@ describe('module parse wiring', () => {
       return { localSharedMap, options, parseEnd, parseStart };
     });
     const ctx = {} as any;
+    vi.useFakeTimers();
 
     for (const instance of instances) {
       await callHook(instance.parseStart.buildStart, ctx, undefined as never);
@@ -495,9 +504,9 @@ describe('module parse wiring', () => {
         )
       )
     );
-    const resolved = await Promise.all(pendingMaps.map(resolvesQuickly));
+    const resolved = await resolvedBeforeParseTimeout(pendingMaps);
+    vi.useRealTimers();
 
-    // Clean up the parse timers without waiting for the production timeout.
     for (const instance of instances) callHook(instance.parseEnd.buildEnd, ctx);
     await Promise.all(pendingMaps);
 
@@ -567,28 +576,17 @@ describe('module parse wiring', () => {
     const pendingRemoteEntries = instances.map((instance) =>
       Promise.resolve(callHook(instance.proxyRemoteEntry.load, ctx, instance.remoteEntryId))
     );
-    const generated = pendingRemoteEntries.map((pending) => {
-      const state = { done: false };
-      void pending.then(() => {
-        state.done = true;
-      });
-      return state;
-    });
-
     for (const observer of instances) {
       callHook(observer.parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
     }
 
-    // Past the 10ms completion check, short of the parse timeout that would
-    // mask a deadlock. Sample before buildEnd, which force-resolves anyway.
-    await vi.advanceTimersByTimeAsync(100);
-    const generatedBeforeBuildEnd = generated.map((state) => state.done);
+    const resolved = await resolvedBeforeParseTimeout(pendingRemoteEntries);
     vi.useRealTimers();
 
     for (const instance of instances) callHook(instance.parseEnd.buildEnd, ctx);
     await Promise.all(pendingRemoteEntries);
 
-    expect(generatedBeforeBuildEnd).toEqual([true, true]);
+    expect(resolved).toEqual([true, true]);
   });
 
   it('does not wait for generated load-share or prebuild modules', async () => {
