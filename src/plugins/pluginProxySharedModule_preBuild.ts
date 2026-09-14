@@ -899,7 +899,10 @@ export function proxySharedModule(options: {
         // most of the workspace through type-only dependencies, and an ordinary edge
         // there binds the importer to the local fallback even when a host provides
         // the singleton.
-        if (importerPackage) {
+        // A consume-only share (`import: false`) has no local fallback for an ordinary edge to stay
+        // coherent with: keeping the edge would inline the share's source into this container, a
+        // second instance next to the one the host provides. Such a share is always proxied.
+        if (importerPackage && shared[key].shareConfig.import !== false) {
           const importerIsUnsharedWorkspacePackage =
             !isNodeModulePath(importer!) &&
             !Object.keys(shared).some((sharedKey) => getPackageName(sharedKey) === importerPackage);

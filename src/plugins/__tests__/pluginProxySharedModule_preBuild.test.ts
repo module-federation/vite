@@ -1640,6 +1640,61 @@ describe('pluginProxySharedModule_preBuild', () => {
     statSyncMock.mockReset().mockImplementation(() => ({ size: 128, isFile: () => true }));
   });
 
+  it('always proxies a consume-only share, even from a dependency that would keep an ordinary edge', async () => {
+    normalizeModuleFederationOptions({ name: 'host', shared: {} });
+    hasPackageDependencyMock.mockReturnValue(false);
+    getInstalledPackageEntryMock.mockImplementation((pkg) =>
+      pkg === 'react' ? '/repo/packages/react/index.js' : undefined
+    );
+    // The same vue -> bridge -> vue cycle as above, but vue is `import: false`: there is no local vue
+    // for bridge's ordinary edge to bind to, so inlining would create a second vue instance.
+    existsSyncMock.mockImplementation(
+      (p: string) =>
+        p === '/repo/apps/remote/node_modules/vue/package.json' ||
+        p === '/repo/packages/bridge/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p.endsWith('/vue/package.json')) return '{"dependencies":{"bridge":"workspace:*"}}';
+      if (p.endsWith('/vue/index.js'))
+        return "import { title } from 'bridge';\nexport const Button = title;";
+      if (p.endsWith('/bridge/package.json')) return '{"name":"bridge"}';
+      return '{}';
+    });
+    readdirSyncMock.mockImplementation((dir: string) =>
+      dir === '/repo/apps/remote/node_modules/vue' ? [sourceFile('index.js')] : []
+    );
+
+    const shared = makeShared();
+    shared.vue.shareConfig.import = false;
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/packages/bridge/src/title.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toEqual({ id: '/resolved/mock-import-id' });
+    expect(writeLoadShareModuleMock).toHaveBeenCalled();
+    existsSyncMock.mockReset().mockReturnValue(false);
+    readFileSyncMock.mockReset().mockReturnValue('{}');
+    readdirSyncMock.mockReset().mockReturnValue([]);
+  });
+
   it('walks past a nameless package.json when identifying an unshared workspace package', async () => {
     normalizeModuleFederationOptions({ name: 'host', shared: {} });
     hasPackageDependencyMock.mockReturnValue(false);
