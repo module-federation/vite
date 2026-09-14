@@ -2294,6 +2294,11 @@ describe('pluginAddEntry', () => {
         name: '_virtual_mf___app__loadShare__antd__loadShare__',
         fileName: 'assets/chunk-_virtual_mf___app__loadShare__antd__loadShare__.js',
       },
+      'assets/chunk-_virtual_mf___app__loadRemote__widget__loadRemote__.js': {
+        type: 'chunk',
+        name: '_virtual_mf___app__loadRemote__widget__loadRemote__',
+        fileName: 'assets/chunk-_virtual_mf___app__loadRemote__widget__loadRemote__.js',
+      },
       'assets/chunk-index.B_.js': {
         type: 'chunk',
         name: 'index',
@@ -2348,6 +2353,8 @@ describe('pluginAddEntry', () => {
     );
     expect(html).not.toContain('chunk-_virtual_mf___app__prebuild__antd__prebuild__.js');
     expect(html).not.toContain('chunk-_virtual_mf___app__loadShare__antd__loadShare__.js');
+    // Remote wrappers are only needed by the pages that render that remote (#1291)
+    expect(html).not.toContain('chunk-_virtual_mf___app__loadRemote__widget__loadRemote__.js');
     expect(html.match(/chunk-index\.B_\.js/g)?.length).toBe(1);
     expect(html).not.toContain('index.AA.css');
   });
@@ -2542,8 +2549,14 @@ describe('pluginAddEntry', () => {
         dynamicImports: [
           'assets/_virtual_mf___app__loadShare__react__loadShare__.Cd.js',
           'assets/_virtual_mf___app__prebuild__antd__prebuild__.js',
+          'assets/_virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js',
           'assets/index.B_.js',
         ],
+      },
+      'assets/_virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js': {
+        type: 'chunk',
+        name: '_virtual_mf___app__loadRemote__widget__loadRemote__',
+        fileName: 'assets/_virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js',
       },
       'assets/_virtual_mf-localSharedImportMap___app.Bl.js': {
         type: 'chunk',
@@ -2609,6 +2622,7 @@ describe('pluginAddEntry', () => {
     // standalone app entry, and the entry itself stay out of the warmup.
     expect(code).not.toContain('__loadShare__');
     expect(code).not.toContain('__prebuild__');
+    expect(code).not.toContain('__loadRemote__');
     expect(code).not.toContain('assets/index.B_.js');
     expect(code).not.toMatch(/__mfWarmupPath of \[[^\]]*"remoteEntry\.js"/);
     // Chunks of another federation config in the same bundle are unreachable

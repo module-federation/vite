@@ -36,11 +36,14 @@ import {
   getRuntimeRemoteId,
   getUsedRemotesMap,
   isDynamicOnlyRemote,
+  LOAD_REMOTE_TAG,
 } from '../virtualModules/virtualRemotes';
 import { getPendingSharesPath, getUsedShares } from '../virtualModules/virtualRemoteEntry';
 import {
   getLoadShareModulePath,
   getProjectResolvedImportPath,
+  LOAD_SHARE_TAG,
+  PREBUILD_TAG,
 } from '../virtualModules/virtualShared_preBuild';
 import {
   getModuleCacheGlobalKey,
@@ -64,11 +67,17 @@ interface AddEntryOptions {
 // before runtime provider selection has a chance to choose the optimized
 // provider — so provider chunks are always excluded. `__loadShare__` chunks
 // perform their own materialization check before loading a provider.
+// `__loadRemote__` wrappers are one per remote and only needed by the pages
+// that actually render that remote, so preloading them all is wasted
+// bandwidth on every other page (#1291).
 // Virtual MF chunk file names vary in their underscore prefix depending on
 // how the bundler sanitizes the virtual id (`_virtual_mf…`, `virtual_mf…`,
 // `__virtual_mf…`), so match by substring.
 const isPreloadableVirtualMfChunk = (name: string) =>
-  name.includes('virtual_mf') && !name.includes('__prebuild__') && !name.includes('__loadShare__');
+  name.includes('virtual_mf') &&
+  !name.includes(PREBUILD_TAG) &&
+  !name.includes(LOAD_SHARE_TAG) &&
+  !name.includes(LOAD_REMOTE_TAG);
 
 const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
   (name) => name === 'hostInit',
@@ -86,7 +95,7 @@ const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
 // imports are full share payloads that stay unloaded whenever the consumer
 // provides the share, e.g. singletons).
 const isRemoteWarmupExcluded = (name: string) =>
-  name.includes('__prebuild__') || name.includes('__loadShare__');
+  name.includes(PREBUILD_TAG) || name.includes(LOAD_SHARE_TAG);
 const REMOTE_ENTRY_WARMUP_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
   (name) => name === 'hostInit',
   (name) => name === 'virtualExposes',
@@ -108,7 +117,7 @@ function getChunksByFileName(bundle: Rollup.OutputBundle) {
 function collectPreloadChunkFiles(
   chunksByFileName: Map<string, Rollup.OutputChunk>,
   seeds: Rollup.OutputChunk[],
-  excludeFromClosure: (name: string) => boolean = (name) => name.includes('__prebuild__')
+  excludeFromClosure: (name: string) => boolean = (name) => name.includes(PREBUILD_TAG)
 ): string[] {
   const seenFiles = new Set<string>();
   const files: string[] = [];
