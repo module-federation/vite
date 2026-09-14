@@ -18,6 +18,9 @@ import { createCodePositionMap } from '../utils/codePositionMap';
 import { mfWarn } from '../utils/logger';
 import {
   getNormalizeModuleFederationOptions,
+  isLocalOnlyContainer,
+  isRemoteContainer,
+  isRemoteOnlyContainer,
   type NormalizedModuleFederationOptions,
   type NormalizedShared,
   type ShareItem,
@@ -1115,23 +1118,6 @@ function isSharedSingletonConsumedByPeer(
   );
 }
 
-function isRemoteOnlyContainer(
-  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
-) {
-  return (
-    Object.keys(options.exposes || {}).length > 0 && Object.keys(options.remotes || {}).length === 0
-  );
-}
-
-function isLocalOnlyContainer(
-  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
-) {
-  return (
-    Object.keys(options.exposes || {}).length === 0 &&
-    Object.keys(options.remotes || {}).length === 0
-  );
-}
-
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
   try {
     const projectRequire = createRequire(pathToFileURL(path.join(root, 'package.json')));
@@ -2070,7 +2056,7 @@ export function writeLoadShareModule(
         isRemoteOnlyContainer(resolvedOptions) &&
         shareItem.shareConfig.singleton === true) ||
       (command === 'build' &&
-        isRemoteOnlyContainer(resolvedOptions) &&
+        isRemoteContainer(resolvedOptions) &&
         (shareItem.shareConfig.singleton === true || isDefaultShareScope) &&
         !isSharedSingletonConsumedByPeer(pkg, resolvedOptions, true)));
   const servesRemoteSingletonFallback =
@@ -2081,7 +2067,7 @@ export function writeLoadShareModule(
   const usesEntryInjectedRemoteFallback =
     hasCompleteExportCoverage &&
     !isWorkspaceSingleton &&
-    isRemoteOnlyContainer(resolvedOptions) &&
+    isRemoteContainer(resolvedOptions) &&
     shareItem.shareConfig.singleton === true &&
     resolvedOptions.hostInitInjectLocation === 'entry' &&
     (command === 'build' || isConsumedByPeerSingleton);
