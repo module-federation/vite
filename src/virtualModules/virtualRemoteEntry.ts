@@ -158,6 +158,9 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
   const useDirectReactImport = shouldUseDirectReactImport();
   const orderedShares = getOrderedUsedShares(options);
   const sharesToMaterialize = new Set(getMaterializedShares(options));
+  const hasConsumeOnlyShare = orderedShares.some(
+    (pkg) => getNormalizeShareItem(pkg, resolvedOptions)?.shareConfig.import === false
+  );
   const eagerImports = orderedShares
     .map((pkg, index) => {
       const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
@@ -190,7 +193,9 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
       }
       return undefined;
     };
-    // A consume-only share has no local module: its entry is the same shape for every key, so one helper builds it instead of a literal per key
+    ${
+      hasConsumeOnlyShare
+        ? `// A consume-only share has no local module: its entry is the same shape for every key, so one helper builds it instead of a literal per key
     const __mfHostOnly = (name) => async () => {
       throw new Error(\`[Module Federation] Shared module '\${name}' must be provided by host\`);
     };
@@ -205,7 +210,9 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
       canLiveRebind: true,
       get: __mfHostOnly(name),
       shareConfig: { ...shareConfig, import: false },
-    });
+    });`
+        : ''
+    }
     const importMap = {
       ${orderedShares
         .map((pkg, index) => {

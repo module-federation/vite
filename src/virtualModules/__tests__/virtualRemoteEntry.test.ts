@@ -834,6 +834,17 @@ describe('virtualRemoteEntry', () => {
     await expect(share.get()).rejects.toThrow("Shared module 'host-only' must be provided by host");
   });
 
+  it('omits the consume-only helpers when no share is consume-only', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateLocalSharedImportMap();
+    expect(code).not.toContain('__mfHostOnly');
+    expect(code).not.toContain('__mfConsumeOnly');
+  });
+
   it('marks only export-complete shared proxies as rebindable', async () => {
     const mod = await import('../virtualRemoteEntry');
 
