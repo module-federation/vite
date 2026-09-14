@@ -347,9 +347,9 @@ This deployment step is separate from the local Vite build; the plugin only emit
 
 ## External runtime (`experiments`)
 
-Share one `@module-federation/runtime-core` instance from a pure consumer host so remotes do not bundle their own copy. Pair the flags — remotes with `externalRuntime` require a host that provides the global.
+Share one `@module-federation/runtime-core` instance from the host so remotes do not bundle their own copy. Pair the flags — remotes with `externalRuntime` require a host that provides the global.
 
-**Host (pure consumer, no `exposes`):**
+**Host:**
 
 ```ts
 federation({
@@ -382,7 +382,7 @@ federation({
 });
 ```
 
-`provideExternalRuntime` injects a local runtime plugin that publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`. `externalRuntime` rewrites imports of `@module-federation/runtime-core` to read that global. Using `provideExternalRuntime` together with `exposes` throws — only pure consumers may provide the runtime.
+`provideExternalRuntime` injects a local runtime plugin that publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`. `externalRuntime` rewrites imports of `@module-federation/runtime-core` to read that global. A container that also `exposes` (e.g. a host consumed by its own remotes) may provide the runtime too, as long as exactly one container on the page does.
 The `externalRuntime` rewrite applies to the browser remote graph; SSR remote entries continue to resolve `@module-federation/runtime-core` from Node so they do not depend on the browser global.
 
 ## ⚠️ `codeSplitting` is managed by the plugin

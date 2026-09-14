@@ -51,18 +51,21 @@ describe('experiments.externalRuntime', () => {
     expect(manifest).toHaveProperty('metaData');
   });
 
-  it('rejects provideExternalRuntime on containers that expose modules', async () => {
-    await expect(
-      buildFixture({
-        fixture: 'basic-remote',
-        mfOptions: {
-          ...REMOTE_BASE,
-          experiments: { provideExternalRuntime: true },
-        },
-      })
-    ).rejects.toThrow(
-      /You can only set provideExternalRuntime: true in pure consumer which not expose modules/
-    );
+  it('lets a container that exposes modules provide the runtime', async () => {
+    const output = await buildFixture({
+      fixture: 'basic-remote',
+      mfOptions: {
+        ...REMOTE_BASE,
+        experiments: { provideExternalRuntime: true },
+      },
+    });
+
+    const allCode = getAllChunkCode(output);
+    expect(allCode).toMatch(/inject-external-runtime-core-plugin|_FEDERATION_RUNTIME_CORE/);
+
+    const manifest = parseManifest(output) as Record<string, unknown>;
+    expect(manifest).toHaveProperty('exposes');
+    expect((manifest.exposes as unknown[]).length).toBeGreaterThanOrEqual(1);
   });
 });
 

@@ -3963,17 +3963,32 @@ describe('experiments.externalRuntime / provideExternalRuntime', () => {
     return plugin;
   }
 
-  it('throws when provideExternalRuntime is set on a container with exposes', () => {
-    expect(() =>
-      federation({
-        name: 'remote',
-        filename: 'remoteEntry.js',
-        exposes: { './App': './src/App.tsx' },
-        experiments: { provideExternalRuntime: true },
+  it('allows provideExternalRuntime on a container with exposes', () => {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      exposes: { './App': './src/App.tsx' },
+      remotes: {
+        remote: {
+          type: 'module',
+          name: 'remote',
+          entry: 'http://localhost:5176/remoteEntry.js',
+        },
+      },
+      experiments: { provideExternalRuntime: true },
+    }) as Plugin[];
+
+    const options = getOptionsPlugin(plugins)._options;
+    expect(options.experiments.provideExternalRuntime).toBe(true);
+    expect(
+      options.runtimePlugins.some((plugin) => {
+        const specifier = typeof plugin === 'string' ? plugin : plugin[0];
+        return (
+          specifier.includes('injectExternalRuntimeCorePlugin') ||
+          specifier.includes('inject-external-runtime-core-plugin')
+        );
       })
-    ).toThrow(
-      /You can only set provideExternalRuntime: true in pure consumer which not expose modules/
-    );
+    ).toBe(true);
   });
 
   it('appends injectExternalRuntimeCorePlugin for pure consumers', () => {
