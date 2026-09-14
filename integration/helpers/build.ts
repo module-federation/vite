@@ -11,12 +11,8 @@ export interface BuildFixtureOptions {
    * @default 'basic-remote'
    */
   fixture?: string;
-  mfOptions?: Partial<ModuleFederationOptions>;
-  // Additional federation() instances to include alongside `mfOptions`, each
-  // merged against the same defaults. Lets a test build with more than one
-  // federation() plugin in a single config, the way a host that consumes
-  // several independently packaged remotes would.
-  extraMfOptions?: Partial<ModuleFederationOptions>[];
+  /** An array builds one federation() instance per entry, as a multi-instance config does. */
+  mfOptions?: Partial<ModuleFederationOptions> | Partial<ModuleFederationOptions>[];
   viteConfig?: Partial<ViteUserConfig>;
 }
 
@@ -45,7 +41,7 @@ function mergeDefaults<T extends object>(overrides: Partial<T> | undefined, defa
 }
 
 export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.RollupOutput> {
-  const { fixture = 'basic-remote', mfOptions, extraMfOptions, viteConfig } = opts ?? {};
+  const { fixture = 'basic-remote', mfOptions, viteConfig } = opts ?? {};
 
   const defaultMfOptions = {
     name: 'basicRemote',
@@ -55,9 +51,8 @@ export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.R
     dts: false,
   } satisfies Parameters<typeof federation>[0];
 
-  const mergedMfOptions = mergeDefaults(mfOptions, defaultMfOptions);
-  const extraMergedMfOptions = (extraMfOptions ?? []).map((extra) =>
-    mergeDefaults(extra, defaultMfOptions)
+  const mergedMfOptions = (Array.isArray(mfOptions) ? mfOptions : [mfOptions]).map((options) =>
+    mergeDefaults(options, defaultMfOptions)
   );
 
   const defaultViteConfig: ViteUserConfig = {
@@ -74,10 +69,7 @@ export async function buildFixture(opts?: BuildFixtureOptions): Promise<Rollup.R
 
   const result = await build({
     ...mergedViteConfig,
-    plugins: [
-      federation(mergedMfOptions),
-      ...extraMergedMfOptions.map((extra) => federation(extra)),
-    ],
+    plugins: mergedMfOptions.map((options) => federation(options)),
   });
 
   // Vite returns RollupOutput[] only with multiple rollupOptions.output entries.

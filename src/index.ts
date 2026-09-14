@@ -1140,15 +1140,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       return (
         id.includes(getHostAutoInitPath(options)) ||
         id.includes(getPendingSharesPath(options)) ||
-        // Every federation() instance in the build emits its own remote entry
-        // chunk, so every instance's `load` hook observes every other
-        // instance's remote entry id too. Matching only this instance's own
-        // remoteEntryId here left the other instances' ids in this instance's
-        // parseStartSet; since generating a remote entry itself waits on this
-        // parsePromise, two or more instances waited on each other forever and
-        // never resolved until moduleParseIdleTimeout forced it. Excluding the
-        // shared REMOTE_ENTRY_ID prefix keeps every instance's remote entry
-        // out of parse tracking regardless of which instance loads it.
+        // Not redundant with remoteEntryId below: this also matches sibling
+        // instances, whose remote entries are generated behind their own
+        // parsePromise and deadlock every instance when tracked here (#1285).
         id.includes(REMOTE_ENTRY_ID) ||
         id.includes(remoteEntryId) ||
         id.includes(virtualExposesId) ||

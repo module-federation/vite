@@ -284,10 +284,10 @@ function getModuleFederationVitePluginWithImportFalse(implementation?: string): 
   return plugin;
 }
 
-function resolvesQuickly(promise: Promise<unknown>, ms = 25) {
+function resolvesQuickly(promise: Promise<unknown>) {
   return Promise.race([
     promise.then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), ms)),
+    new Promise((resolve) => setTimeout(() => resolve(false), 25)),
   ]);
 }
 
@@ -508,14 +508,6 @@ describe('module parse wiring', () => {
   });
 
   it("does not deadlock remote entry generation when federation instances load each other's remote entry", async () => {
-    // Regression for a build-time deadlock: every federation() instance emits
-    // its own remote entry chunk, so every instance's parseStart.load hook
-    // also observes every *other* instance's remote entry id. Excluding only
-    // this instance's own remoteEntryId left the other instances' ids in this
-    // instance's parseStartSet, and generating a remote entry itself waits on
-    // this instance's parsePromise — so two or more instances waited on each
-    // other forever and only ever finished via moduleParseIdleTimeout forcing
-    // a resolve.
     const previousNoTestEnvCheck = process.env.MFE_VITE_NO_TEST_ENV_CHECK;
     process.env.MFE_VITE_NO_TEST_ENV_CHECK = 'true';
     let pluginSets: Plugin[][];
@@ -559,14 +551,13 @@ describe('module parse wiring', () => {
       return { parseStart, parseEnd, proxyRemoteEntry, remoteEntryId: getRemoteEntryId(options) };
     });
     const ctx = {} as any;
+    vi.useFakeTimers();
 
     for (const instance of instances) {
       await callHook(instance.parseStart.buildStart, ctx, undefined as never);
     }
 
-    // Every instance emits its own remote entry chunk (also pure hosts, for the
-    // shared scope init), so both remote entry ids are loaded early in the
-    // build and every instance's parseStart.load hook observes both of them.
+    // Both remote entries reach both instances' load hooks, as in a real build.
     for (const observer of instances) {
       for (const owner of instances) {
         callHook(observer.parseStart.load, ctx, owner.remoteEntryId);
@@ -577,26 +568,29 @@ describe('module parse wiring', () => {
     const pendingRemoteEntries = instances.map((instance) =>
       Promise.resolve(callHook(instance.proxyRemoteEntry.load, ctx, instance.remoteEntryId))
     );
+    const generated = pendingRemoteEntries.map((pending) => {
+      const state = { done: false };
+      void pending.then(() => {
+        state.done = true;
+      });
+      return state;
+    });
 
     for (const observer of instances) {
       callHook(observer.parseEnd.moduleParsed, ctx, { id: '/src/main.ts' } as never);
     }
 
-    // A larger race window than the default resolvesQuickly() budget: this
-    // path calls generateRemoteEntry() for two instances (heavier than the
-    // single-instance/lighter-load calls elsewhere), so a slower CI runner can
-    // legitimately need more than 25ms even once graph-complete resolves it.
-    // 500ms still clearly distinguishes that from moduleParseIdleTimeout's
-    // default 10s stall.
-    const resolved = await Promise.all(
-      pendingRemoteEntries.map((promise) => resolvesQuickly(promise, 500))
-    );
+    // The graph-complete check runs on a 10ms timer; a deadlocked instance
+    // instead waits for the parse timeout, which this never advances to.
+    await vi.advanceTimersByTimeAsync(100);
+    const generatedBeforeBuildEnd = generated.map((state) => state.done);
+    vi.useRealTimers();
 
-    // Clean up the parse timers without waiting for the production timeout.
+    // buildEnd force-resolves the barrier, so release it only after sampling.
     for (const instance of instances) callHook(instance.parseEnd.buildEnd, ctx);
     await Promise.all(pendingRemoteEntries);
 
-    expect(resolved).toEqual([true, true]);
+    expect(generatedBeforeBuildEnd).toEqual([true, true]);
   });
 
   it('does not wait for generated load-share or prebuild modules', async () => {
