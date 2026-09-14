@@ -1188,6 +1188,11 @@ vi.mock('module', async (importOriginal) => {
           (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
           throw error;
         }
+        if (pkg === 'use-sync-external-store/shim/with-selector') {
+          // CJS shim: snapshots React's hooks at evaluation time, so it must
+          // load after `react` rather than concurrently with it.
+          return { useSyncExternalStoreWithSelector: () => undefined };
+        }
         return {};
       }) as MockRequire;
 
@@ -4206,6 +4211,51 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).toContain('import * as __mfLocalShare from "/resolved/react";');
     expect(generatedCode).not.toContain('initPromise.then');
+    expect(generatedCode).not.toContain('await ');
+  });
+
+  it('keeps entry-injected singleton fallbacks eager in remote builds that also consume remotes', () => {
+    // Regression for #1284 follow-up: a remote that also consumes remotes
+    // (a calendar shipped standalone that shares react and the CJS
+    // `use-sync-external-store/shim/with-selector`) must load its singleton
+    // fallbacks through the entry, in dependency order. Deferring them to
+    // concurrent `import()`s let the shim evaluate before react resolved and
+    // crashed standalone with `TypeError: o is not a function`.
+    normalizeModuleFederationOptions({
+      name: 'calendar',
+      hostInitInjectLocation: 'entry',
+      exposes: { './Calendar': './src/Calendar.jsx' },
+      remotes: { sub: { type: 'module', name: 'sub', entry: '/sub/remoteEntry.js' } },
+      shared: {
+        react: { singleton: true },
+        'use-sync-external-store/shim/with-selector': { singleton: true },
+      },
+    });
+    const pkg = 'use-sync-external-store/shim/with-selector';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.5.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.5.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).toContain(
+      'import * as __mfLocalShare from "/resolved/use-sync-external-store/shim/with-selector";'
+    );
+    expect(generatedCode).toContain('useSyncExternalStoreWithSelector');
+    expect(generatedCode).not.toContain('initPromise.then');
+    expect(generatedCode).not.toContain(
+      'import("/resolved/use-sync-external-store/shim/with-selector").then'
+    );
+    expect(generatedCode).not.toContain('import("mock-import-id").then');
     expect(generatedCode).not.toContain('await ');
   });
 
