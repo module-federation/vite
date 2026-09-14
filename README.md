@@ -398,6 +398,18 @@ User groups are now **preserved**. The plugin installs its own federation groups
 - No warning is emitted just for keeping your groups.
 - If one of your existing groups sets a `priority` high enough to outrank the federation groups, it is **clamped** below them and the plugin warns once. This prevents those groups from capturing a `runtimeInit`/`loadShare` wrapper or the preload helper.
 
+### Preload lists honour `build.modulePreload.resolveDependencies`
+
+The plugin preloads its init-critical chunks twice over: as `<link rel="modulepreload">` tags in the host page, and as a warmup list the remote entry replays at runtime. Both lists go through your `build.modulePreload.resolveDependencies`, the same hook Vite uses for its own preloads — with `hostType: 'html'` for the page's list and `hostType: 'js'` (the remote entry as `hostId`) for the warmup. A host can drop, for instance, the `__loadRemote__` wrapper of a remote its first paint never renders:
+
+```ts
+build: {
+  modulePreload: {
+    resolveDependencies: (_file, deps) => deps.filter((dep) => !dep.includes('__loadRemote__')),
+  },
+},
+```
+
 ## ⚠️ `manualChunks` behavior depends on your Vite version
 
 | Setting | Vite 5–7 (Rollup) | Vite 8+ (Rolldown) |

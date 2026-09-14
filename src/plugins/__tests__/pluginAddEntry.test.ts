@@ -61,6 +61,7 @@ import {
 } from '../../virtualModules/virtualRemotes';
 import { addUsedShares } from '../../virtualModules/virtualRemoteEntry';
 import addEntry from '../pluginAddEntry';
+import { rememberUserResolveDependencies } from '../../utils/modulePreloadPolicy';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
 
@@ -2253,6 +2254,128 @@ describe('pluginAddEntry', () => {
     expect(bundle['index.html'].source).toContain(
       '<link rel="modulepreload" crossorigin href="https://cdn.example.com/hostInit-abc.js">'
     );
+  });
+
+  it('runs the host page preload list through build.modulePreload.resolveDependencies', () => {
+    const seen: unknown[] = [];
+    rememberUserResolveDependencies((file, deps, context) => {
+      seen.push([file, context]);
+      return deps.filter((dep) => !dep.includes('__loadRemote__'));
+    });
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+    const buildPlugin = plugins[1];
+    const bundle: any = {
+      'index.html': {
+        type: 'asset',
+        source:
+          '<html><head><script type="module" src="/app/src/main.tsx"></script></head><body></body></html>',
+      },
+      'assets/chunk-hostInit.D8.js': {
+        type: 'chunk',
+        name: 'hostInit',
+        fileName: 'assets/chunk-hostInit.D8.js',
+      },
+      'assets/chunk-virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js': {
+        type: 'chunk',
+        name: 'virtual_mf___app__loadRemote__widget__loadRemote__',
+        fileName: 'assets/chunk-virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js',
+      },
+    };
+
+    runConfigResolved(buildPlugin, {
+      root: '/repo/host',
+      base: '/app/',
+      command: 'build',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      { emitFile: () => 'host-init-ref' } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'assets/hostInit.js',
+        emitFile: () => 'bootstrap-ref',
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+    rememberUserResolveDependencies(undefined);
+
+    const html = String(bundle['index.html'].source);
+    expect(html).toContain(
+      '<link rel="modulepreload" crossorigin href="/app/assets/chunk-hostInit.D8.js">'
+    );
+    // The wrapper of a remote nobody renders on the first paint is the user's to drop
+    expect(html).not.toContain('__loadRemote__widget__');
+    expect(seen).toEqual([['index.html', { hostId: 'index.html', hostType: 'html' }]]);
+  });
+
+  it('runs the remote entry warmup list through build.modulePreload.resolveDependencies', () => {
+    rememberUserResolveDependencies((_file, deps) =>
+      deps.filter((dep) => !dep.includes('__loadRemote__'))
+    );
+    const plugins = addEntry({
+      entryName: 'remoteEntry',
+      entryPath: '/virtual/remoteEntry.js',
+      fileName: 'remoteEntry.js',
+    });
+    const buildPlugin = plugins[1];
+    const bundle: any = {
+      'remoteEntry.js': {
+        type: 'chunk',
+        name: 'remoteEntry',
+        fileName: 'remoteEntry.js',
+        code: 'export { get, init };\n',
+        dynamicImports: [
+          'assets/virtualExposes.Aa.js',
+          'assets/virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js',
+        ],
+      },
+      'assets/virtualExposes.Aa.js': {
+        type: 'chunk',
+        name: 'virtualExposes',
+        fileName: 'assets/virtualExposes.Aa.js',
+      },
+      'assets/virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js': {
+        type: 'chunk',
+        name: 'virtual_mf___app__loadRemote__widget__loadRemote__',
+        fileName: 'assets/virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js',
+      },
+    };
+    runConfigResolved(buildPlugin, {
+      root: '/repo/remote',
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      { emitFile: () => 'remote-entry-ref' } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'remoteEntry.js',
+        emitFile: () => 'asset-ref',
+      } as unknown as Rollup.PluginContext,
+      { format: 'es' } as unknown as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+    rememberUserResolveDependencies(undefined);
+
+    const code = String(bundle['remoteEntry.js'].code);
+    expect(code).toContain('assets/virtualExposes.Aa.js');
+    expect(code).not.toContain('__loadRemote__widget__');
   });
 
   it('injects host init chunk-chain modulepreloads during build', () => {

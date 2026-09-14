@@ -43,6 +43,11 @@ import {
 } from './utils/controlChunkSanitizer';
 import { isTestEnv } from './utils/isTestEnv';
 import { createModuleFederationError, mfWarn } from './utils/logger';
+import {
+  markFederationResolveDependencies,
+  rememberUserResolveDependencies,
+  unwrapUserResolveDependencies,
+} from './utils/modulePreloadPolicy';
 import { getSharedExportConditions } from './utils/sharedExportConditions';
 import type {
   ModuleFederationOptions,
@@ -1507,45 +1512,47 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               ? config.build.modulePreload
               : {};
           const existingResolveDependencies = currentModulePreload.resolveDependencies;
+          // The plugin's own preload lists (host page tags, remote entry warmup) honour the same function
+          rememberUserResolveDependencies(existingResolveDependencies);
 
           config.build.modulePreload = {
             ...currentModulePreload,
-            resolveDependencies(
-              filename: string,
-              deps: string[],
-              context: ModulePreloadResolveContext
-            ) {
-              const resolvedDeps = existingResolveDependencies
-                ? existingResolveDependencies(filename, deps, context)
-                : deps;
-              const hostFile = path.basename(context.hostId);
-              const shouldSkipFederationPreload =
-                context.hostType === 'js' &&
-                (hostFile === options.filename ||
-                  hostFile.includes('hostInit') ||
-                  hostFile.includes('virtualExposes') ||
-                  hostFile.includes('localSharedImportMap'));
+            resolveDependencies: markFederationResolveDependencies(
+              (filename: string, deps: string[], context: ModulePreloadResolveContext) => {
+                const resolvedDeps = existingResolveDependencies
+                  ? existingResolveDependencies(filename, deps, context)
+                  : deps;
+                const hostFile = path.basename(context.hostId);
+                const shouldSkipFederationPreload =
+                  context.hostType === 'js' &&
+                  (hostFile === options.filename ||
+                    hostFile.includes('hostInit') ||
+                    hostFile.includes('virtualExposes') ||
+                    hostFile.includes('localSharedImportMap'));
 
-              if (shouldSkipFederationPreload) return [];
+                if (shouldSkipFederationPreload) return [];
 
-              const hasFederationHtmlDeps =
-                context.hostType === 'html' &&
-                resolvedDeps.some((dep) => isFederationHtmlPreloadDependency(dep));
-              const hasFederationJsDeps =
-                context.hostType === 'js' &&
-                resolvedDeps.some((dep) => isFederationHtmlPreloadDependency(dep));
+                const hasFederationHtmlDeps =
+                  context.hostType === 'html' &&
+                  resolvedDeps.some((dep) => isFederationHtmlPreloadDependency(dep));
+                const hasFederationJsDeps =
+                  context.hostType === 'js' &&
+                  resolvedDeps.some((dep) => isFederationHtmlPreloadDependency(dep));
 
-              const treeShakingFallbackDeps = hasTreeShakingShared
-                ? (dep: string) => dep.includes('__prebuild__')
-                : () => false;
+                const treeShakingFallbackDeps = hasTreeShakingShared
+                  ? (dep: string) => dep.includes('__prebuild__')
+                  : () => false;
 
-              return hasFederationHtmlDeps || hasFederationJsDeps
-                ? resolvedDeps.filter(
-                    (dep) =>
-                      !isFederationHtmlPreloadDependency(dep, true) && !treeShakingFallbackDeps(dep)
-                  )
-                : resolvedDeps.filter((dep) => !treeShakingFallbackDeps(dep));
-            },
+                return hasFederationHtmlDeps || hasFederationJsDeps
+                  ? resolvedDeps.filter(
+                      (dep) =>
+                        !isFederationHtmlPreloadDependency(dep, true) &&
+                        !treeShakingFallbackDeps(dep)
+                    )
+                  : resolvedDeps.filter((dep) => !treeShakingFallbackDeps(dep));
+              },
+              unwrapUserResolveDependencies(existingResolveDependencies)
+            ),
           };
         }
 
