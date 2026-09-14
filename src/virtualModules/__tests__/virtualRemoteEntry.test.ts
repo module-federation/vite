@@ -578,6 +578,108 @@ describe('virtualRemoteEntry', () => {
     vi.resetModules();
   });
 
+  it('hands a loaded share back synchronously from get() once it has loaded', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const reactModule = { createElement: () => null };
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:react")', 'Promise.resolve({ default: reactModule })')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+    const generated = new Function('reactModule', code)(reactModule);
+    const share = generated.usedShared.react;
+
+    // First call: nothing loaded yet, the runtime awaits a promise as before.
+    const first = share.get();
+    expect(first).toBeInstanceOf(Promise);
+    const factory = await first;
+    expect(factory().createElement).toBe(reactModule.createElement);
+
+    // Second call: a webpack remote built with eager: true needs the factory synchronously.
+    const second = share.get();
+    expect(second).not.toBeInstanceOf(Promise);
+    expect(second).toBe(factory);
+    expect(share.loaded).toBe(true);
+    expect(share.lib).toBe(factory);
+  });
+
+  it('hands every get() caller the same pending promise while the share is loading', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const reactModule = { createElement: () => null };
+    const counter = { count: 0 };
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace(
+        'import("virtual:prebuild:react")',
+        '(imports.count++, Promise.resolve({ default: reactModule }))'
+      )
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+    const generated = new Function('reactModule', 'imports', code)(reactModule, counter);
+    const share = generated.usedShared.react;
+
+    // Two calls before the first resolves: one import, one promise, one factory.
+    const first = share.get();
+    const second = share.get();
+    expect(second).toBe(first);
+    expect(share.loading).toBe(first);
+    const factory = await first;
+    expect(await second).toBe(factory);
+    expect(counter.count).toBe(1);
+    expect(share.loading).toBeUndefined();
+    expect(share.lib).toBe(factory);
+    expect(share.get()).toBe(factory);
+  });
+
+  it('retries the import after a failed load instead of pinning the rejection', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const reactModule = { createElement: () => null };
+    const imports = {
+      calls: 0,
+      next() {
+        this.calls += 1;
+        return this.calls === 1
+          ? Promise.reject(new Error('network'))
+          : Promise.resolve({ default: reactModule });
+      },
+    };
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:react")', 'imports.next()')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+    const generated = new Function('reactModule', 'imports', code)(reactModule, imports);
+    const share = generated.usedShared.react;
+
+    await expect(share.get()).rejects.toThrow('network');
+    expect(share.loading).toBeUndefined();
+    expect(share.loaded).toBe(false);
+    expect(share.lib).toBeUndefined();
+
+    const factory = await share.get();
+    expect(factory().createElement).toBe(reactModule.createElement);
+    expect(share.loaded).toBe(true);
+    expect(imports.calls).toBe(2);
+  });
+
   it('partitions used shares by normalized plugin options', async () => {
     const mod = await import('../virtualRemoteEntry');
     const optionsA = { internalName: 'shared-name' } as never;
