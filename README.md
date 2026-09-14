@@ -382,7 +382,7 @@ federation({
 });
 ```
 
-`provideExternalRuntime` injects a local runtime plugin that publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`. `externalRuntime` rewrites imports of `@module-federation/runtime-core` to read that global. A container that also `exposes` (e.g. a host consumed by its own remotes) may provide the runtime too, as long as exactly one container on the page does.
+`provideExternalRuntime` injects a local runtime plugin that publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`. `externalRuntime` rewrites imports of `@module-federation/runtime-core` to read that global. A container that also `exposes` (e.g. a host consumed by its own remotes) may provide the runtime too, as long as exactly one container on the page does and it is loaded before any `externalRuntime` remote evaluates (a second provider is ignored with a `Detect multiple module federation runtime!` warning; a remote evaluated before the provider throws `_FEDERATION_RUNTIME_CORE is missing`).
 The `externalRuntime` rewrite applies to the browser remote graph; SSR remote entries continue to resolve `@module-federation/runtime-core` from Node so they do not depend on the browser global.
 
 ## ⚠️ `codeSplitting` is managed by the plugin
