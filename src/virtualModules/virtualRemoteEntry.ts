@@ -990,7 +990,7 @@ function generateHostAutoInitSharedCacheSeedCode(
     .join('\n');
 }
 
-const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
+export const REMOTE_ENTRY_ID = 'virtual:mf-REMOTE_ENTRY_ID';
 
 export function getRemoteEntryId(
   options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
