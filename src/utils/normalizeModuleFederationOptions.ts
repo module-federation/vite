@@ -629,8 +629,9 @@ export interface PluginExperimentsOptions {
    */
   externalRuntime?: boolean;
   /**
-   * Pure-consumer only (no `exposes`). Injects a local runtime plugin that
-   * publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`.
+   * Injects a local runtime plugin that publishes `runtime-core` on
+   * `globalThis._FEDERATION_RUNTIME_CORE`. Set it on exactly one container
+   * per page; that container may also `exposes`.
    */
   provideExternalRuntime?: boolean;
   /** Generate the React SSR/hydration island capability for eligible exposes. */

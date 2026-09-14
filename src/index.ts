@@ -56,7 +56,6 @@ import type {
 } from './utils/normalizeModuleFederationOptions';
 import {
   hasRemotes,
-  isRemoteContainer,
   normalizeModuleFederationOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
@@ -1110,11 +1109,6 @@ function resolveInjectExternalRuntimeCorePlugin(): string {
 function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOptions): void {
   const { experiments } = options;
   if (experiments.provideExternalRuntime) {
-    if (isRemoteContainer(options)) {
-      throw createModuleFederationError(
-        'You can only set provideExternalRuntime: true in pure consumer which not expose modules.'
-      );
-    }
     if (!hasInjectExternalRuntimeCorePlugin(options.runtimePlugins)) {
       options.runtimePlugins = options.runtimePlugins.concat(
         resolveInjectExternalRuntimeCorePlugin()
