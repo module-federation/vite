@@ -1,16 +1,16 @@
-import {
-  createEmptyAssetMap,
-  trackAsset,
-  isCSSFile,
-  collectCssAssets,
-  processModuleAssets,
-  addCssAssetsToAllExports,
-  deduplicateAssets,
-  buildFileToShareKeyMap,
-} from '../cssModuleHelpers';
-import type { OutputBundleItem, PreloadMap } from '../cssModuleHelpers';
-import { normalizeModuleFederationOptions } from '../normalizeModuleFederationOptions';
 import type { OutputAsset, OutputChunk } from 'rollup';
+import type { OutputBundleItem, PreloadMap } from '../cssModuleHelpers';
+import {
+  addCssAssetsToAllExports,
+  buildFileToShareKeyMap,
+  collectCssAssets,
+  createEmptyAssetMap,
+  deduplicateAssets,
+  isCSSFile,
+  processModuleAssets,
+  trackAsset,
+} from '../cssModuleHelpers';
+import { normalizeModuleFederationOptions } from '../normalizeModuleFederationOptions';
 
 type OutputChunkItem = Extract<OutputBundleItem, { type: 'chunk' }>;
 type RenderedModule = NonNullable<OutputChunk['modules']>[string];
@@ -364,6 +364,7 @@ describe('cssModuleHelpers', () => {
           name: 'test-app',
           virtualModuleDir: '__mf_virtual_test',
           bundleAllCSS: false,
+          internalName: 'host',
         })),
         normalizeModuleFederationOptions: vi.fn((options) => ({
           name: 'test-app',

@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { createRequire } from 'module';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { createHash } from 'node:crypto';
 import * as path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 
@@ -167,31 +168,71 @@ function getPackageExportsTarget(pkg: string, packageName: string, exportsField:
  *  . => 4
  */
 
+// Shared-module specifiers aren't always bare package names — they can
+// include a deep import subpath (e.g. "@scope/pkg/components/some/nested/
+// export", the shared-config key for a specific component export). Once
+// substituted, such a specifier can produce an id longer than `NAME_MAX`
+// (255 bytes on macOS/Linux), which fails when that id is used as a single
+// filesystem path segment (e.g. resolved as a bare specifier under
+// node_modules/<id>/package.json during dep optimization, or as a built
+// chunk/asset file name). Once the substituted id is longer than this
+// threshold, fall back to a short, filesystem-safe id made of a readable
+// prefix (for debuggability) plus a content hash (for uniqueness), with no
+// separator between them so the budget goes entirely to the readable prefix
+// rather than to delimiters. The mapping is kept so the original name can be
+// recovered wherever the id needs to be decoded again.
+//
+// 100 (rather than hugging 255) leaves a safety margin for
+// VirtualModule#getImportId(), the tightest consumer: its id is
+// `virtual:mf:` + scopePart + namePart + closeTag + suffix, where both
+// scopePart and namePart are independently run through this same function
+// and so are each capped at this threshold. Worst case (both maxed out):
+// 11 + threshold + threshold + ~17 (closeTag) + ~6 (suffix) must stay under
+// 255, i.e. threshold <= ~110 — 100 keeps real margin under that ceiling.
+const MF_HASHED_NAME_THRESHOLD = 100;
+const MF_HASHED_NAME_HASH_LENGTH = 16;
+const MF_HASHED_NAME_PREFIX_LENGTH = MF_HASHED_NAME_THRESHOLD - MF_HASHED_NAME_HASH_LENGTH;
+const mfHashedNameMap = new Map<string, string>();
+
 /**
- * Encodes a package name into a valid file name.
- * @param {string} name - The package name, e.g., "@scope/xx-xx.xx".
+ * Encodes a package name (or shared-module specifier, which may include a
+ * deep import subpath) into a valid file name, falling back to a
+ * readable-prefix + content-hash id when the plain encoding would be too
+ * long for a filesystem path segment.
+ * @param {string} name - The package name or specifier, e.g., "@scope/xx-xx.xx" or "@scope/pkg/deep/sub-path".
  * @returns {string} - The encoded file name.
  */
 export function packageNameEncode(name: string) {
   if (typeof name !== 'string') {
     throw createModuleFederationError('A string package name is required');
   }
-  return name
+  const encoded = name
     .replace(/@/g, '_mf_0_')
     .replace(/\//g, '_mf_1_')
     .replace(/-/g, '_mf_2_')
     .replace(/\./g, '_mf_3_');
+  if (encoded.length <= MF_HASHED_NAME_THRESHOLD) return encoded;
+
+  const prefix = encoded.slice(0, MF_HASHED_NAME_PREFIX_LENGTH);
+  const hash = createHash('sha256').update(name).digest('hex').slice(0, MF_HASHED_NAME_HASH_LENGTH);
+  const hashedName = `${prefix}${hash}`;
+  mfHashedNameMap.set(hashedName, name);
+  return hashedName;
 }
 
 /**
- * Decodes an encoded file name back to the original package name.
+ * Decodes an encoded file name back to the original package name or
+ * shared-module specifier, whether it was plainly substituted or hashed
+ * down by `packageNameEncode`.
  * @param {string} encoded - The encoded file name, e.g., "_mf_0_scope_mf_1_xx_mf_2_xx_mf_3_xx".
- * @returns {string} - The decoded package name.
+ * @returns {string} - The decoded package name or specifier.
  */
 export function packageNameDecode(encoded: string) {
   if (typeof encoded !== 'string') {
     throw createModuleFederationError('A string encoded file name is required');
   }
+  const original = mfHashedNameMap.get(encoded);
+  if (original !== undefined) return original;
   return encoded
     .replace(/_mf_0_/g, '@')
     .replace(/_mf_1_/g, '/')
