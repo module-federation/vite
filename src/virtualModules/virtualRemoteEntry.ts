@@ -273,10 +273,16 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
             eager: ${Boolean(shareItem.shareConfig.eager)},
             from: ${toSafeJsLiteral(resolvedOptions.name)},
             canLiveRebind: ${canLiveRebind},
-            async get () {
+            get () {
               if (${shareItem.shareConfig.import === false}) {
                 throw new Error(\`[Module Federation] Shared module '\${${toSafeJsLiteral(key)}}' must be provided by host\`);
               }
+              // A webpack consumer built with eager: true calls get() synchronously and needs the
+              // factory, not a promise: once the module is loaded, hand the same factory back directly,
+              // and while it is loading hand every caller the same pending promise.
+              const share = usedShared[${toSafeJsLiteral(key)}]
+              if (share.lib) return share.lib
+              if (share.loading) return share.loading
               const cachedSingleton = ${shareItem.shareConfig.singleton && isReactFamily}
                 ? __mfGetCachedReactFamily(
                     ${toSafeJsLiteral(cacheKeys)},
@@ -286,25 +292,35 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
                   )
                 : undefined
               if (cachedSingleton !== undefined) {
-                usedShared[${toSafeJsLiteral(key)}].loaded = true
-                return function () { return cachedSingleton }
+                share.lib = function () { return cachedSingleton }
+                share.loaded = true
+                return share.lib
               }
-              usedShared[${toSafeJsLiteral(key)}].loaded = true
-              const {${toSafeJsLiteral(key)}: pkgDynamicImport} = importMap
-              const res = await pkgDynamicImport()
-              const exportModule = ${toSafeJsLiteral(useDirectReactImport)} && ${toSafeJsLiteral(key)} === "react"
-                ? (res?.default ?? res)
-                : __mfNormalizeRuntimeShare({...res})
-              // All npm packages pre-built by vite will be converted to esm
-              if (exportModule.__esModule !== true) {
-                Object.defineProperty(exportModule, "__esModule", {
-                  value: true,
-                  enumerable: false
-                })
-              }
-              return function () {
-                return exportModule
-              }
+              share.loading = (async () => {
+                try {
+                  const {${toSafeJsLiteral(key)}: pkgDynamicImport} = importMap
+                  const res = await pkgDynamicImport()
+                  const exportModule = ${toSafeJsLiteral(useDirectReactImport)} && ${toSafeJsLiteral(key)} === "react"
+                    ? (res?.default ?? res)
+                    : __mfNormalizeRuntimeShare({...res})
+                  // All npm packages pre-built by vite will be converted to esm
+                  if (exportModule.__esModule !== true) {
+                    Object.defineProperty(exportModule, "__esModule", {
+                      value: true,
+                      enumerable: false
+                    })
+                  }
+                  share.lib = function () {
+                    return exportModule
+                  }
+                  share.loaded = true
+                  return share.lib
+                } finally {
+                  // A failed import must not pin the rejection: the next get() retries
+                  share.loading = undefined
+                }
+              })()
+              return share.loading
             },
             shareConfig: {
               singleton: ${shareItem.shareConfig.singleton},
