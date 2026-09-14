@@ -17,7 +17,6 @@ import {
   sanitizeDevEntryPath,
 } from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
-import { applyUserResolveDependencies } from '../utils/modulePreloadPolicy';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import {
   getNormalizeModuleFederationOptions,
@@ -141,8 +140,7 @@ function injectHostInitPreloads(
   html: string,
   bundle: Rollup.OutputBundle,
   resolvePath: (fileName: string) => string,
-  externalHrefs: string[] = [],
-  htmlFileName = 'index.html'
+  externalHrefs: string[] = []
 ) {
   const existingHrefs = getExistingHrefSet(html);
   const hrefs: string[] = [];
@@ -155,13 +153,7 @@ function injectHostInitPreloads(
   const seeds = Array.from(chunksByFileName.values()).filter((chunk) =>
     HOST_INIT_PRELOAD_CHUNKS.some((match) => match(chunk.name))
   );
-  // The same say the user has over Vite's own preload list, with the page as the host
-  const files = applyUserResolveDependencies(
-    htmlFileName,
-    collectPreloadChunkFiles(chunksByFileName, seeds),
-    'html'
-  );
-  for (const fileName of files) {
+  for (const fileName of collectPreloadChunkFiles(chunksByFileName, seeds)) {
     const href = resolvePath(fileName);
     if (existingHrefs.has(href)) continue;
     existingHrefs.add(href);
@@ -208,14 +200,9 @@ function appendRemoteEntryWarmup(bundle: Rollup.OutputBundle, entryFileName: str
     );
   const lastSlash = entryFileName.lastIndexOf('/');
   const entryDir = lastSlash !== -1 ? entryFileName.slice(0, lastSlash + 1) : '';
-  // Preloads a script inserts on the page: the entry is the host, as for Vite's dynamic-import preloads
-  const files = applyUserResolveDependencies(
-    entryFileName,
-    collectPreloadChunkFiles(chunksByFileName, seeds, isRemoteWarmupExcluded).filter(
-      (file) => file !== entryFileName
-    ),
-    'js'
-  ).map((file) => rebaseImport(file, entryDir));
+  const files = collectPreloadChunkFiles(chunksByFileName, seeds, isRemoteWarmupExcluded)
+    .filter((file) => file !== entryFileName)
+    .map((file) => rebaseImport(file, entryDir));
   if (files.length === 0) return;
   entryChunk.code += `
 if (typeof document !== 'undefined' && document.head) {
@@ -1143,8 +1130,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
               htmlContent,
               bundle,
               (builtFileName) => resolvePath(builtFileName, fileName),
-              getRemoteEntryPreloadUrls(),
-              fileName
+              getRemoteEntryPreloadUrls()
             );
           }
           htmlAsset.source = htmlContent;
