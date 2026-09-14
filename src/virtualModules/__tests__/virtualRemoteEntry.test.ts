@@ -581,6 +581,108 @@ describe('virtualRemoteEntry', () => {
     vi.resetModules();
   });
 
+  it('hands a loaded share back synchronously from get() once it has loaded', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const reactModule = { createElement: () => null };
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:react")', 'Promise.resolve({ default: reactModule })')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+    const generated = new Function('reactModule', code)(reactModule);
+    const share = generated.usedShared.react;
+
+    // First call: nothing loaded yet, the runtime awaits a promise as before.
+    const first = share.get();
+    expect(first).toBeInstanceOf(Promise);
+    const factory = await first;
+    expect(factory().createElement).toBe(reactModule.createElement);
+
+    // Second call: a webpack remote built with eager: true needs the factory synchronously.
+    const second = share.get();
+    expect(second).not.toBeInstanceOf(Promise);
+    expect(second).toBe(factory);
+    expect(share.loaded).toBe(true);
+    expect(share.lib).toBe(factory);
+  });
+
+  it('hands every get() caller the same pending promise while the share is loading', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const reactModule = { createElement: () => null };
+    const counter = { count: 0 };
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace(
+        'import("virtual:prebuild:react")',
+        '(imports.count++, Promise.resolve({ default: reactModule }))'
+      )
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+    const generated = new Function('reactModule', 'imports', code)(reactModule, counter);
+    const share = generated.usedShared.react;
+
+    // Two calls before the first resolves: one import, one promise, one factory.
+    const first = share.get();
+    const second = share.get();
+    expect(second).toBe(first);
+    expect(share.loading).toBe(first);
+    const factory = await first;
+    expect(await second).toBe(factory);
+    expect(counter.count).toBe(1);
+    expect(share.loading).toBeUndefined();
+    expect(share.lib).toBe(factory);
+    expect(share.get()).toBe(factory);
+  });
+
+  it('retries the import after a failed load instead of pinning the rejection', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const reactModule = { createElement: () => null };
+    const imports = {
+      calls: 0,
+      next() {
+        this.calls += 1;
+        return this.calls === 1
+          ? Promise.reject(new Error('network'))
+          : Promise.resolve({ default: reactModule });
+      },
+    };
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:react")', 'imports.next()')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+    const generated = new Function('reactModule', 'imports', code)(reactModule, imports);
+    const share = generated.usedShared.react;
+
+    await expect(share.get()).rejects.toThrow('network');
+    expect(share.loading).toBeUndefined();
+    expect(share.loaded).toBe(false);
+    expect(share.lib).toBeUndefined();
+
+    const factory = await share.get();
+    expect(factory().createElement).toBe(reactModule.createElement);
+    expect(share.loaded).toBe(true);
+    expect(imports.calls).toBe(2);
+  });
+
   it('partitions used shares by normalized plugin options', async () => {
     const mod = await import('../virtualRemoteEntry');
     const optionsA = { internalName: 'shared-name' } as never;
@@ -792,6 +894,59 @@ describe('virtualRemoteEntry', () => {
     expect(code).not.toContain('virtual:prebuild:custom-import');
   });
 
+  it('builds a consume-only entry through one helper with the shape the literal had', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('host-only');
+    mod.addUsedShares('react');
+
+    const code = mod.generateLocalSharedImportMap();
+    // One helper call per consume-only key; the literal stays for shares with a local module
+    expect(code).toContain('"host-only": __mfConsumeOnly("host-only", "19.2.4", "default", ');
+    expect(code).toContain('"host-only": __mfHostOnly("host-only")');
+    expect(code).toMatch(/"react": \{[\s\S]*?get \(\) \{/);
+
+    const generated = new Function(
+      code
+        .replace(
+          'import {loadShare} from "@module-federation/runtime";',
+          'const loadShare = () => {};'
+        )
+        .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }')
+    )();
+    const share = generated.usedShared['host-only'];
+    expect(share).toMatchObject({
+      name: 'host-only',
+      version: '19.2.4',
+      scope: ['default'],
+      loaded: false,
+      eager: false,
+      from: 'host',
+      canLiveRebind: true,
+      shareConfig: {
+        singleton: true,
+        requiredVersion: '^19.2.4',
+        strictVersion: false,
+        eager: false,
+        import: false,
+      },
+    });
+    expect(typeof share.materialize).toBe('boolean');
+    await expect(share.get()).rejects.toThrow("Shared module 'host-only' must be provided by host");
+  });
+
+  it('omits the consume-only helpers when no share is consume-only', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateLocalSharedImportMap();
+    expect(code).not.toContain('__mfHostOnly');
+    expect(code).not.toContain('__mfConsumeOnly');
+  });
+
   it('marks only export-complete shared proxies as rebindable', async () => {
     const mod = await import('../virtualRemoteEntry');
 
@@ -812,7 +967,8 @@ describe('virtualRemoteEntry', () => {
         new RegExp(`${JSON.stringify(pkg)}: \\{[\\s\\S]*?canLiveRebind: (true|false),`)
       )?.[1];
 
-    expect(canLiveRebind('host-only')).toBe('true');
+    // A consume-only entry is built by the helper, which fixes canLiveRebind to true
+    expect(code).toContain('"host-only": __mfConsumeOnly("host-only"');
     expect(canLiveRebind('non-singleton')).toBe('true');
     expect(canLiveRebind('named-singleton')).toBe('true');
     expect(canLiveRebind('default-only-singleton')).toBe('true');
