@@ -530,6 +530,7 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/default-only-type-exports.ts') ||
       filePath.endsWith('/repo/packages/default-only-export-lookalikes.js') ||
       filePath.endsWith('/repo/packages/minified-star-export.js') ||
+      filePath.endsWith('/repo/packages/minified-namespace-export.js') ||
       filePath.endsWith('/repo/packages/comment-separated-star-export.js') ||
       filePath.endsWith('/repo/packages/default-only-cjs-lookalikes.js') ||
       filePath.endsWith('/repo/packages/typescript-cjs-barrel.js') ||
@@ -602,7 +603,11 @@ const markerPattern = /export\\*from/;
 export default function createDefaultOnly() {}`;
     }
     if (filePath.endsWith('/repo/packages/minified-star-export.js')) {
-      return 'export*from"./dependency.js";';
+      // Minifiers drop the whitespace around `*` and `from` (lit ships exactly this).
+      return 'export*from"mock-package-star-dependency";export const directExport=1;';
+    }
+    if (filePath.endsWith('/repo/packages/minified-namespace-export.js')) {
+      return 'export*as ns from"mock-package-star-dependency";export const directExport=1;';
     }
     if (filePath.endsWith('/repo/packages/comment-separated-star-export.js')) {
       return 'export/* first */*/* second */from/* third */"./dependency.js";';
@@ -1855,9 +1860,40 @@ describe('writeLoadShareModule', () => {
   });
 
   it.each([
-    ['minified', '/repo/packages/minified-star-export.js'],
-    ['comment-separated', '/repo/packages/comment-separated-star-export.js'],
-  ])('treats an unrecognized %s export declaration as unknown coverage', (_syntax, importPath) => {
+    [
+      'star',
+      '/repo/packages/minified-star-export.js',
+      ['directExport', 'fromStar', 'anotherFromStar'],
+    ],
+    ['namespace', '/repo/packages/minified-namespace-export.js', ['directExport', 'ns']],
+  ])(
+    'detects named exports from a minified %s re-export without whitespace',
+    (_syntax, importPath, expectedExports) => {
+      const pkg = 'mock-package-with-reserved';
+      const mockShareItem: ShareItem = {
+        name: pkg,
+        from: '',
+        version: '1.0.0',
+        shareConfig: {
+          import: importPath,
+          singleton: true,
+          strictVersion: false,
+          requiredVersion: '^1.0.0',
+        },
+        scope: 'default',
+      };
+
+      writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+      const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+      expectLiveSingletonProxy(generatedCode, pkg, expectedExports);
+      expect(generatedCode).not.toContain('let current = __mfLocalShare;');
+    }
+  );
+
+  it('treats a comment-separated star re-export as unknown coverage', () => {
+    const importPath = '/repo/packages/comment-separated-star-export.js';
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {
       name: pkg,
