@@ -260,7 +260,7 @@ function getMutableExportsFromFile(
       }
     }
 
-    const starExportRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+    const starExportRegex = /export\s*\*\s*from\s*['"]([^'"]+)['"]/g;
     while ((match = starExportRegex.exec(source)) !== null) {
       if (!codePositions[match.index]) continue;
       const resolved = resolveReExportModule(entryPath, match[1], exportConditions);
@@ -733,7 +733,7 @@ function getNamedExportsViaRegex(
   }
 
   const namespaceReExportRegex = new RegExp(
-    `export\\s+\\*\\s+as\\s+(${JS_IDENTIFIER_PATTERN})\\s+from\\s+['"][^'"]+['"]`,
+    `export\\s*\\*\\s*as\\s+(${JS_IDENTIFIER_PATTERN})\\s*from\\s*['"][^'"]+['"]`,
     'gu'
   );
   while ((match = namespaceReExportRegex.exec(source)) !== null) {
@@ -741,13 +741,13 @@ function getNamedExportsViaRegex(
     recognizedExportStarts.add(match.index);
     if (isValidEsmExportName(match[1])) names.add(match[1]);
   }
-  if (hasCodeMatch(source, /export\s+\*\s+as\s+['"]/g, codePositions)) {
+  if (hasCodeMatch(source, /export\s*\*\s*as\s*['"]/g, codePositions)) {
     scanState.complete = false;
   }
 
   // Handle `export * from './module'` re-exports
   if (filePath) {
-    const starExportRegex = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+    const starExportRegex = /export\s*\*\s*from\s*['"]([^'"]+)['"]/g;
     while ((match = starExportRegex.exec(source)) !== null) {
       if (!codePositions[match.index]) continue;
       recognizedExportStarts.add(match.index);
