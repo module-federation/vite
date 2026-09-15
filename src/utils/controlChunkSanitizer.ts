@@ -1,11 +1,7 @@
 import { isIdentifierReferenced } from './bundleHelpers';
 import { escapeRegExp } from './regexEscape';
 
-const FEDERATION_CONTROL_CHUNK_HINTS = [
-  'hostInit',
-  'virtualExposes',
-  'localSharedImportMap',
-] as const;
+const FEDERATION_CONTROL_CHUNK_HINTS = ['hostInit', 'localSharedImportMap'] as const;
 
 export function stripEmptyPreloadCalls(code: string): string {
   // Not `\w+`: that skips the `$`-prefixed aliases minifiers produce, leaving

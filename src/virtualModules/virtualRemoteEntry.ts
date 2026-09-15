@@ -1275,6 +1275,10 @@ export function generateRemoteEntry(
       console.error('[Module Federation]', e)
     }`;
 
+  // The exposes map is imported statically: it only holds dynamic imports, so
+  // it adds no expose or share payload to the entry, and the entry's own
+  // preload list is emptied by build.modulePreload.resolveDependencies. A
+  // separate chunk cost every consumer one more serial request (#1292).
   return `
   // Shim Vue HMR runtime for dev-compiled components loaded by a non-Vite host.
   // When a remote is served by a Vite dev server, Vue's SFC compiler injects HMR
@@ -1294,6 +1298,7 @@ export function generateRemoteEntry(
     .filter((item) => !isSsrOnlyPlugin(item[1]))
     .map((item) => item[1])
     .join('\n')}
+  import __mfExposesMap from "${virtualExposesId}"
   ${
     command === 'build'
       ? getRuntimeInitResolveBootstrapCode(false, getRuntimeInitStatusImportId(options))
@@ -1314,7 +1319,6 @@ export function generateRemoteEntry(
   const mfName = ${toSafeJsLiteral(options.name)}
   const __mfMaterializedShareBatches = ${materializedShareBatches}
   let localSharedImportMapPromise
-  let exposesMapPromise
   let __mfLateBridgeShared
   const shouldRetrySharedInitError = ${command !== 'build'} && ((error) => {
     const message = String((error && error.message) || error || '');
@@ -1348,12 +1352,7 @@ export function generateRemoteEntry(
   }
 
   async function getExposesMap() {
-    if (!exposesMapPromise) {
-      exposesMapPromise = retrySharedInit(() => import("${virtualExposesId}"))
-        .then((mod) => mod.default ?? mod)
-        .catch((e) => { exposesMapPromise = undefined; throw e; });
-    }
-    return exposesMapPromise
+    return __mfExposesMap
   }
 
   async function init(shared = {}, initScope = [], remoteEntryInitOptions = {}) {

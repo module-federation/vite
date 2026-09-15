@@ -30,26 +30,27 @@ describe('remote entry isolation', () => {
       .find((chunk) => /(?:const|var) mfName\s*=\s*["']scheduler["']/.test(chunk.code));
     const hostInit = findChunk(output, 'hostInit');
     const localSharedImportMap = findChunk(output, 'localSharedImportMap');
-    const virtualExposes = findChunk(output, 'virtualExposes');
     const allCode = getAllChunkCode(output);
 
     expect(remoteEntry).toBeDefined();
     expect(remoteEntryImpl).toBeDefined();
     expect(hostInit).toBeDefined();
     expect(localSharedImportMap).toBeDefined();
-    expect(virtualExposes).toBeDefined();
+    // The exposes map lives inside the remote entry, not in a chunk of its own.
+    expect(findChunk(output, 'virtualExposes')).toBeUndefined();
+    expect(
+      remoteEntryImpl!.moduleIds.some((id) => id.includes('virtual:mf-exposes:'))
+    ).toBe(true);
 
     const chunkNames = getChunkNames(output);
     expect(chunkNames.some((name) => name.includes('__loadShare__'))).toBe(true);
     expect(chunkNames.some((name) => name.includes('localSharedImportMap'))).toBe(true);
 
     expect(allCode).toContain('localSharedImportMap');
-    expect(allCode).toContain('virtualExposes');
     expect(remoteEntry!.code).not.toContain('__vite__mapDeps');
     expect(remoteEntry!.code).not.toMatch(/import\{_ as \w+\}from["']\.\/assets\/.*TreeLoader/);
     expect(remoteEntry!.code).not.toMatch(/import["']\.\/assets\/.*__loadShare__/);
     expect(remoteEntry!.code).not.toMatch(/import["']\.\/assets\/.*localSharedImportMap/);
-    expect(remoteEntry!.code).not.toMatch(/import["']\.\/assets\/.*virtualExposes/);
     expect(remoteEntryImpl!.code).toMatch(/(?:const|var) mfName\s*=\s*["']scheduler["']/);
     expect(remoteEntryImpl!.code).toMatch(/name:\s*mfName/);
     expect(allCode).toContain('__mfe_internal__scheduler');
@@ -59,13 +60,10 @@ describe('remote entry isolation', () => {
     expect(localSharedImportMap!.code).not.toContain('remoteEntry.js');
     expect(localSharedImportMap!.code).not.toMatch(/import["']\.\/.*__loadShare__/);
 
-    expect(virtualExposes!.code).not.toContain('__vite__mapDeps');
-    expect(virtualExposes!.code).not.toMatch(/import["']\.\/.*__loadShare__/);
-
     expect(hostInit!.code).not.toContain('__loadShare__');
     expect(hostInit!.code).not.toContain('__vite__mapDeps');
     expect(hostInit!.code).toContain('localSharedImportMap');
     expect(hostInit!.code).toContain('__mf_module_cache__');
-    expect(hostInit!.code).not.toContain('virtualExposes');
+    expect(hostInit!.code).not.toContain('virtual:mf-exposes');
   });
 });

@@ -57,13 +57,18 @@ describe('build', () => {
 
       const syncAssets = parsed.exposes[0].assets.js.sync;
       const chunks = manifestOutput.output.filter((item) => item.type === 'chunk');
-      for (const virtualId of ['virtual:mf-localSharedImportMap:', 'virtual:mf-exposes:']) {
-        const bootstrapChunk = chunks.find((chunk) =>
-          chunk.moduleIds.some((id) => id.includes(virtualId))
-        );
-        expect(bootstrapChunk).toBeDefined();
-        expect(syncAssets).toContain(bootstrapChunk!.fileName);
-      }
+      const sharedImportMapChunk = chunks.find((chunk) =>
+        chunk.moduleIds.some((id) => id.includes('virtual:mf-localSharedImportMap:'))
+      );
+      expect(sharedImportMapChunk).toBeDefined();
+      expect(syncAssets).toContain(sharedImportMapChunk!.fileName);
+      // The exposes map is bundled into the remote entry itself, which is the
+      // container asset and not one of the expose's sync assets.
+      const exposesChunk = chunks.find((chunk) =>
+        chunk.moduleIds.some((id) => id.includes('virtual:mf-exposes:'))
+      );
+      expect(exposesChunk?.fileName).toBe('remoteEntry.js');
+      expect(syncAssets).not.toContain('remoteEntry.js');
     });
 
     it('generates mf-stats.json when manifest is enabled', async () => {

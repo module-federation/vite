@@ -82,7 +82,6 @@ const isPreloadableVirtualMfChunk = (name: string) =>
 const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
   (name) => name === 'hostInit',
   (name) => name === 'remoteEntry',
-  (name) => name === 'virtualExposes',
   isPreloadableVirtualMfChunk,
   (name) => name === 'index',
 ];
@@ -98,7 +97,6 @@ const isRemoteWarmupExcluded = (name: string) =>
   name.includes(PREBUILD_TAG) || name.includes(LOAD_SHARE_TAG);
 const REMOTE_ENTRY_WARMUP_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
   (name) => name === 'hostInit',
-  (name) => name === 'virtualExposes',
   (name) => isPreloadableVirtualMfChunk(name) && !isRemoteWarmupExcluded(name),
 ];
 
@@ -187,7 +185,7 @@ function appendRemoteEntryWarmup(bundle: Rollup.OutputBundle, entryFileName: str
   const entryChunk = chunksByFileName.get(entryFileName);
   if (!entryChunk || entryChunk.code.includes('__mfWarmupPath')) return;
   // Only chunks reachable from THIS entry: with several federation configs in
-  // one build the bundle holds each config's hostInit/virtualExposes chunks,
+  // one build the bundle holds each config's hostInit/localSharedImportMap chunks,
   // and a bundle-wide name match would warm the other configs' files too.
   const reachable = new Set<string>();
   const walk = [entryChunk];
@@ -1163,12 +1161,12 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
       },
       transform(code, id) {
         if (skipSvelteKitSsrBuild()) return;
-        // The remoteEntry / virtualExposes chunks are emitted in buildStart and
-        // reached through dynamic imports, so a build never needs the side-effect
-        // import in the app entry. Worse, that static import makes Rolldown move
-        // the entry module into a shared chunk and leave a re-export facade
-        // behind as `remoteEntry.js` / `virtualExposes`: one extra request each
-        // on a remote's critical path (#1292). Only hostInit still injects.
+        // The remoteEntry chunk is emitted in buildStart and reached through a
+        // dynamic import, so a build never needs the side-effect import in the
+        // app entry. Worse, that static import makes Rolldown move the entry
+        // module into a shared chunk and leave a re-export facade behind as
+        // `remoteEntry.js`: one extra request on a remote's critical path
+        // (#1292). Only hostInit still injects.
         if (viteConfig?.command === 'build' && !waitsForInit) return;
         if (isSvelteKitServerModule(id)) return;
         if (hasEntryBootstrapParam(id)) return;

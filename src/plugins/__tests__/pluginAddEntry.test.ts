@@ -2575,27 +2575,19 @@ describe('pluginAddEntry', () => {
         name: 'remoteEntry',
         fileName: 'remoteEntry.js',
         code: 'export { get, init };\n',
+        imports: ['assets/vite-preload-helper.Cm.js'],
         dynamicImports: [
-          'assets/virtualExposes.Aa.js',
           'assets/_virtual_mf-localSharedImportMap___app.Bl.js',
+          'assets/_virtual_mf___app__loadShare__react__loadShare__.Cd.js',
+          'assets/_virtual_mf___app__prebuild__antd__prebuild__.js',
+          'assets/_virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js',
+          'assets/index.B_.js',
         ],
       },
       'assets/vite-preload-helper.Cm.js': {
         type: 'chunk',
         name: 'vite-preload-helper',
         fileName: 'assets/vite-preload-helper.Cm.js',
-      },
-      'assets/virtualExposes.Aa.js': {
-        type: 'chunk',
-        name: 'virtualExposes',
-        fileName: 'assets/virtualExposes.Aa.js',
-        imports: ['assets/vite-preload-helper.Cm.js'],
-        dynamicImports: [
-          'assets/_virtual_mf___app__loadShare__react__loadShare__.Cd.js',
-          'assets/_virtual_mf___app__prebuild__antd__prebuild__.js',
-          'assets/_virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js',
-          'assets/index.B_.js',
-        ],
       },
       'assets/_virtual_mf___app__loadRemote__widget__loadRemote__.Ab.js': {
         type: 'chunk',
@@ -2606,6 +2598,7 @@ describe('pluginAddEntry', () => {
         type: 'chunk',
         name: '_virtual_mf-localSharedImportMap___app',
         fileName: 'assets/_virtual_mf-localSharedImportMap___app.Bl.js',
+        imports: ['assets/vite-preload-helper.Cm.js'],
       },
       'assets/_virtual_mf___app__loadShare__react__loadShare__.Cd.js': {
         type: 'chunk',
@@ -2624,10 +2617,10 @@ describe('pluginAddEntry', () => {
       },
       // A second federation config's chunk in the same bundle: same matcher
       // name, but not reachable from this entry — must stay out of the warmup.
-      'assets/virtualExposes-other.Zz.js': {
+      'assets/_virtual_mf-localSharedImportMap___other.Zz.js': {
         type: 'chunk',
-        name: 'virtualExposes',
-        fileName: 'assets/virtualExposes-other.Zz.js',
+        name: '_virtual_mf-localSharedImportMap___other',
+        fileName: 'assets/_virtual_mf-localSharedImportMap___other.Zz.js',
       },
     };
 
@@ -2659,7 +2652,6 @@ describe('pluginAddEntry', () => {
     // Consumers are cross-origin and cannot preload these hashed URLs; the
     // entry warms its own init/get chunks the moment it evaluates.
     expect(code).toContain("rel = 'modulepreload'");
-    expect(code).toContain('assets/virtualExposes.Aa.js');
     expect(code).toContain('assets/_virtual_mf-localSharedImportMap___app.Bl.js');
     expect(code).toContain('assets/vite-preload-helper.Cm.js');
     // Share wrappers (and their payload closure), prebuild fallbacks, the
@@ -2671,7 +2663,7 @@ describe('pluginAddEntry', () => {
     expect(code).not.toMatch(/__mfWarmupPath of \[[^\]]*"remoteEntry\.js"/);
     // Chunks of another federation config in the same bundle are unreachable
     // from this entry and must not be warmed.
-    expect(code).not.toContain('assets/virtualExposes-other.Zz.js');
+    expect(code).not.toContain('assets/_virtual_mf-localSharedImportMap___other.Zz.js');
   });
 
   it('skips remote entry warmup for non-esm output formats', () => {
@@ -2687,11 +2679,12 @@ describe('pluginAddEntry', () => {
         name: 'remoteEntry',
         fileName: 'remoteEntry.js',
         code: 'export { get, init };\n',
+        dynamicImports: ['assets/_virtual_mf-localSharedImportMap___app.Bl.js'],
       },
-      'assets/virtualExposes.Aa.js': {
+      'assets/_virtual_mf-localSharedImportMap___app.Bl.js': {
         type: 'chunk',
-        name: 'virtualExposes',
-        fileName: 'assets/virtualExposes.Aa.js',
+        name: '_virtual_mf-localSharedImportMap___app',
+        fileName: 'assets/_virtual_mf-localSharedImportMap___app.Bl.js',
       },
     };
 

@@ -134,7 +134,7 @@ function runGeneratedRemoteModule(
     `
       const __exports = {};
       const initPromise = Promise.resolve(runtime);
-      const __mfHostInitPromise = initPromise;
+      const __mfHostInitPromise = () => initPromise;
       ${moduleCode}
       Object.defineProperty(__exports, "__mf_remote_pending", {
         enumerable: true,
