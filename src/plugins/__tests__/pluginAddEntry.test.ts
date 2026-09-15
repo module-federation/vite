@@ -381,6 +381,50 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
 
+  it('leaves remoteEntry and virtualExposes imports out of build entries (#1292)', async () => {
+    // Both chunks are emitted in buildStart and reached through dynamic
+    // imports. A static side-effect import from the app entry makes Rolldown
+    // move the entry module into a shared chunk and emit a re-export facade as
+    // `remoteEntry.js` / `virtualExposes`: one extra request each on a remote's
+    // critical path.
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-facade-'));
+    fs.writeFileSync(
+      path.join(tempDir, 'index.html'),
+      '<!doctype html><html><body><script type="module" src="/src/main.tsx"></script></body></html>'
+    );
+
+    for (const entryName of ['remoteEntry', 'virtualExposes']) {
+      for (const command of ['build', 'serve'] as const) {
+        const plugin = addEntry({ entryName, entryPath: `virtual:mf-${entryName}` })[1];
+        runConfig(
+          plugin,
+          {} as ConfigPluginContext,
+          { build: { rollupOptions: {} } },
+          {
+            command,
+            mode: 'production',
+          }
+        );
+        runConfigResolved(plugin, {
+          root: tempDir,
+          base: '/',
+          command,
+          build: { rollupOptions: {} },
+        } as unknown as ResolvedConfig);
+
+        const result = (await runTransform(plugin, 'export const app = true;', '/src/main.tsx')) as
+          | { code: string }
+          | undefined;
+
+        if (command === 'build') {
+          expect(result, `${entryName} injected during build`).toBeUndefined();
+        } else {
+          expect(result?.code).toContain(`import "virtual:mf-${entryName}";`);
+        }
+      }
+    }
+  });
+
   it('does not wrap React Router route modules exposed as client inputs', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-add-entry-react-router-'));
     const clientEntry = path.join(tempDir, 'src/entry.client.tsx');
