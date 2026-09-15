@@ -114,10 +114,12 @@ type CachedNamedExports = { value: string[] | undefined };
 
 const packageNamedExportsCache = new Map<string, CachedNamedExports>();
 const sharedExportInspectionCache = new Map<string, SharedExportInspection | undefined>();
+const sharedMutableExportsCache = new Map<string, string[]>();
 
 export function invalidateSharedExportInspectionCache(filePath: string): void {
   if (!/(?:^|[/\\])node_modules(?:[/\\]|$)/.test(filePath)) {
     sharedExportInspectionCache.clear();
+    sharedMutableExportsCache.clear();
   }
 }
 
@@ -287,7 +289,14 @@ function getSharedMutableExports(
           conditions: exportConditions,
           resolveSubpathWithRequire: false,
         });
-  return getMutableExportsFromFile(entryPath, exportConditions);
+  if (!entryPath) return [];
+  const cacheKey = `${entryPath}\0${exportConditions.join('\0')}`;
+  let mutableExports = sharedMutableExportsCache.get(cacheKey);
+  if (!mutableExports) {
+    mutableExports = getMutableExportsFromFile(entryPath, exportConditions);
+    sharedMutableExportsCache.set(cacheKey, mutableExports);
+  }
+  return mutableExports;
 }
 
 function resolveConfiguredImportPath(

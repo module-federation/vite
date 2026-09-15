@@ -1403,6 +1403,42 @@ describe('writeLoadShareModule', () => {
     );
   });
 
+  it('caches the mutable export walk across repeated shared resolves', () => {
+    const pkg = 'mock-package-mutable-barrel';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+    const readFileSyncMock = vi.mocked(readFileSync);
+    const countMutableReads = () =>
+      readFileSyncMock.mock.calls.filter(([filePath]) =>
+        String(filePath).endsWith('node_modules/mock-package-mutable-source/index.js')
+      ).length;
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', true);
+    const initialReads = countMutableReads();
+    expect(initialReads).toBeGreaterThan(0);
+    for (let i = 0; i < 5; i++) {
+      writeLoadShareModule(pkg, mockShareItem, 'serve', true);
+      writePreBuildLibPath(pkg, mockShareItem);
+    }
+    expect(countMutableReads()).toBe(initialReads);
+    expect(writeSyncSpy.mock.calls.at(-1)?.[0] as string).toContain(
+      'export { currentInstance } from "mock-package-mutable-barrel";'
+    );
+
+    invalidateSharedExportInspectionCache('/repo/apps/remote/src/App.ts');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', true);
+    expect(countMutableReads()).toBeGreaterThan(initialReads);
+  });
+
   it('aliases reserved named exports in prebuild wrappers instead of declaring them', () => {
     writePreBuildLibPath('mock-package-with-reserved');
 
