@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
-import type { Plugin, ResolvedConfig, Rollup } from 'vite';
+import type { Environment, Plugin, ResolvedConfig, Rollup } from 'vite';
 import {
   normalizePathForImport,
   rebaseImport,
@@ -238,8 +238,23 @@ function isReactRouterClientRouteInput(file: string) {
   return /[?&]__react-router-build-client-route(?:[=&]|$)/.test(file);
 }
 
-export function getBuildInput(config: any) {
+export function getBuildInput(config: any): Environment['config']['input'] {
   return config.build?.rollupOptions?.input ?? config.build?.rolldownOptions?.input;
+}
+
+type EnvironmentHookContext = {
+  environment?: Pick<Environment, 'name'> & {
+    config?: Pick<Environment['config'], 'consumer'>;
+  };
+};
+
+function isClientEnvironment(ctx: unknown) {
+  const environment = (ctx as EnvironmentHookContext | null)?.environment;
+  // Vite 5-7 have no environment context, so preserve their client build behavior.
+  if (!environment) return true;
+  // Environment names are user-defined; Vite's consumer identifies the runtime role.
+  if (environment.config?.consumer) return environment.config.consumer === 'client';
+  return !environment.name || environment.name === 'client';
 }
 
 function patchHashEntryFileName(
@@ -907,21 +922,21 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         viteConfig = config;
         skipTransformIds = new Set(skipTransformFor.map(resolveProjectId));
 
-        // In Vite 8 multi-environment mode this hook fires once per environment.
-        // Only populate entryFiles from the 'client' environment — reading it from
-        // 'ssr' would overwrite entryFiles with the server input (e.g. Nitro's
-        // SSR entry) and break client injection detection for frameworks like
-        // TanStack Start that set rollupOptions.input per-environment.
-        // `this.environment` is Vite 8+ only. In Vite 5–7, `this` may be
-        // undefined/null in strict mode, so guard before property access.
-        const ctx = this as unknown;
-        const envName = (
-          ctx != null && typeof ctx === 'object'
-            ? (ctx as Record<string, unknown>)['environment']
-            : undefined
-        ) as { name?: string } | undefined;
-        if (envName?.name && envName.name !== 'client') return;
-        const inputOptions = getBuildInput(config);
+        // configResolved has no environment context, so combine every client environment's input.
+        const clientEnvironmentInputs: string[] = [];
+        for (const environment of Object.values(config.environments ?? {})) {
+          if (environment.consumer !== 'client') continue;
+          const input = getBuildInput(environment);
+          if (!input) {
+            htmlFilePath ??= path.resolve(config.root, 'index.html');
+            continue;
+          }
+          if (typeof input === 'string') clientEnvironmentInputs.push(input);
+          else if (Array.isArray(input)) clientEnvironmentInputs.push(...input);
+          else clientEnvironmentInputs.push(...Object.values(input));
+        }
+        const inputOptions =
+          clientEnvironmentInputs.length > 0 ? clientEnvironmentInputs : getBuildInput(config);
 
         if (!inputOptions) {
           htmlFilePath = path.resolve(config.root, 'index.html');
@@ -942,7 +957,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         }
 
         if (entryFiles.length > 0) {
-          htmlFilePath = getFirstHtmlEntryFile(entryFiles);
+          htmlFilePath = getFirstHtmlEntryFile(entryFiles) ?? htmlFilePath;
         }
 
         // Build input may be non-HTML and does not determine the page served in dev.
@@ -1176,13 +1191,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         // Only inject into client-side modules. In Vite 8 multi-environment mode
         // this transform also runs for ssr/server environments — injecting there
         // would set clientInjected=true and prevent the real client injection.
-        const transformCtx = this as unknown;
-        const transformEnv = (
-          transformCtx != null && typeof transformCtx === 'object'
-            ? (transformCtx as Record<string, unknown>)['environment']
-            : undefined
-        ) as { name?: string } | undefined;
-        if (transformEnv?.name && transformEnv.name !== 'client') return;
+        if (!isClientEnvironment(this)) return;
         const isVinext = hasPackageDependency('vinext');
         if (
           isVinext &&
