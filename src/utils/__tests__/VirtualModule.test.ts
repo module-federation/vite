@@ -1,6 +1,7 @@
 import VirtualModule, {
-  getSuffix,
   assertModuleFound,
+  getSuffix,
+  MF_OWNER_INFIX,
   normalizeVirtualModuleId,
   toViteEncodedId,
 } from '../VirtualModule';
@@ -75,5 +76,48 @@ describe('VirtualModule writeSync', () => {
     expect(normalizeVirtualModuleId(encodedId)).toBe(vm.getImportId());
     expect(VirtualModule.findName('__loadShare__', encodedId)).toBe('mui/styles');
     expect(assertModuleFound('__loadShare__', vm.getImportId())).toBe(vm);
+  });
+
+  it('keeps the import id well below NAME_MAX for a deeply-scoped/overlong package name', () => {
+    normalizeModuleFederationOptions({
+      name: 'analytics',
+    });
+
+    const longName = `@some-very-long-scope/${'x'.repeat(200)}`;
+    const vm = new VirtualModule(longName, '__loadShare__', '.js');
+    vm.writeSync('export default 1;');
+
+    const importId = vm.getImportId();
+    expect(importId).toMatch(/^virtual:mf:/);
+    expect(importId.length).toBeLessThan(200);
+    expect(VirtualModule.findName('__loadShare__', importId)).toBe(longName);
+    expect(assertModuleFound('__loadShare__', importId)).toBe(vm);
+  });
+
+  it('keeps the import id under NAME_MAX when both mfName and name are overlong with the longest tag', () => {
+    normalizeModuleFederationOptions({ name: 'analytics' });
+
+    const longScope = `@my-company/${'application-name-'.repeat(8)}remote${MF_OWNER_INFIX}281474976710655`;
+    const longName = `@some-very-long-scope/${'x'.repeat(200)}`;
+    const vm = new VirtualModule(longName, '__treeShakingProvider__', '.mjs', longScope);
+    vm.writeSync('export default 1;');
+
+    const importId = vm.getImportId();
+    expect(importId.length).toBeLessThan(255);
+    expect(VirtualModule.findName('__treeShakingProvider__', importId)).toBe(longName);
+    expect(VirtualModule.findModule('__treeShakingProvider__', importId)).toBe(vm);
+  });
+
+  it('keeps the tag sentinel intact for a long owner-scoped mfName', () => {
+    normalizeModuleFederationOptions({ name: 'analytics' });
+
+    const scopeName = `@my-company/very-long-application-name-remote-shell-v2${MF_OWNER_INFIX}281474976710655`;
+    const vm = new VirtualModule('react', '__loadShare__', '.js', scopeName);
+    vm.writeSync('export default 1;');
+
+    const importId = vm.getImportId();
+    expect(importId).toContain('__loadShare__react__loadShare__');
+    expect(VirtualModule.findName('__loadShare__', importId)).toBe('react');
+    expect(VirtualModule.findModule('__loadShare__', importId)).toBe(vm);
   });
 });

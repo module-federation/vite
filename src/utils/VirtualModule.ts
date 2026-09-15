@@ -1,8 +1,8 @@
 import { basename } from 'node:path';
 import { packageNameDecode, packageNameEncode } from '../utils/packageUtils';
 import { createModuleFederationError } from './logger';
-import { escapeRegExp } from './regexEscape';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
+import { escapeRegExp } from './regexEscape';
 
 export function getSuffix(name: string): string {
   const base = basename(name);
@@ -115,7 +115,18 @@ export default class VirtualModule {
 
     if (this.importId) delete idCacheMap[this.importId];
     this.importIdKey = importIdKey;
-    this.importId = `virtual:mf:${packageNameEncode(importIdKey)}${this.suffix}`;
+    // `this.name` (a shared-module specifier — an npm package name,
+    // optionally with a deep import subpath, e.g.
+    // "@scope/pkg/components/some/nested/export") is encoded on its own,
+    // separately from the surrounding mfName/tag framing, so an overlong
+    // name can be hashed down by packageNameEncode without disturbing the
+    // `${tag}...${tag}` sentinel that findName() relies on to locate it
+    // again. Splitting the encode calls at these boundaries is a no-op for
+    // the non-hashed path, since packageNameEncode's substitutions never
+    // span across the boundary characters.
+    const namePart = packageNameEncode(this.name);
+    const mfNamePart = packageNameEncode(mfName);
+    this.importId = `virtual:mf:${mfNamePart}${this.tag}${namePart}${this.tag}${this.suffix}`;
     idCacheMap[this.importId] = this;
     return this.importId;
   }

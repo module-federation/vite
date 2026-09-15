@@ -10,9 +10,66 @@ import {
   getPackageNameFromNodeModulePath,
   getSharedCacheDescriptor,
   getSharedCacheKey,
+  packageNameDecode,
+  packageNameEncode,
   resolveImportPath,
   sharedCacheHelperCode,
 } from '../packageUtils';
+
+describe('packageNameEncode / packageNameDecode', () => {
+  it('round-trips a short package name unchanged (no hashing)', () => {
+    const encoded = packageNameEncode('@scope/xx-xx.xx');
+    expect(encoded).toBe('_mf_0_scope_mf_1_xx_mf_2_xx_mf_3_xx');
+    expect(packageNameDecode(encoded)).toBe('@scope/xx-xx.xx');
+  });
+
+  it('does not hash a name whose plain encoding lands exactly at the threshold', () => {
+    const name = 'a'.repeat(90);
+    const encoded = packageNameEncode(name);
+
+    expect(encoded).toBe(name);
+    expect(packageNameDecode(encoded)).toBe(name);
+  });
+
+  it('hashes a name whose plain encoding is one character past the threshold', () => {
+    const name = 'a'.repeat(91);
+    const encoded = packageNameEncode(name);
+
+    expect(encoded).not.toBe(name);
+    expect(encoded).toMatch(/^a{74}[0-9a-f]{16}$/);
+    expect(packageNameDecode(encoded)).toBe(name);
+  });
+
+  it('falls back to a readable-prefix + hash id once the plain encoding is overlong', () => {
+    const name = `@some-very-long-scope/${'x'.repeat(200)}`;
+    const encoded = packageNameEncode(name);
+
+    // Bounded length: prefix (74) + hash (16) = 90, same as the plain threshold.
+    expect(encoded.length).toBe(90);
+    expect(encoded).toMatch(/^.{74}[0-9a-f]{16}$/);
+  });
+
+  it('decodes a hashed id back to the exact original name', () => {
+    const name = `@some-very-long-scope/${'y'.repeat(200)}`;
+    const encoded = packageNameEncode(name);
+
+    expect(packageNameDecode(encoded)).toBe(name);
+  });
+
+  it('produces a deterministic hash for the same overlong name', () => {
+    const name = `@some-very-long-scope/${'z'.repeat(200)}`;
+
+    expect(packageNameEncode(name)).toBe(packageNameEncode(name));
+  });
+
+  it('produces different hashed ids for different overlong names sharing a prefix', () => {
+    const base = `@some-very-long-scope/${'a'.repeat(200)}`;
+    const nameA = `${base}-a`;
+    const nameB = `${base}-b`;
+
+    expect(packageNameEncode(nameA)).not.toBe(packageNameEncode(nameB));
+  });
+});
 
 describe('getInstalledPackageJson', () => {
   const tempDirs: string[] = [];
