@@ -31,6 +31,7 @@ import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import { escapeRegExp } from './utils/regexEscape';
+import { resolveEnvironmentConsumerTarget } from './utils/remoteConsumerTarget';
 import {
   collectLoadShareProxyChunks,
   collectSystemProxyInfos,
@@ -1807,16 +1808,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           if (!virtualModule?.code) return null;
           let code = virtualModule.code;
 
-          const environment = (this as LoadHookContext).environment;
-          const environmentConsumer = environment?.config?.consumer;
-          // Environment names are user-defined, so prefer Vite's consumer classification.
+          const consumerTarget = resolveEnvironmentConsumerTarget(this);
           // Vite 5-7 SSR builds do not expose `this.environment`, so fall back to root
           // build.ssr to ensure SSR-only local fallback imports are still prepended.
-          if (
-            environmentConsumer === 'server' ||
-            (!environmentConsumer && environment?.name && environment.name !== 'client') ||
-            (!environment && isSsrBuild)
-          ) {
+          if (consumerTarget === 'server' || (!consumerTarget && isSsrBuild)) {
             code = prependWorkspaceSingletonSsrImport(code);
           }
 

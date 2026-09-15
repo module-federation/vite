@@ -9,6 +9,7 @@ import {
 } from '../utils/buildPaths';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
+import { isClientEnvironment } from '../utils/remoteConsumerTarget';
 
 import {
   findModuleImportSources,
@@ -240,21 +241,6 @@ function isReactRouterClientRouteInput(file: string) {
 
 export function getBuildInput(config: any): Environment['config']['input'] {
   return config.build?.rollupOptions?.input ?? config.build?.rolldownOptions?.input;
-}
-
-type EnvironmentHookContext = {
-  environment?: Pick<Environment, 'name'> & {
-    config?: Pick<Environment['config'], 'consumer'>;
-  };
-};
-
-function isClientEnvironment(ctx: unknown) {
-  const environment = (ctx as EnvironmentHookContext | null)?.environment;
-  // Vite 5-7 have no environment context, so preserve their client build behavior.
-  if (!environment) return true;
-  // Environment names are user-defined; Vite's consumer identifies the runtime role.
-  if (environment.config?.consumer) return environment.config.consumer === 'client';
-  return !environment.name || environment.name === 'client';
 }
 
 function patchHashEntryFileName(
