@@ -18,6 +18,11 @@ export function getPluginEnvironmentName(ctx: unknown): string | undefined {
 
 export function resolveRemoteConsumer(ctx: unknown, hasMultiEnvironment: boolean): RemoteConsumer {
   if (!hasMultiEnvironment) return 'unified';
+  const consumer = (
+    ctx as { environment?: { config?: { consumer?: RemoteConsumerTarget } } } | null
+  )?.environment?.config?.consumer;
+  // Environment names are user-defined; Vite's consumer is the semantic role.
+  if (consumer) return consumer;
   const envName = getPluginEnvironmentName(ctx);
   if (!envName || envName === 'client') return 'client';
   return 'server';
