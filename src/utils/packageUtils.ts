@@ -182,16 +182,20 @@ function getPackageExportsTarget(pkg: string, packageName: string, exportsField:
 // rather than to delimiters. The mapping is kept so the original name can be
 // recovered wherever the id needs to be decoded again.
 //
-// 100 (rather than hugging 255) leaves a safety margin for
+// 90 (rather than hugging 255) leaves a safety margin for
 // VirtualModule#getImportId(), the tightest consumer: its id is
-// `virtual:mf:` + scopePart + namePart + closeTag + suffix, where both
-// scopePart and namePart are independently run through this same function
-// and so are each capped at this threshold. Worst case (both maxed out):
-// 11 + threshold + threshold + ~17 (closeTag) + ~6 (suffix) must stay under
-// 255, i.e. threshold <= ~110 — 100 keeps real margin under that ceiling.
-const MF_HASHED_NAME_THRESHOLD = 100;
+// `virtual:mf:` + mfNamePart + tag + namePart + tag + suffix, where both
+// mfNamePart and namePart are independently run through this same function
+// and so are each capped at this threshold. Worst case (both maxed out, the
+// longest tag `__treeShakingProvider__` = 23 chars, a `.mjs` suffix):
+// 11 + 90 + 90 + 2 * 23 + 4 = 241, which stays under 255 with margin. 100 would
+// already overflow that case (263).
+const MF_HASHED_NAME_THRESHOLD = 90;
 const MF_HASHED_NAME_HASH_LENGTH = 16;
 const MF_HASHED_NAME_PREFIX_LENGTH = MF_HASHED_NAME_THRESHOLD - MF_HASHED_NAME_HASH_LENGTH;
+// Process-local: a hashed id can only be decoded by the process that encoded
+// it. That is sufficient because the hash is deterministic and every hashed id
+// is (re)created via packageNameEncode before any decode of it can happen.
 const mfHashedNameMap = new Map<string, string>();
 
 /**

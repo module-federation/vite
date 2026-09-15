@@ -24,7 +24,7 @@ describe('packageNameEncode / packageNameDecode', () => {
   });
 
   it('does not hash a name whose plain encoding lands exactly at the threshold', () => {
-    const name = 'a'.repeat(100);
+    const name = 'a'.repeat(90);
     const encoded = packageNameEncode(name);
 
     expect(encoded).toBe(name);
@@ -32,11 +32,11 @@ describe('packageNameEncode / packageNameDecode', () => {
   });
 
   it('hashes a name whose plain encoding is one character past the threshold', () => {
-    const name = 'a'.repeat(101);
+    const name = 'a'.repeat(91);
     const encoded = packageNameEncode(name);
 
     expect(encoded).not.toBe(name);
-    expect(encoded).toMatch(/^a{84}[0-9a-f]{16}$/);
+    expect(encoded).toMatch(/^a{74}[0-9a-f]{16}$/);
     expect(packageNameDecode(encoded)).toBe(name);
   });
 
@@ -44,9 +44,9 @@ describe('packageNameEncode / packageNameDecode', () => {
     const name = `@some-very-long-scope/${'x'.repeat(200)}`;
     const encoded = packageNameEncode(name);
 
-    // Bounded length: prefix (84) + hash (16) = 100, same as the plain threshold.
-    expect(encoded.length).toBe(100);
-    expect(encoded).toMatch(/^.{84}[0-9a-f]{16}$/);
+    // Bounded length: prefix (74) + hash (16) = 90, same as the plain threshold.
+    expect(encoded.length).toBe(90);
+    expect(encoded).toMatch(/^.{74}[0-9a-f]{16}$/);
   });
 
   it('decodes a hashed id back to the exact original name', () => {

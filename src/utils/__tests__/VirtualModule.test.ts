@@ -94,6 +94,20 @@ describe('VirtualModule writeSync', () => {
     expect(assertModuleFound('__loadShare__', importId)).toBe(vm);
   });
 
+  it('keeps the import id under NAME_MAX when both mfName and name are overlong with the longest tag', () => {
+    normalizeModuleFederationOptions({ name: 'analytics' });
+
+    const longScope = `@my-company/${'application-name-'.repeat(8)}remote${MF_OWNER_INFIX}281474976710655`;
+    const longName = `@some-very-long-scope/${'x'.repeat(200)}`;
+    const vm = new VirtualModule(longName, '__treeShakingProvider__', '.mjs', longScope);
+    vm.writeSync('export default 1;');
+
+    const importId = vm.getImportId();
+    expect(importId.length).toBeLessThan(255);
+    expect(VirtualModule.findName('__treeShakingProvider__', importId)).toBe(longName);
+    expect(VirtualModule.findModule('__treeShakingProvider__', importId)).toBe(vm);
+  });
+
   it('keeps the tag sentinel intact for a long owner-scoped mfName', () => {
     normalizeModuleFederationOptions({ name: 'analytics' });
 
