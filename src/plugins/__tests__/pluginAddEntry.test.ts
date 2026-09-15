@@ -5,6 +5,7 @@ import { escapeRegExp } from '../../utils/regexEscape';
 import type {
   ConfigEnv,
   ConfigPluginContext,
+  Environment,
   IndexHtmlTransformContext,
   IndexHtmlTransformResult,
   MinimalPluginContextWithoutEnvironment,
@@ -63,6 +64,11 @@ import { addUsedShares } from '../../virtualModules/virtualRemoteEntry';
 import addEntry from '../pluginAddEntry';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
+type EnvironmentHookContext = {
+  environment?: Pick<Environment, 'name'> & {
+    config: Pick<Environment['config'], 'consumer'>;
+  };
+};
 
 function runConfig(
   plugin: AddEntryPlugin,
@@ -78,9 +84,14 @@ function runConfigResolved(plugin: AddEntryPlugin, config: ResolvedConfig): void
   callHook(plugin.configResolved, {} as MinimalPluginContextWithoutEnvironment, config);
 }
 
-async function runTransform(plugin: AddEntryPlugin, code: string, id: string) {
+async function runTransform(
+  plugin: AddEntryPlugin,
+  code: string,
+  id: string,
+  ctx: EnvironmentHookContext = {}
+) {
   if (!plugin.transform) throw new Error(`${plugin.name} transform hook not found`);
-  return await callHook(plugin.transform, {} as Rollup.TransformPluginContext, code, id);
+  return await callHook(plugin.transform, ctx as Rollup.TransformPluginContext, code, id);
 }
 
 async function runTransformIndexHtml(
@@ -202,6 +213,42 @@ describe('pluginAddEntry', () => {
     );
 
     expect(result).toBeUndefined();
+  });
+
+  it('injects host init into a custom client environment among multiple clients', async () => {
+    const root = '/repo';
+    const entry = path.join(root, 'src/main.tsx');
+    const plugin = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    })[1];
+    const environment = {
+      environment: { name: 'federation', config: { consumer: 'client' } },
+    } satisfies EnvironmentHookContext;
+
+    runConfigResolved(plugin, {
+      root,
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: {} },
+      environments: {
+        client: {
+          consumer: 'client',
+          build: { rollupOptions: { input: path.join(root, 'src/client.tsx') } },
+        },
+        federation: {
+          consumer: 'client',
+          build: { rollupOptions: { input: entry } },
+        },
+      },
+    } as unknown as ResolvedConfig);
+
+    const result = (await runTransform(plugin, 'export const app = true;', entry, environment)) as
+      | { code: string }
+      | undefined;
+
+    expect(result?.code).toContain('const __mfHostInit = await import("/virtual/hostInit.js");');
   });
 
   it('serves stable remoteEntry.js for hash-pattern dev entries', () => {
@@ -2065,7 +2112,7 @@ describe('pluginAddEntry', () => {
     expect(bundle['indexProd.html'].source).toContain(bootstrapAsset!.fileName);
   });
 
-  it('emits bootstrap file with directory prefix from entryFileNames pattern', () => {
+  it('preserves an implicit HTML entry alongside a custom client entry', () => {
     const plugins = addEntry({
       entryName: 'hostInit',
       entryPath: '/virtual/hostInit.js',
@@ -2086,6 +2133,13 @@ describe('pluginAddEntry', () => {
       base: '',
       command: 'build',
       build: { rollupOptions: {} },
+      environments: {
+        client: { consumer: 'client', build: { rollupOptions: {} } },
+        federation: {
+          consumer: 'client',
+          build: { rollupOptions: { input: '/repo/host/src/federation.ts' } },
+        },
+      },
     } as unknown as ResolvedConfig);
     runBuildStart(
       buildPlugin,
