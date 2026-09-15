@@ -893,6 +893,31 @@ describe('module-federation-esm-shims', () => {
     }
   );
 
+  it('uses Vite consumers for workspace singleton imports in custom environments', () => {
+    const plugin = getEsmShimsPlugin();
+    runConfig(plugin, {} as ConfigPluginContext, { build: {} }, { command: 'build', mode: 'test' });
+
+    const virtualModule = new VirtualModule(
+      'custom-environment-workspace-singleton',
+      LOAD_SHARE_TAG,
+      '.js'
+    );
+    virtualModule.write(`
+      if (import.meta.env.SSR) __mfNormalizeShareModule(__mfLocalShare);
+      import("/repo/packages/workspace-shared-lib/src/index.tsx");
+    `);
+
+    const loadFor = (consumer: 'client' | 'server') =>
+      callHook(
+        plugin.load,
+        { environment: { name: 'federation', config: { consumer } } } as any,
+        virtualModule.getImportId()
+      ) as { code: string };
+
+    expect(loadFor('client').code).not.toContain('import * as __mfLocalShare');
+    expect(loadFor('server').code).toContain('import * as __mfLocalShare');
+  });
+
   it('returns null when build load hook cannot resolve a virtual module', () => {
     const plugin = getEsmShimsPlugin();
     runConfig(plugin, {} as ConfigPluginContext, { build: {} }, { command: 'build', mode: 'test' });

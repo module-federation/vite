@@ -1807,12 +1807,15 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           if (!virtualModule?.code) return null;
           let code = virtualModule.code;
 
-          const environmentName = (this as { environment?: { name?: string } }).environment?.name;
+          const environment = (this as LoadHookContext).environment;
+          const environmentConsumer = environment?.config?.consumer;
+          // Environment names are user-defined, so prefer Vite's consumer classification.
           // Vite 5-7 SSR builds do not expose `this.environment`, so fall back to root
           // build.ssr to ensure SSR-only local fallback imports are still prepended.
           if (
-            (environmentName && environmentName !== 'client') ||
-            (!environmentName && isSsrBuild)
+            environmentConsumer === 'server' ||
+            (!environmentConsumer && environment?.name && environment.name !== 'client') ||
+            (!environment && isSsrBuild)
           ) {
             code = prependWorkspaceSingletonSsrImport(code);
           }
