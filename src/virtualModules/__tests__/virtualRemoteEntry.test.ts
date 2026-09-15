@@ -1654,10 +1654,9 @@ describe('virtualRemoteEntry', () => {
     );
 
     expect(code).toContain('.catch((e) => { localSharedImportMapPromise = undefined; throw e; })');
-    expect(code).toContain('.catch((e) => { exposesMapPromise = undefined; throw e; })');
   });
 
-  it('loads local shared state and exposes lazily inside remoteEntry', async () => {
+  it('loads local shared state lazily and bundles the exposes map into remoteEntry', async () => {
     const mod = await import('../virtualRemoteEntry');
 
     const code = mod.generateRemoteEntry(
@@ -1677,8 +1676,10 @@ describe('virtualRemoteEntry', () => {
     expect(code).toMatch(
       /localSharedImportMapPromise = retrySharedInit\(\(\) => import\("virtual:mf-localSharedImportMap:__mfe_internal__host__mf_owner__\d+"\)\)/
     );
-    expect(code).toContain('exposesMapPromise = retrySharedInit(() => import("virtual:exposes"))');
-    expect(code).toContain('.then((mod) => mod.default ?? mod)');
+    // The exposes map holds only dynamic imports, so a static import adds no
+    // payload to the entry and saves consumers a serial request (#1292).
+    expect(code).toContain('import __mfExposesMap from "virtual:exposes"');
+    expect(code).not.toContain('import("virtual:exposes")');
     expect(code).toContain('const {usedShared, usedRemotes} = await getLocalSharedImportMap()');
     expect(code).toContain('const __mfGetPendingExternalSharedProvider =');
     expect(code).toContain('const exposesMap = await getExposesMap()');

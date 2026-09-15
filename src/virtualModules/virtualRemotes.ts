@@ -451,13 +451,20 @@ export function generateRemotes(
   )}
     const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
   const devHostInitLine = command === 'serve' && consumer !== 'server' ? browserHostInitCode : '';
+  // Build reaches hostInitPromise through a dynamic import, like dev. A static
+  // import would make hostAutoInit a module shared between the emitted hostInit
+  // entry and every wrapper, which Rolldown splits into a shared chunk plus a
+  // re-export facade: one extra request on the page (#1292). On the standalone
+  // page the bootstrap has already evaluated hostInit before any wrapper runs,
+  // so the import resolves from the module map.
   const importLine =
     command === 'build'
       ? `${getRuntimeModuleCacheBootstrapCode(exportConditions)}
-    import { hostInitPromise as __mfHostInitPromise } from ${JSON.stringify(hostAutoInitPath)};`
+    const __mfHostInitPromise = () => import(${JSON.stringify(hostAutoInitPath)})
+      .then((mod) => mod.hostInitPromise);`
       : `${devRuntimeBootstrap}
     ${devHostInitLine}`;
-  const remoteLoadRuntimePromise = command === 'build' ? '__mfHostInitPromise' : 'initPromise';
+  const remoteLoadRuntimePromise = command === 'build' ? '__mfHostInitPromise()' : 'initPromise';
   const remoteCacheKey = `${getRuntimeRemoteCachePrefix(options)}${id}`;
   const remoteLoadFailureHandler =
     command === 'build'

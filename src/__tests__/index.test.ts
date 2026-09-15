@@ -912,6 +912,39 @@ describe('module-federation-esm-shims', () => {
     expect(result).toBe(`export { __moduleExports as default } from ${JSON.stringify(target)};`);
   });
 
+  it.each([
+    ['remoteEntry-[hash]', 'remoteEntry-CfWOGJUt.js'],
+    ['remoteEntry-[hash:8].js', 'remoteEntry-CfWOGJUt.js'],
+    ['static/entry.[hash].mjs', 'entry.CfWOGJUt.mjs'],
+  ])(
+    'skips modulepreload deps for the remote entry emitted from filename %s',
+    (filename, emittedFile) => {
+      const plugin = (
+        federation({ name: 'host', filename, exposes: { './App': './src/App.tsx' } }) as Plugin[]
+      ).find((entry) => entry.name === 'module-federation-esm-shims')!;
+      const config: any = { build: {} };
+
+      runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
+
+      // The exposes map lives in the remote entry, so its expose imports must
+      // not grow a preload list there (#1292).
+      const deps = config.build.modulePreload.resolveDependencies(
+        emittedFile,
+        ['assets/App-abc.js'],
+        { hostId: `/repo/dist/${emittedFile}`, hostType: 'js' }
+      );
+      expect(deps).toEqual([]);
+
+      // Another chunk keeps the app's own preloads.
+      expect(
+        config.build.modulePreload.resolveDependencies('assets/index.js', ['assets/App-abc.js'], {
+          hostId: '/repo/dist/assets/index.js',
+          hostType: 'js',
+        })
+      ).toEqual(['assets/App-abc.js']);
+    }
+  );
+
   it('filters federation control chunks from js dynamic modulepreload deps', () => {
     const plugin = getEsmShimsPlugin();
     const config: any = {

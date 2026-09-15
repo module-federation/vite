@@ -30,6 +30,7 @@ import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
+import { escapeRegExp } from './utils/regexEscape';
 import {
   collectLoadShareProxyChunks,
   collectSystemProxyInfos,
@@ -310,7 +311,6 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
   if (
     file.includes('__mfe_internal__') ||
     file.includes('virtual_mf-') ||
-    file.includes('virtualExposes') ||
     file.includes('localSharedImportMap') ||
     file.includes('hostInit')
   ) {
@@ -1417,7 +1417,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     {
       // Some frameworks (e.g. TanStack Start) assume the bundle has exactly one
       // isEntry chunk and throw when they see extras. MF emits additional entry
-      // chunks (hostInit, remoteEntry, virtualExposes) that are not the real app
+      // chunks (hostInit, remoteEntry) that are not the real app
       // entry. Mark them as non-entry before any framework scanner runs.
       name: 'mf:normalize-entry-chunks',
       enforce: 'pre',
@@ -1458,11 +1458,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       skipTransformFor: Object.values(options.exposes).map((expose) => expose.import),
       federationOptions: options,
     }),
-    ...addEntry({
-      entryName: 'virtualExposes',
-      entryPath: virtualExposesId,
-      federationOptions: options,
-    }),
     pluginProxyRemoteEntry({
       options,
       remoteEntryId,
@@ -1496,6 +1491,18 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         config.build = config.build || {};
 
         if (config.build.modulePreload !== false) {
+          // The configured filename may carry a `[hash]` placeholder (the default
+          // is `remoteEntry-[hash]`, emitted as `remoteEntry-<hash>.js`); match
+          // the emitted file, not the pattern.
+          const remoteEntryBasename = path.posix.basename(options.filename);
+          const hashParts = remoteEntryBasename.split(/\[hash(?::\d+)?\]/);
+          const remoteEntryFilePattern = new RegExp(
+            `^${hashParts.map((part) => escapeRegExp(part)).join('[\\w-]+')}${
+              hashParts.length > 1 && !/\.[^/.]+$/.test(remoteEntryBasename) ? '\\.js' : ''
+            }$`
+          );
+          const isRemoteEntryFile = (file: string) =>
+            file === remoteEntryBasename || remoteEntryFilePattern.test(file);
           const currentModulePreload =
             config.build.modulePreload && typeof config.build.modulePreload === 'object'
               ? config.build.modulePreload
@@ -1515,9 +1522,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               const hostFile = path.basename(context.hostId);
               const shouldSkipFederationPreload =
                 context.hostType === 'js' &&
-                (hostFile === options.filename ||
+                (isRemoteEntryFile(hostFile) ||
                   hostFile.includes('hostInit') ||
-                  hostFile.includes('virtualExposes') ||
                   hostFile.includes('localSharedImportMap'));
 
               if (shouldSkipFederationPreload) return [];

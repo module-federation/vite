@@ -56,7 +56,9 @@ async function importTestRemote(exposesSource: string): Promise<GeneratedRemoteM
   const runtimeStub = dataUrl(
     'export function init() {}\nexport function loadRemote() { return Promise.resolve(); }'
   );
-  const exposesImport = remoteGenerated.match(/import\("(virtual:mf-exposes:[^"]+)"\)/)?.[1];
+  const exposesImport = remoteGenerated.match(
+    /import __mfExposesMap from "(virtual:mf-exposes:[^"]+)"/
+  )?.[1];
   if (!exposesImport) throw new Error('generated remote entry did not import its exposes module');
 
   return (await import(
@@ -64,8 +66,8 @@ async function importTestRemote(exposesSource: string): Promise<GeneratedRemoteM
       remoteGenerated
         .replace('from "@module-federation/runtime"', `from ${JSON.stringify(runtimeStub)}`)
         .replace(
-          `import(${JSON.stringify(exposesImport)})`,
-          `import(${JSON.stringify(dataUrl(exposesSource))})`
+          `import __mfExposesMap from ${JSON.stringify(exposesImport)}`,
+          `import __mfExposesMap from ${JSON.stringify(dataUrl(exposesSource))}`
         )
     )
   )) as GeneratedRemoteModule;
@@ -257,7 +259,6 @@ describe('pendingShareLoads lifecycle', () => {
     if (!initKeyLiteral) return;
     const initStateKey = JSON.parse(initKeyLiteral) as string;
     const exposeCallsKey = uniqueName('pending-import-false-expose-calls');
-    const exposesReadyKey = uniqueName('pending-import-false-exposes-ready');
 
     delete (globalThis as Record<string, unknown>).__mf_module_cache__;
     try {
@@ -266,10 +267,9 @@ describe('pendingShareLoads lifecycle', () => {
       const initState = (globalThis as any)[initStateKey];
       expect(moduleCache.pendingShareLoads).toHaveLength(1);
 
+      // The exposes map is bundled into the remote entry, so get() can only be
+      // held back by the pending share load itself.
       const remoteModule = await importTestRemote(`
-        const state = globalThis[${JSON.stringify(exposesReadyKey)}] ||= {};
-        state.promise ||= new Promise((resolve) => { state.resolve = resolve; });
-        await state.promise;
         export default {
           "./Button": () => {
             globalThis[${JSON.stringify(exposeCallsKey)}] =
@@ -288,10 +288,6 @@ describe('pendingShareLoads lifecycle', () => {
           currentGetSettled = true;
         }
       );
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      const exposesState = (globalThis as any)[exposesReadyKey];
-      expect(exposesState?.resolve).toEqual(expect.any(Function));
-      exposesState.resolve();
       await flushMicrotasks();
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(currentGetSettled).toBe(false);
@@ -313,7 +309,6 @@ describe('pendingShareLoads lifecycle', () => {
     } finally {
       delete (globalThis as Record<string, unknown>).__mf_module_cache__;
       delete (globalThis as Record<string, unknown>)[initStateKey];
-      delete (globalThis as Record<string, unknown>)[exposesReadyKey];
       delete (globalThis as Record<string, unknown>)[exposeCallsKey];
     }
   });
@@ -413,7 +408,6 @@ describe('pendingShareLoads lifecycle', () => {
     if (!initKeyLiteral || !localImport) return;
     const initStateKey = JSON.parse(initKeyLiteral) as string;
     const exposeCallsKey = uniqueName('pending-lazy-expose-calls');
-    const exposesReadyKey = uniqueName('pending-lazy-exposes-ready');
 
     delete (globalThis as Record<string, unknown>).__mf_module_cache__;
     try {
@@ -430,10 +424,9 @@ describe('pendingShareLoads lifecycle', () => {
       const initState = (globalThis as any)[initStateKey];
       expect(moduleCache.pendingShareLoads).toHaveLength(1);
 
+      // The exposes map is bundled into the remote entry, so get() can only be
+      // held back by the pending share load itself.
       const remoteModule = await importTestRemote(`
-        const state = globalThis[${JSON.stringify(exposesReadyKey)}] ||= {};
-        state.promise ||= new Promise((resolve) => { state.resolve = resolve; });
-        await state.promise;
         export default {
           "./Button": () => {
             globalThis[${JSON.stringify(exposeCallsKey)}] =
@@ -452,10 +445,6 @@ describe('pendingShareLoads lifecycle', () => {
           firstGetSettled = true;
         }
       );
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      const exposesState = (globalThis as any)[exposesReadyKey];
-      expect(exposesState?.resolve).toEqual(expect.any(Function));
-      exposesState.resolve();
       await flushMicrotasks();
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(firstGetSettled).toBe(false);
@@ -488,7 +477,6 @@ describe('pendingShareLoads lifecycle', () => {
     } finally {
       delete (globalThis as Record<string, unknown>).__mf_module_cache__;
       delete (globalThis as Record<string, unknown>)[initStateKey];
-      delete (globalThis as Record<string, unknown>)[exposesReadyKey];
       delete (globalThis as Record<string, unknown>)[exposeCallsKey];
     }
   });
