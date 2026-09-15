@@ -2053,10 +2053,6 @@ export function writeLoadShareModule(
     : '';
   const hasCompleteExportCoverage = detectedNamedExports !== undefined;
   const isWorkspaceSingleton = isWorkspacePackage && shareItem.shareConfig.singleton === true;
-  const isDefaultShareScope =
-    shareItem.scope === undefined ||
-    shareItem.scope === 'default' ||
-    (Array.isArray(shareItem.scope) && shareItem.scope[0] === 'default');
   const usesDeferredSingletonFallback =
     hasCompleteExportCoverage &&
     shareItem.shareConfig.eager !== true &&
@@ -2066,7 +2062,6 @@ export function writeLoadShareModule(
         shareItem.shareConfig.singleton === true) ||
       (command === 'build' &&
         isRemoteContainer(resolvedOptions) &&
-        (shareItem.shareConfig.singleton === true || isDefaultShareScope) &&
         !isSharedSingletonConsumedByPeer(pkg, resolvedOptions, true)));
   const servesRemoteSingletonFallback =
     command !== 'build' &&

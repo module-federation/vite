@@ -3545,33 +3545,37 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
-  it('defers non-singleton npm fallback', () => {
-    normalizeModuleFederationOptions({
-      name: 'remote',
-      exposes: { './App': './src/App.jsx' },
-      shared: { lit: { singleton: false } },
-    });
-    const pkg = 'lit';
-    const mockShareItem: ShareItem = {
-      name: pkg,
-      from: '',
-      version: '3.3.2',
-      shareConfig: {
-        singleton: false,
-        strictVersion: false,
-        requiredVersion: '^3.3.2',
-      },
-      scope: 'default',
-    };
+  it.each(['default', 'custom'] as const)(
+    'defers non-singleton npm fallback in the %s scope',
+    (scope) => {
+      normalizeModuleFederationOptions({
+        name: 'remote',
+        exposes: { './App': './src/App.jsx' },
+        shareScope: scope,
+        shared: { lit: { shareScope: scope, singleton: false } },
+      });
+      const pkg = 'lit';
+      const mockShareItem: ShareItem = {
+        name: pkg,
+        from: '',
+        version: '3.3.2',
+        shareConfig: {
+          singleton: false,
+          strictVersion: false,
+          requiredVersion: '^3.3.2',
+        },
+        scope,
+      };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+      writeLoadShareModule(pkg, mockShareItem, 'build', false);
 
-    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
-    expect(generatedCode).not.toContain('import * as __mfLocalShare');
-    expect(generatedCode).toContain('initPromise.then');
-    expect(generatedCode).toContain('import("mock-import-id").then((mod) => {');
-    expect(generatedCode).not.toContain('await ');
-  });
+      const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      expect(generatedCode).not.toContain('import * as __mfLocalShare');
+      expect(generatedCode).toContain('initPromise.then');
+      expect(generatedCode).toContain('import("mock-import-id").then((mod) => {');
+      expect(generatedCode).not.toContain('await ');
+    }
+  );
 
   it('defers default-scope singleton fallback in remote builds', () => {
     normalizeModuleFederationOptions({
