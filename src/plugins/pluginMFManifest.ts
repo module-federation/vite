@@ -21,11 +21,13 @@ import { getIsRolldown } from '../utils/packageUtils';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import {
   addCssAssetsToAllExports,
+  ASSET_TYPES,
   buildFileToShareKeyMap,
   collectCssAssets,
   collectStaticChunks,
   createEmptyAssetMap,
   deduplicateAssets,
+  LOAD_TIMINGS,
   type OutputBundleItem,
   type OutputChunkWithViteMetadata,
   type PreloadMap,
@@ -523,17 +525,36 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             fileToShareKey.get(modulePath)
           );
 
+          const deferredSharedAssets = {
+            js: new Set<string>(),
+            css: new Set<string>(),
+          };
           for (const shareKey of getUsedShares(mfOptions)) {
             const shareItem = getNormalizeShareItem(shareKey, mfOptions);
             const assets = filesMap[shareKey];
             if (!assets || shareItem?.shareConfig.eager === true) continue;
-            assets.js.async.push(...assets.js.sync.splice(0));
-            assets.css.async.push(...assets.css.sync.splice(0));
+            for (const type of ASSET_TYPES) {
+              assets[type].async.push(...assets[type].sync.splice(0));
+              for (const asset of assets[type].async) deferredSharedAssets[type].add(asset);
+            }
           }
 
           // Add all CSS assets to every export if bundleAllCSS is enabled
           if (mfOptions.bundleAllCSS) {
             addCssAssetsToAllExports(filesMap, allCssAssets);
+          }
+
+          // Expose preloads must not fetch fallback providers before the runtime selects a share.
+          for (const exposeModule of exposesModules) {
+            const assets = filesMap[exposeModule];
+            if (!assets) continue;
+            for (const type of ASSET_TYPES) {
+              for (const timing of LOAD_TIMINGS) {
+                assets[type][timing] = assets[type][timing].filter(
+                  (asset) => !deferredSharedAssets[type].has(asset)
+                );
+              }
+            }
           }
 
           // Final deduplication of all assets

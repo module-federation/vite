@@ -212,6 +212,9 @@ importers:
       '@emotion/styled':
         specifier: 11.14.1
         version: 11.14.1(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(@types/react@19.2.14)(react@19.2.4)
+      '@module-federation/runtime':
+        specifier: 2.9.0
+        version: 2.9.0
       '@module-federation/vite':
         specifier: workspace:*
         version: link:../../..

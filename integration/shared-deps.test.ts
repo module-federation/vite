@@ -265,23 +265,42 @@ describe('shared dependencies', () => {
     expect(loadShare!.code).toMatch(getHostProvidedExportAccessPattern('value3'));
   });
 
-  it('includes shared deps in manifest', async () => {
+  it('keeps shared providers out of expose preloads', async () => {
     const output = await buildFixture({
       fixture: 'shared-remote',
       mfOptions: {
         ...SHARED_BASE_MF_OPTIONS,
         manifest: true,
-        shared: { 'mock-shared-dep': {} },
+        exposes: {
+          './exposed': resolve(FIXTURES, 'shared-remote', 'exposed-shared-provider.js'),
+        },
+        shared: { '@module-federation/sdk': {} },
       },
     });
-    const manifest = parseManifest(output) as Record<string, unknown>;
+    const manifest = parseManifest(output) as {
+      exposes: Array<{ assets: { js: { async: string[]; sync: string[] } } }>;
+      shared: Array<{
+        assets: { js: { async: string[]; sync: string[] } };
+        name: string;
+        version: string;
+      }>;
+    };
     expect(manifest).toBeDefined();
     expect(manifest).toHaveProperty('shared');
 
-    const shared = manifest.shared as Array<{ name: string; version: string }>;
-    const sharedEntry = shared.find((s) => s.name === 'mock-shared-dep');
+    const sharedEntry = manifest.shared.find((share) => share.name === '@module-federation/sdk');
     expect(sharedEntry).toBeDefined();
     expect(sharedEntry!.version).toBeTruthy();
+    const providerAssets = new Set([
+      ...sharedEntry!.assets.js.sync,
+      ...sharedEntry!.assets.js.async,
+    ]);
+    expect(providerAssets.size).toBeGreaterThan(0);
+    const exposePreloads = [
+      ...manifest.exposes[0].assets.js.sync,
+      ...manifest.exposes[0].assets.js.async,
+    ];
+    expect(exposePreloads.filter((asset) => providerAssets.has(asset))).toEqual([]);
   });
 
   it('includes singleton in manifest shared entries', async () => {

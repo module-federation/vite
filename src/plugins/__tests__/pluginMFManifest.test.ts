@@ -1102,6 +1102,56 @@ describe('pluginMFManifest', () => {
     expect(exposeAssets.sync).toContain('assets/exposed.js');
   });
 
+  it('keeps non-eager shared providers out of expose preloads', async () => {
+    const wrapperFile = 'assets/loadShare-vue.js';
+    const providerFile = 'assets/vue.js';
+    const exposed = createChunk('assets/exposed.js', ['/src/exposed.js']);
+    exposed.imports = [wrapperFile, providerFile];
+    const wrapper = createChunk(wrapperFile, [
+      '\0virtual:mf:basicRemote__loadShare__vue__loadShare__.js',
+    ]);
+    wrapper.dynamicImports = [providerFile];
+    const provider = createChunk(providerFile, ['/node_modules/vue/index.js']);
+    (provider as OutputChunk & { viteMetadata: unknown }).viteMetadata = {
+      importedCss: new Set(['assets/vue.css']),
+    };
+
+    const emitted = await runGenerateBundleWithManifest(true, {
+      bundle: {
+        ...makeBundle(),
+        'assets/exposed.js': exposed,
+        [wrapperFile]: wrapper,
+        [providerFile]: provider,
+      },
+      exposePaths: { './exposed': { import: './src/exposed.js' } },
+      usedShares: new Set(['vue']),
+      shareItems: {
+        vue: { version: '3.5.0', shareConfig: { requiredVersion: '^3.5.0', eager: false } },
+      },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    expect(manifest.shared[0].assets).toMatchObject({
+      js: { async: [providerFile], sync: [] },
+      css: { async: ['assets/vue.css'], sync: [] },
+    });
+    expect(manifest.exposes[0].assets).toMatchObject({
+      js: { async: [wrapperFile] },
+      css: { async: [] },
+    });
+    for (const type of ['js', 'css'] as const) {
+      const providerAssets = new Set([
+        ...manifest.shared[0].assets[type].sync,
+        ...manifest.shared[0].assets[type].async,
+      ]);
+      const exposePreloads = [
+        ...manifest.exposes[0].assets[type].sync,
+        ...manifest.exposes[0].assets[type].async,
+      ];
+      expect(exposePreloads.filter((asset) => providerAssets.has(asset))).toEqual([]);
+    }
+  });
+
   it('keeps an eager share wrapper in an expose closure synchronous', async () => {
     const wrapperFile = 'assets/loadShare-vue.js';
     const exposed = createChunk('assets/exposed.js', ['/src/exposed.js']);

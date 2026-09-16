@@ -42,6 +42,7 @@ const shared = {
     requiredVersion: '^0.0.1',
   },
   '@vite-vite/shared-lib/helpers': { singleton: true },
+  'styled-components': { import: false, requiredVersion: '6.1.19' },
   antd: {
     ...antdShared,
   },

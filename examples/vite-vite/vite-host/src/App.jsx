@@ -1,5 +1,6 @@
 import { SharedCounter, formatLabel, createFilter, capitalize } from "@vite-vite/shared-lib";
 import { getCurrentRowChangedEventName } from "@vite-vite/shared-consumer";
+import { getInstance } from "@module-federation/runtime";
 import { Button } from "antd";
 import R from "react";
 import RD from "react-dom/client";
@@ -28,6 +29,28 @@ const filterByName = createFilter(fruits, (item, q) =>
 console.log("createFilter test:", filterByName("an"));
 
 export default function HostApp() {
+  const [secondaryRemotePreloaded, setSecondaryRemotePreloaded] = R.useState(false);
+
+  const preloadSecondaryRemote = async () => {
+    const instance = getInstance(({ name }) => name === "viteViteHost");
+    if (!instance) throw new Error("Host federation instance is not initialized");
+
+    instance.registerRemotes([
+      {
+        name: "@namespace/viteViteRemoteSecondary",
+        entry: "http://localhost:5177/testbase/secondary-mf-manifest.json",
+      },
+    ]);
+    await instance.preloadRemote([
+      {
+        nameOrAlias: "@namespace/viteViteRemoteSecondary",
+        exposes: ["InstanceMarker"],
+        resourceCategory: "all",
+      },
+    ]);
+    setSecondaryRemotePreloaded(true);
+  };
+
   return (
     <div style={{ background: "lightgray" }}>
       <p>
@@ -39,6 +62,10 @@ export default function HostApp() {
       <SharedCounter label={formatLabel("Host")} />
       <PrimaryFederationMarker />
       <SecondaryFederationMarker />
+      <button type="button" onClick={preloadSecondaryRemote}>
+        Preload secondary remote
+      </button>
+      {secondaryRemotePreloaded && <p>Secondary remote preloaded</p>}
       <p>
         <code>createFilter</code> result for "an":{" "}
         {JSON.stringify(filterByName("an"))}

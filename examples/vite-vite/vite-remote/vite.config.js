@@ -9,6 +9,7 @@ const treeShakingMode = ['server-calc', 'runtime-infer'].includes(process.env.TR
   : undefined;
 const eagerShared = process.env.EAGER_SHARED === 'true';
 const externalRuntime = process.env.EXTERNAL_RUNTIME === '1';
+const previewPort = Number(process.env.REMOTE_PORT || 5176);
 const antdShared = {
   singleton: true,
   ...(eagerShared && !treeShakingMode ? { eager: true } : {}),
@@ -39,6 +40,7 @@ const shared = {
     version: '0.0.1',
     requiredVersion: '^0.0.1',
   },
+  'styled-components': { requiredVersion: '6.1.19' },
   antd: {
     ...antdShared,
   },
@@ -47,13 +49,13 @@ const shared = {
 export default defineConfig({
   server: {
     open: false,
-    port: 5176,
-    origin: 'http://localhost:5176',
+    port: previewPort,
+    origin: `http://localhost:${previewPort}`,
   },
   preview: {
-    port: 5176,
+    port: previewPort,
   },
-  base: 'http://localhost:5176/testbase',
+  base: `http://localhost:${previewPort}/testbase`,
   esbuild: isMixed2
     ? {
         jsx: 'automatic',
@@ -63,6 +65,7 @@ export default defineConfig({
     : undefined,
   plugins: [
     !isMixed2 && react({ jsxImportSource: '@emotion/react' }),
+    process.env.REMOTE_INSTANCE !== 'secondary' &&
     federation({
       name: '@namespace/viteViteRemote',
       hostInitInjectLocation: 'entry',
@@ -108,6 +111,7 @@ export default defineConfig({
     }),
   ].filter(Boolean),
   build: {
+    outDir: previewPort === 5176 ? 'dist' : `dist-${previewPort}`,
     target: 'chrome89',
     // This remote runs on Vite 7 (Rollup) so it exercises the `manualChunks`
     // composition path. The plugin claims federation modules first, then this

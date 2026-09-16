@@ -1,4 +1,19 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
+
+async function getSharedProviderUrls(
+  request: APIRequestContext,
+  manifestUrl: string,
+  dependency: string
+) {
+  const response = await request.get(manifestUrl);
+  expect(response.ok()).toBe(true);
+  const manifest = await response.json();
+  const shared = manifest.shared.find((entry: { name: string }) => entry.name === dependency);
+  expect(shared).toBeDefined();
+  return [...shared.assets.js.sync, ...shared.assets.js.async].map(
+    (asset: string) => new URL(asset, manifest.metaData.publicPath).href
+  );
+}
 
 /**
  * These tests run against the host preview (port 5175) which loads remote
@@ -32,6 +47,37 @@ test.describe('vite-vite host preview', () => {
       body.includes('[Shared Lib] Initialized')
     );
     expect(sharedLibResponses.map(({ url }) => url)).toHaveLength(1);
+  });
+
+  test('reuses a non-eager provider loaded by another remote', async ({ page, request }) => {
+    const primaryProviders = await getSharedProviderUrls(
+      request,
+      'http://localhost:5176/testbase/mf-manifest.json',
+      'styled-components'
+    );
+    const secondaryManifestUrl =
+      'http://localhost:5177/testbase/secondary-mf-manifest.json';
+    const secondaryProviders = await getSharedProviderUrls(
+      request,
+      secondaryManifestUrl,
+      'styled-components'
+    );
+    expect(primaryProviders.length).toBeGreaterThan(0);
+    expect(secondaryProviders.length).toBeGreaterThan(0);
+
+    const requested = new Set<string>();
+    page.on('response', (response) => requested.add(response.url()));
+
+    await page.goto('/');
+    await expect(
+      page.getByRole('heading', { name: 'Styled Components Demo', exact: true })
+    ).toBeVisible();
+    await expect.poll(() => primaryProviders.some((url) => requested.has(url))).toBe(true);
+
+    await page.getByRole('button', { name: 'Preload secondary remote' }).click();
+    await expect(page.getByText('Secondary remote preloaded')).toBeVisible();
+    await expect.poll(() => requested.has(secondaryManifestUrl)).toBe(true);
+    expect(secondaryProviders.filter((url) => requested.has(url))).toEqual([]);
   });
 
   test('renders Emotion styled component from remote', async ({ page }) => {
