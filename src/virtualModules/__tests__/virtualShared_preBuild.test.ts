@@ -610,7 +610,7 @@ export default function createDefaultOnly() {}`;
       return 'export*as ns from"mock-package-star-dependency";export const directExport=1;';
     }
     if (filePath.endsWith('/repo/packages/comment-separated-star-export.js')) {
-      return 'export/* first */*/* second */from/* third */"./dependency.js";';
+      return 'export/* first */*/* second */from/* third */"mock-package-star-dependency";';
     }
     if (filePath.endsWith('/repo/packages/default-only-cjs-lookalikes.js')) {
       return `// Object.defineProperty(exports, "__esModule", { value: true });
@@ -736,7 +736,7 @@ export const buttonBase = 1;`;
       return "export * from 'mock-package-mutable-source'; export const stable = 1;";
     }
     if (filePath.endsWith('node_modules/mock-package-mutable-source/index.js')) {
-      return 'let current = null; export function getCurrent() { return current; } export { current as currentInstance };';
+      return 'let/* binding */current = null; export function getCurrent() { return current; } export/* public */{ current as currentInstance };';
     }
     if (filePath.endsWith('node_modules/mock-package-conditional-star-entry/index.js')) {
       return "export * from 'mock-package-browser-conditional';";
@@ -1892,7 +1892,7 @@ describe('writeLoadShareModule', () => {
     }
   );
 
-  it('treats a comment-separated star re-export as unknown coverage', () => {
+  it('detects named exports from a comment-separated star re-export', () => {
     const importPath = '/repo/packages/comment-separated-star-export.js';
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {
@@ -1912,10 +1912,38 @@ describe('writeLoadShareModule', () => {
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
-    expect(generatedCode).toContain('let current = __mfLocalShare;');
-    expect(generatedCode).toContain(`export * from ${JSON.stringify(importPath)}`);
-    expect(generatedCode).not.toContain('__mfApplySharedDefaultExport');
-    expect(generatedCode).not.toContain('__mfSubscribeSharedCache(__mfModuleCache.share');
+    expectLiveSingletonProxy(generatedCode, pkg, ['fromStar', 'anotherFromStar']);
+    expect(generatedCode).not.toContain(`export * from ${JSON.stringify(importPath)}`);
+  });
+
+  it.each([
+    ['block comments', 'export/* comment */const/* name */value = 1;', ['value']],
+    ['line comments', 'export// comment\nconst// name\nvalue = 1;', ['value']],
+  ])('keeps complete export coverage with %s', (_syntax, source, expectedExports) => {
+    const importPath = '/repo/packages/cached-shared-source/leaf.ts';
+    const shareItem: ShareItem = {
+      name: 'commented-shared',
+      from: '',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { import: importPath, singleton: true, requiredVersion: '^1.0.0' },
+    };
+    const readFileSyncMock = vi.mocked(readFileSync);
+    const originalRead = readFileSyncMock.getMockImplementation() as typeof readFileSync;
+    readFileSyncMock.mockImplementation(((filePath: string, ...args: unknown[]) =>
+      String(filePath) === importPath
+        ? source
+        : (originalRead as (...args: unknown[]) => unknown)(
+            filePath,
+            ...args
+          )) as typeof readFileSync);
+    invalidateSharedExportInspectionCache(importPath);
+    try {
+      expect(getSharedNamedExports(shareItem.name, shareItem)).toEqual(expectedExports);
+    } finally {
+      readFileSyncMock.mockImplementation(originalRead);
+      invalidateSharedExportInspectionCache(importPath);
+    }
   });
 
   it('ignores members named export in object and type literals', () => {

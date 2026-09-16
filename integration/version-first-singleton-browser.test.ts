@@ -120,79 +120,101 @@ function hostOptions(remoteEntry: string) {
   } satisfies Parameters<typeof federation>[0];
 }
 
+async function readNegotiatedSharedVersions(
+  sharedImports: { host?: string; remote?: string } = {}
+) {
+  const originalPackageDetectionCwd = getPackageDetectionCwd();
+  const workspace = await mkdtemp(path.join(tmpdir(), 'mf-version-first-singleton-browser-'));
+  let remoteServer: StaticServer | undefined;
+  let hostServer: StaticServer | undefined;
+  let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+  try {
+    const remoteOutDir = path.join(workspace, 'remote');
+    const hostOutDir = path.join(workspace, 'host');
+    // The remote provides 1.5.0 and the host provides 1.0.0.
+    await buildFixtureTo('version-first-singleton-remote', remoteOutDir, {
+      ...remoteOptions,
+      shared: {
+        'shared-lib': { singleton: true, import: sharedImports.remote },
+      },
+    });
+    remoteServer = await serveDirectory(remoteOutDir);
+    await buildFixtureTo('version-first-singleton-host', hostOutDir, {
+      ...hostOptions(`${remoteServer.origin}/remoteEntry.js`),
+      shared: {
+        'shared-lib': { singleton: true, import: sharedImports.host },
+      },
+    });
+    hostServer = await serveDirectory(hostOutDir);
+
+    browser = await createBrowser();
+    const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    const consoleErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') consoleErrors.push(message.text());
+    });
+
+    await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
+    try {
+      await page.waitForFunction(
+        () => document.querySelector('#app')?.textContent?.startsWith('host:'),
+        undefined,
+        { timeout: 15_000 }
+      );
+    } catch (error) {
+      throw new Error(
+        JSON.stringify(
+          {
+            cause: String(error),
+            pageErrors,
+            consoleErrors,
+            content: await page.content(),
+          },
+          null,
+          2
+        )
+      );
+    }
+
+    const [hostSaw, remoteSaw] = await Promise.all([
+      page.evaluate(() => (window as any).__host_saw_version__),
+      page.evaluate(() => (window as any).__remote_saw_version__),
+    ]);
+    return { hostSaw, remoteSaw, pageErrors, consoleErrors };
+  } finally {
+    await browser?.close();
+    await hostServer?.close();
+    await remoteServer?.close();
+    await rm(workspace, { recursive: true, force: true });
+    setPackageDetectionCwd(originalPackageDetectionCwd);
+  }
+}
+
 describe('version-first singleton static import browser bootstrap', () => {
   it('resolves both host and remote static imports to the higher negotiated version', async () => {
-    const originalPackageDetectionCwd = getPackageDetectionCwd();
-    const workspace = await mkdtemp(path.join(tmpdir(), 'mf-version-first-singleton-browser-'));
-    let remoteServer: StaticServer | undefined;
-    let hostServer: StaticServer | undefined;
-    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+    expect(await readNegotiatedSharedVersions()).toEqual({
+      hostSaw: '1.5.0',
+      remoteSaw: '1.5.0',
+      pageErrors: [],
+      consoleErrors: [],
+    });
+  }, 60_000);
 
-    try {
-      const remoteOutDir = path.join(workspace, 'remote');
-      const hostOutDir = path.join(workspace, 'host');
-      // remote declares shared-lib@1.5.0 — the higher of the two versions.
-      await buildFixtureTo('version-first-singleton-remote', remoteOutDir, remoteOptions);
-      remoteServer = await serveDirectory(remoteOutDir);
-      // host declares shared-lib@1.0.0 — the lower of the two versions.
-      await buildFixtureTo(
-        'version-first-singleton-host',
-        hostOutDir,
-        hostOptions(`${remoteServer.origin}/remoteEntry.js`)
-      );
-      hostServer = await serveDirectory(hostOutDir);
+  it('preserves singleton negotiation when comments separate export tokens', async () => {
+    const result = await readNegotiatedSharedVersions({
+      host: path.resolve(FIXTURES, 'version-first-singleton-host/commented-shared.js'),
+      remote: path.resolve(FIXTURES, 'version-first-singleton-remote/commented-shared.js'),
+    });
 
-      browser = await createBrowser();
-      const page = await browser.newPage();
-      const pageErrors: string[] = [];
-      const consoleErrors: string[] = [];
-      page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
-      page.on('console', (message) => {
-        if (message.type() === 'error') consoleErrors.push(message.text());
-      });
-
-      await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
-      try {
-        await page.waitForFunction(
-          () => document.querySelector('#app')?.textContent?.startsWith('host:'),
-          undefined,
-          { timeout: 15_000 }
-        );
-      } catch (error) {
-        throw new Error(
-          JSON.stringify(
-            {
-              cause: String(error),
-              pageErrors,
-              consoleErrors,
-              content: await page.content(),
-            },
-            null,
-            2
-          )
-        );
-      }
-
-      const [hostSaw, remoteSaw] = await Promise.all([
-        page.evaluate(() => (window as any).__host_saw_version__),
-        page.evaluate(() => (window as any).__remote_saw_version__),
-      ]);
-
-      // Under shareStrategy: 'version-first' with singleton: true, both the
-      // host's and the remote's static import of the shared singleton must
-      // resolve to the higher of the two negotiated versions, regardless of
-      // which side declared it.
-      expect(hostSaw).toBe('1.5.0');
-      expect(remoteSaw).toBe('1.5.0');
-      expect(pageErrors).toEqual([]);
-      expect(consoleErrors).toEqual([]);
-    } finally {
-      await browser?.close();
-      await hostServer?.close();
-      await remoteServer?.close();
-      await rm(workspace, { recursive: true, force: true });
-      setPackageDetectionCwd(originalPackageDetectionCwd);
-    }
+    expect(result).toEqual({
+      hostSaw: '1.5.0',
+      remoteSaw: '1.5.0',
+      pageErrors: [],
+      consoleErrors: [],
+    });
   }, 60_000);
 
   it('keeps eager React fallbacks coherent across patch versions', async () => {
