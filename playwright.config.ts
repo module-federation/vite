@@ -22,6 +22,13 @@ export default defineConfig({
     },
     {
       command:
+        'REMOTE_INSTANCE=secondary REMOTE_PORT=5177 pnpm --filter examples-vite-vite-remote run preview',
+      url: 'http://localhost:5177',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command:
         'EAGER_SHARED=true EAGER_MANIFEST_PORT=5185 pnpm --filter examples-vite-vite-host run preview',
       url: 'http://localhost:5185',
       reuseExistingServer: !process.env.CI,
