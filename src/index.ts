@@ -60,6 +60,7 @@ import {
   hasRemotes,
   hasShared,
   normalizeModuleFederationOptions,
+  resolveSharedVersions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import {
@@ -676,6 +677,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         .map((entry) => (path.isAbsolute(entry) ? entry : path.resolve(root, entry)));
       resetConcreteSharedImportSourceCache();
       setPackageDetectionCwd(root);
+      resolveSharedVersions(shared, root);
       const isVinext = hasPackageDependency('vinext');
 
       // Configure SSR runtime with the host's remotes so server-side loadRemote
@@ -1405,6 +1407,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           command as 'serve' | 'build',
           Object.keys(options.remotes).length > 0
         );
+        resolveSharedVersions(shared, config.root);
         initVirtualModules(command, remoteEntryId, ssrCapabilities.enableSsrInitBootstrap, options);
       },
     },
