@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   hasPackageDependencyMock,
@@ -1436,14 +1436,153 @@ describe('virtualRemoteEntry', () => {
 
     const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
-    expect(hostInit).toContain('share.shareConfig?.import === false &&');
+    expect(hostInit).toContain('if (share.shareConfig?.import === false) {');
     expect(hostInit).toContain(
-      'Object.values(runtime.shareScopeMap?.[scopeName]?.[pkg] || {}).some('
+      '__mfHasProvider(runtime.shareScopeMap?.[scopeName]?.[pkg]))) return;'
     );
     expect(hostInit).toContain('(provider) => provider?.shareConfig?.import !== false');
-    expect(hostInit.indexOf('share.shareConfig?.import === false &&')).toBeLessThan(
+    expect(hostInit.indexOf('if (share.shareConfig?.import === false) {')).toBeLessThan(
       hostInit.indexOf('await runtime.loadShare(pkg, {')
     );
+  });
+
+  describe('import:false shares provided by sibling federation instances', () => {
+    const consumeOnly = {
+      name: 'shared-lib',
+      from: 'consumer',
+      version: '1.0.0',
+      scope: ['default'],
+      shareConfig: { singleton: true, requiredVersion: '*', strictVersion: false, import: false },
+      get: async () => {
+        throw new Error('must be provided by host');
+      },
+    };
+    const siblingProvider = {
+      version: '1.0.0',
+      scope: ['default'],
+      from: 'standaloneProvider',
+      shareConfig: { singleton: true, requiredVersion: '^1.0.0', strictVersion: false },
+      get: async () => () => ({ hello: 'from sibling' }),
+    };
+    let originalFederation: unknown;
+    let originalInstances: unknown;
+    beforeEach(() => {
+      originalFederation = (globalThis as any).__FEDERATION__;
+      originalInstances = originalFederation && (originalFederation as any).__INSTANCES__;
+    });
+    afterEach(() => {
+      if (originalFederation === undefined) delete (globalThis as any).__FEDERATION__;
+      else (originalFederation as any).__INSTANCES__ = originalInstances;
+    });
+
+    async function runHostInit(
+      ownScope: Record<string, unknown>,
+      instances: unknown[],
+      loadShare: ReturnType<typeof vi.fn>
+    ) {
+      normalizedSharedMock.mockReturnValue({ 'shared-lib': consumeOnly });
+      const mod = await import('../virtualRemoteEntry');
+      mod.getUsedShares().clear();
+      mod.addUsedShares('shared-lib');
+      const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+      const batchesMarker = 'const __mfHostInitShareBatches = ';
+      const batchesStart = code.indexOf(batchesMarker);
+      expect(batchesStart).not.toBe(-1);
+      const loopCode = code.slice(batchesStart, code.indexOf('return runtime;', batchesStart));
+
+      const runtime = {
+        shareScopeMap: { default: { 'shared-lib': ownScope } },
+        loadShare,
+      };
+      ((globalThis as any).__FEDERATION__ ||= {}).__INSTANCES__ = [...instances, runtime];
+      const cache: Record<string, unknown> = {};
+      await new Function(
+        'usedShared',
+        'runtime',
+        '__mfModuleCache',
+        '__mfGetSharedCacheDescriptor',
+        '__mfReadSharedCache',
+        '__mfReadSharedCacheOwner',
+        '__mfWriteSharedCache',
+        '__mfNormalizeRuntimeShare',
+        `return (async () => { ${loopCode} })();`
+      )(
+        { 'shared-lib': consumeOnly },
+        runtime,
+        { share: cache },
+        (pkg: string) => ({ canonical: `default:${pkg}` }),
+        (store: Record<string, unknown>, d: { canonical: string }) => store[d.canonical],
+        () => undefined,
+        (store: Record<string, unknown>, d: { canonical: string }, value: unknown) => {
+          store[d.canonical] = value;
+        },
+        (m: unknown) => m
+      );
+      return { runtime, cache };
+    }
+
+    it('adopts the provider of an already initialized sibling instance and loads it', async () => {
+      const loadShare = vi.fn(async (pkg: string) => {
+        const provider = Object.values(
+          (globalThis as any).__FEDERATION__.__INSTANCES__.at(-1).shareScopeMap.default[pkg]
+        ).find((p: any) => p.shareConfig.import !== false) as typeof siblingProvider;
+        return provider.get();
+      });
+      const sibling = {
+        options: { name: 'standaloneProvider' },
+        shareScopeMap: { default: { 'shared-lib': { '1.0.0': siblingProvider } } },
+      };
+
+      const { runtime, cache } = await runHostInit({ '1.0.0': consumeOnly }, [sibling], loadShare);
+
+      expect(loadShare).toHaveBeenCalledWith('shared-lib', expect.anything());
+      expect(runtime.shareScopeMap.default['shared-lib']['1.0.0']).toBe(siblingProvider);
+      expect(cache['default:shared-lib']).toEqual({ hello: 'from sibling' });
+    });
+
+    it('still skips loadShare when no instance provides the share', async () => {
+      const loadShare = vi.fn();
+      const siblingWithOwnStub = {
+        options: { name: 'other' },
+        shareScopeMap: {
+          default: { 'shared-lib': { '0.0.0': { ...consumeOnly, from: 'other' } } },
+        },
+      };
+
+      const { runtime, cache } = await runHostInit(
+        { '1.0.0': consumeOnly },
+        [siblingWithOwnStub],
+        loadShare
+      );
+
+      expect(loadShare).not.toHaveBeenCalled();
+      expect(Object.keys(runtime.shareScopeMap.default['shared-lib'])).toEqual(['1.0.0']);
+      expect(cache).toEqual({});
+    });
+
+    it('keeps a provider already registered in its own scope over sibling providers', async () => {
+      const ownProvider = {
+        ...siblingProvider,
+        version: '2.0.0',
+        from: 'runtime-plugin',
+        get: async () => () => ({ hello: 'from registerShared' }),
+      };
+      const loadShare = vi.fn(async () => ownProvider.get());
+      const sibling = {
+        options: { name: 'standaloneProvider' },
+        shareScopeMap: { default: { 'shared-lib': { '2.0.0': siblingProvider } } },
+      };
+
+      const { runtime, cache } = await runHostInit(
+        { '1.0.0': consumeOnly, '2.0.0': ownProvider },
+        [sibling],
+        loadShare
+      );
+
+      expect(loadShare).toHaveBeenCalledTimes(1);
+      expect(runtime.shareScopeMap.default['shared-lib']['2.0.0']).toBe(ownProvider);
+      expect(cache['default:shared-lib']).toEqual({ hello: 'from registerShared' });
+    });
   });
 
   it('initializes all configured provider share scopes in remoteEntry', async () => {

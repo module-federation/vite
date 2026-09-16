@@ -2338,15 +2338,30 @@ export function generateHostAutoInitCode(
                 }
               ) return;
               // An import:false share has nothing to load until a foreign provider
-              // registers: its own stub getter throws by construction.
-              if (
-                share.shareConfig?.import === false &&
-                !(Array.isArray(share.scope) ? share.scope : [share.scope || 'default']).some((scopeName) =>
-                  Object.values(runtime.shareScopeMap?.[scopeName]?.[pkg] || {}).some(
-                    (provider) => provider?.shareConfig?.import !== false
-                  )
-                )
-              ) return;
+              // registers: its own stub getter throws by construction. A standalone
+              // container initialized on the same page keeps its providers in its
+              // own runtime scope (#1307), so adopt those before giving up.
+              if (share.shareConfig?.import === false) {
+                const __mfScopeNames = Array.isArray(share.scope) ? share.scope : [share.scope || 'default'];
+                const __mfHasProvider = (versions) => Object.values(versions || {}).some(
+                  (provider) => provider?.shareConfig?.import !== false
+                );
+                if (!__mfScopeNames.some((scopeName) => __mfHasProvider(runtime.shareScopeMap?.[scopeName]?.[pkg]))) {
+                  for (const instance of globalThis.__FEDERATION__?.__INSTANCES__ || []) {
+                    for (const scopeName of __mfScopeNames) {
+                      const versions = instance?.shareScopeMap?.[scopeName]?.[pkg];
+                      if (!__mfHasProvider(versions)) continue;
+                      const target = (runtime.shareScopeMap[scopeName] ||= {})[pkg] ||= {};
+                      for (const [version, provider] of Object.entries(versions)) {
+                        if (provider?.shareConfig?.import === false) continue;
+                        if (target[version] && target[version].shareConfig?.import !== false) continue;
+                        target[version] = provider;
+                      }
+                    }
+                  }
+                }
+                if (!__mfScopeNames.some((scopeName) => __mfHasProvider(runtime.shareScopeMap?.[scopeName]?.[pkg]))) return;
+              }
               await runtime.loadShare(pkg, {
                 customShareInfo: { shareConfig: share.shareConfig }
               }).then(async (factory) => {
