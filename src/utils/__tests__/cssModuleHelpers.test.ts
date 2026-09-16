@@ -209,6 +209,43 @@ describe('cssModuleHelpers', () => {
       });
     });
 
+    it('tracks dynamic imports nested behind other dynamic imports', () => {
+      const bundle = {
+        'entry.js': {
+          ...createChunk('entry.js'),
+          modules: { module1: createRenderedModule() },
+          dynamicImports: ['route-a.js'],
+        },
+        'route-a.js': {
+          ...createChunk('route-a.js'),
+          dynamicImports: ['route-b.js'],
+        },
+        'route-b.js': {
+          ...createChunk('route-b.js'),
+          imports: ['route-b-dependency.js'],
+          dynamicImports: ['route-c.js', 'entry.js'],
+        },
+        'route-b-dependency.js': {
+          ...createChunk('route-b-dependency.js'),
+          dynamicImports: ['route-c.js'],
+        },
+        'route-c.js': createChunk('route-c.js'),
+      } satisfies Record<string, OutputBundleItem>;
+
+      const filesMap = {};
+      processModuleAssets(bundle, filesMap, (modulePath) => modulePath);
+
+      expect(filesMap).toEqual({
+        module1: {
+          js: {
+            sync: ['entry.js'],
+            async: ['route-a.js', 'route-b.js', 'route-c.js', 'entry.js'],
+          },
+          css: { sync: [], async: [] },
+        },
+      });
+    });
+
     it('reuses chunk-graph analysis for multiple matched modules in one chunk', () => {
       const readDynamicImports = vi.fn(() => ['async.js', 'async.css']);
       const sharedChunk = createChunk('shared.js', {

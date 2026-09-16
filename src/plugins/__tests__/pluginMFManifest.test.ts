@@ -372,7 +372,7 @@ describe('pluginMFManifest', () => {
     expect(stats.assetAnalysis['./src/exposed.js'].js).toEqual(expectedAssets);
   });
 
-  it('expands expose sync and async static closures without crossing dynamic boundaries', async () => {
+  it('expands expose sync and async static closures across nested dynamic boundaries', async () => {
     const exposed = createChunk('assets/exposed.js', ['/src/exposed.js']);
     exposed.imports = ['assets/expose-dependency.js'];
     exposed.dynamicImports = ['assets/lazy.js', 'assets/expose-dependency.js'];
@@ -401,7 +401,7 @@ describe('pluginMFManifest', () => {
     const stats = JSON.parse(emitted['mf-stats.json']);
     const expectedAssets = {
       sync: ['assets/exposed.js', 'assets/expose-dependency.js'],
-      async: ['assets/lazy.js', 'assets/lazy-dependency.js'],
+      async: ['assets/lazy.js', 'assets/not-preloaded.js', 'assets/lazy-dependency.js'],
     };
 
     expect(manifest.exposes[0].assets.js).toEqual(expectedAssets);
@@ -423,12 +423,19 @@ describe('pluginMFManifest', () => {
     (lazy as OutputChunk & { viteMetadata: unknown }).viteMetadata = {
       importedCss: new Set(['assets/lazy.css']),
     };
+    // A lazy route nested two dynamic hops behind the expose (#1309).
+    lazy.dynamicImports = ['assets/nested-lazy.js'];
+    const nestedLazy = createChunk('assets/nested-lazy.js', ['/src/nested-lazy.ts']);
+    (nestedLazy as OutputChunk & { viteMetadata: unknown }).viteMetadata = {
+      importedCss: new Set(['assets/nested-lazy.css']),
+    };
 
     const bundle = {
       'remoteEntry.js': createChunk('remoteEntry.js', ['/src/remoteEntry.ts']),
       'assets/exposed.js': exposed,
       'assets/expose-dependency.js': dependency,
       'assets/lazy.js': lazy,
+      'assets/nested-lazy.js': nestedLazy,
     } satisfies OutputBundle;
 
     const emitted = await runGenerateBundleWithManifest(true, {
@@ -439,7 +446,7 @@ describe('pluginMFManifest', () => {
 
     expect(manifest.exposes[0].assets.css).toEqual({
       sync: ['assets/dependency.css'],
-      async: ['assets/lazy.css'],
+      async: ['assets/lazy.css', 'assets/nested-lazy.css'],
     });
   });
 
