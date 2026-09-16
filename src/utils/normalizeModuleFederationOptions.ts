@@ -813,6 +813,12 @@ export function hasRemotes(
   return Object.keys(options.remotes || {}).length > 0;
 }
 
+export function hasShared(
+  options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
+) {
+  return Object.keys(options.shared || {}).length > 0;
+}
+
 export function isRemoteContainer(
   options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
 ) {

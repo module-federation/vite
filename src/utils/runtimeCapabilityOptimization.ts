@@ -1,5 +1,8 @@
 import type { UserConfig } from 'vite';
-import type { NormalizedModuleFederationOptions } from './normalizeModuleFederationOptions';
+import {
+  hasShared,
+  type NormalizedModuleFederationOptions,
+} from './normalizeModuleFederationOptions';
 
 type RuntimeCapabilityOption = 'disableRemote' | 'disableShared' | 'disableSnapshot';
 type DefineConfig = NonNullable<UserConfig['define']>;
@@ -76,7 +79,7 @@ export function getRuntimeCapabilityConfigurationWarnings(
     );
   }
 
-  if (options.disableShared && Object.keys(options.shared).length > 0) {
+  if (options.disableShared && hasShared(options)) {
     warnings.push(
       'disableShared is true, but shared dependencies are configured. Shared dependency loading will be unavailable at runtime.'
     );

@@ -492,6 +492,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
     }),
     isExplicitSharedKey: (key: string) => key in normalizedSharedMock(),
     hasRemotes: (options: { remotes?: object }) => Object.keys(options?.remotes ?? {}).length > 0,
+    hasShared: (options: { shared?: object }) => Object.keys(options?.shared ?? {}).length > 0,
     isRemoteContainer: (options: { exposes?: object }) =>
       Object.keys(options?.exposes ?? {}).length > 0,
     getNormalizeShareItem: (pkg: string) => ({
@@ -1448,7 +1449,7 @@ describe('virtualRemoteEntry', () => {
 
     expect(hostInit).toContain('if (share.shareConfig?.import === false) {');
     expect(hostInit).toContain('__mfHasUsableProvider(');
-    expect(hostInit).toContain('__mfRuntimeShare.getRegisteredShare(');
+    expect(hostInit).toContain('__mfSelectSharedProvider(');
     expect(hostInit).toContain('([, provider]) => provider?.shareConfig?.import !== false');
     expect(hostInit.indexOf('if (share.shareConfig?.import === false) {')).toBeLessThan(
       hostInit.indexOf('await runtime.loadShare(pkg, {')
@@ -1523,7 +1524,7 @@ describe('virtualRemoteEntry', () => {
         '__mfReadSharedCacheOwner',
         '__mfWriteSharedCache',
         '__mfNormalizeRuntimeShare',
-        '__mfRuntimeShare',
+        'runtimeShare',
         `return (async () => { ${loopCode} })();`
       )(
         { 'shared-lib': share },
@@ -1667,7 +1668,7 @@ describe('virtualRemoteEntry', () => {
         '__mfReadSharedCacheOwner',
         '__mfWriteSharedCache',
         '__mfNormalizeRuntimeShare',
-        '__mfRuntimeShare',
+        'runtimeShare',
         `return (async () => { ${loopCode} })();`
       )(
         { 'shared-lib': consumeOnly },
