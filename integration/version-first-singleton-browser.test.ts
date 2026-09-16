@@ -63,12 +63,6 @@ async function buildFixtureTo(
   outDir: string,
   mfOptions: Parameters<typeof federation>[0]
 ): Promise<void> {
-  // federation() resolves each shared package's version synchronously (via
-  // the process-wide package-detection cwd) before Vite's own config hook
-  // would otherwise point that detection at this fixture's root, so it must
-  // be set explicitly first whenever more than one fixture with its own
-  // same-named shared dependency is built within a single process.
-  setPackageDetectionCwd(path.resolve(FIXTURES, fixture));
   const result = await build({
     root: path.resolve(FIXTURES, fixture),
     logLevel: 'silent',

@@ -25,7 +25,12 @@ export type RemoteEntryType =
 import * as fs from 'fs';
 import * as path from 'node:path';
 import { createModuleFederationError, mfWarn } from './logger';
-import { getInstalledPackageJson, getPackageName, resolveImportPath } from './packageUtils';
+import {
+  getInstalledPackageJson,
+  getPackageDetectionCwd,
+  getPackageName,
+  resolveImportPath,
+} from './packageUtils';
 import { getCommonSharedSubpaths } from './pathNormalization';
 import { normalizePathForImport } from './buildPaths';
 
@@ -171,7 +176,7 @@ export interface TreeShakingConfig {
  * @param {string} sharedName
  * @returns {string | undefined}
  */
-function searchPackageVersion(sharedName: string): string | undefined {
+function searchPackageVersion(sharedName: string, cwd: string): string | undefined {
   // Let getInstalledPackageJson derive the bare package name from the shared
   // key via its default `getPackageName(pkg)` behavior. Forcing
   // `packageName: sharedName` here broke version resolution for any shared
@@ -179,7 +184,7 @@ function searchPackageVersion(sharedName: string): string | undefined {
   // package.json whose `name` field equals `packageName`, but no real
   // package is named "@scope/foo/bar", so the walk always misses and
   // `version` stays undefined. The bare package name "@scope/foo" matches.
-  const installed = getInstalledPackageJson(sharedName);
+  const installed = getInstalledPackageJson(sharedName, { cwd });
   const version = installed?.packageJson.version;
   return typeof version === 'string' ? version : undefined;
 }
@@ -253,6 +258,64 @@ function getLitExportSubpathShares(sharedName: string): string[] {
     .map((key) => `${sharedName}/${key.slice(2)}`);
 }
 
+type SharedVersionConfig = Pick<
+  moduleFederationPlugin.SharedConfig,
+  'import' | 'requiredVersion'
+> & {
+  version?: string;
+};
+
+// Keep the user's settings separate from inferred values so a later root lookup
+// cannot mistake an inferred version for an explicit override.
+const sharedVersionConfigs = new WeakMap<ShareItem, SharedVersionConfig>();
+
+function resolveSharedVersion(key: string, config: SharedVersionConfig, cwd: string) {
+  const source = typeof config.import === 'string' ? config.import : key;
+  // Consume-only shares also need a version for runtime validation.
+  const version =
+    config.version ||
+    searchPackageVersion(source, cwd) ||
+    inferVersionFromRequiredVersion(config.requiredVersion);
+  let requiredVersion = config.requiredVersion;
+  if (requiredVersion === undefined && !config.version) {
+    try {
+      const packageJson = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
+      const packageName = getPackageName(source);
+      requiredVersion =
+        packageJson.dependencies?.[packageName] ??
+        packageJson.devDependencies?.[packageName] ??
+        packageJson.peerDependencies?.[packageName] ??
+        packageJson.optionalDependencies?.[packageName];
+    } catch {
+      // Projects without a package.json keep the installed-version fallback.
+    }
+  }
+
+  if (
+    requiredVersion === false ||
+    (typeof requiredVersion === 'string' &&
+      requiredVersion.trim() !== '' &&
+      !isProtocolRequiredVersion(requiredVersion))
+  ) {
+    return { version, requiredVersion };
+  }
+  return {
+    version,
+    requiredVersion:
+      config.import === false || config.version ? '*' : version ? `^${version}` : '*',
+  };
+}
+
+export function resolveSharedVersions(shared: NormalizedShared, root: string) {
+  for (const [key, item] of Object.entries(shared)) {
+    const config = sharedVersionConfigs.get(item);
+    if (!config) continue;
+    const { version, requiredVersion } = resolveSharedVersion(key, config, root);
+    item.version = version;
+    item.shareConfig.requiredVersion = requiredVersion;
+  }
+}
+
 function normalizeShareItem(
   key: string,
   shareItem:
@@ -270,12 +333,6 @@ function normalizeShareItem(
         treeShaking?: TreeShakingConfig;
       }
 ): ShareItem {
-  const isImportFalse = typeof shareItem === 'object' && shareItem.import === false;
-  const explicitVersion = typeof shareItem === 'object' ? shareItem.version : undefined;
-  const inferredVersion =
-    typeof shareItem === 'object'
-      ? inferVersionFromRequiredVersion(shareItem.requiredVersion)
-      : undefined;
   const treeShaking = typeof shareItem === 'object' ? shareItem.treeShaking : undefined;
   if (treeShaking && treeShaking.mode !== 'server-calc' && treeShaking.mode !== 'runtime-infer') {
     throw createModuleFederationError(
@@ -298,21 +355,10 @@ function normalizeShareItem(
     );
   }
 
-  // Version resolution is required even when import: false.
-  //
-  // The `import: false` flag indicates "this app does not PROVIDE the module"
-  // (it must be supplied by the host), but the runtime still needs to know
-  // the version for share scope registration and singleton validation.
-  //
-  // Without a resolved version, the MF runtime defaults to version "0",
-  // which breaks satisfy() checks and causes false-positive warnings like:
-  //   "Version 0 from ... does not satisfy the requirement of ... which needs *)"
-  //
-  // Errors are only thrown when version resolution fails for non-import:false
-  // modules, as those are expected to be resolvable.
-  const version = explicitVersion || searchPackageVersion(key) || inferredVersion;
+  const config = typeof shareItem === 'object' ? shareItem : {};
+  const { version, requiredVersion } = resolveSharedVersion(key, config, getPackageDetectionCwd());
   if (typeof shareItem === 'string') {
-    return {
+    const result: ShareItem = {
       name: shareItem,
       version,
       scope: 'default',
@@ -321,22 +367,13 @@ function normalizeShareItem(
         import: undefined,
         singleton: false,
         eager: false,
-        requiredVersion: version ? `^${version}` : '*',
+        requiredVersion,
       },
     };
+    sharedVersionConfigs.set(result, config);
+    return result;
   }
-  // Package-manager protocols (catalog:, workspace:*, npm:, patch:, file:, …)
-  // are not semver ranges. Passing them through breaks runtime satisfy().
-  // Only rewrite known protocols / empty string — keep real ranges as-is
-  // (including leading spaces and compound ranges like "* || ^8.0.0").
-  const userRequiredVersion = shareItem.requiredVersion;
-  const keepUserRequiredVersion =
-    userRequiredVersion === false ||
-    (typeof userRequiredVersion === 'string' &&
-      userRequiredVersion.trim() !== '' &&
-      !isProtocolRequiredVersion(userRequiredVersion));
-
-  return {
+  const result: ShareItem = {
     name: key,
     from: '',
     version,
@@ -345,18 +382,14 @@ function normalizeShareItem(
       import: shareItem.import,
       singleton: shareItem.singleton || false,
       eager: shareItem.eager || false,
-      requiredVersion: keepUserRequiredVersion
-        ? userRequiredVersion
-        : isImportFalse || shareItem.version
-          ? '*'
-          : version
-            ? `^${version}`
-            : '*',
+      requiredVersion,
       strictVersion: !!shareItem.strictVersion,
       ...(shareItem.suppressMissingImportWarning ? { suppressMissingImportWarning: true } : {}),
       ...(treeShaking ? { treeShaking: { ...treeShaking } } : {}),
     },
   };
+  sharedVersionConfigs.set(result, { ...config });
+  return result;
 }
 
 /**
