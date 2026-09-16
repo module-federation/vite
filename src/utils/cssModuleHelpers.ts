@@ -155,7 +155,9 @@ export const collectStaticChunks = (
 
 /**
  * Analyzes assets associated with a chunk without mutating the output map.
- * The static-import traversal is cycle-safe and ignores missing bundle entries.
+ * Dynamic imports are collected transitively (a lazy route nested behind another
+ * lazy route is still reachable), following both static and dynamic edges.
+ * The traversal is cycle-safe and ignores missing bundle entries.
  */
 const analyzeChunkAssets = (
   bundle: Record<string, OutputBundleItem>,
@@ -163,13 +165,25 @@ const analyzeChunkAssets = (
   chunk: OutputChunkWithViteMetadata
 ): ChunkAssetAnalysis => {
   const dynamicAssets: ChunkAssetAnalysis['dynamicAssets'] = [];
-  for (const currentChunk of collectStaticChunks(bundle, [fileName])) {
+  const visited = new Set<string>([fileName]);
+  const queue = [fileName];
+  const enqueue = (imported: string) => {
+    if (visited.has(imported)) return;
+    visited.add(imported);
+    queue.push(imported);
+  };
+
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
+    const currentChunk = bundle[queue[queueIndex]];
+    if (!currentChunk || currentChunk.type !== 'chunk') continue;
+    for (const imported of currentChunk.imports ?? []) enqueue(imported);
     for (const dynamicImport of currentChunk.dynamicImports ?? []) {
       if (!bundle[dynamicImport]) continue;
       dynamicAssets.push({
         fileName: dynamicImport,
         type: isCSSFile(dynamicImport) ? 'css' : 'js',
       });
+      enqueue(dynamicImport);
     }
   }
 
