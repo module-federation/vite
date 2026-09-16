@@ -2347,6 +2347,24 @@ export function generateHostAutoInitCode(
                   (provider) => provider?.shareConfig?.import !== false
                 );
                 if (!__mfScopeNames.some((scopeName) => __mfHasProvider(runtime.shareScopeMap?.[scopeName]?.[pkg]))) {
+                  // loadShare() re-runs initializeSharing(), which re-registers this
+                  // container's own stub and lets it displace an unloaded adopted
+                  // provider whenever this container's name sorts after the provider's
+                  // (#1311). Put the provider back: a stub never outranks a provider.
+                  if (!runtime.__mfKeepAdoptedProviders) {
+                    runtime.__mfKeepAdoptedProviders = true;
+                    runtime.sharedHandler?.hooks?.lifecycle?.afterRegisterShare?.on?.((args) => {
+                      const { shared, previousShared, registeredShared } = args || {};
+                      if (
+                        shared?.shareConfig?.import !== false ||
+                        registeredShared !== shared ||
+                        !previousShared ||
+                        previousShared.shareConfig?.import === false
+                      ) return;
+                      const versions = runtime.shareScopeMap?.[args.scope]?.[args.pkgName];
+                      if (versions && versions[shared.version] === shared) versions[shared.version] = previousShared;
+                    });
+                  }
                   for (const instance of globalThis.__FEDERATION__?.__INSTANCES__ || []) {
                     for (const scopeName of __mfScopeNames) {
                       const versions = instance?.shareScopeMap?.[scopeName]?.[pkg];
