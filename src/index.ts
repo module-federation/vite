@@ -58,6 +58,7 @@ import type {
 } from './utils/normalizeModuleFederationOptions';
 import {
   hasRemotes,
+  hasShared,
   normalizeModuleFederationOptions,
 } from './utils/normalizeModuleFederationOptions';
 import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
@@ -705,10 +706,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         }
       }
 
-      if (
-        !config.build?.ssr &&
-        (Object.keys(shared ?? {}).length > 0 || Object.keys(remotes ?? {}).length > 0)
-      ) {
+      if (!config.build?.ssr && (hasShared(options) || hasRemotes(options))) {
         // The static remote registry is also needed by the production host
         // bootstrap. Keep share/optimize-deps discovery serve-only, but scan
         // the same client entry graph during build so the bootstrap can wait
@@ -724,7 +722,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
 
       // Create shared module virtual files EARLY and register shares eagerly
       // so localSharedImportMap has content on first load in both serve/build.
-      if (shared && Object.keys(shared).length > 0) {
+      if (hasShared(options)) {
         if (_command === 'serve') {
           excludeSharedSubDependencies(shared);
           config.optimizeDeps = config.optimizeDeps || {};
@@ -1962,7 +1960,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       config(config: UserConfig, { command: _command }: { command: string }) {
         const isRolldown = getIsRolldown(this);
         isSsrBuild = _command === 'build' && Boolean(config.build?.ssr);
-        const needsRuntimeHelpers = Object.keys(options.shared ?? {}).length > 0;
+        const needsRuntimeHelpers = hasShared(options);
 
         if (needsRuntimeHelpers) {
           appendResolveAlias(config, {
