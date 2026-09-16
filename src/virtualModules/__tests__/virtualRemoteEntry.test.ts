@@ -1540,6 +1540,88 @@ describe('virtualRemoteEntry', () => {
       expect(cache['default:shared-lib']).toEqual({ hello: 'from sibling' });
     });
 
+    it('keeps the adopted provider when loadShare re-registers the own stub over it (#1311)', async () => {
+      const ownStub = { ...consumeOnly };
+      const sibling = {
+        options: { name: 'StandaloneProvider' },
+        shareScopeMap: { default: { 'shared-lib': { '1.0.0': siblingProvider } } },
+      };
+      let afterRegisterShare: ((args: Record<string, unknown>) => void) | undefined;
+      let runtimeRef: any;
+      const loadShare = vi.fn(async (pkg: string) => {
+        // runtime-core initializeSharing(): the unloaded provider loses the
+        // same-version slot because 'consumer' > 'StandaloneProvider'.
+        const versions = runtimeRef.shareScopeMap.default[pkg];
+        const previousShared = versions['1.0.0'];
+        versions['1.0.0'] = ownStub;
+        afterRegisterShare?.({
+          pkgName: pkg,
+          scope: 'default',
+          shared: ownStub,
+          previousShared,
+          registeredShared: versions['1.0.0'],
+        });
+        const provider = Object.values(versions).find(
+          (p: any) => p.shareConfig.import !== false
+        ) as typeof siblingProvider | undefined;
+        if (!provider) throw new Error('must be provided by host');
+        return provider.get();
+      });
+      const sharedHandler = {
+        hooks: {
+          lifecycle: {
+            afterRegisterShare: {
+              on: (fn: typeof afterRegisterShare) => {
+                afterRegisterShare = fn;
+              },
+            },
+          },
+        },
+      };
+
+      normalizedSharedMock.mockReturnValue({ 'shared-lib': consumeOnly });
+      const mod = await import('../virtualRemoteEntry');
+      mod.getUsedShares().clear();
+      mod.addUsedShares('shared-lib');
+      const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+      const batchesMarker = 'const __mfHostInitShareBatches = ';
+      const batchesStart = code.indexOf(batchesMarker);
+      const loopCode = code.slice(batchesStart, code.indexOf('return runtime;', batchesStart));
+      runtimeRef = {
+        shareScopeMap: { default: { 'shared-lib': { '1.0.0': ownStub } } },
+        loadShare,
+        sharedHandler,
+      };
+      ((globalThis as any).__FEDERATION__ ||= {}).__INSTANCES__ = [sibling, runtimeRef];
+      const cache: Record<string, unknown> = {};
+      await new Function(
+        'usedShared',
+        'runtime',
+        '__mfModuleCache',
+        '__mfGetSharedCacheDescriptor',
+        '__mfReadSharedCache',
+        '__mfReadSharedCacheOwner',
+        '__mfWriteSharedCache',
+        '__mfNormalizeRuntimeShare',
+        `return (async () => { ${loopCode} })();`
+      )(
+        { 'shared-lib': consumeOnly },
+        runtimeRef,
+        { share: cache },
+        (pkg: string) => ({ canonical: `default:${pkg}` }),
+        (store: Record<string, unknown>, d: { canonical: string }) => store[d.canonical],
+        () => undefined,
+        (store: Record<string, unknown>, d: { canonical: string }, value: unknown) => {
+          store[d.canonical] = value;
+        },
+        (m: unknown) => m
+      );
+
+      expect(afterRegisterShare).toBeDefined();
+      expect(runtimeRef.shareScopeMap.default['shared-lib']['1.0.0']).toBe(siblingProvider);
+      expect(cache['default:shared-lib']).toEqual({ hello: 'from sibling' });
+    });
+
     it('still skips loadShare when no instance provides the share', async () => {
       const loadShare = vi.fn();
       const siblingWithOwnStub = {
