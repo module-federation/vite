@@ -129,6 +129,24 @@ type NamedExportScanState = {
 
 const DEFAULT_SHARED_EXPORT_CONDITIONS = ['browser', 'import', 'module', 'default'];
 
+function getSharedExportSource(source: string) {
+  const parts: string[] = [];
+  let offset = 0;
+  const codePositions = createCodePositionMap(source, (start, end) => {
+    // Comments separate tokens just like whitespace. Keep offsets and line
+    // breaks intact, and leave literals alone (notably re-export specifiers).
+    parts.push(
+      source.slice(offset, start),
+      source.slice(start, end).replace(/[^\r\n\u2028\u2029]/g, ' ')
+    );
+    offset = end;
+  });
+  return {
+    source: parts.length ? parts.join('') + source.slice(offset) : source,
+    codePositions,
+  };
+}
+
 function hasCodeMatch(source: string, regex: RegExp, codePositions: boolean[]): boolean {
   regex.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -212,8 +230,7 @@ function getMutableExportsFromFile(
   visited.add(entryPath);
 
   try {
-    const source = readFileSync(entryPath, 'utf-8');
-    const codePositions = createCodePositionMap(source);
+    const { source, codePositions } = getSharedExportSource(readFileSync(entryPath, 'utf-8'));
     const mutableBindings = new Set<string>();
     const mutableExports = new Set<string>();
     let match: RegExpExecArray | null;
@@ -624,7 +641,9 @@ function getNamedExportsViaRegex(
   exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
 ): string[] {
   const names = new Set<string>();
-  const codePositions = createCodePositionMap(source);
+  const inspected = getSharedExportSource(source);
+  source = inspected.source;
+  const codePositions = inspected.codePositions;
   const recognizedExportStarts = new Set<number>();
   visited = visited || new Set();
   if (filePath) visited.add(filePath);
@@ -796,8 +815,8 @@ function getNamedExportsViaRegex(
     recognizedExportStarts.add(match.index);
   }
 
-  // Regex extraction must fail closed. Valid syntax can omit whitespace or put
-  // comments between tokens, and silently treating an unmatched declaration as
+  // Regex extraction must fail closed. Valid syntax can still escape these
+  // patterns, and silently treating an unmatched declaration as
   // default-only would mix a cache-backed default with local named exports.
   const exportKeywordRegex = /\bexport\b/g;
   while ((match = exportKeywordRegex.exec(source)) !== null) {

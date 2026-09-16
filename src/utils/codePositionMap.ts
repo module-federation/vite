@@ -28,7 +28,10 @@ function isJsxClosingTagSlash(code: string, slashIndex: number): boolean {
 }
 
 /** Mark comments, string/template literals, and regular expressions as non-code. */
-export function createCodePositionMap(code: string): boolean[] {
+export function createCodePositionMap(
+  code: string,
+  onComment?: (start: number, end: number) => void
+): boolean[] {
   const positions = Array<boolean>(code.length).fill(true);
   const mask = (start: number, end: number) => {
     for (let index = start; index < end; index++) positions[index] = false;
@@ -48,6 +51,7 @@ export function createCodePositionMap(code: string): boolean[] {
       index += 2;
       while (index < code.length && code[index] !== '\n' && code[index] !== '\r') index++;
       mask(start, index);
+      onComment?.(start, index);
       continue;
     }
     if (char === '/' && next === '*') {
@@ -56,6 +60,7 @@ export function createCodePositionMap(code: string): boolean[] {
       while (index < code.length && !(code[index] === '*' && code[index + 1] === '/')) index++;
       index = Math.min(code.length, index + 2);
       mask(start, index);
+      onComment?.(start, index);
       continue;
     }
     if (char === '"' || char === "'" || char === '`') {
