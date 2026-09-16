@@ -1432,15 +1432,24 @@ describe('virtualRemoteEntry', () => {
   });
 
   it('skips host init loadShare for import:false shares without a foreign provider', async () => {
+    normalizedSharedMock.mockReturnValue({
+      'host-only': {
+        name: 'host-only',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { import: false, singleton: true, requiredVersion: '*', strictVersion: false },
+      },
+    });
     const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('host-only');
 
     const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
     expect(hostInit).toContain('if (share.shareConfig?.import === false) {');
-    expect(hostInit).toContain(
-      '__mfHasProvider(runtime.shareScopeMap?.[scopeName]?.[pkg]))) return;'
-    );
-    expect(hostInit).toContain('(provider) => provider?.shareConfig?.import !== false');
+    expect(hostInit).toContain('__mfHasUsableProvider(');
+    expect(hostInit).toContain('__mfRuntimeShare.getRegisteredShare(');
+    expect(hostInit).toContain('([, provider]) => provider?.shareConfig?.import !== false');
     expect(hostInit.indexOf('if (share.shareConfig?.import === false) {')).toBeLessThan(
       hostInit.indexOf('await runtime.loadShare(pkg, {')
     );
@@ -1464,6 +1473,14 @@ describe('virtualRemoteEntry', () => {
       shareConfig: { singleton: true, requiredVersion: '^1.0.0', strictVersion: false },
       get: async () => () => ({ hello: 'from sibling' }),
     };
+    const nonSingletonConsumeOnly = {
+      ...consumeOnly,
+      shareConfig: {
+        ...consumeOnly.shareConfig,
+        singleton: false,
+        requiredVersion: '^1.0.0',
+      },
+    };
     let originalFederation: unknown;
     let originalInstances: unknown;
     beforeEach(() => {
@@ -1478,9 +1495,10 @@ describe('virtualRemoteEntry', () => {
     async function runHostInit(
       ownScope: Record<string, unknown>,
       instances: unknown[],
-      loadShare: ReturnType<typeof vi.fn>
+      loadShare: ReturnType<typeof vi.fn>,
+      share = consumeOnly
     ) {
-      normalizedSharedMock.mockReturnValue({ 'shared-lib': consumeOnly });
+      normalizedSharedMock.mockReturnValue({ 'shared-lib': share });
       const mod = await import('../virtualRemoteEntry');
       mod.getUsedShares().clear();
       mod.addUsedShares('shared-lib');
@@ -1505,9 +1523,10 @@ describe('virtualRemoteEntry', () => {
         '__mfReadSharedCacheOwner',
         '__mfWriteSharedCache',
         '__mfNormalizeRuntimeShare',
+        '__mfRuntimeShare',
         `return (async () => { ${loopCode} })();`
       )(
-        { 'shared-lib': consumeOnly },
+        { 'shared-lib': share },
         runtime,
         { share: cache },
         (pkg: string) => ({ canonical: `default:${pkg}` }),
@@ -1516,7 +1535,8 @@ describe('virtualRemoteEntry', () => {
         (store: Record<string, unknown>, d: { canonical: string }, value: unknown) => {
           store[d.canonical] = value;
         },
-        (m: unknown) => m
+        (m: unknown) => m,
+        (await import('@module-federation/runtime/helpers')).share
       );
       return { runtime, cache };
     }
@@ -1538,6 +1558,49 @@ describe('virtualRemoteEntry', () => {
       expect(loadShare).toHaveBeenCalledWith('shared-lib', expect.anything());
       expect(runtime.shareScopeMap.default['shared-lib']['1.0.0']).toBe(siblingProvider);
       expect(cache['default:shared-lib']).toEqual({ hello: 'from sibling' });
+    });
+
+    it('adopts a compatible sibling provider when an incompatible local provider exists', async () => {
+      const loadShare = vi.fn(async () => siblingProvider.get());
+      const incompatibleLocalProvider = {
+        ...siblingProvider,
+        version: '2.0.0',
+        from: 'runtime-plugin',
+      };
+      const sibling = {
+        options: { name: 'standaloneProvider' },
+        shareScopeMap: { default: { 'shared-lib': { '1.0.0': siblingProvider } } },
+      };
+
+      const { runtime, cache } = await runHostInit(
+        { '1.0.0': nonSingletonConsumeOnly, '2.0.0': incompatibleLocalProvider },
+        [sibling],
+        loadShare,
+        nonSingletonConsumeOnly
+      );
+
+      expect(loadShare).toHaveBeenCalledWith('shared-lib', expect.anything());
+      expect(runtime.shareScopeMap.default['shared-lib']['1.0.0']).toBe(siblingProvider);
+      expect(runtime.shareScopeMap.default['shared-lib']['2.0.0']).toBe(incompatibleLocalProvider);
+      expect(cache['default:shared-lib']).toEqual({ hello: 'from sibling' });
+    });
+
+    it('does not cache a failed import:false share load', async () => {
+      const loadShare = vi.fn(async () => false);
+      const compatibleLocalProvider = {
+        ...siblingProvider,
+        from: 'runtime-plugin',
+      };
+
+      const { cache } = await runHostInit(
+        { '1.0.0': compatibleLocalProvider },
+        [],
+        loadShare,
+        nonSingletonConsumeOnly
+      );
+
+      expect(loadShare).toHaveBeenCalledTimes(1);
+      expect(cache).toEqual({});
     });
 
     it('keeps the adopted provider when loadShare re-registers the own stub over it (#1311)', async () => {
@@ -1587,6 +1650,7 @@ describe('virtualRemoteEntry', () => {
       const batchesMarker = 'const __mfHostInitShareBatches = ';
       const batchesStart = code.indexOf(batchesMarker);
       const loopCode = code.slice(batchesStart, code.indexOf('return runtime;', batchesStart));
+      const { share: runtimeShare } = await import('@module-federation/runtime/helpers');
       runtimeRef = {
         shareScopeMap: { default: { 'shared-lib': { '1.0.0': ownStub } } },
         loadShare,
@@ -1603,6 +1667,7 @@ describe('virtualRemoteEntry', () => {
         '__mfReadSharedCacheOwner',
         '__mfWriteSharedCache',
         '__mfNormalizeRuntimeShare',
+        '__mfRuntimeShare',
         `return (async () => { ${loopCode} })();`
       )(
         { 'shared-lib': consumeOnly },
@@ -1614,7 +1679,8 @@ describe('virtualRemoteEntry', () => {
         (store: Record<string, unknown>, d: { canonical: string }, value: unknown) => {
           store[d.canonical] = value;
         },
-        (m: unknown) => m
+        (m: unknown) => m,
+        runtimeShare
       );
 
       expect(afterRegisterShare).toBeDefined();

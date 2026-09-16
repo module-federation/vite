@@ -2291,7 +2291,39 @@ export function generateHostAutoInitCode(
   const preferLocalVinextReact =
     hasPackageDependency('vinext') &&
     (!exportConditions?.includes('browser') || exportConditions.includes('worker'));
+  const hasConfiguredShared = Object.keys(resolvedOptions.shared ?? {}).length > 0;
+  const hostInitSharedProviderHelperImport =
+    shouldPreloadShares && hasConfiguredShared
+      ? 'import {share as __mfRuntimeShare} from "@module-federation/runtime/helpers";'
+      : '';
+  const hostInitSharedProviderHelperCode =
+    shouldPreloadShares && hasConfiguredShared
+      ? `
+          const __mfHasUsableProvider = (versions, pkg, share, scopeName) => {
+            const providers = Object.fromEntries(
+              Object.entries(versions || {}).filter(
+                ([, provider]) => provider?.shareConfig?.import !== false
+              )
+            );
+            if (Object.keys(providers).length === 0) return false;
+            // Keep runtime singleton negotiation unchanged. A singleton already
+            // registered in this scope is authoritative, even when runtime-core
+            // reports a version mismatch.
+            if (share.shareConfig?.singleton) return true;
+            return Boolean(__mfRuntimeShare.getRegisteredShare(
+              { [scopeName]: { [pkg]: providers } },
+              pkg,
+              {
+                ...share,
+                scope: [scopeName],
+                strategy: ${toSafeJsLiteral(resolvedOptions.shareStrategy)},
+              },
+              { emit: (params) => params }
+            ));
+          };`
+      : '';
   return `
+    ${hostInitSharedProviderHelperImport}
     ${getRuntimeModuleCacheBootstrapCode(exportConditions)}
     let hostInitPromise;
     async function initHost() {
@@ -2313,6 +2345,7 @@ export function generateHostAutoInitCode(
               )
             );
           const __mfHostInitShareBatches = ${hostInitShareBatches};
+          ${hostInitSharedProviderHelperCode}
           for (const __mfHostInitShareBatch of __mfHostInitShareBatches) {
             await Promise.all(__mfHostInitShareBatch.map(async (pkg) => {
               const share = usedShared[pkg];
@@ -2343,10 +2376,14 @@ export function generateHostAutoInitCode(
               // own runtime scope (#1307), so adopt those before giving up.
               if (share.shareConfig?.import === false) {
                 const __mfScopeNames = Array.isArray(share.scope) ? share.scope : [share.scope || 'default'];
-                const __mfHasProvider = (versions) => Object.values(versions || {}).some(
-                  (provider) => provider?.shareConfig?.import !== false
-                );
-                if (!__mfScopeNames.some((scopeName) => __mfHasProvider(runtime.shareScopeMap?.[scopeName]?.[pkg]))) {
+                const __mfNeedsSiblingProvider = (scopeName) =>
+                  !__mfHasUsableProvider(
+                    runtime.shareScopeMap?.[scopeName]?.[pkg],
+                    pkg,
+                    share,
+                    scopeName
+                  );
+                if (__mfScopeNames.some(__mfNeedsSiblingProvider)) {
                   // loadShare() re-runs initializeSharing(), which re-registers this
                   // container's own stub and lets it displace an unloaded adopted
                   // provider whenever this container's name sorts after the provider's
@@ -2368,7 +2405,8 @@ export function generateHostAutoInitCode(
                   for (const instance of globalThis.__FEDERATION__?.__INSTANCES__ || []) {
                     for (const scopeName of __mfScopeNames) {
                       const versions = instance?.shareScopeMap?.[scopeName]?.[pkg];
-                      if (!__mfHasProvider(versions)) continue;
+                      if (!__mfHasUsableProvider(versions, pkg, share, scopeName)) continue;
+                      if (!__mfNeedsSiblingProvider(scopeName)) continue;
                       const target = (runtime.shareScopeMap[scopeName] ||= {})[pkg] ||= {};
                       for (const [version, provider] of Object.entries(versions)) {
                         if (provider?.shareConfig?.import === false) continue;
@@ -2378,11 +2416,12 @@ export function generateHostAutoInitCode(
                     }
                   }
                 }
-                if (!__mfScopeNames.some((scopeName) => __mfHasProvider(runtime.shareScopeMap?.[scopeName]?.[pkg]))) return;
+                if (__mfScopeNames.every(__mfNeedsSiblingProvider)) return;
               }
               await runtime.loadShare(pkg, {
                 customShareInfo: { shareConfig: share.shareConfig }
               }).then(async (factory) => {
+                if (factory === false) return;
                 const mod = typeof factory === "function" ? factory() : factory;
                 let resolved = __mfNormalizeRuntimeShare(await Promise.resolve(mod));
                 ${
