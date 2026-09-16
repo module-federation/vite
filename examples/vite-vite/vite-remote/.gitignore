@@ -11,6 +11,7 @@ pnpm-lock.yaml
 
 node_modules
 dist
+dist-*
 dist-ssr
 *.local
 
