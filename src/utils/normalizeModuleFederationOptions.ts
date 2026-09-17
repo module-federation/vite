@@ -162,7 +162,6 @@ export interface ShareItem {
   shareConfig: SharedConfig &
     moduleFederationPlugin.SharedConfig & {
       treeShaking?: TreeShakingConfig;
-      allowNodeModulesSuffixMatch?: boolean;
       suppressMissingImportWarning?: boolean;
     };
 }
@@ -331,7 +330,6 @@ function normalizeShareItem(
         eager?: boolean;
         requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
         strictVersion?: boolean;
-        allowNodeModulesSuffixMatch?: boolean;
         suppressMissingImportWarning?: boolean;
         treeShaking?: TreeShakingConfig;
       }
@@ -387,9 +385,6 @@ function normalizeShareItem(
       eager: shareItem.eager || false,
       requiredVersion,
       strictVersion: !!shareItem.strictVersion,
-      ...(shareItem.allowNodeModulesSuffixMatch !== undefined
-        ? { allowNodeModulesSuffixMatch: shareItem.allowNodeModulesSuffixMatch }
-        : {}),
       ...(shareItem.suppressMissingImportWarning ? { suppressMissingImportWarning: true } : {}),
       ...(treeShaking ? { treeShaking: { ...treeShaking } } : {}),
     },
@@ -436,8 +431,6 @@ function normalizeShared(
             eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
-            /** Match equivalent node_modules entry paths across installations. Defaults to false. */
-            allowNodeModulesSuffixMatch?: boolean;
             /** Suppress the missing local dependency warning for `import: false` shares. */
             suppressMissingImportWarning?: boolean;
             treeShaking?: TreeShakingConfig;
@@ -580,8 +573,6 @@ export type ModuleFederationOptions = {
             eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
             strictVersion?: boolean;
-            /** Match equivalent node_modules entry paths across installations. Defaults to false. */
-            allowNodeModulesSuffixMatch?: boolean;
             /** Suppress the missing local dependency warning for `import: false` shares. */
             suppressMissingImportWarning?: boolean;
             treeShaking?: TreeShakingConfig;

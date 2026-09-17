@@ -66,31 +66,18 @@ describe('absolute shared imports', () => {
     });
   }
 
-  it('shares the resolved entry without replacing internal files or another installation by default', async () => {
+  it('shares matching root and subpath entries across installations without replacing internal files', async () => {
     const output = await buildShared(
-      { 'audit-lib': { singleton: true } },
+      {
+        'audit-lib': { singleton: true },
+        'audit-lib/feature': {},
+      },
       `import { value } from ${JSON.stringify(packageFile('index.js'))};
        import { secret } from ${JSON.stringify(packageFile('internal.js'))};
        import { value as other } from ${JSON.stringify(packageFile('index.js', 'other'))};
-       console.log(value, secret, other);`
-    );
-
-    expect(parseManifest(output)).toMatchObject({ shared: [{ name: 'audit-lib' }] });
-    const code = getAllChunkCode(output);
-    expect(code).toContain('local-internal');
-    expect(code).toContain('other-root');
-  });
-
-  it('matches corresponding root and subpath entries across installations only when opted in', async () => {
-    const output = await buildShared(
-      {
-        'audit-lib': { singleton: true, allowNodeModulesSuffixMatch: true },
-        'audit-lib/feature': { allowNodeModulesSuffixMatch: true },
-      },
-      `import { value } from ${JSON.stringify(packageFile('index.js', 'other'))};
-       import { secret } from ${JSON.stringify(packageFile('internal.js', 'other'))};
+       import { secret as otherSecret } from ${JSON.stringify(packageFile('internal.js', 'other'))};
        import { feature } from ${JSON.stringify(packageFile('dist/feature.js', 'other'))};
-       console.log(value, secret, feature);`
+       console.log(value, secret, other, otherSecret, feature);`
     );
 
     expect(parseManifest(output)).toMatchObject({
@@ -100,6 +87,7 @@ describe('absolute shared imports', () => {
       ]),
     });
     const code = getAllChunkCode(output);
+    expect(code).toContain('local-internal');
     expect(code).toContain('other-internal');
     expect(code).not.toContain('other-root');
     expect(code).not.toContain('other-feature');
@@ -170,7 +158,7 @@ describe('absolute shared imports', () => {
 
   it('leaves raw imports to Vite instead of replacing them with shared modules', async () => {
     const output = await buildShared(
-      { 'audit-lib': { allowNodeModulesSuffixMatch: true } },
+      ['audit-lib'],
       `import source from ${JSON.stringify(packageFile('index.js') + '?raw')};
        console.log(source);`
     );
@@ -179,7 +167,7 @@ describe('absolute shared imports', () => {
 
   it('preserves the concrete subpath when matching an absolute import against a prefix share', async () => {
     const output = await buildShared(
-      { 'audit-lib/': { allowNodeModulesSuffixMatch: true } },
+      ['audit-lib/'],
       `import { secret } from ${JSON.stringify(packageFile('internal.js', 'other'))};
        console.log(secret);`
     );

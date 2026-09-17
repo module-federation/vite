@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { getNodeModulesSuffix } from './pathNormalization';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 
@@ -268,11 +269,10 @@ export function getPackageName(packageString: string): string {
 }
 
 export function getPackageNameFromNodeModulePath(source: string): string | undefined {
-  const normalized = source.replace(/\\/g, '/');
-  const nodeModulesIndex = normalized.lastIndexOf('/node_modules/');
-  if (nodeModulesIndex < 0) return;
+  const suffix = getNodeModulesSuffix(source);
+  if (!suffix) return;
 
-  const parts = normalized.slice(nodeModulesIndex + '/node_modules/'.length).split('/');
+  const parts = suffix.split('/');
   if (!parts[0]) return;
   if (parts[0].startsWith('@')) return parts[1] ? `${parts[0]}/${parts[1]}` : undefined;
   return parts[0];

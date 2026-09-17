@@ -1,3 +1,4 @@
+import { stripQueryAndHash } from '../utils/pathNormalization';
 import * as fs from 'fs';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
@@ -229,10 +230,6 @@ if (typeof document !== 'undefined' && document.head) {
 
 function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
   return entryFiles.find((file) => file.endsWith('.html'));
-}
-
-function stripQueryAndHash(file: string) {
-  return file.split(/[?#]/)[0];
 }
 
 function isReactRouterClientRouteInput(file: string) {

@@ -13,12 +13,7 @@ import {
   type NormalizedShared,
   type ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
-import {
-  getCommonSharedSubpaths,
-  isNodeModulePath,
-  isAssetLikeImport,
-  normalizeNodeModulePath,
-} from '../utils/pathNormalization';
+import { isNodeModulePath, isAssetLikeImport } from '../utils/pathNormalization';
 import {
   findSharedKey,
   invalidateSharedKeyMatcher,
@@ -36,6 +31,7 @@ import {
   hasPackageDependency,
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
+import { getSharedSource } from '../utils/sharedSource';
 import { PromiseStore } from '../utils/PromiseStore';
 import { getSharedExportConditions } from '../utils/sharedExportConditions';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
@@ -98,70 +94,6 @@ function isBuildConfigImporter(importer: string | undefined): boolean {
   return /(^|\/)(?:nuxt|vite|vitest|webpack|rollup|rspack)\.config\.[cm]?[jt]sx?$/.test(
     importer.replace(/\\/g, '/')
   );
-}
-
-function getNodeModulesSuffix(source: string): string | undefined {
-  const normalized = normalizeNodeModulePath(source);
-  const marker = '/node_modules/';
-  const index = normalized.lastIndexOf(marker);
-  return index === -1 ? undefined : normalized.slice(index + marker.length);
-}
-
-async function getSharedSource(
-  source: string,
-  shared: NormalizedShared | undefined,
-  resolveEntry: (request: string) => Promise<string | undefined>
-): Promise<string | undefined> {
-  if (source.startsWith('\0') || source.includes('#')) return;
-  const query = source.split('?')[1];
-  if (
-    query &&
-    [...new URLSearchParams(query).keys()].some((key) => !['v', 't', 'import'].includes(key))
-  )
-    return;
-  if (findSharedKey(source, shared)) return source;
-  const suffix = getNodeModulesSuffix(source);
-  if (!suffix || !shared) return;
-
-  const packageName = getPackageName(suffix);
-  const candidates = new Set<string>();
-  if (findSharedKey(packageName, shared)) candidates.add(packageName);
-  if (findSharedKey(suffix, shared)) candidates.add(suffix);
-  for (const key of Object.keys(shared)) {
-    if (getPackageName(key) !== packageName) continue;
-    if (!key.endsWith('/')) candidates.add(key);
-    for (const subpath of getCommonSharedSubpaths(key)) {
-      if (findSharedKey(subpath, shared)) candidates.add(subpath);
-    }
-  }
-
-  // Match the entry file, not just its containing package: internal files can
-  // expose a different API. Opting in only relaxes the installation directory.
-  let normalizedSource = normalizeNodeModulePath(source);
-  // Vite's dev file URLs encode either a POSIX path or a Windows drive path.
-  if (normalizedSource.startsWith('/@fs/')) {
-    normalizedSource = normalizedSource.slice('/@fs/'.length);
-    if (!normalizedSource.startsWith('/') && !/^[a-z]:\//i.test(normalizedSource)) {
-      normalizedSource = `/${normalizedSource}`;
-    }
-  }
-  if (candidates.size === 0) return;
-  const resolvedSource = await resolveEntry(normalizedSource);
-  if (!resolvedSource) return;
-  for (const candidate of candidates) {
-    const key = findSharedKey(candidate, shared);
-    if (!key) continue;
-    const entry = await resolveEntry(candidate);
-    if (!entry) continue;
-    if (normalizeNodeModulePath(entry) === normalizeNodeModulePath(resolvedSource))
-      return candidate;
-    if (
-      shared[key].shareConfig.allowNodeModulesSuffixMatch === true &&
-      getNodeModulesSuffix(entry) === suffix
-    ) {
-      return candidate;
-    }
-  }
 }
 
 /**
