@@ -159,6 +159,18 @@ function getPackageExportsTarget(pkg: string, packageName: string, exportsField:
     record['.'] ?? (!Object.keys(record).some((key) => key.startsWith('.')) ? record : undefined)
   );
 }
+
+export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditions = {}): boolean {
+  const packageName = getPackageName(pkg);
+  const installed = getInstalledPackageJson(packageName, opts);
+  if (installed?.packageJson.exports == null) return true;
+  return (
+    resolveExportsEntry(
+      getPackageExportsTarget(pkg, packageName, installed.packageJson.exports),
+      opts.conditions
+    ) !== undefined
+  );
+}
 /**
  * Escaping rules:
  * Convert using the format __${mapping}__, where _ and $ are not allowed in npm package names but can be used in variable names.

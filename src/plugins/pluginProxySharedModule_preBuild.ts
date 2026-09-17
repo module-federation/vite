@@ -29,6 +29,7 @@ import {
   getInstalledPackageJson,
   type InstalledPackageJson,
   getInstalledPackageEntry,
+  isPackageExportAvailable,
   getPackageDetectionCwd,
   getPackageName,
   getPackageNameFromNodeModulePath,
@@ -607,6 +608,16 @@ export function proxySharedModule(options: {
     resolveOptions: { ssr?: boolean; custom?: Record<string, unknown> } = {}
   ) =>
     getSharedSource(source, shared, async (request) => {
+      // Rolldown can retain errors from speculative this.resolve() calls even
+      // when caught. A file path does not imply a public package export.
+      if (
+        !path.isAbsolute(request) &&
+        !isPackageExportAvailable(request, {
+          cwd: _config?.root || getPackageDetectionCwd(),
+          conditions: getRuntimeDependencyConditions(context, resolveOptions),
+        })
+      )
+        return undefined;
       try {
         const resolved = await context.resolve(
           request,

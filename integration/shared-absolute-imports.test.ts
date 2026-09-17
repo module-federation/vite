@@ -1,7 +1,8 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { UserConfig } from 'vite';
+import { build, type UserConfig } from 'vite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { federation } from '../src/index';
 import type { ModuleFederationOptions } from '../src/utils/normalizeModuleFederationOptions';
 import { getPackageDetectionCwd, setPackageDetectionCwd } from '../src/utils/packageUtils';
 import { buildFixture } from './helpers/build';
@@ -125,6 +126,46 @@ describe('absolute shared imports', () => {
     );
     expect(parseManifest(output)).toMatchObject({ shared: [{ name: 'audit-lib' }] });
     expect(getAllChunkCode(output)).toContain('module-entry');
+  });
+
+  it('does not probe private file subpaths from prefix shares', async () => {
+    write(
+      'node_modules/audit-lib/package.json',
+      JSON.stringify({
+        name: 'audit-lib',
+        version: '1.0.0',
+        type: 'module',
+        exports: { '.': './index.js', './feature': './dist/feature.js' },
+      })
+    );
+    write(
+      'main.js',
+      `import { value } from ${JSON.stringify(packageFile('index.js', 'other'))};
+       import { feature } from 'audit-lib/feature';
+       console.log(value, feature);`
+    );
+    const privateRequests: string[] = [];
+    await build({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      build: { write: false, target: 'chrome89' },
+      plugins: [
+        federation({
+          name: 'absoluteImports',
+          dts: false,
+          shared: { 'audit-lib/': { singleton: true } },
+        }),
+        {
+          name: 'observe-private-package-requests',
+          enforce: 'pre',
+          resolveId(source) {
+            if (source === 'audit-lib/index.js') privateRequests.push(source);
+          },
+        },
+      ],
+    });
+    expect(privateRequests).toEqual([]);
   });
 
   it('leaves raw imports to Vite instead of replacing them with shared modules', async () => {
