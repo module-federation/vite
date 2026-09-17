@@ -330,7 +330,7 @@ describe('pluginAddEntry', () => {
     expect(chunkFileNames({ name: 'remoteEntry' })).toBe('remoteEntry-[hash].js');
   });
 
-  it('serves html proxy imports with the configured base', () => {
+  it('serves html proxy imports with the configured base', async () => {
     const [servePlugin] = addEntry({
       entryName: 'hostInit',
       entryPath: 'virtual:mf-host-init',
@@ -360,10 +360,96 @@ describe('pluginAddEntry', () => {
       { setHeader: vi.fn(), end },
       vi.fn()
     );
+    await vi.waitFor(() => expect(end).toHaveBeenCalled());
 
     const code = end.mock.calls[0][0] as string;
     expect(code).toContain('import("/subpath/@id/virtual:mf-host-init")');
     expect(code).toContain('import("/subpath/src/main.tsx")');
+  });
+
+  it('transforms the entry source graph before serving the html proxy', async () => {
+    const [servePlugin] = addEntry({
+      entryName: 'hostInit',
+      entryPath: 'virtual:mf-host-init',
+      inject: 'html',
+    });
+    const handlers: Function[] = [];
+    const graph: Record<string, { file: string | null; type: string; deps: string[] }> = {
+      '/src/main.tsx': {
+        file: '/repo/src/main.tsx',
+        type: 'js',
+        deps: [
+          '/src/App.tsx',
+          '/@id/__x00__virtual:mf:share',
+          'virtual:mf-REMOTE_ENTRY_ID:remoteEntry',
+          '/node_modules/.vite/deps/react.js',
+          '/@fs/tmp/cache/deps/react-dom.js',
+        ],
+      },
+      '/src/App.tsx': { file: '/repo/src/App.tsx', type: 'js', deps: ['/src/App.css'] },
+      '/src/App.css': { file: '/repo/src/App.css', type: 'css', deps: [] },
+      '/@id/__x00__virtual:mf:share': { file: null, type: 'js', deps: [] },
+      // Vite 5 sets `file` for virtual ids too.
+      'virtual:mf-REMOTE_ENTRY_ID:remoteEntry': {
+        file: 'virtual:mf-REMOTE_ENTRY_ID:remoteEntry',
+        type: 'js',
+        deps: [],
+      },
+      '/node_modules/.vite/deps/react.js': {
+        file: '/repo/node_modules/.vite/deps/react.js',
+        type: 'js',
+        deps: [],
+      },
+      '/@fs/tmp/cache/deps/react-dom.js': {
+        file: '/tmp/cache/deps/react-dom.js',
+        type: 'js',
+        deps: [],
+      },
+    };
+    const transformRequest = vi.fn(async (_url: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return { code: '' };
+    });
+    const getModuleByUrl = vi.fn(async (url: string) => {
+      const node = graph[url];
+      return {
+        url,
+        file: node.file,
+        type: node.type,
+        importedModules: new Set(node.deps.map((dep) => ({ url: dep, ...graph[dep] }))),
+      };
+    });
+
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(servePlugin, { root: '/repo', base: '/' } as unknown as ResolvedConfig);
+    runConfigureServer(servePlugin, {
+      config: { cacheDir: '/tmp/cache' },
+      middlewares: { use: (handler: Function) => handlers.push(handler) },
+      transformRequest,
+      moduleGraph: { getModuleByUrl },
+    } as unknown as ViteDevServer);
+
+    const end = vi.fn();
+    handlers[0](
+      {
+        url: `${toViteEncodedId('virtual:mf-html-entry-proxy')}?init=%2F%40id%2Fvirtual%3Amf-host-init&entry=%2Fsrc%2Fmain.tsx`,
+      },
+      { setHeader: vi.fn(), end },
+      vi.fn()
+    );
+
+    expect(end).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(end).toHaveBeenCalled());
+    expect(transformRequest.mock.calls.map(([url]) => url)).toEqual([
+      '/src/main.tsx',
+      '/src/App.tsx',
+    ]);
+    expect(end.mock.calls[0][0]).toContain('import("/src/main.tsx")');
   });
 
   it('injects host init into html-script entry during serve when inject is entry', async () => {
