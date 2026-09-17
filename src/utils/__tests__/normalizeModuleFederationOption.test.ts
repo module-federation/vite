@@ -1,9 +1,10 @@
-import { beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import {
   ModuleFederationOptions,
   getNormalizeShareItem,
   normalizeModuleFederationOptions,
   RemoteObjectConfig,
+  resolveSharedVersions,
 } from '../normalizeModuleFederationOptions';
 import { setPackageDetectionCwd } from '../packageUtils';
 
@@ -783,6 +784,105 @@ describe('normalizeModuleFederationOption', () => {
       }).shared;
 
       expect(shared['missing-protocol-dep'].shareConfig.requiredVersion).toBe('*');
+    });
+
+    describe('version inference fixture', () => {
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const fixtureRoot = path.join(require('node:os').tmpdir(), 'mf-vite-version-inference');
+
+      function writeFixture(dependencies: Record<string, string>) {
+        fs.rmSync(fixtureRoot, { force: true, recursive: true });
+        const reactDir = path.join(fixtureRoot, 'node_modules/react');
+        fs.mkdirSync(reactDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(fixtureRoot, 'package.json'),
+          JSON.stringify({ name: 'consumer-app', dependencies })
+        );
+        fs.writeFileSync(
+          path.join(reactDir, 'package.json'),
+          JSON.stringify({ name: 'react', version: '19.2.7', main: 'index.js' })
+        );
+        fs.writeFileSync(path.join(reactDir, 'index.js'), '');
+        setPackageDetectionCwd(fixtureRoot);
+      }
+
+      afterEach(() => {
+        setPackageDetectionCwd(process.cwd());
+        fs.rmSync(fixtureRoot, { force: true, recursive: true });
+      });
+
+      it('infers the version from the share key when import is a local path', () => {
+        writeFixture({ react: '^19.0.0' });
+        for (const localImport of ['./src/react-shim.js', path.join(fixtureRoot, 'shim.js')]) {
+          const shared = normalizeModuleFederationOptions({
+            ...minimalOptions,
+            shared: { react: { import: localImport } },
+          }).shared;
+          expect.soft(shared.react.version, localImport).toBe('19.2.7');
+          expect.soft(shared.react.shareConfig.requiredVersion, localImport).toBe('^19.0.0');
+        }
+      });
+
+      it('ignores non-semver dependency ranges from package.json', () => {
+        for (const range of ['latest', 'next', 'facebook/react', 'github:facebook/react']) {
+          writeFixture({ react: range });
+          const shared = normalizeModuleFederationOptions({
+            ...minimalOptions,
+            shared: { react: { singleton: true } },
+          }).shared;
+          expect.soft(shared.react.shareConfig.requiredVersion, range).toBe('^19.2.7');
+        }
+      });
+
+      it('keeps semver dependency ranges from package.json', () => {
+        for (const range of ['~19.2.0', '>=19.0.0 <20', '19.x', '1.2.3 - 2.3.4', 'v19.2.7']) {
+          writeFixture({ react: range });
+          const shared = normalizeModuleFederationOptions({
+            ...minimalOptions,
+            shared: { react: { singleton: true } },
+          }).shared;
+          expect.soft(shared.react.shareConfig.requiredVersion, range).toBe(range);
+        }
+      });
+
+      it('ignores a dist-tag requiredVersion and falls back to installed version', () => {
+        writeFixture({});
+        const shared = normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: { react: { requiredVersion: 'latest' } },
+        }).shared;
+        expect(shared.react.shareConfig.requiredVersion).toBe('^19.2.7');
+      });
+
+      it('keeps the eager version when the root lookup misses', () => {
+        // A package only the fixture installs: the plugin's own node_modules
+        // cannot satisfy the fallback lookup.
+        writeFixture({ 'version-lib': '^1.0.0' });
+        const libDir = path.join(fixtureRoot, 'node_modules/version-lib');
+        fs.mkdirSync(libDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(libDir, 'package.json'),
+          JSON.stringify({ name: 'version-lib', version: '1.2.3', main: 'index.js' })
+        );
+        fs.writeFileSync(path.join(libDir, 'index.js'), '');
+        const shared = normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: { 'version-lib': { singleton: true } },
+        }).shared;
+        expect(shared['version-lib'].version).toBe('1.2.3');
+
+        // A sibling of the fixture: walking up from it never reaches the fixture's node_modules.
+        const emptyRoot = path.join(require('node:os').tmpdir(), 'mf-vite-version-inference-empty');
+        fs.mkdirSync(emptyRoot, { recursive: true });
+        try {
+          resolveSharedVersions(shared, emptyRoot);
+        } finally {
+          fs.rmSync(emptyRoot, { force: true, recursive: true });
+        }
+        expect(shared['version-lib'].version).toBe('1.2.3');
+        expect(shared['version-lib'].shareConfig.requiredVersion).toBe('^1.2.3');
+      });
     });
 
     it('preserves react/ as a namespace prefix and collapses react-dom/', () => {
