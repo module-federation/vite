@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
-import type { Environment, Plugin, ResolvedConfig, Rollup } from 'vite';
+import type { Environment, Plugin, ResolvedConfig, Rollup, ViteDevServer } from 'vite';
 import {
   normalizePathForImport,
   rebaseImport,
@@ -309,6 +309,7 @@ const addEntry = ({
   let emitFileId: string;
   let pendingSharesEmitId: string | undefined;
   let viteConfig: ResolvedConfig;
+  let devServer: ViteDevServer | undefined;
   // Producer remotes are consumed via federation entry URLs, not their index.html.
   // Skip only the broad dev HTML fallback — not isHydrationEntryFallback, which
   // SSR producer apps without index.html still need when hostInitInjectLocation is 'entry'.
@@ -449,6 +450,36 @@ const __mfCurrentScript = document.currentScript;
         })
       )
     );
+  }
+
+  // Share usage is discovered while Vite transforms the entry graph. The dev
+  // host init reads that usage when it serves the local shared import map, so a
+  // cold browser must not reach it before the entry's source modules are
+  // transformed (#1317). Walk the entry graph and await each source transform.
+  async function warmupDevEntryGraph(entryUrl: string) {
+    const server = devServer;
+    if (!server) return;
+    const seen = new Set<string>();
+    // Optimized deps must not be transformed here: on Vite 5 their load waits
+    // for the optimizer, which waits for this very request to finish crawling.
+    const cacheDir = normalizePathForImport(server.config?.cacheDir ?? '').replace(/\/$/, '') + '/';
+    const visit = async (url: string): Promise<void> => {
+      if (seen.has(url)) return;
+      seen.add(url);
+      try {
+        await server.transformRequest(url);
+      } catch {
+        return;
+      }
+      const mod = await server.moduleGraph.getModuleByUrl(url);
+      const deps = [...(mod?.importedModules ?? [])].filter((dep) => {
+        if (!dep.file || dep.type !== 'js' || !path.isAbsolute(dep.file)) return false;
+        const file = normalizePathForImport(dep.file);
+        return !file.includes('/node_modules/') && !file.startsWith(cacheDir);
+      });
+      await Promise.all(deps.map((dep) => visit(dep.url)));
+    };
+    await visit(entryUrl).catch(() => {});
   }
 
   function getBootstrapSource(
@@ -788,6 +819,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         skipTransformIds = new Set(skipTransformFor.map(resolveProjectId));
       },
       configureServer(server) {
+        devServer = server;
         server.middlewares.use((req, res, next) => {
           const rawUrl = req.url?.split('#')[0] ?? '';
           const proxyId = normalizeDevHtmlProxyId(rawUrl.split('?')[0]);
@@ -798,9 +830,12 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             const entrySrc = params.get('entry');
             if (initSrc && entrySrc) {
               const withBase = (src: string) => viteConfig.base + src.replace(/^\//, '');
-              res.statusCode = 200;
-              res.setHeader('Content-Type', 'application/javascript');
-              res.end(getBootstrapSource(withBase(initSrc), withBase(entrySrc)));
+              const source = getBootstrapSource(withBase(initSrc), withBase(entrySrc));
+              warmupDevEntryGraph(entrySrc).finally(() => {
+                res.statusCode = 200;
+                res.setHeader('Content-Type', 'application/javascript');
+                res.end(source);
+              });
               return;
             }
           }
@@ -872,7 +907,8 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         const initSrc = params.get('init');
         const entrySrc = params.get('entry');
         if (!initSrc || !entrySrc) return;
-        return getBootstrapSource(initSrc, entrySrc);
+        const source = getBootstrapSource(initSrc, entrySrc);
+        return warmupDevEntryGraph(entrySrc).then(() => source);
       },
       transform(code, id) {
         if (id.includes('node_modules') || inject !== 'html' || htmlFilePath) {
