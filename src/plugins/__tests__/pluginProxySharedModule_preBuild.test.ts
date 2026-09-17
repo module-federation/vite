@@ -2266,43 +2266,52 @@ describe('pluginProxySharedModule_preBuild', () => {
   });
 
   it.each([
-    '/@fs/repo/apps/remote/node_modules/react-dom/client.js?v=123&t=456&import',
-    '/@fs/C:/repo/apps/remote/node_modules/react-dom/client.js?v=123&t=456&import',
-  ])('keeps common shared subpaths when resolving Vite file URL %s', async (source) => {
-    hasPackageDependencyMock.mockReturnValue(false);
+    {
+      source: '/@fs/repo/apps/remote/node_modules/react-dom/client.js?v=123&t=456&import',
+      entry: '/repo/apps/remote/node_modules/react-dom/client.js',
+    },
+    {
+      source: '/@fs/C:/repo/apps/remote/node_modules/react-dom/client.js?v=123&t=456&import',
+      entry: 'C:/repo/apps/remote/node_modules/react-dom/client.js',
+    },
+  ])(
+    'keeps common shared subpaths when resolving Vite file URL $source',
+    async ({ source, entry }) => {
+      normalizeModuleFederationOptions({ name: 'remote', shared: {} });
+      hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
-    const proxyPlugin = getProxyPlugin(plugins);
-    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
-    const config: MockUserConfig = {
-      resolve: { alias: [] },
-    };
+      const plugins = proxySharedModule({ shared: makeShared() });
+      const proxyPlugin = getProxyPlugin(plugins);
+      const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+      const config: MockUserConfig = {
+        resolve: { alias: [] },
+      };
 
-    callHook(
-      proxyPlugin.config,
-      {
-        meta: createPluginMeta(),
-        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
-      } as unknown as ConfigPluginContext,
-      config,
-      { command: 'serve', mode: 'development' } as ConfigEnv
-    );
+      callHook(
+        proxyPlugin.config,
+        {
+          meta: createPluginMeta(),
+          resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+        } as unknown as ConfigPluginContext,
+        config,
+        { command: 'serve', mode: 'development' } as ConfigEnv
+      );
 
-    await callHook(
-      sharedResolvePlugin.resolveId,
-      {
-        resolve: async (id: string) => ({
-          id: id === 'react-dom/client' ? '/repo/apps/remote/node_modules/react-dom/client.js' : id,
-        }),
-      } as any,
-      source,
-      '/src/main.ts',
-      { isEntry: false }
-    );
+      await callHook(
+        sharedResolvePlugin.resolveId,
+        {
+          resolve: async (id: string) =>
+            id === 'react-dom/client' || id === entry ? { id: entry } : null,
+        } as any,
+        source,
+        '/src/main.ts',
+        { isEntry: false }
+      );
 
-    expect(preBuildShareItemMap.has('react-dom/client')).toBe(true);
-    expect(preBuildShareItemMap.has('react-dom')).toBe(false);
-  });
+      expect(preBuildShareItemMap.has('react-dom/client')).toBe(true);
+      expect(preBuildShareItemMap.has('react-dom')).toBe(false);
+    }
+  );
 
   it('proxies subpath imports for trailing slash shared packages', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
