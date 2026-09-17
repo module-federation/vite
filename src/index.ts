@@ -1604,7 +1604,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             if (id.includes(LOAD_SHARE_TAG)) {
               const pkg = getCachedLoadSharePkg(id);
               const key = pkg && findSharedKey(pkg, shared);
-              if (useCodeSplitting && key && shared[key].shareConfig.eager === true) {
+              if (key && shared[key].shareConfig.eager === true) {
                 return 'loadShare-eager';
               }
               // A consume-only share's wrapper holds no fallback, so nothing in it can close a

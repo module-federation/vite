@@ -1107,11 +1107,19 @@ describe('module-federation-esm-shims', () => {
     expect(name('virtual:mf:host__loadShare__lodash__loadShare__.js')).toContain(
       '__loadShare__lodash__loadShare__'
     );
-    expect(
-      config.build.rollupOptions.output.manualChunks(
-        'virtual:mf:host__loadShare__react__loadShare__.js'
-      )
-    ).toContain('__loadShare__react__loadShare__');
+    // Rollup (Vite 5-7) coalesces eager wrappers through manualChunks too: an eager
+    // share is loaded during init regardless, so splitting it into its own chunk
+    // only costs a round trip.
+    const rollupManualChunks = config.build.rollupOptions.output.manualChunks;
+    expect(rollupManualChunks('virtual:mf:host__loadShare__react__loadShare__.js')).toBe(
+      'loadShare-eager'
+    );
+    expect(rollupManualChunks('virtual:mf:host__loadShare__vue__loadShare__.js')).toBe(
+      'loadShare-eager'
+    );
+    expect(rollupManualChunks('virtual:mf:host__loadShare__lodash__loadShare__.js')).toContain(
+      '__loadShare__lodash__loadShare__'
+    );
   });
 
   it('keeps user codeSplitting groups below the federation groups', () => {
