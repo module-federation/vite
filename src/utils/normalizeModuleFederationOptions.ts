@@ -245,6 +245,56 @@ function isProtocolRequiredVersion(requiredVersion: string): boolean {
   return PACKAGE_SPECIFIER_PROTOCOL_RE.test(requiredVersion.trim());
 }
 
+// One comparator of a semver range: "^1.2.3", ">=", "1.x", "*", or the "-" of
+// a hyphen range. Dist-tags ("latest") and GitHub shorthands ("user/repo") are
+// valid package.json ranges but not semver ranges for runtime satisfy().
+const SEMVER_COMPARATOR_RE =
+  /^(?:[<>=~^]*v?(?:\d+|[xX*])(?:\.(?:\d+|[xX*]))*(?:[-+][\w.-]+)?|[<>=~^]+|[xX*]|-)$/;
+
+function isSemverRange(range: string): boolean {
+  return range.split('||').every((alternative) => {
+    const comparators = alternative.trim().split(/\s+/).filter(Boolean);
+    return comparators.length > 0 && comparators.every((c) => SEMVER_COMPARATOR_RE.test(c));
+  });
+}
+
+function isUsableRequiredVersion(requiredVersion: string): boolean {
+  return (
+    requiredVersion.trim() !== '' &&
+    !isProtocolRequiredVersion(requiredVersion) &&
+    isSemverRange(requiredVersion)
+  );
+}
+
+/** Bare specifiers name an installed package; relative/absolute paths do not. */
+function isBareSpecifier(specifier: string): boolean {
+  return (
+    !specifier.startsWith('.') &&
+    !specifier.startsWith('\0') &&
+    !path.isAbsolute(specifier) &&
+    !PACKAGE_SPECIFIER_PROTOCOL_RE.test(specifier)
+  );
+}
+
+type ProjectPackageJsonCache = Map<string, Record<string, any> | undefined>;
+
+// Reads only `${cwd}/package.json`, no upward walk: a workspace-root
+// declaration is not this project's requirement.
+function readProjectPackageJson(
+  cwd: string,
+  cache: ProjectPackageJsonCache
+): Record<string, any> | undefined {
+  if (cache.has(cwd)) return cache.get(cwd);
+  let packageJson: Record<string, any> | undefined;
+  try {
+    packageJson = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
+  } catch {
+    // Projects without a package.json keep the installed-version fallback.
+  }
+  cache.set(cwd, packageJson);
+  return packageJson;
+}
+
 function getLitExportSubpathShares(sharedName: string): string[] {
   if (sharedName !== 'lit') return [];
 
@@ -270,33 +320,37 @@ type SharedVersionConfig = Pick<
 // cannot mistake an inferred version for an explicit override.
 const sharedVersionConfigs = new WeakMap<ShareItem, SharedVersionConfig>();
 
-function resolveSharedVersion(key: string, config: SharedVersionConfig, cwd: string) {
-  const source = typeof config.import === 'string' ? config.import : key;
+function resolveSharedVersion(
+  key: string,
+  config: SharedVersionConfig,
+  cwd: string,
+  packageJsonCache: ProjectPackageJsonCache = new Map(),
+  fallbackVersion?: string
+) {
+  // A replacement package carries its own version; a local shim or path
+  // import still describes the share key's package.
+  const source =
+    typeof config.import === 'string' && isBareSpecifier(config.import) ? config.import : key;
   // Consume-only shares also need a version for runtime validation.
   const version =
     config.version ||
     searchPackageVersion(source, cwd) ||
-    inferVersionFromRequiredVersion(config.requiredVersion);
+    inferVersionFromRequiredVersion(config.requiredVersion) ||
+    fallbackVersion;
   let requiredVersion = config.requiredVersion;
   if (requiredVersion === undefined && !config.version) {
-    try {
-      const packageJson = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
-      const packageName = getPackageName(source);
-      requiredVersion =
-        packageJson.dependencies?.[packageName] ??
-        packageJson.devDependencies?.[packageName] ??
-        packageJson.peerDependencies?.[packageName] ??
-        packageJson.optionalDependencies?.[packageName];
-    } catch {
-      // Projects without a package.json keep the installed-version fallback.
-    }
+    const packageJson = readProjectPackageJson(cwd, packageJsonCache);
+    const packageName = getPackageName(source);
+    requiredVersion =
+      packageJson?.dependencies?.[packageName] ??
+      packageJson?.devDependencies?.[packageName] ??
+      packageJson?.peerDependencies?.[packageName] ??
+      packageJson?.optionalDependencies?.[packageName];
   }
 
   if (
     requiredVersion === false ||
-    (typeof requiredVersion === 'string' &&
-      requiredVersion.trim() !== '' &&
-      !isProtocolRequiredVersion(requiredVersion))
+    (typeof requiredVersion === 'string' && isUsableRequiredVersion(requiredVersion))
   ) {
     return { version, requiredVersion };
   }
@@ -308,10 +362,19 @@ function resolveSharedVersion(key: string, config: SharedVersionConfig, cwd: str
 }
 
 export function resolveSharedVersions(shared: NormalizedShared, root: string) {
+  const packageJsonCache: ProjectPackageJsonCache = new Map();
   for (const [key, item] of Object.entries(shared)) {
     const config = sharedVersionConfigs.get(item);
     if (!config) continue;
-    const { version, requiredVersion } = resolveSharedVersion(key, config, root);
+    // The eager lookup's version is the last resort when the root lookup
+    // misses: an installed version beats "0" for runtime satisfy().
+    const { version, requiredVersion } = resolveSharedVersion(
+      key,
+      config,
+      root,
+      packageJsonCache,
+      item.version
+    );
     item.version = version;
     item.shareConfig.requiredVersion = requiredVersion;
   }
@@ -371,7 +434,7 @@ function normalizeShareItem(
         requiredVersion,
       },
     };
-    sharedVersionConfigs.set(result, config);
+    sharedVersionConfigs.set(result, { ...config });
     return result;
   }
   const result: ShareItem = {
