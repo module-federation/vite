@@ -14,8 +14,7 @@ import {
   type ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import {
-  getCommonSharedSubpathFromNodeModulePath,
-  getMatchingNodeModuleSubpath,
+  getCommonSharedSubpaths,
   isNodeModulePath,
   isAssetLikeImport,
   normalizeNodeModulePath,
@@ -100,30 +99,68 @@ function isBuildConfigImporter(importer: string | undefined): boolean {
   );
 }
 
-function findSharedKeyForSource(
+function getNodeModulesSuffix(source: string): string | undefined {
+  const normalized = normalizeNodeModulePath(source);
+  const marker = '/node_modules/';
+  const index = normalized.lastIndexOf(marker);
+  return index === -1 ? undefined : normalized.slice(index + marker.length);
+}
+
+async function getSharedSource(
   source: string,
-  shared: NormalizedShared | undefined
-): string | undefined {
-  const key = findSharedKey(source, shared);
-  if (key) return key;
-  const explicitSharedSubpathKeys = Object.keys(shared || {}).filter(
-    (sharedKey) => getPackageName(sharedKey) !== sharedKey && !sharedKey.endsWith('/')
-  );
+  shared: NormalizedShared | undefined,
+  resolveEntry: (request: string) => Promise<string | undefined>
+): Promise<string | undefined> {
+  if (source.startsWith('\0') || source.includes('#')) return;
+  const query = source.split('?')[1];
+  if (
+    query &&
+    [...new URLSearchParams(query).keys()].some((key) => !['v', 't', 'import'].includes(key))
+  )
+    return;
+  if (findSharedKey(source, shared)) return source;
+  const suffix = getNodeModulesSuffix(source);
+  if (!suffix || !shared) return;
 
-  if (isNodeModulePath(source)) {
-    const explicitSubpathKey = getMatchingNodeModuleSubpath(source, explicitSharedSubpathKeys);
-    if (explicitSubpathKey) return explicitSubpathKey;
-
-    const normalizedSource = normalizeNodeModulePath(source);
-    const explicitSubpathEntryKey = explicitSharedSubpathKeys.find((sharedKey) => {
-      const entry = getInstalledPackageEntry(sharedKey, { cwd: getPackageDetectionCwd() });
-      return entry ? normalizeNodeModulePath(entry) === normalizedSource : false;
-    });
-    if (explicitSubpathEntryKey) return explicitSubpathEntryKey;
+  const packageName = getPackageName(suffix);
+  const candidates = new Set<string>();
+  if (findSharedKey(packageName, shared)) candidates.add(packageName);
+  if (findSharedKey(suffix, shared)) candidates.add(suffix);
+  for (const key of Object.keys(shared)) {
+    if (getPackageName(key) !== packageName) continue;
+    if (!key.endsWith('/')) candidates.add(key);
+    for (const subpath of getCommonSharedSubpaths(key)) {
+      if (findSharedKey(subpath, shared)) candidates.add(subpath);
+    }
   }
 
-  const packageName = getPackageNameFromNodeModulePath(source);
-  return packageName ? findSharedKey(packageName, shared) : undefined;
+  // Match the entry file, not just its containing package: internal files can
+  // expose a different API. Opting in only relaxes the installation directory.
+  let normalizedSource = normalizeNodeModulePath(source);
+  // Vite's dev file URLs encode either a POSIX path or a Windows drive path.
+  if (normalizedSource.startsWith('/@fs/')) {
+    normalizedSource = normalizedSource.slice('/@fs/'.length);
+    if (!normalizedSource.startsWith('/') && !/^[a-z]:\//i.test(normalizedSource)) {
+      normalizedSource = `/${normalizedSource}`;
+    }
+  }
+  if (candidates.size === 0) return;
+  const resolvedSource = await resolveEntry(normalizedSource);
+  if (!resolvedSource) return;
+  for (const candidate of candidates) {
+    const key = findSharedKey(candidate, shared);
+    if (!key) continue;
+    const entry = await resolveEntry(candidate);
+    if (!entry) continue;
+    if (normalizeNodeModulePath(entry) === normalizeNodeModulePath(resolvedSource))
+      return candidate;
+    if (
+      shared[key].shareConfig.allowNodeModulesSuffixMatch === true &&
+      getNodeModulesSuffix(entry) === suffix
+    ) {
+      return candidate;
+    }
+  }
 }
 
 /**
@@ -564,6 +601,28 @@ export function proxySharedModule(options: {
   let rootResolveConditions: string[] | undefined;
   let ssrResolveConditions: string[] | undefined;
   let ssrTarget: 'node' | 'webworker' = 'node';
+  const resolveSharedSource = (
+    context: Pick<import('vite').Rollup.PluginContext, 'resolve'>,
+    source: string,
+    resolveOptions: { ssr?: boolean; custom?: Record<string, unknown> } = {}
+  ) =>
+    getSharedSource(source, shared, async (request) => {
+      try {
+        const resolved = await context.resolve(
+          request,
+          path.join(_config?.root || getPackageDetectionCwd(), 'package.json'),
+          {
+            ...resolveOptions,
+            skipSelf: true,
+            custom: { ...resolveOptions.custom, __mfSharedEntryLookup: true },
+          }
+        );
+        return resolved && !resolved.external ? resolved.id : undefined;
+      } catch {
+        // A prefix can suggest a private or missing export. It is not a shared entry.
+        return undefined;
+      }
+    });
   const savePrebuild = new PromiseStore<string>();
   let devServer: ViteDevServer | undefined;
   // resolveId fires once per importing module. The loadShare virtual module,
@@ -704,7 +763,7 @@ export function proxySharedModule(options: {
               ...getUsedShares(federationOptions),
             ]);
             for (const pkg of providerPackages) {
-              const sharedKey = findSharedKeyForSource(pkg, shared);
+              const sharedKey = findSharedKey(pkg, shared);
               const shareItem = shared[pkg] || (sharedKey ? shared[sharedKey] : undefined);
               if (shareItem) emitTreeShakingProvider(this, pkg, shareItem);
             }
@@ -792,15 +851,18 @@ export function proxySharedModule(options: {
         // map is reset, otherwise only changed files contribute usedExports.
         return _command === 'build' && hasAnalyzableShares;
       },
-      transform(code, id) {
+      async transform(code, id) {
         if (_command !== 'build' || !hasAnalyzableShares) {
           return;
         }
-        collectTreeShakingImports(
+        await collectTreeShakingImports(
           code,
           id,
           shared,
-          findSharedKeyForSource,
+          async (source, shares) => {
+            const request = await resolveSharedSource(this, source);
+            return request ? findSharedKey(request, shares) : undefined;
+          },
           (sharedKey, exports, request) =>
             recordTreeShakingExports(sharedKey, exports, request, federationOptions),
           (sharedKey, request) =>
@@ -814,6 +876,7 @@ export function proxySharedModule(options: {
       enforce: 'pre',
       apply: 'build',
       async resolveId(source, importer, resolveOptions) {
+        if (resolveOptions.custom?.__mfSharedEntryLookup) return;
         const sourceToken = getTreeShakingGraphToken(source);
         const importerToken = getTreeShakingGraphToken(importer);
         const token = sourceToken || importerToken;
@@ -829,7 +892,8 @@ export function proxySharedModule(options: {
         // graph token so the optimized provider cannot be merged with the full
         // fallback's dependency graph.
         if (!sourceToken && importerToken) {
-          const nestedSharedKey = findSharedKeyForSource(cleanSource, shared);
+          const request = await resolveSharedSource(this, cleanSource, resolveOptions);
+          const nestedSharedKey = request ? findSharedKey(request, shared) : undefined;
           if (
             nestedSharedKey &&
             getPackageName(nestedSharedKey) !== getPackageName(importerToken)
@@ -869,10 +933,18 @@ export function proxySharedModule(options: {
       name: 'proxyPreBuildShared:resolve-shared-loadShare',
       enforce: 'pre',
       async resolveId(source, importer, resolveOptions) {
-        if ((resolveOptions.custom as Record<string, unknown> | undefined)?.__mfTreeShakingGraph) {
+        if (
+          resolveOptions.custom?.__mfSharedEntryLookup ||
+          (resolveOptions.custom as Record<string, unknown> | undefined)?.__mfTreeShakingGraph
+        ) {
           return;
         }
-        function shouldSkipTaggedImporterProxy(sharedKey: string, tag: string): boolean {
+        const sharedSource = await resolveSharedSource(this, source, resolveOptions);
+        if (!sharedSource) return;
+        const key = findSharedKey(sharedSource, shared);
+        if (!key) return;
+
+        const shouldSkipTaggedImporterProxy = (sharedKey: string, tag: string): boolean => {
           if (!importer?.includes(tag)) return false;
 
           const taggedModule = VirtualModule.findModule(tag, importer);
@@ -880,11 +952,11 @@ export function proxySharedModule(options: {
 
           // Only skip a wrapper's own fallback import. Cross-wrapper shared imports
           // still need proxying, e.g. @fortawesome/vue-fontawesome -> vue.
-          return taggedModule.name === sharedKey || matchesSharedSource(source, taggedModule.name);
-        }
+          return (
+            taggedModule.name === sharedKey || matchesSharedSource(sharedSource, taggedModule.name)
+          );
+        };
 
-        const key = findSharedKeyForSource(source, shared);
-        if (!key) return;
         // A shared package's own files must keep ordinary internal module edges.
         // Compare package roots because `key` may be an explicit subpath or a
         // trailing-slash wildcard share key.
@@ -907,7 +979,7 @@ export function proxySharedModule(options: {
             !isNodeModulePath(importer!) &&
             !Object.keys(shared).some((sharedKey) => getPackageName(sharedKey) === importerPackage);
           const runtimeDependencyRequest =
-            key.endsWith('/') && matchesSharedSource(source, key) ? source : key;
+            key.endsWith('/') && matchesSharedSource(sharedSource, key) ? sharedSource : key;
           const keepsOrdinaryEdge = importerIsUnsharedWorkspacePackage
             ? isSharedPackageRuntimeDependency(
                 runtimeDependencyRequest,
@@ -931,12 +1003,8 @@ export function proxySharedModule(options: {
         if (shouldSkipTaggedImporterProxy(key, LOAD_SHARE_TAG)) return;
         if (shouldSkipTaggedImporterProxy(key, PREBUILD_TAG)) return;
         const shareSource =
-          key === 'vue' && source.startsWith('vue/dist/')
-            ? key
-            : isNodeModulePath(source)
-              ? getCommonSharedSubpathFromNodeModulePath(source, key) || key
-              : source;
-        if (shouldKeepSharedImportLocal(source, importer, key, shared, importerPackage)) {
+          key === 'vue' && sharedSource.startsWith('vue/dist/') ? key : sharedSource;
+        if (shouldKeepSharedImportLocal(sharedSource, importer, key, shared, importerPackage)) {
           const localSource = getPrebuildResolutionSource(shareSource, shared[key]);
           // A sibling prebuild would re-enter Vite's CommonJS proxy on Vite 5–7.
           return tryResolveFromProjectRoot(localSource) || localSource;

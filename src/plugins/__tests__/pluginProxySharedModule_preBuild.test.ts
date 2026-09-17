@@ -2264,7 +2264,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(addUsedSharesMock).toHaveBeenCalledTimes(Object.keys(shared).length);
   });
 
-  it('keeps common shared subpaths when resolving node_modules paths', async () => {
+  it('keeps common shared subpaths when resolving Vite node_modules file URLs', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
     const plugins = proxySharedModule({ shared: makeShared() });
@@ -2287,9 +2287,11 @@ describe('pluginProxySharedModule_preBuild', () => {
     await callHook(
       sharedResolvePlugin.resolveId,
       {
-        resolve: async (id: string) => ({ id }),
+        resolve: async (id: string) => ({
+          id: id === 'react-dom/client' ? '/repo/apps/remote/node_modules/react-dom/client.js' : id,
+        }),
       } as any,
-      '/repo/apps/remote/node_modules/react-dom/client.js?v=123',
+      '/@fs/repo/apps/remote/node_modules/react-dom/client.js?v=123',
       '/src/main.ts',
       { isEntry: false }
     );
