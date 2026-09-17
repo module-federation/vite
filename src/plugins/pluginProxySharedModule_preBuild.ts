@@ -3,7 +3,7 @@ import type { Dirent } from 'fs';
 import { createRequire, isBuiltin } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
-import type { Plugin, ResolvedConfig, Rollup, UserConfig, ViteDevServer } from 'vite';
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { normalizePathForImport } from '../utils/buildPaths';
 import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
@@ -24,7 +24,6 @@ import {
   getInstalledPackageJson,
   type InstalledPackageJson,
   getInstalledPackageEntry,
-  isPackageExportAvailable,
   getPackageDetectionCwd,
   getPackageName,
   getPackageNameFromNodeModulePath,
@@ -534,62 +533,6 @@ export function proxySharedModule(options: {
   let rootResolveConditions: string[] | undefined;
   let ssrResolveConditions: string[] | undefined;
   let ssrTarget: 'node' | 'webworker' = 'node';
-  const sharedSourceResolvers = new Map<
-    object | boolean,
-    ReturnType<typeof createSharedSourceResolver>
-  >();
-  const resolveSharedSource = (
-    context: Pick<Rollup.PluginContext, 'resolve'>,
-    source: string,
-    resolveOptions: NonNullable<Parameters<Rollup.PluginContext['resolve']>[2]> & {
-      ssr?: boolean;
-      scan?: boolean;
-      attributes?: Record<string, string>;
-    } = {}
-  ) => {
-    // Vite 6+ shares plugins across environments; Vite 5 identifies SSR via options.
-    const environment = (context as RuntimeDependencyContext).environment ?? !!resolveOptions.ssr;
-    // A source-only cache is valid for ordinary imports. Other resolution modes
-    // or plugin-defined options may select a different entry for the same source.
-    const cacheable =
-      !resolveOptions.isEntry &&
-      !resolveOptions.scan &&
-      (!resolveOptions.kind || resolveOptions.kind === 'import-statement') &&
-      Object.keys(resolveOptions.attributes ?? {}).length === 0 &&
-      Object.keys(resolveOptions.custom ?? {}).length === 0;
-    let resolver = cacheable ? sharedSourceResolvers.get(environment) : undefined;
-    if (!resolver) {
-      resolver = createSharedSourceResolver(shared);
-      if (cacheable) sharedSourceResolvers.set(environment, resolver);
-    }
-    return resolver(source, async (request) => {
-      // Rolldown can retain errors from speculative this.resolve() calls even
-      // when caught. A file path does not imply a public package export.
-      if (
-        !path.isAbsolute(request) &&
-        !isPackageExportAvailable(request, {
-          cwd: _config?.root || getPackageDetectionCwd(),
-          conditions: getRuntimeDependencyConditions(context, resolveOptions),
-        })
-      )
-        return undefined;
-      try {
-        const resolved = await context.resolve(
-          request,
-          path.join(_config?.root || getPackageDetectionCwd(), 'package.json'),
-          {
-            ...resolveOptions,
-            skipSelf: true,
-            custom: { ...resolveOptions.custom, __mfSharedEntryLookup: true },
-          }
-        );
-        return resolved && !resolved.external ? resolved.id : undefined;
-      } catch {
-        // A prefix can suggest a private or missing export. It is not a shared entry.
-        return undefined;
-      }
-    });
-  };
   const savePrebuild = new PromiseStore<string>();
   let devServer: ViteDevServer | undefined;
   // resolveId fires once per importing module. The loadShare virtual module,
@@ -639,6 +582,10 @@ export function proxySharedModule(options: {
       ssrTarget,
     });
   };
+  const sharedSourceResolver = createSharedSourceResolver(shared, (context, resolveOptions) => ({
+    root: _config?.root || getPackageDetectionCwd(),
+    conditions: getRuntimeDependencyConditions(context, resolveOptions),
+  }));
   const refreshTreeShakingForEnvironment = (context: unknown) =>
     refreshTreeShakingModules(
       federationOptions,
@@ -752,7 +699,7 @@ export function proxySharedModule(options: {
         setTreeShakingBuildMode(command === 'build', federationOptions);
         resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
-        sharedSourceResolvers.clear();
+        sharedSourceResolver.clear();
         sharedDependencyCache.clear();
         dependencyManifestCache.clear();
         sharedRuntimeDependencyCache.clear();
@@ -809,10 +756,10 @@ export function proxySharedModule(options: {
         refreshHostAutoInit(federationOptions);
       },
       watchChange() {
-        sharedSourceResolvers.clear();
+        sharedSourceResolver.clear();
       },
       buildStart() {
-        sharedSourceResolvers.clear();
+        sharedSourceResolver.clear();
         if (_command !== 'build') return;
         resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
@@ -832,7 +779,7 @@ export function proxySharedModule(options: {
           id,
           shared,
           async (source, shares) => {
-            const request = await resolveSharedSource(this, source, transformOptions);
+            const request = await sharedSourceResolver.resolve(this, source, transformOptions);
             return request ? findSharedKey(request, shares) : undefined;
           },
           (sharedKey, exports, request) =>
@@ -864,7 +811,7 @@ export function proxySharedModule(options: {
         // graph token so the optimized provider cannot be merged with the full
         // fallback's dependency graph.
         if (!sourceToken && importerToken) {
-          const request = await resolveSharedSource(this, cleanSource, resolveOptions);
+          const request = await sharedSourceResolver.resolve(this, cleanSource, resolveOptions);
           const nestedSharedKey = request ? findSharedKey(request, shared) : undefined;
           if (
             nestedSharedKey &&
@@ -911,7 +858,7 @@ export function proxySharedModule(options: {
         ) {
           return;
         }
-        const sharedSource = await resolveSharedSource(this, source, resolveOptions);
+        const sharedSource = await sharedSourceResolver.resolve(this, source, resolveOptions);
         if (!sharedSource) return;
         const key = findSharedKey(sharedSource, shared);
         if (!key) return;

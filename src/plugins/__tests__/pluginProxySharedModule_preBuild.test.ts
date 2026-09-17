@@ -2302,10 +2302,9 @@ describe('pluginProxySharedModule_preBuild', () => {
       );
       const resolve = (id: string, _importer: string, options: any) =>
         options.custom?.__mfSharedEntryLookup ? resolveEntry(id) : null;
-      const lookup = (request: string, options: Record<string, unknown> = {}) =>
+      const lookup = (request: string) =>
         callHook(sharedResolvePlugin.resolveId, { resolve } as any, request, '/src/main.ts', {
           isEntry: false,
-          ...options,
         });
 
       await lookup(source);
@@ -2318,19 +2317,6 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(await lookup(`${entry}?raw`)).toBeUndefined();
       expect(await lookup(`${entry}#fragment`)).toBeUndefined();
       expect(resolveEntry).toHaveBeenCalledTimes(3);
-
-      // These requests can resolve differently despite having the same source.
-      for (const options of [
-        { custom: { entryMode: 'custom' } },
-        { kind: 'require-call' },
-        { attributes: { type: 'json' } },
-        { isEntry: true },
-        { scan: true },
-      ]) {
-        resolveEntry.mockClear();
-        await lookup(source, options);
-        expect(resolveEntry).toHaveBeenCalledTimes(3);
-      }
 
       expect(preBuildShareItemMap.has('react-dom/client')).toBe(true);
       expect(preBuildShareItemMap.has('react-dom')).toBe(false);
@@ -2371,16 +2357,18 @@ describe('pluginProxySharedModule_preBuild', () => {
     });
     const client = { name: 'client' };
     const ssr = { name: 'ssr' };
-    const lookup = (environment?: object, isSsr = false) =>
+    const lookup = (environment?: object, options: Record<string, unknown> = {}) =>
       callHook(
         sharedResolvePlugin.resolveId,
         { resolve, environment } as any,
         source,
         '/src/main.ts',
-        { isEntry: false, ssr: isSsr }
+        { isEntry: false, ...options }
       );
 
     expect(await lookup(client)).toBeUndefined();
+    expect(resolve).toHaveBeenCalledTimes(4);
+    resolve.mockClear();
     expect(await lookup(client)).toBeUndefined();
     await callHook(
       proxyPlugin.transform,
@@ -2388,13 +2376,28 @@ describe('pluginProxySharedModule_preBuild', () => {
       `import { secret } from '${source}';`,
       '/src/main.ts'
     );
-    expect(resolve).toHaveBeenCalledTimes(4);
+    expect(resolve).not.toHaveBeenCalled();
     expect(await lookup(ssr)).toBeUndefined();
-    expect(resolve).toHaveBeenCalledTimes(6);
+    expect(resolve).toHaveBeenCalledTimes(2);
+
+    // These requests can resolve differently despite having the same source.
+    for (const options of [
+      { custom: { entryMode: 'custom' } },
+      { kind: 'require-call' },
+      { attributes: { type: 'json' } },
+      { isEntry: true },
+      { scan: true },
+    ]) {
+      resolve.mockClear();
+      expect(await lookup(client, options)).toBeUndefined();
+      expect(resolve).toHaveBeenCalledTimes(2);
+    }
 
     // Vite 5 has no environment object and identifies SSR through hook options.
+    resolve.mockClear();
     expect(await lookup()).toBeUndefined();
-    expect(resolve).toHaveBeenCalledTimes(8);
+    expect(resolve).toHaveBeenCalledTimes(2);
+    resolve.mockClear();
     await callHook(
       proxyPlugin.transform,
       { resolve } as any,
@@ -2402,17 +2405,18 @@ describe('pluginProxySharedModule_preBuild', () => {
       '/src/main.ts',
       { ssr: true, moduleType: 'js' }
     );
-    expect(resolve).toHaveBeenCalledTimes(10);
-    expect(await lookup(undefined, true)).toBeUndefined();
-    expect(await lookup(undefined, true)).toBeUndefined();
-    expect(resolve).toHaveBeenCalledTimes(10);
+    expect(resolve).toHaveBeenCalledTimes(2);
+    resolve.mockClear();
+    expect(await lookup(undefined, { ssr: true })).toBeUndefined();
+    expect(resolve).not.toHaveBeenCalled();
 
     await callHook(proxyPlugin.watchChange, {} as any, source, { event: 'update' });
     expect(await lookup(client)).toBeUndefined();
-    expect(resolve).toHaveBeenCalledTimes(12);
+    expect(resolve).toHaveBeenCalledTimes(2);
+    resolve.mockClear();
     await callHook(proxyPlugin.buildStart, {} as any, {} as any);
     expect(await lookup(client)).toBeUndefined();
-    expect(resolve).toHaveBeenCalledTimes(14);
+    expect(resolve).toHaveBeenCalledTimes(2);
   });
 
   it('proxies subpath imports for trailing slash shared packages', async () => {
