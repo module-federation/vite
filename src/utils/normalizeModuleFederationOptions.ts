@@ -32,6 +32,7 @@ import {
   resolveImportPath,
 } from './packageUtils';
 import { getCommonSharedSubpaths } from './pathNormalization';
+import { findSharedKey } from './sharedKeyMatcher';
 import { normalizePathForImport } from './buildPaths';
 
 interface ExposesItem {
@@ -880,8 +881,11 @@ export function getNormalizeShareItem(
   key: string,
   options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions()
 ) {
+  // Registration must reuse the same prefix match as import interception.
+  const matchedKey = findSharedKey(key, options.shared);
   const shareItem =
     options.shared[key] ||
+    (matchedKey ? options.shared[matchedKey] : undefined) ||
     options.shared[getPackageName(key)] ||
     options.shared[getPackageName(key) + '/'];
   return shareItem;

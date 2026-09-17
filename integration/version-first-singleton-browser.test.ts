@@ -1,6 +1,6 @@
 import { chromium } from '@playwright/test';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { build } from 'vite';
@@ -188,6 +188,95 @@ async function readNegotiatedSharedVersions(
 }
 
 describe('version-first singleton static import browser bootstrap', () => {
+  it('registers nested-prefix providers and selects the higher host version', async () => {
+    const previousCwd = getPackageDetectionCwd();
+    const workspace = await mkdtemp(path.resolve('node_modules/.nested-prefix-'));
+    let remoteServer: StaticServer | undefined;
+    let hostServer: StaticServer | undefined;
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      for (const [side, version] of [
+        ['host', '2.0.0'],
+        ['remote', '1.0.0'],
+      ]) {
+        const root = path.join(workspace, side);
+        const packageDir = path.join(root, 'node_modules/audit-lib');
+        await mkdir(path.join(packageDir, 'features'), { recursive: true });
+        await writeFile(
+          path.join(root, 'package.json'),
+          JSON.stringify({ name: side, type: 'module' })
+        );
+        await writeFile(
+          path.join(root, 'index.html'),
+          '<script type="module" src="/main.js"></script>'
+        );
+        await writeFile(
+          path.join(packageDir, 'package.json'),
+          JSON.stringify({ name: 'audit-lib', version, type: 'module' })
+        );
+        await writeFile(
+          path.join(packageDir, 'features/button.js'),
+          `export const version = '${version}';`
+        );
+      }
+      await writeFile(
+        path.join(workspace, 'remote/main.js'),
+        'export { version as remoteVersion } from "audit-lib/features/button.js";'
+      );
+      await writeFile(
+        path.join(workspace, 'host/main.js'),
+        `import { version } from 'audit-lib/features/button.js';
+         import { remoteVersion } from 'remote/Module';
+         window.__prefixVersions = { host: version, remote: remoteVersion };`
+      );
+
+      const shared = { 'audit-lib/features/': { singleton: true, requiredVersion: '*' } };
+      const remoteOutDir = path.join(workspace, 'remote-dist');
+      const hostOutDir = path.join(workspace, 'host-dist');
+      await buildFixtureTo(path.join(workspace, 'remote'), remoteOutDir, {
+        name: 'a_prefix_remote',
+        filename: 'remoteEntry.js',
+        shareStrategy: 'version-first',
+        shared,
+        exposes: { './Module': path.join(workspace, 'remote/main.js') },
+        dts: false,
+      });
+      remoteServer = await serveDirectory(remoteOutDir);
+      await buildFixtureTo(path.join(workspace, 'host'), hostOutDir, {
+        name: 'z_prefix_host',
+        shareStrategy: 'version-first',
+        shared,
+        remotes: {
+          remote: {
+            type: 'module',
+            name: 'a_prefix_remote',
+            entry: `${remoteServer.origin}/remoteEntry.js`,
+          },
+        },
+        dts: false,
+      });
+      hostServer = await serveDirectory(hostOutDir);
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+      await page.goto(hostServer.origin);
+      await page.waitForFunction(() => (window as any).__prefixVersions !== undefined);
+      expect(await page.evaluate(() => (window as any).__prefixVersions)).toEqual({
+        host: '2.0.0',
+        remote: '2.0.0',
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser?.close();
+      await hostServer?.close();
+      await remoteServer?.close();
+      await rm(workspace, { recursive: true, force: true });
+      setPackageDetectionCwd(previousCwd);
+    }
+  }, 60_000);
+
   it('resolves both host and remote static imports to the higher negotiated version', async () => {
     expect(await readNegotiatedSharedVersions()).toEqual({
       hostSaw: '1.5.0',

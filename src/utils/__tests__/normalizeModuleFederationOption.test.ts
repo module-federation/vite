@@ -1,6 +1,7 @@
 import { beforeEach, vi } from 'vitest';
 import {
   ModuleFederationOptions,
+  getNormalizeShareItem,
   normalizeModuleFederationOptions,
   RemoteObjectConfig,
 } from '../normalizeModuleFederationOptions';
@@ -467,6 +468,46 @@ describe('normalizeModuleFederationOption', () => {
   });
 
   describe('shared', () => {
+    it('resolves metadata for a nested package prefix', () => {
+      const options = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          '@scope/ui/features/': {
+            version: '2.0.0',
+            requiredVersion: '^2.0.0',
+            singleton: true,
+            shareScope: 'widgets',
+            import: false,
+          },
+        },
+      });
+
+      expect(getNormalizeShareItem('@scope/ui/features/button', options)).toBe(
+        options.shared['@scope/ui/features/']
+      );
+      expect(getNormalizeShareItem('@scope/ui/features-extra/button', options)).toBeUndefined();
+    });
+
+    it('uses the most specific shared metadata when exact keys and prefixes overlap', () => {
+      const options = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          'audit-lib': {},
+          'audit-lib/': {},
+          'audit-lib/features/': { singleton: true },
+          'audit-lib/features/button': { import: false },
+        },
+      });
+
+      expect(getNormalizeShareItem('audit-lib/features/button', options)).toBe(
+        options.shared['audit-lib/features/button']
+      );
+      expect(getNormalizeShareItem('audit-lib/features/input', options)).toBe(
+        options.shared['audit-lib/features/']
+      );
+      expect(getNormalizeShareItem('audit-lib/other', options)).toBe(options.shared['audit-lib/']);
+    });
+
     it('normalizes a string array', () => {
       expect(
         normalizeModuleFederationOptions({
