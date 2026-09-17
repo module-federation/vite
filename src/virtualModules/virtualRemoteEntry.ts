@@ -13,20 +13,23 @@ import {
   getPackageName,
   getSharedCacheDescriptor,
   hasPackageDependency,
+  isPackageExportAvailable,
   packageNameEncode,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import { SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
+import { getTreeShakingExportUsage } from '../utils/treeShaking';
 import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
+import { getVirtualModuleScopeKey } from './virtualModuleScope';
 import { getUsedRemotesMap } from './virtualRemotes';
 import {
   getRuntimeInitBootstrapCode,
   getRuntimeInitResolveBootstrapCode,
-  getRuntimeRemoteAlias,
   getRuntimeInitStatusImportId,
   getRuntimeModuleCacheBootstrapCode,
+  getRuntimeRemoteAlias,
 } from './virtualRuntimeInitStatus';
 import {
   getConcreteSharedImportSource,
@@ -38,8 +41,6 @@ import {
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
 } from './virtualShared_preBuild';
-import { getTreeShakingExportUsage } from '../utils/treeShaking';
-import { getVirtualModuleScopeKey } from './virtualModuleScope';
 
 let usedShares: Set<string> = new Set();
 const usedSharesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
@@ -412,10 +413,10 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
       `;
 }
 
-/** Expand `pkg/` → package root + matching usedShares; never returns the prefix string. */
+/** Expand `pkg/` → package root (if importable) + matching usedShares; never returns the prefix string. */
 export function expandSharedPrefixKey(prefixKey: string, used: Iterable<string>): string[] {
   const base = prefixKey.slice(0, -1);
-  const expanded = new Set<string>([base]);
+  const expanded = new Set<string>(isPackageExportAvailable(base) ? [base] : []);
   for (const pkg of used) {
     if (pkg.endsWith('/')) continue;
     if (pkg === base || pkg.startsWith(`${base}/`)) expanded.add(pkg);

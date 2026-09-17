@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { pathToFileURL } from 'url';
@@ -10,6 +10,7 @@ import {
   getPackageNameFromNodeModulePath,
   getSharedCacheDescriptor,
   getSharedCacheKey,
+  isPackageExportAvailable,
   packageNameDecode,
   packageNameEncode,
   resolveImportPath,
@@ -466,6 +467,142 @@ describe('getInstalledPackageJson', () => {
     });
 
     expect(normalizePathForImport(entry || '')).toContain('/min/button.js');
+  });
+});
+
+describe('isPackageExportAvailable', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it('accepts a bare import that has a "." export', () => {
+    const packageName = 'mf-test-bare';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-bare-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: { '.': './dist/index.js' },
+      })
+    );
+
+    expect(isPackageExportAvailable(packageName, { cwd: hostDir })).toBe(true);
+  });
+
+  it('accepts a subpath whose export is a wildcard', () => {
+    const packageName = 'mf-test-subpath';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-subpath-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: { './*': './dist/*.js' },
+      })
+    );
+
+    expect(isPackageExportAvailable(`${packageName}/some`, { cwd: hostDir })).toBe(true);
+    expect(isPackageExportAvailable(`${packageName}/some/other`, { cwd: hostDir })).toBe(true);
+  });
+
+  it('rejects a package root that only publishes subpaths (no "." export)', () => {
+    const packageName = 'mf-test-no-root-export';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-no-root-export-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: { './*': './dist/*.js' },
+      })
+    );
+
+    expect(isPackageExportAvailable(packageName, { cwd: hostDir })).toBe(false);
+    expect(isPackageExportAvailable(`${packageName}/button`, { cwd: hostDir })).toBe(true);
+  });
+
+  it('rejects a two-segment subpath prefix whose export is wildcard-only (no bare match)', () => {
+    // e.g. shared config key "@scope/pkg/provider/" with exports "./provider/*" but no "./provider".
+    const packageName = 'mf-test-nested-prefix';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-nested-prefix-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: packageName,
+        exports: { './provider/*': './dist/provider/*.js' },
+      })
+    );
+
+    expect(isPackageExportAvailable(`${packageName}/provider`, { cwd: hostDir })).toBe(false);
+    expect(isPackageExportAvailable(`${packageName}/provider/index`, { cwd: hostDir })).toBe(true);
+  });
+
+  it('accepts the root of a legacy package (no "exports" field)', () => {
+    const packageName = 'mf-test-legacy-root';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-legacy-root-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: packageName, main: './index.js' })
+    );
+
+    expect(isPackageExportAvailable(packageName, { cwd: hostDir })).toBe(true);
+  });
+
+  it('accepts a subpath of a legacy package (no "exports" field to confirm it)', () => {
+    const packageName = 'mf-test-legacy-subpath-reject';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-legacy-subpath-reject-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: packageName, main: './index.js' })
+    );
+
+    expect(isPackageExportAvailable(`${packageName}/components`, { cwd: hostDir })).toBe(true);
+  });
+
+  it('rejects a package that is not installed', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-not-installed-'));
+    tempDirs.push(root);
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+
+    expect(isPackageExportAvailable('mf-test-does-not-exist', { cwd: root })).toBe(false);
   });
 });
 

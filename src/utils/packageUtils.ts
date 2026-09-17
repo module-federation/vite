@@ -3,9 +3,9 @@ import { createRequire } from 'module';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { getNodeModulesSuffix } from './pathNormalization';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
+import { getNodeModulesSuffix } from './pathNormalization';
 
 type PackageJsonDependencyGroups = {
   dependencies?: Record<string, string>;
@@ -164,7 +164,10 @@ function getPackageExportsTarget(pkg: string, packageName: string, exportsField:
 export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditions = {}): boolean {
   const packageName = getPackageName(pkg);
   const installed = getInstalledPackageJson(packageName, opts);
-  if (installed?.packageJson.exports == null) return true;
+
+  if (!installed) return false;
+  if (installed.packageJson.exports == null) return true;
+
   return (
     resolveExportsEntry(
       getPackageExportsTarget(pkg, packageName, installed.packageJson.exports),
@@ -172,6 +175,7 @@ export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditio
     ) !== undefined
   );
 }
+
 /**
  * Escaping rules:
  * Convert using the format __${mapping}__, where _ and $ are not allowed in npm package names but can be used in variable names.
