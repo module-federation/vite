@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { getNodeModulesSuffix } from './pathNormalization';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 
@@ -159,6 +160,18 @@ function getPackageExportsTarget(pkg: string, packageName: string, exportsField:
     record['.'] ?? (!Object.keys(record).some((key) => key.startsWith('.')) ? record : undefined)
   );
 }
+
+export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditions = {}): boolean {
+  const packageName = getPackageName(pkg);
+  const installed = getInstalledPackageJson(packageName, opts);
+  if (installed?.packageJson.exports == null) return true;
+  return (
+    resolveExportsEntry(
+      getPackageExportsTarget(pkg, packageName, installed.packageJson.exports),
+      opts.conditions
+    ) !== undefined
+  );
+}
 /**
  * Escaping rules:
  * Convert using the format __${mapping}__, where _ and $ are not allowed in npm package names but can be used in variable names.
@@ -256,11 +269,10 @@ export function getPackageName(packageString: string): string {
 }
 
 export function getPackageNameFromNodeModulePath(source: string): string | undefined {
-  const normalized = source.replace(/\\/g, '/');
-  const nodeModulesIndex = normalized.lastIndexOf('/node_modules/');
-  if (nodeModulesIndex < 0) return;
+  const suffix = getNodeModulesSuffix(source);
+  if (!suffix) return;
 
-  const parts = normalized.slice(nodeModulesIndex + '/node_modules/'.length).split('/');
+  const parts = suffix.split('/');
   if (!parts[0]) return;
   if (parts[0].startsWith('@')) return parts[1] ? `${parts[0]}/${parts[1]}` : undefined;
   return parts[0];

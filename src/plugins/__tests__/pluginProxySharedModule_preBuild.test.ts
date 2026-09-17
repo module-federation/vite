@@ -125,6 +125,7 @@ vi.mock('../../utils/packageUtils', () => ({
           };`,
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: getInstalledPackageEntryMock,
+  isPackageExportAvailable: () => true,
   getInstalledPackageJson: vi.fn((pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     const packageName = match ? match[0] : pkg;
@@ -2264,38 +2265,158 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(addUsedSharesMock).toHaveBeenCalledTimes(Object.keys(shared).length);
   });
 
-  it('keeps common shared subpaths when resolving node_modules paths', async () => {
-    hasPackageDependencyMock.mockReturnValue(false);
+  it.each([
+    {
+      source: '/@fs/repo/apps/remote/node_modules/react-dom/client.js?v=123&t=456&import',
+      entry: '/repo/apps/remote/node_modules/react-dom/client.js',
+    },
+    {
+      source: '/@fs/C:/repo/apps/remote/node_modules/react-dom/client.js?v=123&t=456&import',
+      entry: 'C:/repo/apps/remote/node_modules/react-dom/client.js',
+    },
+  ])(
+    'keeps common shared subpaths when resolving Vite file URL $source',
+    async ({ source, entry }) => {
+      normalizeModuleFederationOptions({ name: 'remote', shared: {} });
+      hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+      const plugins = proxySharedModule({ shared: makeShared() });
+      const proxyPlugin = getProxyPlugin(plugins);
+      const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+      const config: MockUserConfig = {
+        resolve: { alias: [] },
+      };
+
+      callHook(
+        proxyPlugin.config,
+        {
+          meta: createPluginMeta(),
+          resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+        } as unknown as ConfigPluginContext,
+        config,
+        { command: 'serve', mode: 'development' } as ConfigEnv
+      );
+
+      const resolveEntry = vi.fn(async (id: string) =>
+        id === 'react-dom/client' || id === entry ? { id: entry } : null
+      );
+      const resolve = (id: string, _importer: string, options: any) =>
+        options.custom?.__mfSharedEntryLookup ? resolveEntry(id) : null;
+      const lookup = (request: string) =>
+        callHook(sharedResolvePlugin.resolveId, { resolve } as any, request, '/src/main.ts', {
+          isEntry: false,
+        });
+
+      await lookup(source);
+      await lookup(`${entry}?t=789`);
+      expect(resolveEntry.mock.calls.map(([id]) => id)).toEqual([
+        entry,
+        'react-dom',
+        'react-dom/client',
+      ]);
+      expect(await lookup(`${entry}?raw`)).toBeUndefined();
+      expect(await lookup(`${entry}#fragment`)).toBeUndefined();
+      expect(resolveEntry).toHaveBeenCalledTimes(3);
+
+      expect(preBuildShareItemMap.has('react-dom/client')).toBe(true);
+      expect(preBuildShareItemMap.has('react-dom')).toBe(false);
+    }
+  );
+
+  it('allows re-entry and isolates cached misses across environments and rebuilds', async () => {
+    normalizeModuleFederationOptions({ name: 'cache-test', shared: {} });
+    const shared: NormalizedShared = {
+      'audit-lib': {
+        ...makeShared().react,
+        name: 'audit-lib',
+        shareConfig: {
+          ...makeShared().react.shareConfig,
+          treeShaking: { mode: 'runtime-infer' },
+        },
+      },
+    };
+    const plugins = proxySharedModule({ shared });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
-    const config: MockUserConfig = {
-      resolve: { alias: [] },
-    };
-
     callHook(
       proxyPlugin.config,
-      {
-        meta: createPluginMeta(),
-        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
-      } as unknown as ConfigPluginContext,
-      config,
-      { command: 'serve', mode: 'development' } as ConfigEnv
+      { meta: createPluginMeta() } as any,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' }
     );
+    const source = '/repo/node_modules/audit-lib/internal.js';
+    let reenter = true;
+    const resolve = vi.fn(async (id: string) => {
+      if (id === source && reenter) {
+        reenter = false;
+        // Re-enter after the outer lookup has started waiting on this resolver.
+        await Promise.resolve();
+        await lookup(client);
+      }
+      return { id: id === 'audit-lib' ? '/repo/node_modules/audit-lib/index.js' : id };
+    });
+    const client = { name: 'client' };
+    const ssr = { name: 'ssr' };
+    const lookup = (environment?: object, options: Record<string, unknown> = {}) =>
+      callHook(
+        sharedResolvePlugin.resolveId,
+        { resolve, environment } as any,
+        source,
+        '/src/main.ts',
+        { isEntry: false, ...options }
+      );
 
+    expect(await lookup(client)).toBeUndefined();
+    expect(resolve).toHaveBeenCalledTimes(4);
+    resolve.mockClear();
+    expect(await lookup(client)).toBeUndefined();
     await callHook(
-      sharedResolvePlugin.resolveId,
-      {
-        resolve: async (id: string) => ({ id }),
-      } as any,
-      '/repo/apps/remote/node_modules/react-dom/client.js?v=123',
-      '/src/main.ts',
-      { isEntry: false }
+      proxyPlugin.transform,
+      { resolve, environment: client } as any,
+      `import { secret } from '${source}';`,
+      '/src/main.ts'
     );
+    expect(resolve).not.toHaveBeenCalled();
+    expect(await lookup(ssr)).toBeUndefined();
+    expect(resolve).toHaveBeenCalledTimes(2);
 
-    expect(preBuildShareItemMap.has('react-dom/client')).toBe(true);
-    expect(preBuildShareItemMap.has('react-dom')).toBe(false);
+    // These requests can resolve differently despite having the same source.
+    for (const options of [
+      { custom: { entryMode: 'custom' } },
+      { kind: 'require-call' },
+      { attributes: { type: 'json' } },
+      { isEntry: true },
+      { scan: true },
+    ]) {
+      resolve.mockClear();
+      expect(await lookup(client, options)).toBeUndefined();
+      expect(resolve).toHaveBeenCalledTimes(2);
+    }
+
+    // Vite 5 has no environment object and identifies SSR through hook options.
+    resolve.mockClear();
+    expect(await lookup()).toBeUndefined();
+    expect(resolve).toHaveBeenCalledTimes(2);
+    resolve.mockClear();
+    await callHook(
+      proxyPlugin.transform,
+      { resolve } as any,
+      `import { secret } from '${source}';`,
+      '/src/main.ts',
+      { ssr: true, moduleType: 'js' }
+    );
+    expect(resolve).toHaveBeenCalledTimes(2);
+    resolve.mockClear();
+    expect(await lookup(undefined, { ssr: true })).toBeUndefined();
+    expect(resolve).not.toHaveBeenCalled();
+
+    await callHook(proxyPlugin.watchChange, {} as any, source, { event: 'update' });
+    expect(await lookup(client)).toBeUndefined();
+    expect(resolve).toHaveBeenCalledTimes(2);
+    resolve.mockClear();
+    await callHook(proxyPlugin.buildStart, {} as any, {} as any);
+    expect(await lookup(client)).toBeUndefined();
+    expect(resolve).toHaveBeenCalledTimes(2);
   });
 
   it('proxies subpath imports for trailing slash shared packages', async () => {

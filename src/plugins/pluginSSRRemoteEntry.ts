@@ -5,7 +5,13 @@ import { Plugin, ResolvedConfig } from 'vite';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
-import { getBasePath, isNuxtClientBase } from '../utils/pathNormalization';
+import {
+  getBasePath,
+  isNuxtClientBase,
+  stripQueryAndHash,
+  stripViteFsPrefix,
+  VITE_FS_PREFIX,
+} from '../utils/pathNormalization';
 import { decodeViteId } from '../utils/VirtualModule';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
 import {
@@ -18,7 +24,6 @@ import {
 const MAX_RUNNER_BODY_BYTES = 1024 * 1024;
 const MAX_RUNNER_START_OFFSET = 1024 * 1024;
 const ALLOWED_RUNNER_INVOKE_NAMES = new Set(['fetchModule', 'getBuiltins']);
-const VITE_FS_PREFIX = '/@fs/';
 
 type RunnerInvokePayload = {
   type: 'custom';
@@ -58,14 +63,6 @@ function isSafeRunnerFetchModuleOptions(value: unknown): boolean {
     }
   }
   return true;
-}
-
-function stripQueryAndHash(id: string): string {
-  const queryIndex = id.indexOf('?');
-  const hashIndex = id.indexOf('#');
-  const endIndex =
-    queryIndex === -1 ? hashIndex : hashIndex === -1 ? queryIndex : Math.min(queryIndex, hashIndex);
-  return endIndex === -1 ? id : id.slice(0, endIndex);
 }
 
 function decodeRunnerFilePath(filePath: string): string | undefined {
@@ -132,7 +129,7 @@ function isSafeRunnerFetchModuleId(id: unknown, config: RunnerValidationConfig):
 
   const allowedDirectories = getRunnerAllowedDirectories(config);
   if (cleanId.startsWith(VITE_FS_PREFIX)) {
-    const fsPath = `/${cleanId.slice(VITE_FS_PREFIX.length)}`;
+    const fsPath = stripViteFsPrefix(cleanId);
     return path.isAbsolute(fsPath) && isPathWithinAllowedDirectories(fsPath, allowedDirectories);
   }
   if (path.isAbsolute(cleanId)) {

@@ -6,7 +6,10 @@ import type {
 } from './normalizeModuleFederationOptions';
 import { normalizePathForImport } from './buildPaths';
 
-type SharedSourceMatcher = (source: string, shared: NormalizedShared) => string | undefined;
+type SharedSourceMatcher = (
+  source: string,
+  shared: NormalizedShared
+) => string | undefined | Promise<string | undefined>;
 
 type TreeShakingExportRecord = {
   requiresFullBundle: boolean;
@@ -342,14 +345,14 @@ function collectReExport(
  * Generated federation wrappers are excluded because their imports describe
  * the wrapper implementation, not the consumer's requirements.
  */
-export function collectTreeShakingImports(
+export async function collectTreeShakingImports(
   code: string,
   id: string,
   shared: NormalizedShared,
   findSharedKey: SharedSourceMatcher,
   record: RecordTreeShakingExports,
   markUnsafe: MarkTreeShakingPackageUnsafe
-) {
+): Promise<void> {
   const normalizedId = normalizePathForImport(id);
   if (
     normalizedId.includes('__prebuild__') ||
@@ -369,17 +372,20 @@ export function collectTreeShakingImports(
     return;
   }
 
-  const matchShared = (source: string) => {
-    const sharedKey = findSharedKey(source, shared);
-    return sharedKey && shouldAnalyzeSharedExports(shared[sharedKey]) ? sharedKey : undefined;
+  const pending: Promise<void>[] = [];
+  const withSharedSource = (source: string, use: (key: string) => void) => {
+    const apply = (key: string | undefined) => {
+      if (key && shouldAnalyzeSharedExports(shared[key])) use(key);
+    };
+    const key = findSharedKey(source, shared);
+    if (key instanceof Promise) pending.push(key.then(apply));
+    else apply(key);
   };
   const recordSource = (names: string[], source: string) => {
-    const sharedKey = matchShared(source);
-    if (sharedKey) record(sharedKey, names, source);
+    withSharedSource(source, (key) => record(key, names, source));
   };
   const markSourceUnsafe = (source: string) => {
-    const sharedKey = matchShared(source);
-    if (sharedKey) markUnsafe(sharedKey, source);
+    withSharedSource(source, (key) => markUnsafe(key, source));
   };
 
   forEachAstNode(ast, (node) => {
@@ -415,4 +421,5 @@ export function collectTreeShakingImports(
       }
     }
   });
+  await Promise.all(pending);
 }

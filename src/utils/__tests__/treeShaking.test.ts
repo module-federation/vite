@@ -92,6 +92,32 @@ describe('collectTreeShakingImports', () => {
     expect(unsafe).toEqual([]);
   });
 
+  it('waits for asynchronous resolution before completing export analysis', async () => {
+    const recorded: RecordedUsage[] = [];
+    const unsafe: UnsafeUsage[] = [];
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const analysis = collectTreeShakingImports(
+      `import { Button } from 'antd'; export * from 'lodash/get';`,
+      '/repo/src/App.js',
+      createShared(),
+      async (source, shared) => {
+        await pending;
+        return findSharedKey(source, shared);
+      },
+      (key, names, request) => recorded.push({ key, names, request }),
+      (key, request) => unsafe.push({ key, request })
+    );
+    expect(recorded).toEqual([]);
+    expect(unsafe).toEqual([]);
+    release();
+    await analysis;
+    expect(recorded).toEqual([{ key: 'antd', names: ['Button'], request: 'antd' }]);
+    expect(unsafe).toEqual([{ key: 'lodash/', request: 'lodash/get' }]);
+  });
+
   it('falls back to the full bundle for string-named imports and re-exports', () => {
     const { recorded, unsafe } = analyze(`
       import { "custom-export" as customExport } from 'antd';

@@ -1,4 +1,4 @@
-import { NormalizedModuleFederationOptions } from './normalizeModuleFederationOptions';
+import type { NormalizedModuleFederationOptions } from './normalizeModuleFederationOptions';
 
 export const COMMON_SHARED_SUBPATHS: Record<string, string[]> = {
   react: ['react/jsx-runtime', 'react/jsx-dev-runtime', 'react/compiler-runtime'],
@@ -88,10 +88,32 @@ export function isNuxtClientBase(base?: string): boolean {
   return getBasePath(base).endsWith('/_nuxt');
 }
 
+export const VITE_FS_PREFIX = '/@fs/';
+
+export function stripQueryAndHash(id: string): string {
+  const queryIndex = id.indexOf('?');
+  const hashIndex = id.indexOf('#');
+  const endIndex =
+    queryIndex === -1 ? hashIndex : hashIndex === -1 ? queryIndex : Math.min(queryIndex, hashIndex);
+  return endIndex === -1 ? id : id.slice(0, endIndex);
+}
+
+export function stripViteFsPrefix(id: string): string {
+  if (!id.startsWith(VITE_FS_PREFIX)) return id;
+  const file = id.slice(VITE_FS_PREFIX.length);
+  // Vite file URLs can contain either a POSIX path or a Windows drive path.
+  return file.startsWith('/') || /^[a-z]:\//i.test(file) ? file : `/${file}`;
+}
+
 export function normalizeNodeModulePath(source: string): string {
-  const queryIndex = source.indexOf('?');
-  const path = queryIndex === -1 ? source : source.slice(0, queryIndex);
-  return path.replace(/\\/g, '/');
+  return stripQueryAndHash(source).replace(/\\/g, '/');
+}
+
+export function getNodeModulesSuffix(source: string): string | undefined {
+  const normalized = normalizeNodeModulePath(source);
+  const marker = '/node_modules/';
+  const index = normalized.lastIndexOf(marker);
+  return index === -1 ? undefined : normalized.slice(index + marker.length);
 }
 
 export function isNodeModulePath(source: string): boolean {
@@ -102,47 +124,8 @@ export function filterId(id: unknown): id is string {
   return typeof id === 'string' && !id.includes('\0');
 }
 
-// A path-segment or real module-file extension after `/node_modules/${candidate}`.
-// Naive `candidate.` matching treated `server.browser.js` as `react-dom/server`.
-const NODE_MODULE_FILE_EXT_RE = /^\.[cm]?[jt]sx?$/i;
-
-function matchesNodeModuleCandidate(normalized: string, candidate: string): boolean {
-  const marker = `/node_modules/${candidate}`;
-  let from = 0;
-  while (from < normalized.length) {
-    const index = normalized.indexOf(marker, from);
-    if (index === -1) return false;
-    const after = normalized.slice(index + marker.length);
-    const boundary = after.search(/[?#]/);
-    const afterPath = boundary === -1 ? after : after.slice(0, boundary);
-    if (afterPath === '' || afterPath.startsWith('/') || NODE_MODULE_FILE_EXT_RE.test(afterPath)) {
-      return true;
-    }
-    from = index + 1;
-  }
-  return false;
-}
-
-export function getMatchingNodeModuleSubpath(
-  source: string,
-  candidates: Iterable<string>
-): string | undefined {
-  const normalized = normalizeNodeModulePath(source);
-  return [...candidates]
-    .sort((a, b) => b.length - a.length)
-    .find((candidate) => matchesNodeModuleCandidate(normalized, candidate));
-}
-
 export function getCommonSharedSubpaths(sharedKey: string): string[] {
   return COMMON_SHARED_SUBPATHS[removeTrailingSlash(sharedKey)] || [];
-}
-
-export function getCommonSharedSubpathFromNodeModulePath(
-  source: string,
-  sharedKey: string
-): string | undefined {
-  const keyBase = removeTrailingSlash(sharedKey);
-  return getMatchingNodeModuleSubpath(source, getCommonSharedSubpaths(keyBase));
 }
 
 /**

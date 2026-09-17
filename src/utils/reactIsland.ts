@@ -1,12 +1,9 @@
+import { stripQueryAndHash } from './pathNormalization';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedModuleFederationOptions } from './normalizeModuleFederationOptions';
 
 const SOURCE_EXTENSIONS = ['.tsx', '.jsx', '.ts', '.js', '.mts', '.mjs', '.cts', '.cjs'];
-
-function stripQueryAndHash(id: string) {
-  return id.split(/[?#]/, 1)[0];
-}
 
 function resolveSourceFile(importPath: string, root: string): string | undefined {
   const cleanImport = stripQueryAndHash(importPath);
