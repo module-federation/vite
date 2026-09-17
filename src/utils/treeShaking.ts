@@ -345,14 +345,14 @@ function collectReExport(
  * Generated federation wrappers are excluded because their imports describe
  * the wrapper implementation, not the consumer's requirements.
  */
-export function collectTreeShakingImports(
+export async function collectTreeShakingImports(
   code: string,
   id: string,
   shared: NormalizedShared,
   findSharedKey: SharedSourceMatcher,
   record: RecordTreeShakingExports,
   markUnsafe: MarkTreeShakingPackageUnsafe
-) {
+): Promise<void> {
   const normalizedId = normalizePathForImport(id);
   if (
     normalizedId.includes('__prebuild__') ||
@@ -421,5 +421,5 @@ export function collectTreeShakingImports(
       }
     }
   });
-  return Promise.all(pending);
+  await Promise.all(pending);
 }

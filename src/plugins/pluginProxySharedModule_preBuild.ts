@@ -3,7 +3,7 @@ import type { Dirent } from 'fs';
 import { createRequire, isBuiltin } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
-import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
+import type { Plugin, ResolvedConfig, Rollup, UserConfig, ViteDevServer } from 'vite';
 import { normalizePathForImport } from '../utils/buildPaths';
 import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
@@ -31,7 +31,7 @@ import {
   hasPackageDependency,
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
-import { getSharedSource } from '../utils/sharedSource';
+import { createSharedSourceResolver } from '../utils/sharedSource';
 import { PromiseStore } from '../utils/PromiseStore';
 import { getSharedExportConditions } from '../utils/sharedExportConditions';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
@@ -534,12 +534,35 @@ export function proxySharedModule(options: {
   let rootResolveConditions: string[] | undefined;
   let ssrResolveConditions: string[] | undefined;
   let ssrTarget: 'node' | 'webworker' = 'node';
+  const sharedSourceResolvers = new Map<
+    object | boolean,
+    ReturnType<typeof createSharedSourceResolver>
+  >();
   const resolveSharedSource = (
-    context: Pick<import('vite').Rollup.PluginContext, 'resolve'>,
+    context: Pick<Rollup.PluginContext, 'resolve'>,
     source: string,
-    resolveOptions: { ssr?: boolean; custom?: Record<string, unknown> } = {}
-  ) =>
-    getSharedSource(source, shared, async (request) => {
+    resolveOptions: NonNullable<Parameters<Rollup.PluginContext['resolve']>[2]> & {
+      ssr?: boolean;
+      scan?: boolean;
+      attributes?: Record<string, string>;
+    } = {}
+  ) => {
+    // Vite 6+ shares plugins across environments; Vite 5 identifies SSR via options.
+    const environment = (context as RuntimeDependencyContext).environment ?? !!resolveOptions.ssr;
+    // A source-only cache is valid for ordinary imports. Other resolution modes
+    // or plugin-defined options may select a different entry for the same source.
+    const cacheable =
+      !resolveOptions.isEntry &&
+      !resolveOptions.scan &&
+      (!resolveOptions.kind || resolveOptions.kind === 'import-statement') &&
+      Object.keys(resolveOptions.attributes ?? {}).length === 0 &&
+      Object.keys(resolveOptions.custom ?? {}).length === 0;
+    let resolver = cacheable ? sharedSourceResolvers.get(environment) : undefined;
+    if (!resolver) {
+      resolver = createSharedSourceResolver(shared);
+      if (cacheable) sharedSourceResolvers.set(environment, resolver);
+    }
+    return resolver(source, async (request) => {
       // Rolldown can retain errors from speculative this.resolve() calls even
       // when caught. A file path does not imply a public package export.
       if (
@@ -566,6 +589,7 @@ export function proxySharedModule(options: {
         return undefined;
       }
     });
+  };
   const savePrebuild = new PromiseStore<string>();
   let devServer: ViteDevServer | undefined;
   // resolveId fires once per importing module. The loadShare virtual module,
@@ -728,6 +752,7 @@ export function proxySharedModule(options: {
         setTreeShakingBuildMode(command === 'build', federationOptions);
         resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
+        sharedSourceResolvers.clear();
         sharedDependencyCache.clear();
         dependencyManifestCache.clear();
         sharedRuntimeDependencyCache.clear();
@@ -783,7 +808,11 @@ export function proxySharedModule(options: {
         writeLocalSharedImportMap(federationOptions);
         refreshHostAutoInit(federationOptions);
       },
+      watchChange() {
+        sharedSourceResolvers.clear();
+      },
       buildStart() {
+        sharedSourceResolvers.clear();
         if (_command !== 'build') return;
         resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
@@ -794,7 +823,7 @@ export function proxySharedModule(options: {
         // map is reset, otherwise only changed files contribute usedExports.
         return _command === 'build' && hasAnalyzableShares;
       },
-      async transform(code, id) {
+      async transform(code, id, transformOptions) {
         if (_command !== 'build' || !hasAnalyzableShares) {
           return;
         }
@@ -803,7 +832,7 @@ export function proxySharedModule(options: {
           id,
           shared,
           async (source, shares) => {
-            const request = await resolveSharedSource(this, source);
+            const request = await resolveSharedSource(this, source, transformOptions);
             return request ? findSharedKey(request, shares) : undefined;
           },
           (sharedKey, exports, request) =>
