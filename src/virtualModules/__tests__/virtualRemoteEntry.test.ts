@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   hasPackageDependencyMock,
+  isPackageExportAvailableMock,
+  isPackageInstalledMock,
   normalizedSharedMock,
   normalizedRemotesMock,
   usedRemotesMapMock,
@@ -9,6 +11,8 @@ const {
   optionsMock,
 } = vi.hoisted(() => ({
   hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
+  isPackageExportAvailableMock: vi.fn<(specifier: string) => boolean>(() => true),
+  isPackageInstalledMock: vi.fn<(specifier: string) => boolean>(() => true),
   normalizedSharedMock: vi.fn(() => ({})),
   normalizedRemotesMock: vi.fn(() => ({})),
   usedRemotesMapMock: vi.fn(() => ({})),
@@ -414,6 +418,8 @@ vi.mock('../../utils/packageUtils', () => {
             return value;
           };`,
     hasPackageDependency: hasPackageDependencyMock,
+    isPackageExportAvailable: isPackageExportAvailableMock,
+    isPackageInstalled: isPackageInstalledMock,
     packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
     getPackageName: (packageString: string) => {
       const match = packageString.match(/^(?:@[^/]+\/)?[^/]+/);
@@ -568,6 +574,10 @@ vi.mock('../virtualShared_preBuild', () => {
 describe('virtualRemoteEntry', () => {
   beforeEach(async () => {
     hasPackageDependencyMock.mockReset();
+    isPackageExportAvailableMock.mockReset();
+    isPackageExportAvailableMock.mockReturnValue(true);
+    isPackageInstalledMock.mockReset();
+    isPackageInstalledMock.mockReturnValue(true);
     normalizedSharedMock.mockReset();
     normalizedSharedMock.mockReturnValue({});
     normalizedRemotesMock.mockReset();
@@ -1041,6 +1051,74 @@ describe('virtualRemoteEntry', () => {
     expect(code).toMatch(/"react\/jsx-runtime": \{[\s\S]*?materialize: true,/);
     expect(code).toMatch(/"react\/jsx-dev-runtime": \{[\s\S]*?materialize: true,/);
     expect(code).not.toMatch(/"react\/": \{/);
+  });
+
+  it('drops the prefix base from an `pkg/` share when its package root is not importable', async () => {
+    // e.g. a design system published with `"exports": { "./": "./dist/" }` and no `"."` entry:
+    // bare `import * as x from "@scope/design-system"` would fail to resolve.
+    isPackageExportAvailableMock.mockImplementation(
+      (specifier: string) => specifier !== '@scope/design-system'
+    );
+
+    const mod = await import('../virtualRemoteEntry');
+    const options = {
+      internalName: '__mfe_internal__unimportable_base',
+      name: 'unimportable-base-host',
+      filename: 'remoteEntry.js',
+      shared: {
+        '@scope/design-system/': {
+          name: '@scope/design-system/',
+          from: '',
+          version: '1.0.0',
+          scope: 'default',
+        },
+      },
+      shareScope: 'default',
+      runtimePlugins: [],
+      shareStrategy: 'version-first',
+    } as any;
+
+    mod.addUsedShares('@scope/design-system/button', options);
+
+    const code = mod.generateLocalSharedImportMap(options);
+
+    expect(code).toMatch(/"@scope\/design-system\/button": \{[\s\S]*?materialize: true,/);
+    expect(code).not.toMatch(/"@scope\/design-system": \{/);
+    expect(code).not.toMatch(/"@scope\/design-system\/": \{/);
+  });
+
+  it('drops the prefix base from an `pkg/` share when its package is not installed', async () => {
+    // An `exports`-less package cannot be rejected by `isPackageExportAvailable` alone, so an
+    // uninstalled base must be gated separately before it is emitted as an eager import.
+    isPackageInstalledMock.mockImplementation(
+      (specifier: string) => specifier !== '@scope/missing'
+    );
+
+    const mod = await import('../virtualRemoteEntry');
+    const options = {
+      internalName: '__mfe_internal__missing_base',
+      name: 'missing-base-host',
+      filename: 'remoteEntry.js',
+      shared: {
+        '@scope/missing/': {
+          name: '@scope/missing/',
+          from: '',
+          version: '1.0.0',
+          scope: 'default',
+        },
+      },
+      shareScope: 'default',
+      runtimePlugins: [],
+      shareStrategy: 'version-first',
+    } as any;
+
+    mod.addUsedShares('@scope/missing/button', options);
+
+    const code = mod.generateLocalSharedImportMap(options);
+
+    expect(code).toMatch(/"@scope\/missing\/button": \{[\s\S]*?materialize: true,/);
+    expect(code).not.toMatch(/"@scope\/missing": \{/);
+    expect(isPackageExportAvailableMock).not.toHaveBeenCalledWith('@scope/missing');
   });
 
   it('registers configured shares without materializing unused providers', async () => {

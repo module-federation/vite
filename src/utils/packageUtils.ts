@@ -3,9 +3,9 @@ import { createRequire } from 'module';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { getNodeModulesSuffix } from './pathNormalization';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
+import { getNodeModulesSuffix } from './pathNormalization';
 
 type PackageJsonDependencyGroups = {
   dependencies?: Record<string, string>;
@@ -161,6 +161,15 @@ function getPackageExportsTarget(pkg: string, packageName: string, exportsField:
   );
 }
 
+/** Whether `pkg` can be located from `opts.cwd` (or the detection cwd). Aliased or non-hoisted packages may still resolve through Vite. */
+export function isPackageInstalled(pkg: string, opts: PackageEntryConditions = {}): boolean {
+  return getInstalledPackageJson(getPackageName(pkg), opts) !== undefined;
+}
+
+/**
+ * Whether the installed package's `exports` field permits `pkg`. Lenient when the package cannot
+ * be found or has no `exports`: callers that need a hard "is installed" gate use `isPackageInstalled`.
+ */
 export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditions = {}): boolean {
   const packageName = getPackageName(pkg);
   const installed = getInstalledPackageJson(packageName, opts);
@@ -172,6 +181,7 @@ export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditio
     ) !== undefined
   );
 }
+
 /**
  * Escaping rules:
  * Convert using the format __${mapping}__, where _ and $ are not allowed in npm package names but can be used in variable names.

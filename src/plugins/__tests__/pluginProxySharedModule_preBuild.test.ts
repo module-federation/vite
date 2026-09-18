@@ -126,6 +126,7 @@ vi.mock('../../utils/packageUtils', () => ({
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: getInstalledPackageEntryMock,
   isPackageExportAvailable: () => true,
+  isPackageInstalled: () => true,
   getInstalledPackageJson: vi.fn((pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     const packageName = match ? match[0] : pkg;
