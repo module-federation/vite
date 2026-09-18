@@ -3819,8 +3819,10 @@ describe('virtualRemoteEntry', () => {
     expect(lateBridgeCall).toBeGreaterThan(initializeSharingCall);
     expect(code).toContain('let __mfLateBridgeShared');
     expect(code).toContain('const __mfBridgeSharedProviders = async () =>');
-    expect(code).toContain('if (__mfUsesWebpackShareScope) {');
-    expect(code).toContain('__mfLateBridgeShared = __mfBridgeSharedProviders');
+    expect(code).not.toContain('if (__mfUsesWebpackShareScope) {');
+    expect(code).toContain('__mfLateBridgeShared = async () =>');
+    expect(code).toContain('await __mfBridgeSharedProviders()');
+    expect(code).toContain('await __mfBridgeGlobalSharedProviders()');
     expect(code).toContain('if (__mfLateBridgeShared) await __mfLateBridgeShared()');
   });
 

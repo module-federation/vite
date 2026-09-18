@@ -2068,57 +2068,68 @@ export function generateRemoteEntry(
         );
       }));
     };
-    await __mfBridgeSharedProviders();
-    if (__mfUsesWebpackShareScope) {
-      __mfLateBridgeShared = __mfBridgeSharedProviders;
-    }
-    try {
-      const allInstances = globalThis.__FEDERATION__?.__SHARE__;
-      const globalVersionsByPackage = Object.create(null);
-      if (allInstances) {
-        for (const [, scopes] of Object.entries(allInstances)) {
-          for (const scopeName of shareScopeNames) {
-            const scopeShare = scopes?.[scopeName];
-            if (!scopeShare) continue;
-            for (const [pkg, versionMap] of Object.entries(scopeShare)) {
-            const usedShare = usedShared?.[pkg];
-            const passedVersions = initialShared[pkg];
-            const bridgeSelection = bridgeSelections.get(pkg);
-            if (!usedShare) continue;
-            if (!passedVersions) continue;
-            if (!bridgeSelection) continue;
-            if (usedShare.treeShaking) continue;
-            const globalVersions = globalVersionsByPackage[pkg] || (globalVersionsByPackage[pkg] = Object.create(null));
-            for (const [version, provider] of Object.entries(versionMap)) {
-              if (!provider.lib) continue;
-              if (bridgeSelection.version !== version) continue;
-              if (!__mfMatchesSharedProvider(provider, bridgeSelection.provider)) continue;
-              const passedProvider = passedVersions[version];
-              const matchesPassedProvider = provider === passedProvider || (
-                passedProvider?.from && provider.from === passedProvider.from
-              );
-              if (!matchesPassedProvider) continue;
-              if (provider === usedShare || (usedShare.from && provider.from === usedShare.from)) continue;
-              if (globalVersions[version] === undefined) globalVersions[version] = provider;
-            }
+    // Defer all external shared bridging to getExposes() instead of running
+    // it during init(). This prevents a deadlock that occurs when a webpack
+    // host's loadShare → initializeSharing circularly awaits this remote's
+    // init: the host's sharing-consume chunk triggers a re-entrant loadShare
+    // whose initializeSharing includes this remote's still-pending init
+    // promise, creating a cycle that can never resolve.
+    //
+    // By the time getExposes() runs the bridging, all remote inits have
+    // completed and initializeSharing resolves without circular waits.
+    const __mfBridgeGlobalSharedProviders = async () => {
+      try {
+        const allInstances = globalThis.__FEDERATION__?.__SHARE__;
+        const globalVersionsByPackage = Object.create(null);
+        if (allInstances) {
+          for (const [, scopes] of Object.entries(allInstances)) {
+            for (const scopeName of shareScopeNames) {
+              const scopeShare = scopes?.[scopeName];
+              if (!scopeShare) continue;
+              for (const [pkg, versionMap] of Object.entries(scopeShare)) {
+              const usedShare = usedShared?.[pkg];
+              const passedVersions = initialShared[pkg];
+              const bridgeSelection = bridgeSelections.get(pkg);
+              if (!usedShare) continue;
+              if (!passedVersions) continue;
+              if (!bridgeSelection) continue;
+              if (usedShare.treeShaking) continue;
+              const globalVersions = globalVersionsByPackage[pkg] || (globalVersionsByPackage[pkg] = Object.create(null));
+              for (const [version, provider] of Object.entries(versionMap)) {
+                if (!provider.lib) continue;
+                if (bridgeSelection.version !== version) continue;
+                if (!__mfMatchesSharedProvider(provider, bridgeSelection.provider)) continue;
+                const passedProvider = passedVersions[version];
+                const matchesPassedProvider = provider === passedProvider || (
+                  passedProvider?.from && provider.from === passedProvider.from
+                );
+                if (!matchesPassedProvider) continue;
+                if (provider === usedShare || (usedShare.from && provider.from === usedShare.from)) continue;
+                if (globalVersions[version] === undefined) globalVersions[version] = provider;
+              }
+              }
             }
           }
         }
+        for (const batch of __mfMaterializedShareBatches) await Promise.all(batch.map(async (pkg) => {
+          const versionMap = globalVersionsByPackage[pkg];
+          if (!versionMap) return;
+          await __mfBridgeExternalSharedProvider(
+            pkg,
+            usedShared[pkg],
+            versionMap,
+            initialShared[pkg],
+            bridgeSelections.get(pkg)
+          );
+        }));
+      } catch (e) {
+        console.error('[Module Federation] Failed to bridge external shared modules', e)
       }
-      for (const batch of __mfMaterializedShareBatches) await Promise.all(batch.map(async (pkg) => {
-        const versionMap = globalVersionsByPackage[pkg];
-        if (!versionMap) return;
-        await __mfBridgeExternalSharedProvider(
-          pkg,
-          usedShared[pkg],
-          versionMap,
-          initialShared[pkg],
-          bridgeSelections.get(pkg)
-        );
-      }));
-    } catch (e) {
-      console.error('[Module Federation] Failed to bridge external shared modules', e)
-    }
+    };
+    __mfLateBridgeShared = async () => {
+      await __mfBridgeSharedProviders();
+      await __mfBridgeGlobalSharedProviders();
+    };
     ${generateTreeShakingSharedResolutionCode(hasTreeShakingShared)}
     const __mfResolveImportFalseShared = async (pkg, share) => {
       const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
