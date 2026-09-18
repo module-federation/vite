@@ -161,13 +161,19 @@ function getPackageExportsTarget(pkg: string, packageName: string, exportsField:
   );
 }
 
+/** Whether `pkg` can be located from `opts.cwd` (or the detection cwd). Aliased or non-hoisted packages may still resolve through Vite. */
+export function isPackageInstalled(pkg: string, opts: PackageEntryConditions = {}): boolean {
+  return getInstalledPackageJson(getPackageName(pkg), opts) !== undefined;
+}
+
+/**
+ * Whether the installed package's `exports` field permits `pkg`. Lenient when the package cannot
+ * be found or has no `exports`: callers that need a hard "is installed" gate use `isPackageInstalled`.
+ */
 export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditions = {}): boolean {
   const packageName = getPackageName(pkg);
   const installed = getInstalledPackageJson(packageName, opts);
-
-  if (!installed) return false;
-  if (installed.packageJson.exports == null) return true;
-
+  if (installed?.packageJson.exports == null) return true;
   return (
     resolveExportsEntry(
       getPackageExportsTarget(pkg, packageName, installed.packageJson.exports),

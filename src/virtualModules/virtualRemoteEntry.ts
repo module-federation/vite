@@ -14,6 +14,7 @@ import {
   getSharedCacheDescriptor,
   hasPackageDependency,
   isPackageExportAvailable,
+  isPackageInstalled,
   packageNameEncode,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
@@ -416,7 +417,9 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
 /** Expand `pkg/` → package root (if importable) + matching usedShares; never returns the prefix string. */
 export function expandSharedPrefixKey(prefixKey: string, used: Iterable<string>): string[] {
   const base = prefixKey.slice(0, -1);
-  const expanded = new Set<string>(isPackageExportAvailable(base) ? [base] : []);
+  // The base becomes `import * as x from "<base>"` for eager hosts: it must exist and export ".".
+  const baseImportable = isPackageInstalled(base) && isPackageExportAvailable(base);
+  const expanded = new Set<string>(baseImportable ? [base] : []);
   for (const pkg of used) {
     if (pkg.endsWith('/')) continue;
     if (pkg === base || pkg.startsWith(`${base}/`)) expanded.add(pkg);

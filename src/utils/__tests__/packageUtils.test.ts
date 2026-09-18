@@ -11,6 +11,7 @@ import {
   getSharedCacheDescriptor,
   getSharedCacheKey,
   isPackageExportAvailable,
+  isPackageInstalled,
   packageNameDecode,
   packageNameEncode,
   resolveImportPath,
@@ -581,7 +582,7 @@ describe('isPackageExportAvailable', () => {
   });
 
   it('accepts a subpath of a legacy package (no "exports" field to confirm it)', () => {
-    const packageName = 'mf-test-legacy-subpath-reject';
+    const packageName = 'mf-test-legacy-subpath';
     const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-legacy-subpath-reject-'));
     tempDirs.push(root);
 
@@ -597,12 +598,44 @@ describe('isPackageExportAvailable', () => {
     expect(isPackageExportAvailable(`${packageName}/components`, { cwd: hostDir })).toBe(true);
   });
 
+  it('stays lenient for a package that is not installed (Vite may still resolve it)', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-not-installed-'));
+    tempDirs.push(root);
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+
+    expect(isPackageExportAvailable('mf-test-does-not-exist', { cwd: root })).toBe(true);
+  });
+});
+
+describe('isPackageInstalled', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it('reports an installed package and its subpaths', () => {
+    const packageName = 'mf-test-installed';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-installed-'));
+    tempDirs.push(root);
+
+    const packageDir = path.join(root, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName }));
+
+    expect(isPackageInstalled(packageName, { cwd: root })).toBe(true);
+    expect(isPackageInstalled(`${packageName}/button`, { cwd: root })).toBe(true);
+  });
+
   it('rejects a package that is not installed', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-not-installed-'));
     tempDirs.push(root);
     writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
 
-    expect(isPackageExportAvailable('mf-test-does-not-exist', { cwd: root })).toBe(false);
+    expect(isPackageInstalled('mf-test-does-not-exist', { cwd: root })).toBe(false);
   });
 });
 
