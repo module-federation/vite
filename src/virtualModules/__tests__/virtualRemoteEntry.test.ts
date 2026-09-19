@@ -3819,10 +3819,16 @@ describe('virtualRemoteEntry', () => {
     expect(lateBridgeCall).toBeGreaterThan(initializeSharingCall);
     expect(code).toContain('let __mfLateBridgeShared');
     expect(code).toContain('const __mfBridgeSharedProviders = async () =>');
-    expect(code).not.toContain('if (__mfUsesWebpackShareScope) {');
-    expect(code).toContain('__mfLateBridgeShared = async () =>');
-    expect(code).toContain('await __mfBridgeSharedProviders()');
-    expect(code).toContain('await __mfBridgeGlobalSharedProviders()');
+    expect(code).toContain('if (__mfUsesWebpackShareScope) {');
+    expect(code).toContain('__mfLateBridgeShared = __mfBridgeSharedProviders');
+    // #1326: a webpack host's loadShare() awaits this init(), so the bridge must
+    // never run eagerly on that path; only non-webpack hosts bridge inside init().
+    expect(code).toMatch(
+      /if \(__mfUsesWebpackShareScope\) \{[^}]*__mfLateBridgeShared = __mfBridgeSharedProviders;\s*\} else \{\s*await __mfBridgeSharedProviders\(\);\s*\}/
+    );
+    expect(code).not.toMatch(
+      /await __mfBridgeSharedProviders\(\);\s*if \(__mfUsesWebpackShareScope\)/
+    );
     expect(code).toContain('if (__mfLateBridgeShared) await __mfLateBridgeShared()');
   });
 
