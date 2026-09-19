@@ -15,6 +15,18 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
+      command: 'pnpm --filter example-bundler-host run start:webpack',
+      url: 'http://localhost:8082',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: 'pnpm --filter example-bundler-host run start:rspack',
+      url: 'http://localhost:8083',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
       command: 'pnpm run preview-vv:ci',
       url: 'http://localhost:5175',
       reuseExistingServer: !process.env.CI,

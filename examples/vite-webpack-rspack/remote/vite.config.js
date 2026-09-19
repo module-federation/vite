@@ -16,6 +16,8 @@ export default defineConfig({
         "./PurchasesCount": "./src/PurchasesCount.jsx",
       },
       shared: ["react", "react-dom"],
+      // Consumed through mf-manifest.json by the bundler-host example.
+      manifest: true,
       dts: false,
     }),
   ],

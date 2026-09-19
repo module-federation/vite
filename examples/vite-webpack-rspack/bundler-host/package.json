@@ -1,0 +1,29 @@
+{
+  "name": "example-bundler-host",
+  "private": true,
+  "version": "1.0.0",
+  "description": "webpack and rspack hosts (@module-federation/enhanced) consuming the Vite dev remote with same-version shared React. Regression fixture for the remote init() deadlock (#1326, #1064).",
+  "scripts": {
+    "start:webpack": "BROWSERSLIST_IGNORE_OLD_DATA=1 webpack serve --mode development",
+    "start:rspack": "BROWSERSLIST_IGNORE_OLD_DATA=1 NODE_ENV=development rspack serve"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "7.29.6",
+    "@babel/preset-env": "7.25.4",
+    "@babel/preset-react": "7.24.7",
+    "@module-federation/enhanced": "2.8.1",
+    "@rspack/cli": "2.1.7",
+    "@rspack/core": "2.1.7",
+    "@rspack/dev-server": "2.1.0",
+    "babel-loader": "8.4.1",
+    "html-webpack-plugin": "5.6.3",
+    "webpack": "5.109.2",
+    "webpack-cli": "7.2.2",
+    "webpack-dev-server": "5.2.6"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}
