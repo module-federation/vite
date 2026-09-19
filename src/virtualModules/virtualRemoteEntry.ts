@@ -826,7 +826,8 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
 
 function generateRuntimeSharedCacheSeedCode(
   shareStrategy: string,
-  options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  command = 'build'
 ) {
   // Seeding a share evaluates its module graph, and every share proxy hit
   // during that evaluation must already be cached — the proxies defer their
@@ -887,6 +888,20 @@ function generateRuntimeSharedCacheSeedCode(
             __mfReadSharedCacheOwner(__mfModuleCache.share, singletonCacheDescriptor)
           );
           return;
+        }
+        ${
+          command === 'serve'
+            ? `// A pending webpack provider for this share, or for its package when this
+        // is a subpath, is only bridged after init(). Seeding the local fallback now
+        // would evaluate the package's dev proxy, which snapshots its exports, before
+        // the bridge runs and pin a second copy. The proxy seeds itself on first import.
+        if (
+          typeof __mfGetPendingExternalSharedProvider === 'function' &&
+          __mfGetPendingExternalSharedProvider(pkg, share)
+        ) {
+          return;
+        }`
+            : ''
         }
         const externalProvider = typeof __mfGetExternalSharedProvider === 'function'
           ? __mfGetExternalSharedProvider(pkg, share)
@@ -2050,7 +2065,7 @@ export function generateRemoteEntry(
         );
       }
     }
-    ${generateRuntimeSharedCacheSeedCode(options.shareStrategy, options)}
+    ${generateRuntimeSharedCacheSeedCode(options.shareStrategy, options, command)}
     ${initializeSharingCode}
     __mfRestoreForeignSharedProviders();
     // Calling provider.get() marks a provider as loaded. Wait until the Runtime has

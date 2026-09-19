@@ -3832,6 +3832,40 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('if (__mfLateBridgeShared) await __mfLateBridgeShared()');
   });
 
+  it('skips seeding shares behind a pending webpack provider only during serve', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const generate = (command: 'serve' | 'build') =>
+      mod.generateRemoteEntry(
+        {
+          name: 'remote',
+          filename: 'remoteEntry.js',
+          exposes: {},
+          remotes: {},
+          shared: {},
+          runtimePlugins: [],
+          shareScope: 'default',
+          shareStrategy: 'version-first',
+        } as any,
+        'virtual:exposes',
+        command
+      );
+    const seedCode = (code: string) =>
+      code.slice(
+        code.indexOf('var __mfSeedLocalShared = async (seedKeys) =>'),
+        code.indexOf('const __mfIsRuntimeOnlySharePending =')
+      );
+    const guard = '__mfGetPendingExternalSharedProvider(pkg, share)';
+    // Dev share proxies snapshot their exports, so a subpath seeded during init()
+    // would pin the package's local copy before the late bridge runs (#1326).
+    const serveSeed = seedCode(generate('serve'));
+    expect(serveSeed).toContain(guard);
+    expect(serveSeed.indexOf(guard)).toBeLessThan(
+      serveSeed.indexOf('const externalProvider = typeof __mfGetExternalSharedProvider')
+    );
+    // Production proxies live-rebind from the cache, so seeding stays eager there.
+    expect(seedCode(generate('build'))).not.toContain(guard);
+  });
+
   it('seeds import:false shared modules in hostAutoInit during serve', async () => {
     normalizedSharedMock.mockReturnValue({
       'some-dep': {
