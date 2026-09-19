@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>bundler host</title>
+    <!-- The Vite remote runs in dev mode with @vitejs/plugin-react. A non-Vite host
+         has to install the React Refresh preamble itself or the remote's modules throw. -->
+    <script type="module">
+      import RefreshRuntime from 'http://localhost:4001/@react-refresh';
+      RefreshRuntime.injectIntoGlobalHook(window);
+      window.$RefreshReg$ = () => {};
+      window.$RefreshSig$ = () => (type) => type;
+      window.__vite_plugin_react_preamble_installed__ = true;
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
