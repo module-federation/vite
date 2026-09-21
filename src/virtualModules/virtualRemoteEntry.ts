@@ -931,6 +931,12 @@ function generateRuntimeSharedCacheSeedCode(
           const mod = typeof factory === "function" ? factory() : factory;
           return Promise.resolve(mod);
         });
+        // The seeded local copy is what this container's consumers are bound to.
+        // Flag the Runtime's provider as eager so a same-version sibling cannot
+        // take over the share scope slot via the Runtime's name tie-break.
+        for (const provider of initRes.options.shared?.[pkg] || []) {
+          if (provider.get === share.get) provider.eager = true;
+        }
         ${normalizeRuntimeShareCode}
         const normalizedModule = __mfNormalizeRuntimeShare(resolved);
         const exportModule = normalizedModule === resolved ? {...resolved} : normalizedModule;
