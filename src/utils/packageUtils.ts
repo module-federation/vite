@@ -595,7 +595,93 @@ function resolveInstalledPackageJson(
     currentDir = parentDir;
   }
 
-  return findPackageInPnpmStore(cwd);
+  return findPackageInDependents(packageName, cwd) ?? findPackageInPnpmStore(cwd);
+}
+
+/**
+ * A package installed only under a dependent is invisible to the walks above.
+ * Resolving it from each dependent in turn follows the same links that dependent
+ * does, so the copy found is the version it is installed against rather than
+ * whichever one the pnpm store happens to list first.
+ */
+function findPackageInDependents(
+  packageName: string,
+  cwd: string
+): InstalledPackageJson | undefined {
+  const rootPackageJson = path.join(cwd, 'package.json');
+  const root = resolveOwningPackageJson(rootPackageJson, undefined);
+  if (!root) return undefined;
+
+  const visited = new Set<string>([packageName]);
+  const queue = getDependencyNames(root.packageJson).map((name) => ({
+    name,
+    from: rootPackageJson,
+  }));
+
+  while (queue.length) {
+    const { name, from } = queue.shift()!;
+    if (visited.has(name)) continue;
+    visited.add(name);
+    const dependent = resolvePackageFrom(name, from);
+    if (!dependent) continue;
+    const dependencies = getDependencyNames(dependent.packageJson);
+    // Only a declared edge is followed. Node resolution from a package that
+    // merely sits near the target walks up into a hoisted copy, which is the
+    // arbitrary pick this walk exists to avoid.
+    if (dependencies.includes(packageName)) {
+      const candidate = resolvePackageFrom(packageName, dependent.path);
+      if (candidate) return candidate;
+    }
+    for (const dependency of dependencies) {
+      queue.push({ name: dependency, from: dependent.path });
+    }
+  }
+
+  return undefined;
+}
+
+/** Node resolution from `from`, then the walk up to the package.json that owns the result. */
+function resolvePackageFrom(packageName: string, from: string): InstalledPackageJson | undefined {
+  let dir: string;
+  try {
+    dir = path.dirname(createRequire(pathToFileURL(from)).resolve(packageName));
+  } catch {
+    return undefined;
+  }
+  while (true) {
+    const owner = resolveOwningPackageJson(path.join(dir, 'package.json'), packageName);
+    if (owner) return owner;
+    const parentDir = path.dirname(dir);
+    if (parentDir === dir) return undefined;
+    dir = parentDir;
+  }
+}
+
+function resolveOwningPackageJson(
+  packageJsonPath: string,
+  expectedName: string | undefined
+): InstalledPackageJson | undefined {
+  if (!existsSync(packageJsonPath)) return undefined;
+  try {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    if (expectedName !== undefined && packageJson.name !== expectedName) return undefined;
+    return { path: packageJsonPath, dir: path.dirname(packageJsonPath), packageJson };
+  } catch {
+    return undefined;
+  }
+}
+
+function getDependencyNames(packageJson: Record<string, unknown>): string[] {
+  const names = new Set<string>();
+  for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
+    const deps = packageJson[field];
+    if (!deps || typeof deps !== 'object') continue;
+    for (const dep of Object.keys(deps)) names.add(dep);
+  }
+  return [...names];
 }
 
 export function getInstalledPackageEntry(
