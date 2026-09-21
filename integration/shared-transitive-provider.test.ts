@@ -42,7 +42,9 @@ describe('shared transitive provider', () => {
       JSON.stringify({
         name: 'transitive-app',
         type: 'module',
-        dependencies: { 'mf-parent-lib': '1.0.0' },
+        // mf-other-lib is visited first and declares nothing, so it exercises
+        // the declared-edge rule in the dependency walk.
+        dependencies: { 'mf-other-lib': '1.0.0', 'mf-parent-lib': '1.0.0' },
       })
     );
     write('index.html', '<script type="module" src="/main.js"></script>');
@@ -60,6 +62,12 @@ describe('shared transitive provider', () => {
     });
     write(`${nestedDir}/index.js`, "export const nested = 'nested-marker';");
 
+    installPnpmPackage('mf-other-lib', '1.0.0', {});
+    write(
+      `node_modules/.pnpm/mf-other-lib@1.0.0/node_modules/mf-other-lib/index.js`,
+      'export const other = 1;'
+    );
+    link('node_modules/mf-other-lib', `.pnpm/mf-other-lib@1.0.0/node_modules/mf-other-lib`);
     link('node_modules/mf-parent-lib', `.pnpm/mf-parent-lib@1.0.0/node_modules/mf-parent-lib`);
     link(
       `node_modules/.pnpm/mf-parent-lib@1.0.0/node_modules/mf-nested-lib`,
@@ -89,10 +97,16 @@ describe('shared transitive provider', () => {
   // A container materializes its shared fallbacks before any app module is
   // resolved, so the two shapes exercise different resolution orders.
   it.each([
-    ['a host', {}],
-    ['a remote container', { exposes: { './Parent': './main.js' } }],
-  ])('shares a package only installed under its parent from %s', async (_shape, mfOptions) => {
-    const output = await buildApp(mfOptions);
+    ['a host', false],
+    ['a remote container', true],
+  ])('shares a package only installed under its parent from %s', async (_shape, exposed) => {
+    // Vite 5-7 only: Rollup resolves an expose from the virtual remote-entry id,
+    // which has no directory to resolve "./main.js" against, and fails with
+    // "Could not resolve". Rolldown handles the relative form; an absolute path
+    // works on both.
+    const output = await buildApp(
+      exposed ? { exposes: { './Parent': path.join(root, 'main.js') } } : {}
+    );
 
     expect(parseManifest(output)).toMatchObject({
       shared: [expect.objectContaining({ name: 'mf-nested-lib', version: '2.1.0' })],
@@ -117,6 +131,12 @@ describe('shared transitive provider', () => {
       `node_modules/.pnpm/mf-nested-lib@${linked}/node_modules/mf-nested-lib/index.js`,
       `export const nested = 'linked-${linked}';`
     );
+    // pnpm's hidden hoist dir. Node resolution from a package that does not
+    // declare mf-nested-lib walks up into it and finds the stale copy.
+    link(
+      `node_modules/.pnpm/node_modules/mf-nested-lib`,
+      `../mf-nested-lib@${stale}/node_modules/mf-nested-lib`
+    );
     rmSync(path.join(root, 'node_modules/.pnpm/mf-parent-lib@1.0.0/node_modules/mf-nested-lib'));
     link(
       `node_modules/.pnpm/mf-parent-lib@1.0.0/node_modules/mf-nested-lib`,
@@ -132,13 +152,20 @@ describe('shared transitive provider', () => {
     });
   });
 
-  it('serves the nested provider in dev', async () => {
+  // Vite 5 only: transformRequest on a node_modules dependency leaves a pending
+  // request the esbuild optimizer never settles, so server.close() hangs forever
+  // and the test times out rather than failing. Discovery off keeps the crawl
+  // clear of the optimizer. Remove when Vite 5 leaves the support matrix.
+  const VITE_5_OPTIMIZER_CLOSE_DEADLOCK = { noDiscovery: true, include: [] };
+
+  it('serves the nested provider in dev', { timeout: 20_000 }, async () => {
     write('main.js', "import { parent } from 'mf-parent-lib';\nconsole.log(parent);");
     const server = await createServer({
       root,
       configFile: false,
       logLevel: 'silent',
       server: { middlewareMode: true, hmr: false },
+      optimizeDeps: VITE_5_OPTIMIZER_CLOSE_DEADLOCK,
       plugins: [
         federation({
           name: 'transitiveApp',
@@ -150,25 +177,24 @@ describe('shared transitive provider', () => {
     });
 
     try {
+      // The loadShare wrapper is the share's fallback. Its code naming the store
+      // copy is what proves the provider resolved, and it exists only when the
+      // package is actually shared.
       const seen = new Set<string>();
       const pending = ['/main.js'];
-      while (pending.length) {
+      let fallbackCode: string | undefined;
+      while (pending.length && fallbackCode === undefined) {
         const url = pending.shift()!;
-        if (seen.has(url) || seen.size > 40) continue;
+        if (seen.has(url)) continue;
         seen.add(url);
         const result = await server.transformRequest(url);
         if (!result) continue;
+        if (url.includes('__loadShare__')) fallbackCode = result.code;
         for (const [, spec] of result.code.matchAll(/from\s*"([^"]+)"/g)) pending.push(spec);
       }
 
-      // The share's fallback imports the store file directly. Without it the
-      // nested package is inlined into the optimizer's pre-bundle instead.
-      const files = [...server.moduleGraph.idToModuleMap.values()].map((mod) => mod.file);
-      expect(files).toContain(
-        path.join(
-          root,
-          'node_modules/.pnpm/mf-nested-lib@2.1.0/node_modules/mf-nested-lib/index.js'
-        )
+      expect(fallbackCode).toContain(
+        'node_modules/.pnpm/mf-nested-lib@2.1.0/node_modules/mf-nested-lib'
       );
     } finally {
       await server.close();
