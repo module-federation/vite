@@ -225,15 +225,28 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   // them via its module cache) but must NOT be global externals — they need
   // to be bundled inline in the browser remote entry to avoid bare-specifier
   // errors (browsers cannot resolve "@module-federation/runtime" etc.).
-  const ssrOnlyExternals = [
+  const mfRuntimePackages = [
     '@module-federation/runtime',
     '@module-federation/runtime-core',
     '@module-federation/sdk',
-    ...(options.ssrExternals ?? []),
   ];
+  const ssrOnlyExternals = [...mfRuntimePackages, ...(options.ssrExternals ?? [])];
   const ssrOnlyExternalPattern = new RegExp(
     `^(${ssrOnlyExternals.map((e) => e.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|')})(\\/.*)?$`
   );
+  // Vite's `noExternal` (ssr or environments.ssr.resolve) opts an MF runtime
+  // package back into the SSR bundle, so hosts without Node access to these
+  // packages (e.g. the SDK's reference loader) can consume a self-contained
+  // SSR entry. Explicit `ssrExternals` always stay external.
+  let noExternal: string | RegExp | (string | RegExp)[] | true | undefined;
+  const isNoExternal = (id: string) => {
+    const pkg = ssrOnlyExternalPattern.exec(id)?.[1] ?? id;
+    if (!noExternal || !mfRuntimePackages.includes(pkg)) return false;
+    if (noExternal === true) return true;
+    return (Array.isArray(noExternal) ? noExternal : [noExternal]).some((rule) =>
+      typeof rule === 'string' ? rule === pkg : rule.test(pkg)
+    );
+  };
 
   // Tracks every module ID that belongs to the SSR entry's module graph.
   // Populated in resolveId as we walk the graph so transitive deps are covered.
@@ -303,9 +316,13 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
       configResolved(config) {
         isServe = config.command === 'serve';
+        noExternal =
+          config.environments?.ssr?.resolve?.noExternal ??
+          (config.ssr as { noExternal?: typeof noExternal } | undefined)?.noExternal;
         // Build a map of alias target abs-path → bare package name for each
         // SSR-only external. This lets resolveId intercept the post-alias path.
         for (const pkg of ssrOnlyExternals) {
+          if (isNoExternal(pkg)) continue;
           const aliasEntry = (
             config.resolve?.alias as { find: unknown; replacement: string }[] | undefined
           )?.find((a) => a.find === pkg || (a.find instanceof RegExp && a.find.test(pkg)));
@@ -324,7 +341,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
         // Bare specifier match — fires when the alias hasn't run yet
         // (e.g. for runtime-core, sdk which aren't aliased by Vite internals).
-        if (ssrOnlyExternalPattern.test(id)) {
+        if (ssrOnlyExternalPattern.test(id) && !isNoExternal(id)) {
           return { id, external: true };
         }
 

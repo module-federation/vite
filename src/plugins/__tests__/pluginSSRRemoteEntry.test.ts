@@ -331,6 +331,50 @@ describe('pluginSSRRemoteEntry', () => {
       ).toEqual({ id: '@module-federation/sdk', external: true });
     });
 
+    it('keeps MF runtime packages bundled when Vite noExternal opts them in', async () => {
+      const ssrId = 'virtual:mf-REMOTE_ENTRY_SSR_ID:__mfe_internal__remote__remoteEntry_js';
+      const resolve = (prePlugin: Plugin, id: string) =>
+        callHook(
+          prePlugin.resolveId,
+          { resolve: vi.fn(async () => null) } as unknown as Rollup.PluginContext,
+          id,
+          ssrId,
+          { isEntry: false }
+        );
+      const configure = (prePlugin: Plugin, config: Record<string, unknown>) =>
+        callHook(
+          prePlugin.configResolved,
+          {} as Rollup.PluginContext,
+          {
+            resolve: {
+              alias: [{ find: '@module-federation/runtime', replacement: '/abs/runtime.js' }],
+            },
+            ...config,
+          } as unknown as ResolvedConfig
+        );
+
+      // `noExternal: true` (environments.ssr.resolve) bundles every MF package,
+      // including the aliased absolute path, but not user ssrExternals.
+      let prePlugin = pluginSSRRemoteEntry(makeOptions({ ssrExternals: ['server-only'] }))[0];
+      configure(prePlugin, { environments: { ssr: { resolve: { noExternal: true } } } });
+      expect(resolve(prePlugin, '@module-federation/runtime')).toBeUndefined();
+      expect(resolve(prePlugin, '@module-federation/runtime-core/dist/x.js')).toBeUndefined();
+      expect(resolve(prePlugin, '@module-federation/sdk')).toBeUndefined();
+      await expect(resolve(prePlugin, '/abs/runtime.js')).resolves.toBeNull();
+      expect(resolve(prePlugin, 'server-only')).toEqual({ id: 'server-only', external: true });
+
+      // Legacy `ssr.noExternal` list: only the matched packages are bundled.
+      prePlugin = pluginSSRRemoteEntry(makeOptions())[0];
+      configure(prePlugin, { ssr: { noExternal: ['@module-federation/runtime', /sdk$/] } });
+      expect(resolve(prePlugin, '@module-federation/runtime')).toBeUndefined();
+      await expect(resolve(prePlugin, '/abs/runtime.js')).resolves.toBeNull();
+      expect(resolve(prePlugin, '@module-federation/sdk')).toBeUndefined();
+      expect(resolve(prePlugin, '@module-federation/runtime-core')).toEqual({
+        id: '@module-federation/runtime-core',
+        external: true,
+      });
+    });
+
     it('externalises user-provided ssrExternals', () => {
       const plugins = pluginSSRRemoteEntry(makeOptions({ ssrExternals: ['my-server-only-pkg'] }));
       const prePlugin = plugins[0];

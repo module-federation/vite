@@ -263,6 +263,8 @@ federation({
 
 The `"vm"` strategy requires Node.js to run with `--experimental-vm-modules`. When unavailable, the loader warns once and falls back to `"temp-file"`. Vite 8 development uses `ModuleRunner`; this option primarily affects build and preview SSR entry loading.
 
+The SSR remote entry (`<filename base>.ssr.js`, advertised as `metaData.ssrRemoteEntry` in `mf-manifest.json`) keeps `@module-federation/runtime`, `@module-federation/runtime-core` and `@module-federation/sdk` external by default so Node resolves them from the host. Hosts that cannot resolve those packages, such as a plain `@module-federation/enhanced` host using the SDK's reference Node loader, need a self-contained entry: opt the packages back in with Vite's `ssr.noExternal` (for example `ssr: { noExternal: true }`) on the remote.
+
 ## Runtime capability optimization
 
 Runtime features that a build never uses can be removed at build time:
