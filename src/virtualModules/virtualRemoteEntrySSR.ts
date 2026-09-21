@@ -30,7 +30,11 @@ function getSsrFileNameParts(browserFilename: string): { base: string; ext: stri
   return { base, ext };
 }
 
-export function getSsrRemoteEntryFileName(browserFilename: string): string {
+export function getSsrRemoteEntryFileName(
+  options: Pick<NormalizedModuleFederationOptions, 'filename' | 'ssrFilename'>,
+  browserFilename: string = options.filename
+): string {
+  if (options.ssrFilename) return options.ssrFilename;
   const { base, ext } = getSsrFileNameParts(browserFilename);
   return `${base}.ssr${ext ?? '.js'}`;
 }

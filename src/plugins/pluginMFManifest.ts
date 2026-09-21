@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Plugin } from 'vite';
 import packageJson from '../../package.json' with { type: 'json' };
@@ -374,7 +375,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
                     type: 'module',
                   },
                   ssrRemoteEntry: {
-                    name: getSsrRemoteEntryFileName(devRemoteEntryFile),
+                    name: getSsrRemoteEntryFileName(mfOptions, devRemoteEntryFile),
                     path: '/__mf_ssr__/',
                     type: 'module',
                   },
@@ -433,6 +434,51 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             : resolvePublicPath(mfOptions, base, _originalConfigBase);
       },
       /**
+       * A standalone `vite build --ssr` may run with its own `filename`, e.g.
+       * `defineConfig(({ isSsrBuild }) => ...)`. The manifest written by the
+       * earlier client build then advertises an SSR entry derived from the
+       * browser filename, which is not the file this build emitted. Point the
+       * manifest and stats on disk at the emitted SSR entry.
+       */
+      writeBundle(outputOptions) {
+        if (!mfManifestName || _command !== 'build' || isConsumerProject) return;
+        // Vite 6+ exposes the environment; Vite 5 has no `this.environment`,
+        // so fall back to the legacy `vite build --ssr` flag like the SSR
+        // remote entry plugin does.
+        const environment = (this as { environment?: { name?: string } }).environment;
+        const isSsrBuild = environment
+          ? environment.name === 'ssr'
+          : Boolean(viteConfig?.build?.ssr);
+        if (!isSsrBuild) return;
+
+        const ssrEntryName = getSsrRemoteEntryFileName(mfOptions);
+        const outDirs = [
+          ...new Set(
+            [outputOptions.dir, viteConfig?.environments?.client?.build?.outDir]
+              .filter((dir): dir is string => typeof dir === 'string')
+              .map((dir) => path.resolve(root, dir))
+          ),
+        ];
+        if (!outDirs.some((dir) => fs.existsSync(path.resolve(dir, ssrEntryName)))) return;
+
+        for (const dir of outDirs) {
+          for (const fileName of [mfManifestName, mfManifestStatsName]) {
+            if (!fileName) continue;
+            const file = path.resolve(dir, fileName);
+            if (!fs.existsSync(file)) continue;
+            try {
+              const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+              const entry = data?.metaData?.ssrRemoteEntry;
+              if (!entry || typeof entry !== 'object' || entry.name === ssrEntryName) continue;
+              entry.name = ssrEntryName;
+              fs.writeFileSync(file, JSON.stringify(data));
+            } catch {
+              // Leave an unreadable manifest untouched.
+            }
+          }
+        }
+      },
+      /**
        * Generates the module federation manifest file
        * @param options - Rollup output options
        * @param bundle - Generated bundle assets
@@ -449,7 +495,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         let filesMap: PreloadMap = {};
 
         const foundRemoteEntryFile = findRemoteEntryFile(mfOptions.filename, bundle);
-        const expectedSsrRemoteEntryFile = getSsrRemoteEntryFileName(mfOptions.filename);
+        const expectedSsrRemoteEntryFile = getSsrRemoteEntryFileName(mfOptions);
         const foundSsrRemoteEntryFile = Object.values(bundle).find(
           (file) => file.fileName === expectedSsrRemoteEntryFile
         )?.fileName;
@@ -461,7 +507,10 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         ssrRemoteEntryFile =
           foundSsrRemoteEntryFile ||
           (_command === 'serve'
-            ? getSsrRemoteEntryFileName(resolveHashPlaceholderFileName(mfOptions.filename))
+            ? getSsrRemoteEntryFileName(
+                mfOptions,
+                resolveHashPlaceholderFileName(mfOptions.filename)
+              )
             : expectedSsrRemoteEntryFile);
 
         // Second pass: Collect all CSS assets
@@ -609,6 +658,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
       name:
         ssrRemoteEntryFile ||
         getSsrRemoteEntryFileName(
+          mfOptions,
           _command === 'serve' ? resolveHashPlaceholderFileName(filename) : filename
         ),
       path: _command === 'serve' ? '/__mf_ssr__/' : '',

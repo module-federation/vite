@@ -119,6 +119,9 @@ export default defineConfig({
       // optional: additional "var" remoteEntry file
       // needed only for legacy hosts with "var" usage (remote.type = 'var')
       varFilename: "varRemoteEntry.js",
+      // optional: exact name of the SSR remote entry
+      // default: "<filename base>.ssr.js" (e.g. remoteEntry.ssr.js)
+      ssrFilename: "remoteEntry.ssr.js",
       exposes: {
         "./remote-app": "./src/App.vue",
       },
@@ -263,7 +266,7 @@ federation({
 
 The `"vm"` strategy requires Node.js to run with `--experimental-vm-modules`. When unavailable, the loader warns once and falls back to `"temp-file"`. Vite 8 development uses `ModuleRunner`; this option primarily affects build and preview SSR entry loading.
 
-The SSR remote entry (`<filename base>.ssr.js`, advertised as `metaData.ssrRemoteEntry` in `mf-manifest.json`) keeps `@module-federation/runtime`, `@module-federation/runtime-core` and `@module-federation/sdk` external by default so Node resolves them from the host. Hosts that cannot resolve those packages, such as a plain `@module-federation/enhanced` host using the SDK's reference Node loader, need a self-contained entry: opt the packages back in with Vite's `ssr.noExternal` (for example `ssr: { noExternal: true }`) on the remote.
+The SSR remote entry is emitted as `<filename base>.ssr.js` next to the browser entry, or under the exact name given by `ssrFilename`, and is advertised as `metaData.ssrRemoteEntry` in `mf-manifest.json`. It keeps `@module-federation/runtime`, `@module-federation/runtime-core` and `@module-federation/sdk` external by default so Node resolves them from the host. Hosts that cannot resolve those packages, such as a plain `@module-federation/enhanced` host using the SDK's reference Node loader, need a self-contained entry: opt the packages back in with Vite's `ssr.noExternal` (for example `ssr: { noExternal: true }`) on the remote.
 
 ## Runtime capability optimization
 

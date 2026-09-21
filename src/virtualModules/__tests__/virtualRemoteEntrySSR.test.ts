@@ -82,25 +82,48 @@ afterEach(() => {
 describe('virtualRemoteEntrySSR', () => {
   describe('getSsrRemoteEntryFileName', () => {
     it('maps remoteEntry.js to remoteEntry.ssr.js', () => {
-      expect(getSsrRemoteEntryFileName('remoteEntry.js')).toBe('remoteEntry.ssr.js');
+      expect(getSsrRemoteEntryFileName({ filename: 'remoteEntry.js' })).toBe('remoteEntry.ssr.js');
     });
 
     it('strips [hash] placeholders to a stable SSR companion', () => {
-      expect(getSsrRemoteEntryFileName('remoteEntry-[hash]')).toBe('remoteEntry.ssr.js');
-      expect(getSsrRemoteEntryFileName('remoteEntry-[hash].js')).toBe('remoteEntry.ssr.js');
-      expect(getSsrRemoteEntryFileName('remote-entry-[hash:8].js')).toBe('remote-entry.ssr.js');
+      expect(getSsrRemoteEntryFileName({ filename: 'remoteEntry-[hash]' })).toBe(
+        'remoteEntry.ssr.js'
+      );
+      expect(getSsrRemoteEntryFileName({ filename: 'remoteEntry-[hash].js' })).toBe(
+        'remoteEntry.ssr.js'
+      );
+      expect(getSsrRemoteEntryFileName({ filename: 'remote-entry-[hash:8].js' })).toBe(
+        'remote-entry.ssr.js'
+      );
     });
 
     it('never leaves a literal [hash] in the SSR filename', () => {
-      expect(getSsrRemoteEntryFileName('remoteEntry-[hash].js')).not.toContain('[hash');
-      expect(getSsrRemoteEntryFileName('mf-[hash:8]')).not.toContain('[hash');
+      expect(getSsrRemoteEntryFileName({ filename: 'remoteEntry-[hash].js' })).not.toContain(
+        '[hash'
+      );
+      expect(getSsrRemoteEntryFileName({ filename: 'mf-[hash:8]' })).not.toContain('[hash');
     });
 
     it('keeps a dotted output directory intact', () => {
-      expect(getSsrRemoteEntryFileName('assets/v1.2/remoteEntry-[hash]')).toBe(
+      expect(getSsrRemoteEntryFileName({ filename: 'assets/v1.2/remoteEntry-[hash]' })).toBe(
         'assets/v1.2/remoteEntry.ssr.js'
       );
-      expect(getSsrRemoteEntryFileName('static/js.v2/mf-[hash:8]')).toBe('static/js.v2/mf.ssr.js');
+      expect(getSsrRemoteEntryFileName({ filename: 'static/js.v2/mf-[hash:8]' })).toBe(
+        'static/js.v2/mf.ssr.js'
+      );
+    });
+
+    it('uses ssrFilename verbatim when configured', () => {
+      const options = { filename: 'remoteEntry-[hash].js', ssrFilename: 'server/remoteEntry.js' };
+      expect(getSsrRemoteEntryFileName(options)).toBe('server/remoteEntry.js');
+      // The resolved browser name passed for dev never overrides the explicit SSR name.
+      expect(getSsrRemoteEntryFileName(options, 'remoteEntry.js')).toBe('server/remoteEntry.js');
+    });
+
+    it('derives from the explicit browser filename when ssrFilename is unset', () => {
+      expect(
+        getSsrRemoteEntryFileName({ filename: 'remoteEntry-[hash].js' }, 'remoteEntry.js')
+      ).toBe('remoteEntry.ssr.js');
     });
   });
 
