@@ -600,6 +600,12 @@ function normalizeSsrEntryLoader(
 export type ModuleFederationOptions = {
   exposes?: Record<string, string | { import: string }> | undefined;
   filename?: string;
+  /**
+   * Exact file name of the SSR remote entry emitted next to `filename`.
+   * Defaults to `<filename base>.ssr<ext>` so it never clobbers the browser
+   * entry when both builds share an output directory. `[hash]` is not supported.
+   */
+  ssrFilename?: string;
   library?: any;
   name: string;
   // remoteType?: string;
@@ -766,6 +772,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
 > {
   exposes: Record<string, ExposesItem>;
   filename: string;
+  ssrFilename?: string;
   internalName: string;
   library: any;
   remotes: Record<string, RemoteObjectConfig>;
@@ -972,6 +979,7 @@ export function normalizeModuleFederationOptions(
   const normalized: NormalizedModuleFederationOptions = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
+    ssrFilename: options.ssrFilename || undefined,
     internalName: toInternalModuleFederationName(options.name),
     library: normalizeLibrary(options.library),
     name: options.name,

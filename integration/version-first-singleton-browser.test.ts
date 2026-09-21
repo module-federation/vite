@@ -1,6 +1,6 @@
 import { chromium } from '@playwright/test';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { build } from 'vite';
@@ -377,6 +377,137 @@ describe('version-first singleton static import browser bootstrap', () => {
       await browser?.close();
       await hostServer?.close();
       await remoteServer?.close();
+      await rm(workspace, { recursive: true, force: true });
+      setPackageDetectionCwd(originalPackageDetectionCwd);
+    }
+  }, 60_000);
+
+  it('keeps the host React provider when a nested same-version leaf sorts after it', async () => {
+    const originalPackageDetectionCwd = getPackageDetectionCwd();
+    const workspace = await mkdtemp(path.join(tmpdir(), 'mf-react-nested-same-version-'));
+    const servers: StaticServer[] = [];
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      // host 19.2.8 -> nested host remote_a 19.2.4 -> leaf remote_c 19.2.8.
+      // The Runtime breaks the 19.2.8 tie by container name and "remote_c" sorts
+      // after "host", so the leaf must not displace the host's already-seeded React.
+      const stubs = {
+        '19.2.8': path.resolve(FIXTURES, 'react-skew-host', 'node_modules'),
+        '19.2.4': path.resolve(FIXTURES, 'react-skew-remote', 'node_modules'),
+      };
+      const createRemoteRoot = async (name: string, version: keyof typeof stubs) => {
+        const root = path.join(workspace, `${name}-src`);
+        await cp(path.resolve(FIXTURES, 'react-skew-remote'), root, { recursive: true });
+        await rm(path.join(root, 'node_modules'), { recursive: true, force: true });
+        await cp(stubs[version], path.join(root, 'node_modules'), { recursive: true });
+        return root;
+      };
+      const shared = {
+        react: { singleton: true, requiredVersion: '^19.2.4' },
+        'react-dom/client': { singleton: true, requiredVersion: '^19.2.4' },
+      };
+      const serve = async (outDir: string) => {
+        const server = await serveDirectory(outDir);
+        servers.push(server);
+        return server;
+      };
+
+      const leafRoot = await createRemoteRoot('remote_c', '19.2.8');
+      const leafOutDir = path.join(workspace, 'remote_c');
+      await buildFixtureTo(leafRoot, leafOutDir, {
+        name: 'remote_c',
+        filename: 'remoteEntry.js',
+        exposes: { './Module': path.join(leafRoot, 'exposed-module.js') },
+        shareStrategy: 'version-first',
+        shared,
+        hostInitInjectLocation: 'entry',
+        dts: false,
+      });
+      const leafServer = await serve(leafOutDir);
+
+      const nestedRoot = await createRemoteRoot('remote_a', '19.2.4');
+      await writeFile(
+        path.join(nestedRoot, 'exposed-module.js'),
+        `import { useState } from 'react';
+         import 'react-dom/client';
+         export async function loadRemoteComponent() {
+           // Keep the namespace: Rollup would otherwise destructure the dynamic
+           // import before the remote-pending wrapper resolves.
+           const leaf = await import('remote_c/Module');
+           return function RemoteComponent() {
+             return useState('nested')[0] + ':' + leaf.RemoteComponent();
+           };
+         }`
+      );
+      const nestedOutDir = path.join(workspace, 'remote_a');
+      await buildFixtureTo(nestedRoot, nestedOutDir, {
+        name: 'remote_a',
+        filename: 'remoteEntry.js',
+        exposes: { './Module': path.join(nestedRoot, 'exposed-module.js') },
+        remotes: {
+          remote_c: {
+            name: 'remote_c',
+            entry: `${leafServer.origin}/remoteEntry.js`,
+            type: 'module',
+          },
+        },
+        shareStrategy: 'version-first',
+        shared,
+        hostInitInjectLocation: 'entry',
+        dts: false,
+      });
+      const nestedServer = await serve(nestedOutDir);
+
+      const hostRoot = path.join(workspace, 'host-src');
+      await cp(path.resolve(FIXTURES, 'react-skew-host'), hostRoot, { recursive: true });
+      await writeFile(
+        path.join(hostRoot, 'entry.js'),
+        `import { createRoot } from 'react-dom/client';
+         import('remote_a/Module')
+           .then(({ loadRemoteComponent }) => loadRemoteComponent())
+           .then((RemoteComponent) => {
+             createRoot(document.querySelector('#app')).render(RemoteComponent);
+           });`
+      );
+      const hostOutDir = path.join(workspace, 'host');
+      await buildFixtureTo(hostRoot, hostOutDir, {
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {
+          remote_a: {
+            name: 'remote_a',
+            entry: `${nestedServer.origin}/remoteEntry.js`,
+            type: 'module',
+          },
+        },
+        shareStrategy: 'version-first',
+        shared,
+        hostInitInjectLocation: 'entry',
+        dts: false,
+      });
+      const hostServer = await serve(hostOutDir);
+
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+
+      await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
+      try {
+        await page.waitForFunction(
+          () => document.querySelector('#app')?.textContent === 'rendered',
+          undefined,
+          { timeout: 5_000 }
+        );
+      } catch (error) {
+        throw new Error(JSON.stringify({ cause: String(error), pageErrors }, null, 2));
+      }
+
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser?.close();
+      for (const server of servers.reverse()) await server.close();
       await rm(workspace, { recursive: true, force: true });
       setPackageDetectionCwd(originalPackageDetectionCwd);
     }

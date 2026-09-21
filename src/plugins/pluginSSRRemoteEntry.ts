@@ -215,7 +215,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   const remoteEntrySSRId = getRemoteEntrySSRId(options);
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
   let cachedSsrRemoteEntrySource: string | undefined;
-  const ssrOutputFilename = getSsrRemoteEntryFileName(options.filename);
+  const ssrOutputFilename = getSsrRemoteEntryFileName(options);
   const ssrExposesFileName = getSsrExposesFileName(options.filename);
   let ssrOutputFiles = new Set<string>();
   let ssrOutputDir = '';
@@ -382,7 +382,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       configureServer(server) {
         const base = '/__mf_ssr__';
         const basePath = getBasePath(viteConfig?.base);
-        const ssrEntryFileName = getSsrRemoteEntryFileName(options.filename);
+        const ssrEntryFileName = getSsrRemoteEntryFileName(options);
 
         if (isNuxtProject || isNuxtClientBase(basePath)) {
           server.middlewares.use((req, _res, next) => {
@@ -520,7 +520,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Vite 8+ dev path: allow server.fetchModule() to resolve the
         // /__mf_ssr__/*.ssr.js URL as the virtual SSR entry. ModuleRunner
         // imports this path and Vite resolves it here so load() can serve it.
-        const ssrDevPath = `/__mf_ssr__/${getSsrRemoteEntryFileName(options.filename)}`;
+        const ssrDevPath = `/__mf_ssr__/${getSsrRemoteEntryFileName(options)}`;
         if (id === ssrDevPath) return remoteEntrySSRId;
         const exposesDevPath = `/__mf_ssr__/${ssrExposesFileName}`;
         if (id === exposesDevPath) return virtualExposesSSRId;
