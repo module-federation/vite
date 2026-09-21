@@ -280,7 +280,8 @@ function getRuntimeSeedCode(code: string) {
   const endMarker = 'await __mfSeedLocalShared(__mfImmediateSeedKeys);';
   const end = code.indexOf(endMarker, start);
   if (start === -1 || end === -1) throw new Error('runtime seed code not found');
-  return code.slice(start, end + endMarker.length);
+  // The seed code flags the Runtime provider of a seeded share; stub the Runtime instance.
+  return `const initRes = { options: { shared: {} } };\n${code.slice(start, end + endMarker.length)}`;
 }
 
 function getRuntimeDeferredResolutionCode(code: string) {
