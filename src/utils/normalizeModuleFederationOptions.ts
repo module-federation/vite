@@ -699,8 +699,11 @@ export type ModuleFederationOptions = {
   disableSnapshot?: boolean;
   /**
    * Additional packages to mark as external in the SSR remote entry build.
-   * Shared packages and MF runtime packages are always external. Use this to
+   * Shared packages and MF runtime packages are external by default. Use this to
    * add any other Node-only packages that should not be bundled into the SSR entry.
+   * To emit a self-contained SSR entry (loadable by hosts that cannot resolve the
+   * MF runtime from Node, such as the `@module-federation/sdk` reference loader),
+   * opt the MF runtime packages back in through Vite's `ssr.noExternal`.
    */
   ssrExternals?: string[];
   /**
