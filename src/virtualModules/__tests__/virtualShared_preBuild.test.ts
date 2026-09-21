@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { parseAst } from 'vite';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../../utils/buildPaths';
-import { getSharedExportConditions } from '../../utils/sharedExportConditions';
 import {
   normalizeModuleFederationOptions,
   ShareItem,
 } from '../../utils/normalizeModuleFederationOptions';
+import { getSharedExportConditions } from '../../utils/sharedExportConditions';
 import { setTreeShakingBuildMode } from '../../utils/treeShaking';
 import {
   addTreeShakingGraphQuery,
@@ -436,7 +436,7 @@ vi.mock('../../utils/packageUtils', () => ({
         packageJson: {
           name: 'runtime-consumer',
           dependencies: {
-            '@module-federation/enhanced': '^2.9.0',
+            '@module-federation/enhanced': '^2.9.1',
             react: '^19.0.0',
           },
         },
