@@ -197,6 +197,16 @@ vi.mock('../../utils/packageUtils', () => ({
   packageNameEncode: (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, '_'),
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: packageDetectionCwdMock,
+  getDependencyNames: (packageJson: Record<string, unknown> | undefined) =>
+    packageJson
+      ? Array.from(
+          new Set(
+            ['dependencies', 'peerDependencies', 'optionalDependencies'].flatMap((field) =>
+              Object.keys((packageJson[field] as Record<string, string> | undefined) ?? {})
+            )
+          )
+        )
+      : [],
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
   getInstalledPackageEntry: vi.fn((pkg: string, opts?: { cwd?: string; conditions?: string[] }) => {
     if (pkg === 'react/jsx-runtime') {

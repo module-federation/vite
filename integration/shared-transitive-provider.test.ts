@@ -81,8 +81,8 @@ describe('shared transitive provider', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  async function buildApp(mfOptions: Record<string, unknown>) {
-    write('main.js', "import { parent } from 'mf-parent-lib';\nconsole.log(parent);");
+  async function buildApp(mfOptions: Record<string, unknown>, entryPackage = 'mf-parent-lib') {
+    write('main.js', `import * as entry from '${entryPackage}';\nconsole.log(entry);`);
     return buildFixture({
       mfOptions: {
         name: 'transitiveApp',
@@ -112,6 +112,32 @@ describe('shared transitive provider', () => {
       shared: [expect.objectContaining({ name: 'mf-nested-lib', version: '2.1.0' })],
     });
     expect(getAllChunkCode(output)).toContain('nested-marker');
+  });
+
+  it('follows a parent listed under the root devDependencies', async () => {
+    write(
+      'package.json',
+      JSON.stringify({
+        name: 'transitive-app',
+        type: 'module',
+        devDependencies: { 'mf-parent-lib': '1.0.0' },
+      })
+    );
+    // A stale copy that a store scan would list first.
+    installPnpmPackage('mf-nested-lib', '1.0.0', {});
+    write(
+      'node_modules/.pnpm/mf-nested-lib@1.0.0/node_modules/mf-nested-lib/index.js',
+      "export const nested = 'stale-1.0.0';"
+    );
+    link('node_modules/.pnpm/node_modules/mf-nested-lib', '../mf-nested-lib@1.0.0/node_modules/mf-nested-lib');
+
+    const output = await buildApp({});
+
+    expect(getAllChunkCode(output)).toContain('nested-marker');
+    expect(getAllChunkCode(output)).not.toContain('stale-1.0.0');
+    expect(parseManifest(output)).toMatchObject({
+      shared: [expect.objectContaining({ name: 'mf-nested-lib', version: '2.1.0' })],
+    });
   });
 
   // Two versions in the store is the normal state of a pnpm workspace. The
@@ -149,6 +175,51 @@ describe('shared transitive provider', () => {
     expect(getAllChunkCode(output)).not.toContain(`stale-${stale}`);
     expect(parseManifest(output)).toMatchObject({
       shared: [expect.objectContaining({ name: 'mf-nested-lib', version: linked })],
+    });
+  });
+
+  // The same package name at two versions on two branches, where only the
+  // second declares the target. A walk keyed by name visits mf-util-lib once,
+  // via the first branch, and never sees the edge on the second.
+  it('walks every installed version of an intermediate package', async () => {
+    write(
+      'package.json',
+      JSON.stringify({
+        name: 'transitive-app',
+        type: 'module',
+        dependencies: { 'mf-first-lib': '1.0.0', 'mf-second-lib': '1.0.0' },
+      })
+    );
+    for (const [lib, utilVersion] of [
+      ['mf-first-lib', '1.0.0'],
+      ['mf-second-lib', '2.0.0'],
+    ]) {
+      const dir = installPnpmPackage(lib, '1.0.0', { dependencies: { 'mf-util-lib': utilVersion } });
+      write(`${dir}/index.js`, `export * from 'mf-util-lib';`);
+      link(`node_modules/${lib}`, `.pnpm/${lib}@1.0.0/node_modules/${lib}`);
+      link(
+        `node_modules/.pnpm/${lib}@1.0.0/node_modules/mf-util-lib`,
+        `../../mf-util-lib@${utilVersion}/node_modules/mf-util-lib`
+      );
+    }
+    const firstUtil = installPnpmPackage('mf-util-lib', '1.0.0', {});
+    write(`${firstUtil}/index.js`, 'export const util = 1;');
+    const secondUtil = installPnpmPackage('mf-util-lib', '2.0.0', {
+      dependencies: { 'mf-nested-lib': '3.0.0' },
+    });
+    write(`${secondUtil}/index.js`, "export { nested } from 'mf-nested-lib';");
+    const linkedNested = installPnpmPackage('mf-nested-lib', '3.0.0', {});
+    write(`${linkedNested}/index.js`, "export const nested = 'linked-3.0.0';");
+    link(
+      `node_modules/.pnpm/mf-util-lib@2.0.0/node_modules/mf-nested-lib`,
+      `../../mf-nested-lib@3.0.0/node_modules/mf-nested-lib`
+    );
+
+    const output = await buildApp({}, 'mf-second-lib');
+
+    expect(getAllChunkCode(output)).toContain('linked-3.0.0');
+    expect(parseManifest(output)).toMatchObject({
+      shared: [expect.objectContaining({ name: 'mf-nested-lib', version: '3.0.0' })],
     });
   });
 

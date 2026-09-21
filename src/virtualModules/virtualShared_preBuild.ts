@@ -26,6 +26,7 @@ import {
   type ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import {
+  getDependencyNames,
   getInstalledPackageEntry,
   getInstalledPackageJson,
   getPackageDetectionCwd,
@@ -1066,17 +1067,6 @@ function getSharedDependencyGraphPackageJson(pkg: string) {
     // Fall back to workspace detection below.
   }
   return getWorkspacePackageJson(pkg);
-}
-
-function getDependencyNames(packageJson: Record<string, unknown> | undefined) {
-  if (!packageJson) return [];
-  const names = new Set<string>();
-  for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
-    const deps = packageJson[field];
-    if (!deps || typeof deps !== 'object') continue;
-    for (const dep of Object.keys(deps)) names.add(dep);
-  }
-  return Array.from(names);
 }
 
 function isSharedSingletonConsumedByPeer(
