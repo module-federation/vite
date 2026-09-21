@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { parseAst } from 'vite';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../../utils/buildPaths';
-import { getSharedExportConditions } from '../../utils/sharedExportConditions';
 import {
   normalizeModuleFederationOptions,
   ShareItem,
 } from '../../utils/normalizeModuleFederationOptions';
+import { getSharedExportConditions } from '../../utils/sharedExportConditions';
 import { setTreeShakingBuildMode } from '../../utils/treeShaking';
 import {
   addTreeShakingGraphQuery,
@@ -39,7 +39,7 @@ const { sideEffectChannels, openLoopKeepingChannel } = vi.hoisted(() => ({
   sideEffectChannels: [] as MessageChannel[],
   openLoopKeepingChannel: () => {
     const channel = new MessageChannel();
-    channel.port1.onmessage = () => {};
+    channel.port1.onmessage = () => { };
     return channel;
   },
 }));
@@ -436,7 +436,7 @@ vi.mock('../../utils/packageUtils', () => ({
         packageJson: {
           name: 'runtime-consumer',
           dependencies: {
-            '@module-federation/enhanced': '^2.9.0',
+            '@module-federation/enhanced': '^2.9.1',
             react: '^19.0.0',
           },
         },
@@ -1580,9 +1580,9 @@ describe('writeLoadShareModule', () => {
       String(filePath).endsWith('/repo/packages/cached-shared-source/leaf.ts')
         ? source
         : (originalRead as (...args: unknown[]) => unknown)(
-            filePath,
-            ...args
-          )) as typeof readFileSync);
+          filePath,
+          ...args
+        )) as typeof readFileSync);
 
     try {
       expect(getSharedNamedExports(shareItem.name, shareItem, ['invalidation-regression'])).toEqual(
@@ -1934,9 +1934,9 @@ describe('writeLoadShareModule', () => {
       String(filePath) === importPath
         ? source
         : (originalRead as (...args: unknown[]) => unknown)(
-            filePath,
-            ...args
-          )) as typeof readFileSync);
+          filePath,
+          ...args
+        )) as typeof readFileSync);
     invalidateSharedExportInspectionCache(importPath);
     try {
       expect(getSharedNamedExports(shareItem.name, shareItem)).toEqual(expectedExports);
