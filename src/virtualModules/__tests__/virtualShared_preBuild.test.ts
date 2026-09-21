@@ -39,7 +39,7 @@ const { sideEffectChannels, openLoopKeepingChannel } = vi.hoisted(() => ({
   sideEffectChannels: [] as MessageChannel[],
   openLoopKeepingChannel: () => {
     const channel = new MessageChannel();
-    channel.port1.onmessage = () => { };
+    channel.port1.onmessage = () => {};
     return channel;
   },
 }));
@@ -1580,9 +1580,9 @@ describe('writeLoadShareModule', () => {
       String(filePath).endsWith('/repo/packages/cached-shared-source/leaf.ts')
         ? source
         : (originalRead as (...args: unknown[]) => unknown)(
-          filePath,
-          ...args
-        )) as typeof readFileSync);
+            filePath,
+            ...args
+          )) as typeof readFileSync);
 
     try {
       expect(getSharedNamedExports(shareItem.name, shareItem, ['invalidation-regression'])).toEqual(
@@ -1934,9 +1934,9 @@ describe('writeLoadShareModule', () => {
       String(filePath) === importPath
         ? source
         : (originalRead as (...args: unknown[]) => unknown)(
-          filePath,
-          ...args
-        )) as typeof readFileSync);
+            filePath,
+            ...args
+          )) as typeof readFileSync);
     invalidateSharedExportInspectionCache(importPath);
     try {
       expect(getSharedNamedExports(shareItem.name, shareItem)).toEqual(expectedExports);
