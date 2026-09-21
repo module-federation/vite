@@ -12,6 +12,7 @@ import type {
   ConfigPluginContext,
   MinimalPluginContextWithoutEnvironment,
   ResolvedConfig,
+  Rollup,
 } from 'vite';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import packageJson from '../../../package.json' with { type: 'json' };
@@ -1303,6 +1304,81 @@ describe('pluginMFManifest', () => {
 
     const manifest = JSON.parse(emitted['mf-manifest.json']);
     expect(manifest.metaData.types).toEqual({ path: '', name: '' });
+  });
+
+  it('repoints an on-disk manifest at the SSR entry emitted by a standalone SSR build', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-manifest-ssr-'));
+    const write = (name: string, ssrName: string) =>
+      fs.writeFileSync(
+        path.join(outDir, name),
+        JSON.stringify({
+          metaData: { ssrRemoteEntry: { name: ssrName, path: '', type: 'module' } },
+        })
+      );
+    write('mf-manifest.json', 'remoteEntry.ssr.js');
+    write('mf-stats.json', 'remoteEntry.ssr.js');
+
+    const makePlugin = (filename: string, build: Record<string, unknown> = {}) => {
+      getNormalizeModuleFederationOptions.mockReturnValue({
+        name: 'remote',
+        filename,
+        manifest: true,
+        exposes: { './App': { import: './src/App.tsx', name: 'App' } },
+        remotes: {},
+        shared: {},
+        dts: false,
+      });
+      const [, buildPlugin] = manifestPlugin();
+      callHook(
+        buildPlugin.config,
+        {} as ConfigPluginContext,
+        {},
+        { command: 'build', mode: 'test' }
+      );
+      callHook(
+        buildPlugin.configResolved,
+        {} as MinimalPluginContextWithoutEnvironment,
+        { root: outDir, base: '/', build, server: {} } as unknown as ResolvedConfig
+      );
+      return buildPlugin;
+    };
+    const runWriteBundle = (plugin: ReturnType<typeof makePlugin>, environment?: string) =>
+      callHook(
+        plugin.writeBundle,
+        {
+          environment: environment ? { name: environment } : undefined,
+        } as unknown as Rollup.PluginContext,
+        { dir: outDir } as Rollup.NormalizedOutputOptions,
+        {} as Rollup.OutputBundle
+      );
+    const read = (name: string) =>
+      JSON.parse(fs.readFileSync(path.join(outDir, name), 'utf8')).metaData.ssrRemoteEntry.name;
+
+    // SSR entry not emitted yet: leave the manifest alone.
+    runWriteBundle(makePlugin('remoteEntry.server.js'), 'ssr');
+    expect(read('mf-manifest.json')).toBe('remoteEntry.ssr.js');
+
+    fs.writeFileSync(path.join(outDir, 'remoteEntry.server.ssr.js'), '');
+    // Client environment never touches it.
+    runWriteBundle(makePlugin('remoteEntry.server.js'), 'client');
+    expect(read('mf-manifest.json')).toBe('remoteEntry.ssr.js');
+
+    runWriteBundle(makePlugin('remoteEntry.server.js'), 'ssr');
+    expect(read('mf-manifest.json')).toBe('remoteEntry.server.ssr.js');
+    expect(read('mf-stats.json')).toBe('remoteEntry.server.ssr.js');
+
+    // Vite 5: no `this.environment`; a legacy `vite build --ssr` is detected
+    // through `build.ssr`, and a plain client build is left alone.
+    write('mf-manifest.json', 'remoteEntry.ssr.js');
+    runWriteBundle(makePlugin('remoteEntry.server.js'));
+    expect(read('mf-manifest.json')).toBe('remoteEntry.ssr.js');
+    runWriteBundle(makePlugin('remoteEntry.server.js', { ssr: 'src/entry-server.tsx' }));
+    expect(read('mf-manifest.json')).toBe('remoteEntry.server.ssr.js');
+
+    fs.rmSync(outDir, { recursive: true, force: true });
   });
 
   it('preserves publicPath "auto" in manifest metaData', async () => {
