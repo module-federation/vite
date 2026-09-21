@@ -490,24 +490,29 @@ export function getInstalledPackageJson(
   return result;
 }
 
+function tryReadPackageJson(
+  packageJsonPath: string,
+  expectedName?: string
+): InstalledPackageJson | undefined {
+  if (!existsSync(packageJsonPath)) return undefined;
+  try {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    if (expectedName !== undefined && packageJson.name !== expectedName) return undefined;
+    return { path: packageJsonPath, dir: path.dirname(packageJsonPath), packageJson };
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveInstalledPackageJson(
   pkg: string,
   cwd: string,
   packageName: string,
   opts?: PackageEntryConditions
 ): InstalledPackageJson | undefined {
-  const tryReadPackageJson = (packageJsonPath: string): InstalledPackageJson | undefined => {
-    if (!existsSync(packageJsonPath)) return undefined;
-    try {
-      return {
-        path: packageJsonPath,
-        dir: path.dirname(packageJsonPath),
-        packageJson: JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<string, unknown>,
-      };
-    } catch {
-      return undefined;
-    }
-  };
   const findPackageInPnpmStore = (startDir: string): InstalledPackageJson | undefined => {
     let currentDir = startDir;
 
@@ -552,37 +557,8 @@ function resolveInstalledPackageJson(
   }
 
   if (resolvedPath !== undefined) {
-    try {
-      let currentDir = path.dirname(resolvedPath);
-      let matchingPackage: InstalledPackageJson | undefined;
-
-      while (true) {
-        const packageJsonPath = path.join(currentDir, 'package.json');
-        if (existsSync(packageJsonPath)) {
-          const packageJsonContent = readFileSync(packageJsonPath, 'utf-8');
-          try {
-            const packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>;
-            if (packageJson.name === packageName) {
-              const packageInfo = {
-                path: packageJsonPath,
-                dir: currentDir,
-                packageJson,
-              };
-              if (currentDir.endsWith(path.join('node_modules', packageName))) return packageInfo;
-              matchingPackage ??= packageInfo;
-            }
-          } catch (error) {
-            if (!(error instanceof SyntaxError)) throw error;
-          }
-        }
-        const parentDir = path.dirname(currentDir);
-        if (parentDir === currentDir) break;
-        currentDir = parentDir;
-      }
-      return matchingPackage;
-    } catch {
-      // Unreadable tree: fall through to the node_modules lookup below.
-    }
+    const owner = findOwningPackageJson(path.dirname(resolvedPath), packageName);
+    if (owner) return owner;
   }
 
   let currentDir = cwd;
@@ -595,7 +571,105 @@ function resolveInstalledPackageJson(
     currentDir = parentDir;
   }
 
-  return findPackageInPnpmStore(cwd);
+  return findPackageInDependents(packageName, cwd) ?? findPackageInPnpmStore(cwd);
+}
+
+/**
+ * A package installed only under a dependent is invisible to the walks above.
+ * Resolving it from each dependent in turn follows the same links that dependent
+ * does, so the copy found is the version it is installed against rather than
+ * whichever one the pnpm store happens to list first.
+ */
+function findPackageInDependents(
+  packageName: string,
+  cwd: string
+): InstalledPackageJson | undefined {
+  const rootPackageJson = path.join(cwd, 'package.json');
+  const root = tryReadPackageJson(rootPackageJson);
+  if (!root) return undefined;
+
+  // Keyed by the resolved package.json, not the name: two branches can carry
+  // two versions of the same package, and only one of them may declare the target.
+  const visited = new Set<string>();
+  // The app's devDependencies are installed as well, and a Vite app commonly keeps
+  // its libraries there. Deeper packages have only their runtime dependencies.
+  const queue = getDependencyNames(root.packageJson, { includeDev: true }).map((name) => ({
+    name,
+    from: rootPackageJson,
+  }));
+
+  while (queue.length) {
+    const { name, from } = queue.shift()!;
+    if (name === packageName) continue;
+    const dependent = resolvePackageFrom(name, from);
+    if (!dependent || visited.has(dependent.path)) continue;
+    visited.add(dependent.path);
+    const dependencies = getDependencyNames(dependent.packageJson);
+    // Only a declared edge is followed. Node resolution from a package that
+    // merely sits near the target walks up into a hoisted copy, which is the
+    // arbitrary pick this walk exists to avoid.
+    if (dependencies.includes(packageName)) {
+      const candidate = resolvePackageFrom(packageName, dependent.path);
+      if (candidate) return candidate;
+    }
+    for (const dependency of dependencies) {
+      queue.push({ name: dependency, from: dependent.path });
+    }
+  }
+
+  return undefined;
+}
+
+/** Node resolution from `from`, then the walk up to the package.json that owns the result. */
+function resolvePackageFrom(packageName: string, from: string): InstalledPackageJson | undefined {
+  let resolved: string;
+  try {
+    resolved = createRequire(pathToFileURL(from)).resolve(packageName);
+  } catch {
+    return undefined;
+  }
+  // A core module resolves to its bare specifier: there is nothing to walk up from.
+  if (!path.isAbsolute(resolved)) return undefined;
+  return findOwningPackageJson(path.dirname(resolved), packageName);
+}
+
+/**
+ * Walks up from `startDir` to the package.json named `packageName`, preferring the
+ * one at `node_modules/<packageName>` so a nested `package.json` (for example a
+ * subpath's `type: module` marker) does not shadow the package root.
+ */
+function findOwningPackageJson(
+  startDir: string,
+  packageName: string
+): InstalledPackageJson | undefined {
+  let currentDir = startDir;
+  let matchingPackage: InstalledPackageJson | undefined;
+  while (true) {
+    const candidate = tryReadPackageJson(path.join(currentDir, 'package.json'), packageName);
+    if (candidate) {
+      if (currentDir.endsWith(path.join('node_modules', packageName))) return candidate;
+      matchingPackage ??= candidate;
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) return matchingPackage;
+    currentDir = parentDir;
+  }
+}
+
+export function getDependencyNames(
+  packageJson: Record<string, unknown> | undefined,
+  { includeDev = false }: { includeDev?: boolean } = {}
+): string[] {
+  if (!packageJson) return [];
+  const names = new Set<string>();
+  const fields = ['dependencies', 'peerDependencies', 'optionalDependencies'];
+  if (includeDev) fields.push('devDependencies');
+  for (const field of fields) {
+    const deps = packageJson[field];
+    if (!deps || typeof deps !== 'object') continue;
+    for (const dep of Object.keys(deps)) names.add(dep);
+  }
+  return [...names];
 }
 
 export function getInstalledPackageEntry(
