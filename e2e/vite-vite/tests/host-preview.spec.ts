@@ -23,6 +23,24 @@ async function getSharedProviderUrls(
  * shared deps, default imports, named imports, CJS interop, etc.
  */
 test.describe('vite-vite host preview', () => {
+  test('publishes an aliased prefix share under its shareKey, not its property name', async ({
+    request,
+  }) => {
+    // Both configs declare `reactNamespace: { request: 'react/', shareKey: 'react/' }`.
+    for (const manifestUrl of [
+      'http://localhost:5175/mf-manifest.json',
+      'http://localhost:5176/testbase/mf-manifest.json',
+    ]) {
+      const response = await request.get(manifestUrl);
+      expect(response.ok()).toBe(true);
+      const manifest = await response.json();
+      const names = manifest.shared.map((entry: { name: string }) => entry.name);
+      expect(names).toContain('react/jsx-runtime');
+      expect(names.some((name: string) => name.startsWith('reactNamespace'))).toBe(false);
+      expect(names).not.toContain('react/');
+    }
+  });
+
   test('renders host app with React shared dep', async ({ page }) => {
     await page.goto('/');
     const heading = page.getByRole('heading', { name: 'MF HOST Demo', exact: true });

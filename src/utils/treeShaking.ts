@@ -5,6 +5,7 @@ import type {
   ShareItem,
 } from './normalizeModuleFederationOptions';
 import { normalizePathForImport } from './buildPaths';
+import { getSharedRequest } from './sharedKeyMatcher';
 
 type SharedSourceMatcher = (
   source: string,
@@ -132,7 +133,10 @@ function getExportRecords(
   inferredUsage.forEach((byRequest, configuredKey) => {
     const wildcard = byRequest.get('*');
     const exact = byRequest.get(request);
-    const keyBase = configuredKey.endsWith('/') ? configuredKey.slice(0, -1) : configuredKey;
+    const configuredRequest = getSharedRequest(configuredKey, options?.shared?.[configuredKey]);
+    const keyBase = configuredRequest.endsWith('/')
+      ? configuredRequest.slice(0, -1)
+      : configuredRequest;
     const requestMatchesConfiguredKey = request === keyBase || request.startsWith(`${keyBase}/`);
     if (wildcard && requestMatchesConfiguredKey) records.push(wildcard);
     if (exact && exact !== wildcard) records.push(exact);

@@ -19,7 +19,10 @@ const antdShared = {
 };
 const shared = {
   vue: {},
-  'react/': {
+  reactNamespace: {
+    import: 'react',
+    request: 'react/',
+    shareKey: 'react/',
     singleton: true,
     requiredVersion: '^19.2.4',
   },

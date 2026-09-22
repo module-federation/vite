@@ -3,6 +3,7 @@ import {
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import { resolveHashPlaceholderFileName } from '../utils/buildPaths';
+import { getSharedRequest, getSharedRuntimeKey } from '../utils/sharedKeyMatcher';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
 import { expandSharedPrefixKey, getUsedShares } from './virtualRemoteEntry';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
@@ -53,13 +54,14 @@ function getSsrSharedSingletons(
 
   for (const [pkg, share] of Object.entries(options.shared)) {
     if (!share.shareConfig.singleton) continue;
-    if (pkg.endsWith('/')) {
-      for (const concrete of expandSharedPrefixKey(pkg, used)) {
-        result[concrete] = { ...share, name: concrete };
+    const request = getSharedRequest(pkg, share);
+    if (request.endsWith('/')) {
+      for (const concrete of expandSharedPrefixKey(request, used)) {
+        result[getSharedRuntimeKey(concrete, share)] = { ...share, name: concrete };
       }
       continue;
     }
-    result[pkg] = share;
+    result[getSharedRuntimeKey(pkg, share)] = share;
   }
 
   return result;

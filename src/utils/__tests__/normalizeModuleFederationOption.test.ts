@@ -469,6 +469,51 @@ describe('normalizeModuleFederationOption', () => {
   });
 
   describe('shared', () => {
+    it('preserves request and shareKey for aliased shared dependencies', () => {
+      const normalized = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          'my-alias': {
+            import: 'react',
+            request: 'react',
+            shareKey: 'react',
+          },
+        },
+      });
+
+      expect(normalized.shared['my-alias'].shareConfig).toMatchObject({
+        import: 'react',
+        request: 'react',
+        shareKey: 'react',
+      });
+    });
+
+    it('rejects a prefix request without a prefix shareKey', () => {
+      expect(() =>
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: { 'my-lodash': { import: 'lodash', request: 'lodash/' } },
+        })
+      ).toThrow(/"request" and "shareKey" must both end with "\/"/);
+      expect(() =>
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          shared: { 'my-lodash': { import: 'lodash', request: 'lodash', shareKey: 'lodash/' } },
+        })
+      ).toThrow(/"request" and "shareKey" must both end with "\/"/);
+    });
+
+    it('accepts a prefix request with a matching prefix shareKey', () => {
+      const normalized = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: { 'my-lodash': { import: 'lodash', request: 'lodash/', shareKey: 'lodash/' } },
+      });
+      expect(normalized.shared['my-lodash'].shareConfig).toMatchObject({
+        request: 'lodash/',
+        shareKey: 'lodash/',
+      });
+    });
+
     it('resolves metadata for a nested package prefix', () => {
       const options = normalizeModuleFederationOptions({
         ...minimalOptions,

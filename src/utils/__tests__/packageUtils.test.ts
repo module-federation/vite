@@ -706,6 +706,52 @@ describe('getSharedCacheKey', () => {
     });
   });
 
+  it('uses shareKey for aliased shared cache descriptors', () => {
+    expect(
+      getSharedCacheDescriptor('my-alias', {
+        name: 'my-alias',
+        scope: 'default',
+        version: '19.2.7',
+        shareConfig: { singleton: true, shareKey: 'react' },
+      } as any)
+    ).toEqual({
+      canonical: 'default:react',
+      aliases: ['react'],
+    });
+  });
+
+  it('keeps the configured property as the default runtime key when request is aliased', () => {
+    expect(
+      getSharedCacheDescriptor('react', {
+        name: 'my-alias',
+        scope: 'default',
+        version: '19.2.7',
+        shareConfig: { singleton: true, request: 'react' },
+      } as any)
+    ).toEqual({
+      canonical: 'default:my-alias',
+      aliases: ['my-alias'],
+    });
+  });
+
+  it('applies a prefix shareKey to concrete subpath cache descriptors', () => {
+    expect(
+      getSharedCacheDescriptor('lodash/debounce', {
+        name: 'my-lodash/',
+        scope: 'default',
+        version: '4.17.21',
+        shareConfig: {
+          singleton: false,
+          request: 'lodash/',
+          shareKey: 'shared/',
+        },
+      } as any)
+    ).toEqual({
+      canonical: 'default:shared/debounce@4.17.21',
+      aliases: ['shared/debounce@4.17.21'],
+    });
+  });
+
   it('does not expose a compatibility alias for custom share scopes', () => {
     expect(
       getSharedCacheDescriptor('react', {

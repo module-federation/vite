@@ -1349,6 +1349,25 @@ describe('virtualRemoteEntry', () => {
     );
   });
 
+  it('does not preload an implicit subpath from a bare shared package', async () => {
+    normalizedSharedMock.mockReturnValue({
+      lit: {
+        name: 'lit',
+        version: '3.0.0',
+        scope: 'default',
+        shareConfig: { singleton: true, strictVersion: false },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('lit/decorators.js');
+
+    const buildCode = mod.generatePendingSharesCode('build');
+
+    expect(buildCode).toContain('const __mfPendingShareImports = [];');
+    expect(buildCode).not.toContain('virtual:loadShare:lit/decorators.js');
+  });
+
   it('leaves eager shares out of the build bootstrap: they are already static imports', async () => {
     const share = (name: string, eager = false) => ({
       name,

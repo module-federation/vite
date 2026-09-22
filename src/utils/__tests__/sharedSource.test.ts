@@ -55,6 +55,26 @@ describe('createSharedSourceResolver', () => {
     );
   });
 
+  it('matches an aliased share by its request, not its property name', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
+    tempDirs.push(root);
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+
+    const entry = '/vendor/node_modules/mf-test-aliased/index.js';
+    const resolve = vi.fn(async (id: string) => ({
+      id: id === 'mf-test-aliased' ? entry : id,
+      external: false,
+    }));
+    const shared = makeShared(['my-aliased'], {
+      import: 'mf-test-aliased',
+      request: 'mf-test-aliased',
+      shareKey: 'mf-test-aliased',
+    });
+    const resolver = createSharedSourceResolver(shared, () => ({ root, conditions: [] }));
+
+    await expect(resolver.resolve({ resolve } as any, entry, {})).resolves.toBe('mf-test-aliased');
+  });
+
   it('skips Vite resolution for a subpath the installed package does not export', async () => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
     tempDirs.push(root);

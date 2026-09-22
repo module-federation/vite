@@ -16,8 +16,10 @@ import {
 import { isNodeModulePath, isAssetLikeImport } from '../utils/pathNormalization';
 import {
   findSharedKey,
+  getSharedRequest,
   invalidateSharedKeyMatcher,
   matchesSharedSource,
+  getSharedRuntimeKey,
 } from '../utils/sharedKeyMatcher';
 import {
   getIsRolldown,
@@ -114,12 +116,16 @@ function getPackageDependencies(pkg: string): string[] {
  */
 export function excludeSharedSubDependencies(shared: NormalizedShared): void {
   const sharedKeys = new Set(Object.keys(shared));
-  const sharedKeyByBase = new Map(
-    Object.keys(shared).map((key) => [key.endsWith('/') ? key.slice(0, -1) : key, key])
-  );
+  // Dependencies are looked up by the package a share intercepts, which an
+  // aliased share names in `request` rather than in its property name.
+  const requestBase = (key: string) => {
+    const request = getSharedRequest(key, shared[key]);
+    return request.endsWith('/') ? request.slice(0, -1) : request;
+  };
+  const sharedKeyByBase = new Map(Object.keys(shared).map((key) => [requestBase(key), key]));
 
   for (const parentKey of sharedKeys) {
-    const deps = getPackageDependencies(parentKey);
+    const deps = getPackageDependencies(requestBase(parentKey));
     for (const dep of deps) {
       const depKey = sharedKeyByBase.get(dep);
       if (depKey && depKey !== parentKey) {
@@ -671,7 +677,9 @@ export function proxySharedModule(options: {
             // finalized, immediately before Rollup discovers their imports.
             refreshTreeShakingForEnvironment(this);
             const providerPackages = new Set([
-              ...Object.keys(shared).filter((pkg) => !pkg.endsWith('/')),
+              ...Object.keys(shared).filter(
+                (pkg) => !getSharedRequest(pkg, shared[pkg]).endsWith('/')
+              ),
               ...getUsedShares(federationOptions),
             ]);
             for (const pkg of providerPackages) {
@@ -737,18 +745,19 @@ export function proxySharedModule(options: {
             ? addUsedShares
             : addConfiguredShare;
         Object.keys(shared).forEach((key) => {
-          if (key.endsWith('/')) return;
-          if (useDirectReactImport && key === 'react') {
-            registerConfiguredShare(key, federationOptions);
+          if (key.endsWith('/') || getSharedRequest(key, shared[key]).endsWith('/')) return;
+          const runtimeKey = getSharedRuntimeKey(key, shared[key]);
+          if (useDirectReactImport && runtimeKey === 'react') {
+            registerConfiguredShare(runtimeKey, federationOptions);
             return;
           }
-          writeLoadShareModule(key, shared[key], _command, isRolldown, federationOptions);
+          writeLoadShareModule(runtimeKey, shared[key], _command, isRolldown, federationOptions);
           // Skip prebuild for shared deps with import: false — the host must
           // provide them, so no local fallback source is needed.
           if (shared[key].shareConfig.import !== false) {
-            writePreBuildLibPath(key, shared[key], federationOptions);
+            writePreBuildLibPath(runtimeKey, shared[key], federationOptions);
           }
-          registerConfiguredShare(key, federationOptions);
+          registerConfiguredShare(runtimeKey, federationOptions);
         });
         writeLocalSharedImportMap(federationOptions);
         refreshHostAutoInit(federationOptions);
@@ -895,15 +904,18 @@ export function proxySharedModule(options: {
           const importerIsUnsharedWorkspacePackage =
             !isNodeModulePath(importer!) &&
             !Object.keys(shared).some((sharedKey) => getPackageName(sharedKey) === importerPackage);
+          const request = getSharedRequest(key, shared[key]);
           const runtimeDependencyRequest =
-            key.endsWith('/') && matchesSharedSource(sharedSource, key) ? sharedSource : key;
+            request.endsWith('/') && matchesSharedSource(sharedSource, key, shared[key])
+              ? sharedSource
+              : request;
           const keepsOrdinaryEdge = importerIsUnsharedWorkspacePackage
             ? isSharedPackageRuntimeDependency(
                 runtimeDependencyRequest,
                 importerPackage,
                 getRuntimeDependencyConditions(this, resolveOptions)
               )
-            : isSharedPackageDependency(key, importerPackage);
+            : isSharedPackageDependency(request, importerPackage);
           if (keepsOrdinaryEdge) return;
         }
         if (useDirectReactImport && key === 'react') return;

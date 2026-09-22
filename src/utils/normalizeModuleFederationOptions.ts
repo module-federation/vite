@@ -390,6 +390,8 @@ function normalizeShareItem(
         import: moduleFederationPlugin.SharedConfig['import'];
         version?: string;
         shareScope?: string;
+        request?: moduleFederationPlugin.SharedConfig['request'];
+        shareKey?: moduleFederationPlugin.SharedConfig['shareKey'];
         singleton?: boolean;
         eager?: boolean;
         requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
@@ -409,6 +411,17 @@ function normalizeShareItem(
     throw createModuleFederationError(
       `Invalid shared config for "${key}": cannot use both "eager: true" and "treeShaking.mode" simultaneously. Choose one strategy.`
     );
+  }
+  if (typeof shareItem === 'object') {
+    // A prefix request appends the concrete remainder to the share key, so a
+    // non-prefix share key would produce a malformed runtime key.
+    const request = typeof shareItem.request === 'string' ? shareItem.request : key;
+    const shareKey = typeof shareItem.shareKey === 'string' ? shareItem.shareKey : key;
+    if (request.endsWith('/') !== shareKey.endsWith('/')) {
+      throw createModuleFederationError(
+        `Invalid shared config for "${key}": "request" and "shareKey" must both end with "/" for a prefix share, or neither. Got request "${request}" and shareKey "${shareKey}".`
+      );
+    }
   }
   if (
     treeShaking?.mode === 'runtime-infer' &&
@@ -450,6 +463,8 @@ function normalizeShareItem(
       eager: shareItem.eager || false,
       requiredVersion,
       strictVersion: !!shareItem.strictVersion,
+      ...(shareItem.request !== undefined ? { request: shareItem.request } : {}),
+      ...(shareItem.shareKey !== undefined ? { shareKey: shareItem.shareKey } : {}),
       ...(shareItem.allowNodeModulesSuffixMatch !== undefined
         ? { allowNodeModulesSuffixMatch: shareItem.allowNodeModulesSuffixMatch }
         : {}),
@@ -495,6 +510,8 @@ function normalizeShared(
             import?: moduleFederationPlugin.SharedConfig['import'];
             version?: string;
             shareScope?: string;
+            request?: moduleFederationPlugin.SharedConfig['request'];
+            shareKey?: moduleFederationPlugin.SharedConfig['shareKey'];
             singleton?: boolean;
             eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
@@ -532,7 +549,8 @@ function normalizeShared(
       const hadConfiguredPackageSubpath =
         (result[normalizedKey]?.shareConfig as any)?.__mfConfiguredPackageSubpath === true;
       result[normalizedKey] = normalizeShareItem(normalizedKey, value);
-      if (key.endsWith('/') || hadConfiguredPackageSubpath) {
+      const requestIsPrefix = typeof value?.request === 'string' && value.request.endsWith('/');
+      if (key.endsWith('/') || requestIsPrefix || hadConfiguredPackageSubpath) {
         (result[normalizedKey].shareConfig as any).__mfConfiguredPackageSubpath = true;
       }
       explicitSharedKeys.add(normalizedKey);
@@ -644,6 +662,8 @@ export type ModuleFederationOptions = {
             name?: string;
             version?: string;
             shareScope?: string;
+            request?: moduleFederationPlugin.SharedConfig['request'];
+            shareKey?: moduleFederationPlugin.SharedConfig['shareKey'];
             singleton?: boolean;
             eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
@@ -968,7 +988,18 @@ export function getNormalizeShareItem(
     (matchedKey ? options.shared[matchedKey] : undefined) ||
     options.shared[getPackageName(key)] ||
     options.shared[getPackageName(key) + '/'];
-  return shareItem;
+  if (shareItem) return shareItem;
+
+  // Generated runtime maps are keyed by shareKey rather than by the
+  // user-facing shared config key. Recover the original item for aliases and
+  // concrete prefix entries so all downstream code uses the same metadata.
+  return Object.entries(options.shared).find(([sharedKey, item]) => {
+    const runtimeKey =
+      typeof item.shareConfig.shareKey === 'string' ? item.shareConfig.shareKey : sharedKey;
+    return runtimeKey.endsWith('/')
+      ? key === runtimeKey.slice(0, -1) || key.startsWith(runtimeKey)
+      : runtimeKey === key;
+  })?.[1];
 }
 
 export function normalizeModuleFederationOptions(
