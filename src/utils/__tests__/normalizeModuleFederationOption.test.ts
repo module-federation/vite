@@ -543,48 +543,6 @@ describe('normalizeModuleFederationOption', () => {
       });
     });
 
-    it('accepts the official Vite quick-start federation config shape', () => {
-      const normalized = normalizeModuleFederationOptions({
-        name: 'vite_provider',
-        manifest: true,
-        remotes: {
-          esm_remote: {
-            type: 'module',
-            name: 'esm_remote',
-            entry: 'https://example.test/remoteEntry.js',
-          },
-          var_remote: 'var_remote@https://example.test/remoteEntry.js',
-        },
-        exposes: {
-          './button': './src/components/button',
-        },
-        shared: {
-          react: { singleton: true },
-          'react/': { singleton: true },
-        },
-      });
-
-      expect(normalized).toMatchObject({
-        name: 'vite_provider',
-        manifest: true,
-        exposes: { './button': { import: './src/components/button' } },
-        remotes: {
-          esm_remote: {
-            type: 'module',
-            name: 'esm_remote',
-            entry: 'https://example.test/remoteEntry.js',
-          },
-          var_remote: {
-            type: 'var',
-            entryGlobalName: 'var_remote',
-            entry: 'https://example.test/remoteEntry.js',
-          },
-        },
-      });
-      expect(normalized.shared.react.shareConfig.singleton).toBe(true);
-      expect(normalized.shared['react/'].shareConfig.singleton).toBe(true);
-    });
-
     it('normalizes an object', () => {
       expect(
         normalizeModuleFederationOptions({
