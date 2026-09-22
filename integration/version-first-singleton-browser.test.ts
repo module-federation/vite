@@ -277,7 +277,9 @@ describe('version-first singleton static import browser bootstrap', () => {
     }
   }, 60_000);
 
-  it('resolves both host and remote static imports to the higher negotiated version', async () => {
+  it('resolves a higher remote version before host static import capture', async () => {
+    // The remote's 1.5.0 provider is registered by entry injection before the
+    // host's static import captures the singleton; this must remain an upgrade.
     expect(await readNegotiatedSharedVersions()).toEqual({
       hostSaw: '1.5.0',
       remoteSaw: '1.5.0',
@@ -505,6 +507,267 @@ describe('version-first singleton static import browser bootstrap', () => {
       }
 
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser?.close();
+      for (const server of servers.reverse()) await server.close();
+      await rm(workspace, { recursive: true, force: true });
+      setPackageDetectionCwd(originalPackageDetectionCwd);
+    }
+  }, 60_000);
+
+  it('keeps nested and sibling React consumers on the captured singleton identity', async () => {
+    const originalPackageDetectionCwd = getPackageDetectionCwd();
+    const workspace = await mkdtemp(path.join(tmpdir(), 'mf-react-nested-sibling-identity-'));
+    const servers: StaticServer[] = [];
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      // Production-shaped skew: host 19.2.8 -> remote_a 19.2.4 -> remote_c 19.2.8,
+      // with sibling remote_b at 19.2.6. All providers satisfy ^19.2.4.
+      const createRemoteRoot = async (name: string, version: '19.2.4' | '19.2.6' | '19.2.8') => {
+        const root = path.join(workspace, `${name}-src`);
+        await cp(path.resolve(FIXTURES, 'react-skew-remote'), root, { recursive: true });
+        await rm(path.join(root, 'node_modules'), { recursive: true, force: true });
+        await cp(
+          path.resolve(
+            FIXTURES,
+            version === '19.2.8' ? 'react-skew-host/node_modules' : 'react-skew-remote/node_modules'
+          ),
+          path.join(root, 'node_modules'),
+          { recursive: true }
+        );
+        const reactRoot = path.join(root, 'node_modules/react');
+        await writeFile(
+          path.join(reactRoot, 'jsx-runtime.js'),
+          `exports.Fragment = Symbol.for('react.fragment');
+           exports.jsx = function jsx(type, props) { return { type, props }; };
+           exports.jsxs = exports.jsx;`
+        );
+        await writeFile(
+          path.join(reactRoot, 'jsx-dev-runtime.js'),
+          `exports.Fragment = Symbol.for('react.fragment');
+           exports.jsxDEV = function jsxDEV(type, props) { return { type, props }; };`
+        );
+        await writeFile(
+          path.join(reactRoot, 'compiler-runtime.js'),
+          'exports.c = () => undefined;'
+        );
+        if (version === '19.2.8') {
+          // The host fixture already provides the 19.2.8 React and ReactDOM stubs.
+        } else if (version === '19.2.6') {
+          for (const relativePath of [
+            'react/index.js',
+            'react/package.json',
+            'react-dom/client.js',
+            'react-dom/package.json',
+          ]) {
+            const filePath = path.join(root, 'node_modules', relativePath);
+            const source = await readFile(filePath, 'utf8');
+            await writeFile(filePath, source.replaceAll('19.2.4', '19.2.6'));
+          }
+        }
+        return root;
+      };
+      const shared = {
+        react: { singleton: true, requiredVersion: '^19.2.4', strictVersion: false },
+        'react/jsx-runtime': { singleton: true, requiredVersion: '^19.2.4', strictVersion: false },
+        'react/jsx-dev-runtime': {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+          strictVersion: false,
+        },
+        'react/compiler-runtime': {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+          strictVersion: false,
+        },
+        'react-dom/client': {
+          singleton: true,
+          requiredVersion: '^19.2.4',
+          strictVersion: false,
+        },
+      };
+      const serve = async (outDir: string) => {
+        const server = await serveDirectory(outDir);
+        servers.push(server);
+        return server;
+      };
+
+      const leafRoot = await createRemoteRoot('remote_c', '19.2.8');
+      const leafOutDir = path.join(workspace, 'remote_c');
+      await buildFixtureTo(leafRoot, leafOutDir, {
+        name: 'remote_c',
+        filename: 'remoteEntry.js',
+        exposes: { './Module': path.join(leafRoot, 'exposed-module.js') },
+        shareStrategy: 'version-first',
+        shared,
+        hostInitInjectLocation: 'entry',
+        dts: false,
+      });
+      const leafServer = await serve(leafOutDir);
+
+      const nestedRoot = await createRemoteRoot('remote_a', '19.2.4');
+      await writeFile(
+        path.join(nestedRoot, 'exposed-module.js'),
+        `import { useState } from 'react';
+         import 'react-dom/client';
+         export async function loadRemoteComponent() {
+           const leaf = await import('remote_c/Module');
+           return function RemoteComponent() {
+             return useState('nested')[0] + ':' + leaf.RemoteComponent();
+           };
+         }`
+      );
+      const nestedOutDir = path.join(workspace, 'remote_a');
+      await buildFixtureTo(nestedRoot, nestedOutDir, {
+        name: 'remote_a',
+        filename: 'remoteEntry.js',
+        exposes: { './Module': path.join(nestedRoot, 'exposed-module.js') },
+        remotes: {
+          remote_c: {
+            name: 'remote_c',
+            entry: `${leafServer.origin}/remoteEntry.js`,
+            type: 'module',
+          },
+        },
+        shareStrategy: 'version-first',
+        shared,
+        hostInitInjectLocation: 'entry',
+        dts: false,
+      });
+      const nestedServer = await serve(nestedOutDir);
+
+      const siblingRoot = await createRemoteRoot('remote_b', '19.2.6');
+      await writeFile(
+        path.join(siblingRoot, 'exposed-module.js'),
+        `import { useState } from 'react';
+         import 'react-dom/client';
+         export function RemoteComponent() {
+           return useState('sibling-b')[0];
+         }`
+      );
+      const siblingOutDir = path.join(workspace, 'remote_b');
+      await buildFixtureTo(siblingRoot, siblingOutDir, {
+        name: 'remote_b',
+        filename: 'remoteEntry.js',
+        exposes: { './Module': path.join(siblingRoot, 'exposed-module.js') },
+        shareStrategy: 'version-first',
+        shared,
+        hostInitInjectLocation: 'entry',
+        dts: false,
+      });
+      const siblingServer = await serve(siblingOutDir);
+
+      const hostRoot = path.join(workspace, 'host-src');
+      await cp(path.resolve(FIXTURES, 'react-skew-host'), hostRoot, { recursive: true });
+      const hostReactRoot = path.join(hostRoot, 'node_modules/react');
+      await writeFile(
+        path.join(hostReactRoot, 'jsx-runtime.js'),
+        `exports.Fragment = Symbol.for('react.fragment');
+         exports.jsx = function jsx(type, props) { return { type, props }; };
+         exports.jsxs = exports.jsx;`
+      );
+      await writeFile(
+        path.join(hostReactRoot, 'jsx-dev-runtime.js'),
+        `exports.Fragment = Symbol.for('react.fragment');
+         exports.jsxDEV = function jsxDEV(type, props) { return { type, props }; };`
+      );
+      await writeFile(
+        path.join(hostReactRoot, 'compiler-runtime.js'),
+        'exports.c = () => undefined;'
+      );
+      await writeFile(
+        path.join(hostRoot, 'node_modules/react-dom/client.js'),
+        `'use strict';
+         const React = require('react');
+         exports.createRoot = function createRoot(container) {
+           return {
+             render(Component) {
+               React.__TEST_INTERNALS.dispatcher = {
+                 useState(initialValue) { return [initialValue, function setState() {}]; },
+               };
+               try { container.textContent = Component(); }
+               finally { React.__TEST_INTERNALS.dispatcher = null; }
+             },
+           };
+         };`
+      );
+      await writeFile(
+        path.join(hostRoot, 'index.html'),
+        '<!doctype html><html><body><div id="nested"></div><div id="sibling"></div><script type="module" src="./entry.js"></script></body></html>'
+      );
+      await writeFile(
+        path.join(hostRoot, 'entry.js'),
+        `import * as React from 'react';
+         import { createRoot } from 'react-dom/client';
+         const cacheBefore = globalThis.__mf_module_cache__.share['default:react'];
+         const useStateBefore = React.useState;
+         const internalsBefore = React.__TEST_INTERNALS;
+         Promise.all([import('remote_a/Module'), import('remote_b/Module')])
+           .then(async ([nested, sibling]) => {
+             const NestedComponent = await nested.loadRemoteComponent();
+             createRoot(document.querySelector('#nested')).render(NestedComponent);
+             createRoot(document.querySelector('#sibling')).render(sibling.RemoteComponent);
+             const cacheAfter = globalThis.__mf_module_cache__.share['default:react'];
+             window.__react_identity_probe__ = {
+               cacheSame: cacheAfter === cacheBefore,
+               useStateSame: React.useState === useStateBefore,
+               internalsSame: React.__TEST_INTERNALS === internalsBefore,
+             };
+           });`
+      );
+      const hostOutDir = path.join(workspace, 'host');
+      await buildFixtureTo(hostRoot, hostOutDir, {
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {
+          remote_a: {
+            name: 'remote_a',
+            entry: `${nestedServer.origin}/remoteEntry.js`,
+            type: 'module',
+          },
+          remote_b: {
+            name: 'remote_b',
+            entry: `${siblingServer.origin}/remoteEntry.js`,
+            type: 'module',
+          },
+        },
+        shareStrategy: 'version-first',
+        shared,
+        hostInitInjectLocation: 'entry',
+        dts: false,
+      });
+      const hostServer = await serve(hostOutDir);
+
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+      await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
+      try {
+        await page.waitForFunction(
+          () =>
+            document.querySelector('#nested')?.textContent === 'nested:remote' &&
+            document.querySelector('#sibling')?.textContent === 'sibling-b',
+          undefined,
+          { timeout: 5_000 }
+        );
+      } catch (error) {
+        throw new Error(
+          JSON.stringify(
+            { cause: String(error), pageErrors, content: await page.content() },
+            null,
+            2
+          )
+        );
+      }
+
+      expect(pageErrors).toEqual([]);
+      expect(await page.evaluate(() => (window as any).__react_identity_probe__)).toEqual({
+        cacheSame: true,
+        useStateSame: true,
+        internalsSame: true,
+      });
     } finally {
       await browser?.close();
       for (const server of servers.reverse()) await server.close();

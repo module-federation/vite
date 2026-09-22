@@ -873,6 +873,48 @@ describe('getSharedCacheKey', () => {
     expect(listener).toHaveBeenCalledWith(hostReact);
   });
 
+  it('does not notify or replace a shared module with the same React identity', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return {
+        subscribe: __mfSubscribeSharedCache,
+        readOwner: __mfReadSharedCacheOwner,
+        write: __mfWriteSharedCache
+      };`
+    )() as {
+      subscribe: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        listener: (value: unknown) => void
+      ) => void;
+      readOwner: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] }
+      ) => unknown;
+      write: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown,
+        owner?: string
+      ) => unknown;
+    };
+    const dispatcher = {};
+    const useState = () => [];
+    const currentReact = { __TEST_INTERNALS: { dispatcher }, useState };
+    const sameReact = { __TEST_INTERNALS: { dispatcher }, useState };
+    const descriptor = { canonical: 'default:react', aliases: ['react'] };
+    const cache: Record<PropertyKey, unknown> = {};
+    const listener = vi.fn();
+
+    runtime.write(cache, descriptor, currentReact, 'host');
+    runtime.subscribe(cache, descriptor, listener);
+    runtime.write(cache, descriptor, sameReact, 'remote');
+
+    expect(cache[descriptor.canonical]).toBe(currentReact);
+    expect(runtime.readOwner(cache, descriptor)).toBe('host');
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('sets, overwrites, and clears shared cache ownership', () => {
     const runtime = new Function(
       `${sharedCacheHelperCode}

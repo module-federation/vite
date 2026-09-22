@@ -384,7 +384,38 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
           };
           const __mfReadSharedCacheOwner = (cache, descriptor) =>
             cache[__mfSharedCacheOwnersKey]?.[descriptor.canonical];
+          const __mfGetSharedModuleIdentity = (value) => {
+            const candidates = [value, value?.default];
+            for (const candidate of candidates) {
+              if (!candidate || typeof candidate !== "object") continue;
+              for (const key of [
+                "__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE",
+                "__TEST_INTERNALS",
+                "__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED"
+              ]) {
+                const internals = candidate[key];
+                if (internals && typeof internals === "object") {
+                  return { internals, dispatcher: internals.dispatcher };
+                }
+              }
+              if (typeof candidate.useState === "function") return { hook: candidate.useState };
+            }
+            return undefined;
+          };
+          const __mfIsSameSharedModule = (current, next) => {
+            if (current === next) return true;
+            const currentIdentity = __mfGetSharedModuleIdentity(current);
+            const nextIdentity = __mfGetSharedModuleIdentity(next);
+            if (!currentIdentity || !nextIdentity) return false;
+            return currentIdentity.internals === nextIdentity.internals ||
+              (currentIdentity.dispatcher !== undefined &&
+                currentIdentity.dispatcher !== null &&
+                currentIdentity.dispatcher === nextIdentity.dispatcher) ||
+              currentIdentity.hook === nextIdentity.hook;
+          };
           const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
+            const current = __mfReadSharedCache(cache, descriptor);
+            if (current !== undefined && __mfIsSameSharedModule(current, value)) return value;
             cache[descriptor.canonical] = value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {
