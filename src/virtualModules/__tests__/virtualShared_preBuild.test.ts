@@ -2846,7 +2846,9 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       '__mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:host-only-dep","aliases":["host-only-dep"]})'
     );
-    expect(generatedCode).toContain('export { __mf_default as default }');
+    expect(generatedCode).toContain(
+      'export { __mf_default as default, exportModule as __moduleExports }'
+    );
   });
 
   it('does not reference prebuild modules when import: false in build mode', () => {
@@ -2876,7 +2878,9 @@ describe('writeLoadShareModule', () => {
     );
     expect(generatedCode).not.toContain('await ');
     expect(generatedCode).toContain('initPromise.then');
-    expect(generatedCode).toContain('export { __mf_default as default }');
+    expect(generatedCode).toContain(
+      'export { __mf_default as default, exportModule as __moduleExports }'
+    );
   });
 
   it('generates named re-exports for import: false when package is installed as devDependency', () => {
@@ -2909,7 +2913,9 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('__mf_0 as delete');
     expect(generatedCode).toContain('__mf_1 as get');
     expect(generatedCode).toContain('__mf_2 as request');
-    expect(generatedCode).toContain('export { __mf_default as default }');
+    expect(generatedCode).toContain(
+      'export { __mf_default as default, exportModule as __moduleExports }'
+    );
   });
 
   it('emits only analyzed named exports for a finalized import:false consumer', () => {
@@ -2937,7 +2943,9 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('__mf_0 as get');
     expect(generatedCode).not.toContain('exportModule["delete"]');
     expect(generatedCode).not.toContain('exportModule["request"]');
-    expect(generatedCode).toContain('export { __mf_default as default }');
+    expect(generatedCode).toContain(
+      'export { __mf_default as default, exportModule as __moduleExports }'
+    );
   });
 
   it.each([{ kind: 'unknown' as const }, { kind: 'full' as const }])(
@@ -3309,8 +3317,12 @@ describe('writeLoadShareModule', () => {
     // No named export destructuring — package not installed, can't detect exports
     expect(generatedCode).not.toMatch(/const\s*\{.*__mf_\d+/);
     expect(generatedCode).not.toContain('__mf_0 as');
-    // Only default export
-    expect(generatedCode).toContain('export { __mf_default as default }');
+    // Only default export, plus the live namespace binding consumers read named
+    // imports from. A `const __moduleExports = exportModule` snapshot would stay
+    // undefined when the chunk evaluates before the host share arrives (#1341).
+    expect(generatedCode).toContain(
+      'export { __mf_default as default, exportModule as __moduleExports }'
+    );
     // Should warn about missing named exports in ESM build
     expect(mfWarnSpy).toHaveBeenCalledWith(expect.stringContaining('not installed locally'));
     expect(mfWarnSpy).toHaveBeenCalledWith(
