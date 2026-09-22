@@ -1977,7 +1977,7 @@ function generateDeferredHostProvidedExports(
     } else {
       __mfApplyHostProvidedExports(exportModule);
     }
-    export { __mf_default as default };${namedExportLine}`;
+    export { __mf_default as default, exportModule as __moduleExports };${namedExportLine}`;
 }
 
 function selectImportFalseNamedExports(
