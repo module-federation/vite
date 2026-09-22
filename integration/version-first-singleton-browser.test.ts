@@ -566,6 +566,53 @@ describe('version-first singleton static import browser bootstrap', () => {
             await writeFile(filePath, source.replaceAll('19.2.4', '19.2.6'));
           }
         }
+        if (name === 'remote_b' || name === 'remote_c') {
+          await writeFile(
+            path.join(root, 'node_modules/react-dom/renderer-react.js'),
+            `const internals = { dispatcher: null };
+             module.exports = { version: '${version}', __TEST_INTERNALS: internals };`
+          );
+          await writeFile(
+            path.join(root, 'node_modules/react-dom/client.js'),
+            `'use strict';
+             const React = require('./renderer-react');
+             const hook = globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+             if (hook) hook.inject({ currentDispatcherRef: React.__TEST_INTERNALS, version: '${version}' });
+             exports.version = '${version}';
+             exports.createRoot = function createRoot(container) {
+               const owner = { currentDispatcherRef: React.__TEST_INTERNALS };
+               const state = [];
+               let component;
+               let cursor = 0;
+               const render = () => {
+                 cursor = 0;
+                 const previousDispatcher = React.__TEST_INTERNALS.dispatcher;
+                 React.__TEST_INTERNALS.dispatcher = {
+                   useState(initialValue) {
+                     const slot = cursor++;
+                     if (!(slot in state)) state[slot] = initialValue;
+                     return [state[slot], (nextValue) => {
+                       state[slot] = typeof nextValue === 'function' ? nextValue(state[slot]) : nextValue;
+                       render();
+                     }];
+                   },
+                 };
+                 globalThis.__mf_current_root_owner__ = owner;
+                 try { container.replaceChildren(component()); }
+                 finally {
+                   globalThis.__mf_current_root_owner__ = undefined;
+                   React.__TEST_INTERNALS.dispatcher = previousDispatcher;
+                 }
+               };
+               return {
+                 render(nextComponent) {
+                   component = nextComponent;
+                   render();
+                 },
+               };
+             };`
+          );
+        }
         return root;
       };
       const shared = {
@@ -594,6 +641,28 @@ describe('version-first singleton static import browser bootstrap', () => {
       };
 
       const leafRoot = await createRemoteRoot('remote_c', '19.2.8');
+      await writeFile(
+        path.join(leafRoot, 'exposed-module.js'),
+        `import * as React from 'react';
+         import { useState } from 'react';
+         import { createRoot } from 'react-dom/client';
+         export function RemoteComponent() {
+           const [count, setCount] = useState(0);
+           const button = document.createElement('button');
+           button.id = 'remote-c-increment';
+           button.textContent = 'Remote C count: ' + count;
+           button.onclick = () => setCount(count + 1);
+           const owner = globalThis.__mf_current_root_owner__;
+           (globalThis.__react_leaf_identity_probe__ ||= {}).remoteC = {
+             leafInternals: React.__TEST_INTERNALS,
+             rootDispatcherRef: owner?.currentDispatcherRef,
+           };
+           return button;
+         }
+         export function mount(container) {
+           createRoot(container).render(RemoteComponent);
+         }`
+      );
       const leafOutDir = path.join(workspace, 'remote_c');
       await buildFixtureTo(leafRoot, leafOutDir, {
         name: 'remote_c',
@@ -610,12 +679,10 @@ describe('version-first singleton static import browser bootstrap', () => {
       await writeFile(
         path.join(nestedRoot, 'exposed-module.js'),
         `import { useState } from 'react';
-         import 'react-dom/client';
+         import { createRoot } from 'react-dom/client';
          export async function loadRemoteComponent() {
            const leaf = await import('remote_c/Module');
-           return function RemoteComponent() {
-             return useState('nested')[0] + ':' + leaf.RemoteComponent();
-           };
+           return leaf;
          }`
       );
       const nestedOutDir = path.join(workspace, 'remote_a');
@@ -640,10 +707,24 @@ describe('version-first singleton static import browser bootstrap', () => {
       const siblingRoot = await createRemoteRoot('remote_b', '19.2.6');
       await writeFile(
         path.join(siblingRoot, 'exposed-module.js'),
-        `import { useState } from 'react';
-         import 'react-dom/client';
+        `import * as React from 'react';
+         import { useState } from 'react';
+         import { createRoot } from 'react-dom/client';
          export function RemoteComponent() {
-           return useState('sibling-b')[0];
+           const [count, setCount] = useState(0);
+           const button = document.createElement('button');
+           button.id = 'remote-b-increment';
+           button.textContent = 'Remote B count: ' + count;
+           button.onclick = () => setCount(count + 1);
+           const owner = globalThis.__mf_current_root_owner__;
+           (globalThis.__react_leaf_identity_probe__ ||= {}).remoteB = {
+             leafInternals: React.__TEST_INTERNALS,
+             rootDispatcherRef: owner?.currentDispatcherRef,
+           };
+           return button;
+         }
+         export function mount(container) {
+           createRoot(container).render(RemoteComponent);
          }`
       );
       const siblingOutDir = path.join(workspace, 'remote_b');
@@ -680,40 +761,67 @@ describe('version-first singleton static import browser bootstrap', () => {
         path.join(hostRoot, 'node_modules/react-dom/client.js'),
         `'use strict';
          const React = require('react');
+         const hook = globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+         const renderer = { currentDispatcherRef: React.__TEST_INTERNALS, version: '19.2.8' };
+         if (hook) hook.inject(renderer);
          exports.createRoot = function createRoot(container) {
+           const owner = { currentDispatcherRef: React.__TEST_INTERNALS, renderer };
+           const state = [];
+           let component;
+           let cursor = 0;
+           const render = () => {
+             cursor = 0;
+             const previousDispatcher = React.__TEST_INTERNALS.dispatcher;
+             React.__TEST_INTERNALS.dispatcher = {
+               useState(initialValue) {
+                 const slot = cursor++;
+                 if (!(slot in state)) state[slot] = initialValue;
+                 return [state[slot], (nextValue) => {
+                   if (globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__?.currentRenderer !== owner.renderer) return;
+                   state[slot] = typeof nextValue === 'function' ? nextValue(state[slot]) : nextValue;
+                   render();
+                 }];
+               },
+             };
+             globalThis.__mf_current_root_owner__ = owner;
+             try {
+               const value = component();
+               container.replaceChildren(value);
+             } finally {
+               globalThis.__mf_current_root_owner__ = undefined;
+               React.__TEST_INTERNALS.dispatcher = previousDispatcher;
+             }
+           };
            return {
-             render(Component) {
-               React.__TEST_INTERNALS.dispatcher = {
-                 useState(initialValue) { return [initialValue, function setState() {}]; },
-               };
-               try { container.textContent = Component(); }
-               finally { React.__TEST_INTERNALS.dispatcher = null; }
+             render(nextComponent) {
+               component = nextComponent;
+               render();
              },
            };
          };`
       );
       await writeFile(
         path.join(hostRoot, 'index.html'),
-        '<!doctype html><html><body><div id="nested"></div><div id="sibling"></div><script type="module" src="./entry.js"></script></body></html>'
+        '<!doctype html><html><body><div id="nested"></div><div id="sibling"></div><script>globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__={renderers:new Map(),inject(renderer){const id=this.renderers.size+1;this.renderers.set(id,renderer);this.currentRenderer=renderer;return id;}};</script><script type="module" src="./entry.js"></script></body></html>'
       );
       await writeFile(
         path.join(hostRoot, 'entry.js'),
         `import * as React from 'react';
-         import { createRoot } from 'react-dom/client';
          const cacheBefore = globalThis.__mf_module_cache__.share['default:react'];
          const useStateBefore = React.useState;
          const internalsBefore = React.__TEST_INTERNALS;
          Promise.all([import('remote_a/Module'), import('remote_b/Module')])
            .then(async ([nested, sibling]) => {
-             const NestedComponent = await nested.loadRemoteComponent();
-             createRoot(document.querySelector('#nested')).render(NestedComponent);
-             createRoot(document.querySelector('#sibling')).render(sibling.RemoteComponent);
+             const leaf = await nested.loadRemoteComponent();
+             leaf.mount(document.querySelector('#nested'));
+             sibling.mount(document.querySelector('#sibling'));
              const cacheAfter = globalThis.__mf_module_cache__.share['default:react'];
-             window.__react_identity_probe__ = {
-               cacheSame: cacheAfter === cacheBefore,
-               useStateSame: React.useState === useStateBefore,
-               internalsSame: React.__TEST_INTERNALS === internalsBefore,
-             };
+          window.__react_identity_probe__ = {
+              cacheSame: cacheAfter === cacheBefore,
+              useStateSame: React.useState === useStateBefore,
+              internalsSame: React.__TEST_INTERNALS === internalsBefore,
+              rendererCount: globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__?.renderers?.size,
+           };
            });`
       );
       const hostOutDir = path.join(workspace, 'host');
@@ -747,8 +855,8 @@ describe('version-first singleton static import browser bootstrap', () => {
       try {
         await page.waitForFunction(
           () =>
-            document.querySelector('#nested')?.textContent === 'nested:remote' &&
-            document.querySelector('#sibling')?.textContent === 'sibling-b',
+            document.querySelector('#remote-c-increment')?.textContent === 'Remote C count: 0' &&
+            document.querySelector('#remote-b-increment')?.textContent === 'Remote B count: 0',
           undefined,
           { timeout: 5_000 }
         );
@@ -763,10 +871,31 @@ describe('version-first singleton static import browser bootstrap', () => {
       }
 
       expect(pageErrors).toEqual([]);
+      expect(
+        await page.evaluate(() => {
+          const probe = (window as any).__react_leaf_identity_probe__;
+          return {
+            remoteC: probe?.remoteC?.leafInternals === probe?.remoteC?.rootDispatcherRef,
+            remoteB: probe?.remoteB?.leafInternals === probe?.remoteB?.rootDispatcherRef,
+          };
+        })
+      ).toEqual({
+        remoteC: true,
+        remoteB: true,
+      });
+      await page.locator('#remote-c-increment').click();
+      await page.waitForFunction(
+        () => document.querySelector('#remote-c-increment')?.textContent === 'Remote C count: 1'
+      );
+      await page.locator('#remote-b-increment').click();
+      await page.waitForFunction(
+        () => document.querySelector('#remote-b-increment')?.textContent === 'Remote B count: 1'
+      );
       expect(await page.evaluate(() => (window as any).__react_identity_probe__)).toEqual({
         cacheSame: true,
         useStateSame: true,
         internalsSame: true,
+        rendererCount: 1,
       });
     } finally {
       await browser?.close();

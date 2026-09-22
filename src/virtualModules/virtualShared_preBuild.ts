@@ -1780,7 +1780,8 @@ function generateLazyWorkspaceSingletonExports(
   cacheOwner: string,
   treeShakingConsumer?: string,
   serveLocalFallback = false,
-  mutableExports: string[] = []
+  mutableExports: string[] = [],
+  disableSsrLocalFallback = false
 ) {
   const copiedExports = namedExports.filter((name) => !mutableExports.includes(name));
   const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
@@ -1815,7 +1816,7 @@ function generateLazyWorkspaceSingletonExports(
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyLazyShareExports);
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
-      if (import.meta.env.SSR${serveLocalFallback ? " || (import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')" : ''}) {
+      if (import.meta.env.SSR${disableSsrLocalFallback ? ' && false' : ''}${serveLocalFallback ? " || (import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')" : ''}) {
         ${applyLocalFallback}
       } else {
         __mfTrackPendingShareLoad(initPromise.then(() => {
@@ -2093,6 +2094,14 @@ export function writeLoadShareModule(
     shareItem.shareConfig.singleton === true &&
     resolvedOptions.hostInitInjectLocation === 'entry' &&
     (command === 'build' || isConsumedByPeerSingleton);
+  // Importing an entry-injected leaf's eager react-dom/client fallback has a
+  // renderer side effect even when the shared cache already contains the
+  // host's renderer. Keep React's synchronous fallback, but defer this one
+  // renderer import until the cache has had a chance to provide the coherent
+  // React pair. This prevents an unused same-version renderer from registering
+  // on the page and taking ownership away from the renderer that owns the root.
+  const usesDeferredEntryInjectedReactDomFallback =
+    usesEntryInjectedRemoteFallback && pkg === 'react-dom/client';
   const usesEagerWorkspaceFallback =
     hasCompleteExportCoverage &&
     isWorkspaceSingleton &&
@@ -2114,6 +2123,18 @@ export function writeLoadShareModule(
         !servesRemoteSingletonFallback &&
         (isWorkspaceSingleton || isWorkspacePackage),
       liveNamedExports
+    );
+  } else if (usesDeferredEntryInjectedReactDomFallback) {
+    importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
+    exportLine = generateLazyWorkspaceSingletonExports(
+      namedExports,
+      lazyLocalFallbackSource,
+      cacheDescriptor,
+      cacheOwner,
+      treeShakingConsumer,
+      false,
+      liveNamedExports,
+      true
     );
   } else if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
     exportLine = generateEagerWorkspaceSingletonExports(
@@ -2242,7 +2263,9 @@ export function writeLoadShareModule(
         : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
   const devDynamicImportLine = isWorkspacePackage
     ? ''
-    : usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
+    : usesDeferredSingletonFallback ||
+        usesDeferredTreeShakingFallback ||
+        usesDeferredEntryInjectedReactDomFallback
       ? ''
       : command !== 'build' && !skipServePrebuildWarmup
         ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
@@ -2252,11 +2275,12 @@ export function writeLoadShareModule(
   const exportLineDeclaresModule =
     usesDeferredSingletonFallback ||
     usesDeferredTreeShakingFallback ||
+    usesDeferredEntryInjectedReactDomFallback ||
     usesEagerWorkspaceFallback ||
     usesEntryInjectedRemoteFallback;
   const moduleBody = exportLineDeclaresModule
     ? `
-    ${prebuildImportLine}
+    ${usesDeferredEntryInjectedReactDomFallback ? '' : prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
     ${sharedCacheHelperCode}
