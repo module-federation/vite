@@ -395,7 +395,7 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
               ]) {
                 const internals = candidate[key];
                 if (internals && typeof internals === "object") {
-                  return { internals, dispatcher: internals.dispatcher };
+                  return { internals };
                 }
               }
               if (typeof candidate.useState === "function") return { hook: candidate.useState };
@@ -407,11 +407,21 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
             const currentIdentity = __mfGetSharedModuleIdentity(current);
             const nextIdentity = __mfGetSharedModuleIdentity(next);
             if (!currentIdentity || !nextIdentity) return false;
-            return currentIdentity.internals === nextIdentity.internals ||
-              (currentIdentity.dispatcher !== undefined &&
-                currentIdentity.dispatcher !== null &&
-                currentIdentity.dispatcher === nextIdentity.dispatcher) ||
-              currentIdentity.hook === nextIdentity.hook;
+            const currentInternals = currentIdentity.internals;
+            const nextInternals = nextIdentity.internals;
+            // Internals identity is authoritative when either side exposes it.
+            // Never treat absent fields as equal (undefined === undefined).
+            if (currentInternals !== undefined || nextInternals !== undefined) {
+              return (
+                currentInternals !== undefined &&
+                currentInternals === nextInternals
+              );
+            }
+            // Hook identity is only a fallback when neither side exposes internals.
+            return (
+              typeof currentIdentity.hook === "function" &&
+              currentIdentity.hook === nextIdentity.hook
+            );
           };
           const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
             const current = __mfReadSharedCache(cache, descriptor);

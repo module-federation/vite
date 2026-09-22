@@ -873,7 +873,57 @@ describe('getSharedCacheKey', () => {
     expect(listener).toHaveBeenCalledWith(hostReact);
   });
 
-  it('does not notify or replace a shared module with the same React identity', () => {
+  it('compares shared module identity without undefined-field false positives', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return { isSame: __mfIsSameSharedModule };`
+    )() as {
+      isSame: (current: unknown, next: unknown) => boolean;
+    };
+
+    const sharedInternals = { dispatcher: null };
+    const sharedHook = () => [];
+    const otherHook = () => [];
+    const sharedDispatcher = {};
+
+    // Same module object
+    const sameObject = { marker: 'react' };
+    expect(runtime.isSame(sameObject, sameObject)).toBe(true);
+
+    // Different wrappers around the same internals
+    expect(
+      runtime.isSame({ __TEST_INTERNALS: sharedInternals }, { __TEST_INTERNALS: sharedInternals })
+    ).toBe(true);
+
+    // Different internals, both dispatchers null/absent
+    expect(
+      runtime.isSame(
+        { __TEST_INTERNALS: { dispatcher: null } },
+        { __TEST_INTERNALS: { dispatcher: null } }
+      )
+    ).toBe(false);
+
+    // Different internals sharing a dispatcher object must not count as same
+    expect(
+      runtime.isSame(
+        { __TEST_INTERNALS: { dispatcher: sharedDispatcher } },
+        { __TEST_INTERNALS: { dispatcher: sharedDispatcher } }
+      )
+    ).toBe(false);
+
+    // Different hook functions, no internals
+    expect(runtime.isSame({ useState: sharedHook }, { useState: otherHook })).toBe(false);
+
+    // Same hook function, no internals
+    expect(runtime.isSame({ useState: sharedHook }, { useState: sharedHook })).toBe(true);
+
+    // Internals on one side, hook-only on the other
+    expect(runtime.isSame({ __TEST_INTERNALS: sharedInternals }, { useState: sharedHook })).toBe(
+      false
+    );
+  });
+
+  it('does not notify or replace wrappers that share the same React internals', () => {
     const runtime = new Function(
       `${sharedCacheHelperCode}
       return {
@@ -898,10 +948,10 @@ describe('getSharedCacheKey', () => {
         owner?: string
       ) => unknown;
     };
-    const dispatcher = {};
+    const internals = { dispatcher: null };
     const useState = () => [];
-    const currentReact = { __TEST_INTERNALS: { dispatcher }, useState };
-    const sameReact = { __TEST_INTERNALS: { dispatcher }, useState };
+    const currentReact = { __TEST_INTERNALS: internals, useState };
+    const sameReact = { __TEST_INTERNALS: internals, useState };
     const descriptor = { canonical: 'default:react', aliases: ['react'] };
     const cache: Record<PropertyKey, unknown> = {};
     const listener = vi.fn();
@@ -913,6 +963,55 @@ describe('getSharedCacheKey', () => {
     expect(cache[descriptor.canonical]).toBe(currentReact);
     expect(runtime.readOwner(cache, descriptor)).toBe('host');
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('notifies and replaces the cache when shared module identity differs', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return {
+        subscribe: __mfSubscribeSharedCache,
+        readOwner: __mfReadSharedCacheOwner,
+        write: __mfWriteSharedCache
+      };`
+    )() as {
+      subscribe: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        listener: (value: unknown) => void
+      ) => void;
+      readOwner: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] }
+      ) => unknown;
+      write: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown,
+        owner?: string
+      ) => unknown;
+    };
+    const sharedDispatcher = {};
+    const currentReact = {
+      __TEST_INTERNALS: { dispatcher: sharedDispatcher },
+      useState: () => [],
+    };
+    const nextReact = {
+      __TEST_INTERNALS: { dispatcher: sharedDispatcher },
+      useState: () => [],
+    };
+    const descriptor = { canonical: 'default:react', aliases: ['react'] };
+    const cache: Record<PropertyKey, unknown> = {};
+    const listener = vi.fn();
+
+    runtime.write(cache, descriptor, currentReact, 'host');
+    runtime.subscribe(cache, descriptor, listener);
+    runtime.write(cache, descriptor, nextReact, 'remote');
+
+    expect(cache[descriptor.canonical]).toBe(nextReact);
+    expect(cache.react).toBe(nextReact);
+    expect(runtime.readOwner(cache, descriptor)).toBe('remote');
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith(nextReact);
   });
 
   it('sets, overwrites, and clears shared cache ownership', () => {
