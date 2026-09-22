@@ -18,6 +18,7 @@ import {
   packageNameEncode,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
+import { getCommonSharedSubpaths } from '../utils/pathNormalization';
 import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import { SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
@@ -628,7 +629,32 @@ function getShareItemForPreload(
 
   if (isExplicitSharedKey(pkg, options)) return shared[pkg];
   if (isExplicitSharedKey(wildcardKey, options)) return shared[wildcardKey];
+  // `react-dom/` collapses to `react-dom` during normalization, but common
+  // subpaths such as `react-dom/client` still share that parent. An
+  // `import: false` parent covers only its own key.
+  if (
+    pkg !== packageName &&
+    isExplicitSharedKey(packageName, options) &&
+    shared[packageName]?.shareConfig.import !== false &&
+    getCommonSharedSubpaths(packageName).includes(pkg)
+  ) {
+    return shared[packageName];
+  }
   return undefined;
+}
+
+/**
+ * Entry-injected `react-dom/client` wrappers assign `createRoot` only after
+ * `initPromise` and a dynamic import, so a standalone remote must evaluate
+ * that wrapper before the app entry. The subpath is often absent from
+ * `getMaterializedShares()` when pending shares is emitted: `react-dom/`
+ * collapses to `react-dom`, and the entry import may not be recorded yet.
+ */
+function shouldPreloadEntryDeferredReactDomClient(options: NormalizedModuleFederationOptions) {
+  if (options.hostInitInjectLocation !== 'entry' || !isRemoteContainer(options)) return false;
+  const shareItem = getShareItemForPreload('react-dom/client', options);
+  if (!shareItem || shareItem.shareConfig.singleton !== true) return false;
+  return shareItem.shareConfig.import !== false && !shareItem.shareConfig.treeShaking;
 }
 
 function generateSharedCacheSeedItem(
@@ -2563,23 +2589,29 @@ export function generatePendingSharesCode(
   options?: NormalizedModuleFederationOptions
 ) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
-  const pendingShareImports =
+  const pendingSharePkgs =
     command === 'build'
-      ? getMaterializedShares(options)
-          .filter((pkg) => {
-            const shareItem = getShareItemForPreload(pkg, resolvedOptions);
-            if (!shareItem || pkg.endsWith('/')) return false;
-            // An eager share is already a static import of the local shared import map, so it is
-            // evaluated before the entry either way and the barrier has nothing to seed. Seeding it
-            // anyway is what makes every eager share a dynamic entry, and so a chunk of its own.
-            if (shareItem.shareConfig.eager) return false;
-            return shareItem.shareConfig.import !== false && !shareItem.shareConfig.treeShaking;
-          })
-          .map(
-            (pkg) =>
-              `[${toSafeJsLiteral(pkg)}, () => import(${toSafeJsLiteral(getLoadShareModulePath(pkg, false, options))})]`
-          )
+      ? getMaterializedShares(options).filter((pkg) => {
+          const shareItem = getShareItemForPreload(pkg, resolvedOptions);
+          if (!shareItem || pkg.endsWith('/')) return false;
+          // An eager share is already a static import of the local shared import map, so it is
+          // evaluated before the entry either way and the barrier has nothing to seed. Seeding it
+          // anyway is what makes every eager share a dynamic entry, and so a chunk of its own.
+          if (shareItem.shareConfig.eager) return false;
+          return shareItem.shareConfig.import !== false && !shareItem.shareConfig.treeShaking;
+        })
       : [];
+  if (
+    command === 'build' &&
+    shouldPreloadEntryDeferredReactDomClient(resolvedOptions) &&
+    !pendingSharePkgs.includes('react-dom/client')
+  ) {
+    pendingSharePkgs.push('react-dom/client');
+  }
+  const pendingShareImports = pendingSharePkgs.map(
+    (pkg) =>
+      `[${toSafeJsLiteral(pkg)}, () => import(${toSafeJsLiteral(getLoadShareModulePath(pkg, false, options))})]`
+  );
   return `
     ${getRuntimeModuleCacheBootstrapCode()}
     ${sharedCacheHelperCode}
@@ -2588,8 +2620,14 @@ export function generatePendingSharesCode(
       if (__mfPendingShareImports.length === 0) return;
       const {usedShared} = await import("${getLocalSharedImportMapPath(options)}");
       await Promise.all(__mfPendingShareImports.map(async ([pkg, load]) => {
-        const share = usedShared[pkg];
-        if (!share || share.materialize === false || share.treeShaking || share.shareConfig?.import === false) return;
+        const exactShare = usedShared[pkg];
+        const share = exactShare ?? (pkg === "react-dom/client" ? usedShared["react-dom"] : undefined);
+        if (!share || share.treeShaking || share.shareConfig?.import === false) return;
+        // Collapsed react-dom does not mark react-dom/client materialized until the entry
+        // imports it, and that import map can be emitted first. The deferred client wrapper
+        // still has to run before a standalone entry reads createRoot. A cache hit (the host
+        // renderer) skips load(), so a nested leaf does not import its own client.
+        if (exactShare && exactShare.materialize === false && pkg !== "react-dom/client") return;
         const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
         if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) return;
         await load().catch((err) => console.warn("[module-federation] shared preload failed:", pkg, err));

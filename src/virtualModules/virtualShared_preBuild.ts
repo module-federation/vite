@@ -1808,19 +1808,22 @@ function generateLazyWorkspaceSingletonExports(
   const applyLocalFallback = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
       __mfApplyLazyShareExports(exportModule);`;
-
-  const body = `${declarations}
-    const __mfApplyLazyShareExports = (mod) => {
-      ${assignments}
-    };
-    __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyLazyShareExports);
-    let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
-    if (exportModule === undefined) {
-      if (import.meta.env.SSR${disableSsrLocalFallback ? ' && false' : ''}${serveLocalFallback ? " || (import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')" : ''}) {
-        ${applyLocalFallback}
-      } else {
-        __mfTrackPendingShareLoad(initPromise.then(() => {
-          exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
+  const readDeferredShare = getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer);
+  // A second federation() plugin on the same page is not initialized by the HTML
+  // bootstrap, so its initPromise stays pending. Waiting only on that promise
+  // pins the shared pendingShareLoads barrier and the entry never runs. A
+  // sibling container publishes into the same cache; that write has to unblock
+  // the local fallback too. The local client import still happens only when
+  // neither init nor the cache produced a renderer.
+  const deferredClientLoad = `Promise.race([
+          initPromise.then(() => ${readDeferredShare}),
+          new Promise((resolve) => {
+            const current = ${readDeferredShare};
+            if (current !== undefined) resolve(current);
+            else __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, resolve);
+          })
+        ]).then((cached) => {
+          exportModule = cached;
           if (exportModule !== undefined) {
             __mfApplyLazyShareExports(exportModule);
             return;
@@ -1829,7 +1832,30 @@ function generateLazyWorkspaceSingletonExports(
             exportModule = __mfNormalizeShareModule(mod);
             __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
           });
-        }));
+        })`;
+  const deferredInitLoad = `initPromise.then(() => {
+          exportModule = ${readDeferredShare};
+          if (exportModule !== undefined) {
+            __mfApplyLazyShareExports(exportModule);
+            return;
+          }
+          return import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
+            exportModule = __mfNormalizeShareModule(mod);
+            __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
+          });
+        })`;
+
+  const body = `${declarations}
+    const __mfApplyLazyShareExports = (mod) => {
+      ${assignments}
+    };
+    __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyLazyShareExports);
+    let exportModule = ${readDeferredShare};
+    if (exportModule === undefined) {
+      if (import.meta.env.SSR${disableSsrLocalFallback ? ' && false' : ''}${serveLocalFallback ? " || (import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')" : ''}) {
+        ${applyLocalFallback}
+      } else {
+        __mfTrackPendingShareLoad(${disableSsrLocalFallback ? deferredClientLoad : deferredInitLoad});
       }
     } else {
       __mfApplyLazyShareExports(exportModule);

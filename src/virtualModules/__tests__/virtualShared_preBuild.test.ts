@@ -4353,6 +4353,7 @@ describe('writeLoadShareModule', () => {
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
     expect(generatedCode).toContain('initPromise.then');
+    expect(generatedCode).toContain('Promise.race([');
     expect(generatedCode).toContain('import("/resolved/react-dom/client").then((mod) => {');
     expect(generatedCode).not.toContain('await ');
   });
