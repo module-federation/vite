@@ -33,6 +33,7 @@ import {
 import { createSharedSourceResolver } from '../utils/sharedSource';
 import { PromiseStore } from '../utils/PromiseStore';
 import { getSharedExportConditions } from '../utils/sharedExportConditions';
+import { isServerEnvironment } from '../utils/ssrCapabilities';
 import VirtualModule, { assertModuleFound } from '../utils/VirtualModule';
 import {
   collectTreeShakingImports,
@@ -569,10 +570,7 @@ export function proxySharedModule(options: {
     const isSsr =
       resolveOptions.ssr === true ||
       Boolean(_config?.build?.ssr) ||
-      environmentConfig?.consumer === 'server' ||
-      Boolean(environmentConfig?.build?.ssr) ||
-      environment?.name === 'ssr' ||
-      environment?.name === 'server';
+      isServerEnvironment(environment?.name, environmentConfig);
     return getSharedExportConditions({
       environmentConditions: environmentConfig?.resolve?.conditions,
       isProduction: environmentConfig?.isProduction ?? isProduction,

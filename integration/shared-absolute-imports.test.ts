@@ -69,8 +69,8 @@ describe('absolute shared imports', () => {
   it('shares matching root and subpath entries across installations without replacing internal files', async () => {
     const output = await buildShared(
       {
-        'audit-lib': { singleton: true },
-        'audit-lib/feature': {},
+        'audit-lib': { singleton: true, allowNodeModulesSuffixMatch: true },
+        'audit-lib/feature': { allowNodeModulesSuffixMatch: true },
       },
       `import { value } from ${JSON.stringify(packageFile('index.js'))};
        import { secret } from ${JSON.stringify(packageFile('internal.js'))};
@@ -167,7 +167,7 @@ describe('absolute shared imports', () => {
 
   it('preserves the concrete subpath when matching an absolute import against a prefix share', async () => {
     const output = await buildShared(
-      ['audit-lib/'],
+      { 'audit-lib/': { allowNodeModulesSuffixMatch: true } },
       `import { secret } from ${JSON.stringify(packageFile('internal.js', 'other'))};
        console.log(secret);`
     );

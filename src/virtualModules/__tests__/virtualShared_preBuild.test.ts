@@ -16,6 +16,8 @@ import {
   getTreeShakingGraphToken,
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
+  isCoalescableLoadShareWrapper,
+  markLoadShareWrapperNotCoalescable,
   invalidateSharedExportInspectionCache,
   refreshTreeShakingModules,
   resetConcreteSharedImportSourceCache,
@@ -4889,5 +4891,101 @@ describe('getRequiredNamedExports side effects', () => {
     } finally {
       processWithHandles._getActiveHandles = original;
     }
+  });
+});
+
+describe('loadShare wrapper coalescing eligibility', () => {
+  // VirtualModule ids are mocked here, so match the import shape, not the id.
+  const HELPERS_IMPORT = /import \{[^}]*__mfGetSharedCacheDescriptor[^}]*\} from "/;
+  const INLINED_HELPERS = 'const __mfGetSharedCacheDescriptor =';
+
+  const shareItem = (overrides: Partial<ShareItem['shareConfig']> = {}): ShareItem => ({
+    name: 'host-only-dep',
+    from: '',
+    version: undefined,
+    shareConfig: {
+      singleton: true,
+      strictVersion: false,
+      requiredVersion: '*',
+      ...overrides,
+    },
+    scope: 'default',
+  });
+
+  // Exposing something makes the container a remote, which is what makes its
+  // singleton wrappers reach the fallback lazily.
+  const write = (pkg: string, item: ShareItem, command: string, asRemote = true) => {
+    const options = normalizeModuleFederationOptions({
+      name: 'test',
+      ...(asRemote ? { exposes: { './Module': './module.js' } } : {}),
+    });
+    writeLoadShareModule(pkg, item, command, false, options);
+    return {
+      code: writeSyncSpy.mock.calls.at(-1)?.[0] as string,
+      coalescable: isCoalescableLoadShareWrapper(pkg, options),
+    };
+  };
+
+  beforeEach(() => {
+    writeSyncSpy.mockClear();
+    hasPackageDependencyMock.mockReturnValue(false);
+    packageDetectionCwdMock.mockReturnValue('/repo/apps/remote');
+  });
+
+  const SHARE_WITH_LAZY_FALLBACK = 'mock-package-with-reserved';
+
+  it('merges a wrapper that reaches its fallback only through import()', () => {
+    const pkg = SHARE_WITH_LAZY_FALLBACK;
+    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'build');
+
+    expect(code).not.toContain('import * as __mfLocalShare');
+    expect(code).not.toContain('export * from');
+    expect(coalescable).toBe(true);
+    expect(code).toMatch(HELPERS_IMPORT);
+    expect(code).not.toContain(INLINED_HELPERS);
+  });
+
+  it('keeps a wrapper that statically imports its local payload on its own', () => {
+    const pkg = SHARE_WITH_LAZY_FALLBACK;
+    // Same share consumed by a host: it holds the payload as a static import.
+    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'build', false);
+
+    expect(code).toContain('import * as __mfLocalShare');
+    expect(coalescable).toBe(false);
+    expect(code).toContain(INLINED_HELPERS);
+  });
+
+  it.each([
+    ['an eager wrapper, which has its own chunk', shareItem({ eager: true })],
+    ['a consume-only wrapper, which the bundler chunks', shareItem({ import: false })],
+  ])('leaves the helpers inlined in %s', (_label, item) => {
+    const pkg = SHARE_WITH_LAZY_FALLBACK;
+    const { code, coalescable } = write(pkg, { ...item, name: pkg }, 'build');
+
+    expect(coalescable).toBe(false);
+    expect(code).toContain(INLINED_HELPERS);
+  });
+
+  it('never merges in serve mode, where the dep pre-bundler cannot resolve the helper id', () => {
+    const pkg = SHARE_WITH_LAZY_FALLBACK;
+    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'serve');
+
+    expect(coalescable).toBe(false);
+    expect(code).toContain(INLINED_HELPERS);
+  });
+
+  it('drops a wrapper the server build gives a local-payload import', () => {
+    const pkg = SHARE_WITH_LAZY_FALLBACK;
+    const options = normalizeModuleFederationOptions({
+      name: 'test',
+      exposes: { './Module': './module.js' },
+    });
+    writeLoadShareModule(pkg, { ...shareItem(), name: pkg }, 'build', false, options);
+    expect(isCoalescableLoadShareWrapper(pkg, options)).toBe(true);
+
+    // prependWorkspaceSingletonSsrImport adds this edge in the load hook.
+    markLoadShareWrapperNotCoalescable(pkg, options);
+
+    expect(isCoalescableLoadShareWrapper(pkg, options)).toBe(false);
   });
 });

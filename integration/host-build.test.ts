@@ -42,6 +42,38 @@ async function createWorkspaceFixture() {
 }
 
 describe('host build', () => {
+  it('does not emit SSR loader chunks for a client-only build with remotes', async () => {
+    const output = await buildFixture({
+      fixture: 'basic-host',
+      mfOptions: HOST_BASE_MF_OPTIONS,
+    });
+
+    expect(
+      getChunkNames(output).some((fileName) => /ssrEntryLoader|ssrVmStrategy/.test(fileName))
+    ).toBe(false);
+    expect(getAllChunkCode(output)).not.toContain('@module-federation/vite/ssrEntryLoader');
+  });
+
+  it('emits SSR loader chunks for an SSR build with remotes', async () => {
+    const output = await buildFixture({
+      fixture: 'basic-host',
+      mfOptions: HOST_BASE_MF_OPTIONS,
+      viteConfig: {
+        build: {
+          ssr: true,
+          rollupOptions: {
+            input: resolve(FIXTURES, 'basic-host', 'entry.js'),
+          },
+        },
+      },
+    });
+
+    expect(getChunkNames(output).some((fileName) => fileName.includes('ssrEntryLoader'))).toBe(
+      true
+    );
+    expect(getChunkNames(output).some((fileName) => fileName.includes('ssrVmStrategy'))).toBe(true);
+  });
+
   it.each([
     ['named', 'loaded-first-static-host'],
     ['namespace', 'loaded-first-namespace-host'],

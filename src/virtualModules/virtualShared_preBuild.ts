@@ -47,6 +47,8 @@ import {
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
 import { getFederationScopeKey } from './virtualModuleScope';
+import { getSharedCacheHelpersImportCode } from './loadShareSharedChunk';
+import { LOAD_SHARE_TAG, PREBUILD_TAG } from './shareTags';
 
 const JS_IDENTIFIER_REGEX = new RegExp(
   '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
@@ -1199,7 +1201,7 @@ function resolveConcreteSharedImportSource(pkg: string, projectRoot: string): st
 }
 
 // *** __prebuild__
-export const PREBUILD_TAG = '__prebuild__';
+export { PREBUILD_TAG };
 
 export const TREE_SHAKING_PROVIDER_TAG = '__treeShakingProvider__';
 export const TREE_SHAKING_GRAPH_QUERY = '__mf_tree_shaking_graph__';
@@ -1211,6 +1213,8 @@ interface SharedVirtualModuleState {
   materializedTreeShakingProviders: Set<string>;
   loadShareCacheMap: Record<string, VirtualModule>;
   warnedMissingImportFalse: Set<string>;
+  /** Shares whose wrapper carries no static import of a local share payload. */
+  coalescableLoadShares: Set<string>;
   ownerKey?: string;
 }
 
@@ -1221,11 +1225,15 @@ const legacySharedVirtualModuleState: SharedVirtualModuleState = {
   materializedTreeShakingProviders: new Set(),
   loadShareCacheMap: {},
   warnedMissingImportFalse: new Set(),
+  coalescableLoadShares: new Set(),
 };
 const sharedVirtualModuleStates = new WeakMap<
   NormalizedModuleFederationOptions,
   SharedVirtualModuleState
 >();
+// Only one `federation()` instance's chunking callback survives in the bundler
+// output options, so state has to be reachable from a virtual id's owner too.
+const sharedVirtualModuleStatesByOwner = new Map<string, SharedVirtualModuleState>();
 function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions) {
   if (!options) {
     try {
@@ -1244,11 +1252,25 @@ function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions
       materializedTreeShakingProviders: new Set(),
       loadShareCacheMap: {},
       warnedMissingImportFalse: new Set(),
+      coalescableLoadShares: new Set(),
       ownerKey: getFederationScopeKey(options),
     };
     sharedVirtualModuleStates.set(options, state);
+    if (state.ownerKey !== undefined) sharedVirtualModuleStatesByOwner.set(state.ownerKey, state);
   }
   return state;
+}
+
+/** State of the instance that owns a scoped virtual id; `options` covers unscoped ids. */
+function getSharedVirtualModuleStateForId(
+  id: string | undefined,
+  options?: NormalizedModuleFederationOptions
+): SharedVirtualModuleState {
+  const ownerKey = id === undefined ? undefined : VirtualModule.findById(id)?.getScopeName();
+  return (
+    (ownerKey !== undefined ? sharedVirtualModuleStatesByOwner.get(ownerKey) : undefined) ??
+    getSharedVirtualModuleState(options)
+  );
 }
 
 function createScopedSharedVirtualModule(
@@ -1599,7 +1621,7 @@ export function getSharedImportSource(
 }
 
 // *** __loadShare__
-export const LOAD_SHARE_TAG = '__loadShare__';
+export { LOAD_SHARE_TAG };
 
 export function getLoadShareImportId(
   pkg: string,
@@ -1718,6 +1740,7 @@ function getSharedCacheReadExpression(cacheDescriptor: string, treeShakingConsum
  * re-applies them; a host-provided copy re-applies them through the cache subscription as before.
  */
 function generateEagerWorkspaceSingletonExports(
+  edges: LocalPayloadEdges,
   namedExports: string[],
   importSource: string,
   cacheDescriptor: string,
@@ -1742,10 +1765,10 @@ function generateEagerWorkspaceSingletonExports(
       ? `\n    export { ${copiedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
   const mutableExportLine = mutableExports.length
-    ? `\n    export { ${mutableExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+    ? `\n    ${edges.reExportNames(mutableExports, importSource)}`
     : '';
 
-  return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(importSource)};
+  return `${edges.importNamespace(importSource)}
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
       Promise.resolve().then(() => {
@@ -1774,6 +1797,7 @@ function generateEagerWorkspaceSingletonExports(
     export { __mf_default as default };${namedExportLine}${mutableExportLine}`;
 }
 function generateLazyWorkspaceSingletonExports(
+  edges: LocalPayloadEdges,
   namedExports: string[],
   importSource: string,
   cacheDescriptor: string,
@@ -1803,7 +1827,7 @@ function generateLazyWorkspaceSingletonExports(
       ? `\n    export { ${copiedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
   const mutableExportLine = mutableExports.length
-    ? `\n    export { ${mutableExports.join(', ')} } from ${escapeGeneratedStringLiteral(importSource)};`
+    ? `\n    ${edges.reExportNames(mutableExports, importSource)}`
     : '';
   const applyLocalFallback = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
@@ -1996,6 +2020,80 @@ const initializedLocalShareModuleCode = `const __mfInitializedLocalShare = (mod)
       }
     };`;
 
+/**
+ * Static edges from a wrapper to its own share payload. A wrapper with an edge
+ * carries that payload into its chunk, so merging it lets
+ * `localSharedImportMap`'s `get()` import a chunk whose init is already running.
+ *
+ * Every `from` clause in a wrapper body is built here. One emitted directly
+ * would make the wrapper look mergeable when it isn't.
+ */
+type LocalPayloadEdges = ReturnType<typeof createLocalPayloadEdges>;
+
+function createLocalPayloadEdges() {
+  let edges = 0;
+  return {
+    importNamespace(source: string): string {
+      edges++;
+      return `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(source)};`;
+    },
+    reExportAll(source: string): string {
+      edges++;
+      return `export * from ${escapeGeneratedStringLiteral(source)}`;
+    },
+    reExportNames(names: readonly string[], source: string): string {
+      if (names.length === 0) return '';
+      edges++;
+      return `export { ${names.join(', ')} } from ${escapeGeneratedStringLiteral(source)};`;
+    },
+    get none(): boolean {
+      return edges === 0;
+    },
+  };
+}
+
+// Eager and consume-only wrappers are chunked elsewhere, so importing the
+// hoisted helpers would only tie them to a chunk they are not in.
+function recordCoalescability(
+  pkg: string,
+  hasNoLocalPayloadEdge: boolean,
+  command: string,
+  shareConfig: ShareItem['shareConfig'],
+  coalescableLoadShares: Set<string>
+): boolean {
+  const coalescable =
+    command === 'build' &&
+    shareConfig.eager !== true &&
+    shareConfig.import !== false &&
+    hasNoLocalPayloadEdge;
+
+  if (coalescable) coalescableLoadShares.add(pkg);
+  else coalescableLoadShares.delete(pkg);
+  return coalescable;
+}
+
+/**
+ * `prependWorkspaceSingletonSsrImport` adds a local-payload edge in the server
+ * build's load hook, after this module has generated the wrapper. `id` names
+ * the owning instance when the hook belongs to a different one.
+ */
+export function markLoadShareWrapperNotCoalescable(
+  pkg: string,
+  options?: NormalizedModuleFederationOptions,
+  id?: string
+): void {
+  getSharedVirtualModuleStateForId(id, options).coalescableLoadShares.delete(pkg);
+}
+
+/** With `id`, answers from the owning instance's state, whichever instance asks. */
+export function isCoalescableLoadShareWrapper(
+  pkg: string,
+  options?: NormalizedModuleFederationOptions,
+  id?: string
+): boolean {
+  return getSharedVirtualModuleStateForId(id, options).coalescableLoadShares.has(pkg);
+}
+
 export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
@@ -2006,7 +2104,8 @@ export function writeLoadShareModule(
   importFalseExportUsage?: TreeShakingExportUsage
 ) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
-  const { loadShareCacheMap } = getSharedVirtualModuleState(options);
+  const { loadShareCacheMap, coalescableLoadShares } = getSharedVirtualModuleState(options);
+  const edges = createLocalPayloadEdges();
   if (!loadShareCacheMap[pkg]) {
     loadShareCacheMap[pkg] = createScopedSharedVirtualModule(pkg, LOAD_SHARE_TAG, options);
   }
@@ -2058,6 +2157,7 @@ export function writeLoadShareModule(
         treeShakingConsumer
       );
     }
+    recordCoalescability(pkg, edges.none, command, shareItem.shareConfig, coalescableLoadShares);
     loadShareCacheMap[pkg].writeSync(
       `
     ${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}
@@ -2093,9 +2193,7 @@ export function writeLoadShareModule(
   );
   const copiedNamedExports = namedExports.filter((name) => !mutableExports.has(name));
   const liveNamedExports = namedExports.filter((name) => mutableExports.has(name));
-  const liveNamedExportLine = liveNamedExports.length
-    ? `export { ${liveNamedExports.join(', ')} } from ${escapeGeneratedStringLiteral(sharedImportSource)};`
-    : '';
+  const liveNamedExportLine = edges.reExportNames(liveNamedExports, sharedImportSource);
   const hasCompleteExportCoverage = detectedNamedExports !== undefined;
   const isWorkspaceSingleton = isWorkspacePackage && shareItem.shareConfig.singleton === true;
   const usesDeferredSingletonFallback =
@@ -2140,6 +2238,7 @@ export function writeLoadShareModule(
   if (usesDeferredTreeShakingFallback) {
     importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
     exportLine = generateLazyWorkspaceSingletonExports(
+      edges,
       namedExports,
       lazyLocalFallbackSource,
       cacheDescriptor,
@@ -2153,6 +2252,7 @@ export function writeLoadShareModule(
   } else if (usesDeferredEntryInjectedReactDomFallback) {
     importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
     exportLine = generateLazyWorkspaceSingletonExports(
+      edges,
       namedExports,
       lazyLocalFallbackSource,
       cacheDescriptor,
@@ -2164,6 +2264,7 @@ export function writeLoadShareModule(
     );
   } else if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
     exportLine = generateEagerWorkspaceSingletonExports(
+      edges,
       namedExports,
       lazyLocalFallbackSource,
       cacheDescriptor,
@@ -2174,6 +2275,7 @@ export function writeLoadShareModule(
   } else if (usesDeferredSingletonFallback) {
     importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
     exportLine = generateLazyWorkspaceSingletonExports(
+      edges,
       namedExports,
       lazyLocalFallbackSource,
       cacheDescriptor,
@@ -2196,7 +2298,7 @@ export function writeLoadShareModule(
       })}
     })();
     export default __mfDefaultExport;
-    export * from ${escapeGeneratedStringLiteral(coherentLocalSource)}`;
+    ${edges.reExportAll(coherentLocalSource)}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
   } else if (namedExports.length > 0 && shareItem.shareConfig.singleton === true) {
@@ -2261,11 +2363,11 @@ export function writeLoadShareModule(
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplySharedDefaultExport);
     __mfApplySharedDefaultExport(exportModule);
     export { __mfDefaultExport as default };
-    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`;
+    ${edges.reExportAll(sharedImportSource)}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
   } else {
-    exportLine = `export default exportModule.default ?? exportModule\n    export * from ${escapeGeneratedStringLiteral(sharedImportSource)}`;
+    exportLine = `export default exportModule.default ?? exportModule\n    ${edges.reExportAll(sharedImportSource)}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
   }
@@ -2284,9 +2386,9 @@ export function writeLoadShareModule(
           usesDeferredSingletonFallback &&
           command !== 'build' &&
           (isWorkspaceSingleton || isWorkspacePackage)
-          ? `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(lazyLocalFallbackSource)};`
+          ? edges.importNamespace(lazyLocalFallbackSource)
           : ''
-        : `import * as __mfLocalShare from ${escapeGeneratedStringLiteral(staticLocalShareSource)};`;
+        : edges.importNamespace(staticLocalShareSource);
   const devDynamicImportLine = isWorkspacePackage
     ? ''
     : usesDeferredSingletonFallback ||
@@ -2296,6 +2398,17 @@ export function writeLoadShareModule(
       : command !== 'build' && !skipServePrebuildWarmup
         ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
         : '';
+
+  // Every `from` clause is emitted by now, so eligibility is final.
+  const cacheHelpers = recordCoalescability(
+    pkg,
+    edges.none,
+    command,
+    shareItem.shareConfig,
+    coalescableLoadShares
+  )
+    ? getSharedCacheHelpersImportCode(resolvedOptions)
+    : sharedCacheHelperCode;
 
   // These export blocks declare `exportModule` themselves; the plain body must not declare it a second time.
   const exportLineDeclaresModule =
@@ -2309,7 +2422,7 @@ export function writeLoadShareModule(
     ${usesDeferredEntryInjectedReactDomFallback ? '' : prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
-    ${sharedCacheHelperCode}
+    ${cacheHelpers}
     ${normalizeLocalShareModuleCode}
     ${initializedLocalShareModuleCode}
     ${exportLine}
@@ -2318,7 +2431,7 @@ export function writeLoadShareModule(
     ${prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
-    ${sharedCacheHelperCode}
+    ${cacheHelpers}
     ${normalizeLocalShareModuleCode}
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)}
     if (exportModule === undefined) {

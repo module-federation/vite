@@ -1,85 +1,16 @@
-import { chromium } from '@playwright/test';
-import { createServer } from 'node:http';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { build } from 'vite';
 import { describe, expect, it } from 'vitest';
-import { federation } from '../src';
+import type { federation } from '../src';
 import { getPackageDetectionCwd, setPackageDetectionCwd } from '../src/utils/packageUtils';
+import {
+  buildFixtureTo,
+  createBrowser,
+  serveDirectory,
+  type StaticServer,
+} from './helpers/browser';
 import { FIXTURES } from './helpers/build';
-
-type StaticServer = {
-  origin: string;
-  close: () => Promise<void>;
-};
-
-async function serveDirectory(root: string): Promise<StaticServer> {
-  const server = createServer(async (request, response) => {
-    const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
-    const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
-    const filePath = path.resolve(root, relativePath);
-
-    if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) {
-      response.writeHead(403).end();
-      return;
-    }
-
-    try {
-      const content = await readFile(filePath);
-      const contentType = filePath.endsWith('.html')
-        ? 'text/html'
-        : filePath.endsWith('.js')
-          ? 'application/javascript'
-          : 'application/octet-stream';
-      response.writeHead(200, {
-        'access-control-allow-origin': '*',
-        'content-type': contentType,
-      });
-      response.end(content);
-    } catch {
-      response.writeHead(404).end();
-    }
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Static server did not bind');
-
-  return {
-    origin: `http://127.0.0.1:${address.port}`,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      }),
-  };
-}
-
-async function buildFixtureTo(
-  fixture: string,
-  outDir: string,
-  mfOptions: Parameters<typeof federation>[0]
-): Promise<void> {
-  const result = await build({
-    root: path.resolve(FIXTURES, fixture),
-    logLevel: 'silent',
-    build: {
-      outDir,
-      emptyOutDir: true,
-      target: 'chrome91',
-    },
-    plugins: [federation(mfOptions)],
-  });
-
-  if (Array.isArray(result)) throw new Error('Expected a single Rollup output');
-}
-
-async function createBrowser() {
-  return chromium.launch({ channel: 'chrome', headless: true });
-}
 
 const remoteOptions = {
   name: 'remoteApp',

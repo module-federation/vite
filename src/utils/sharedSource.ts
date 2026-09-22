@@ -60,9 +60,12 @@ export function createSharedSourceResolver(
     for (const candidate of candidates) {
       const entry = await resolveEntry(candidate);
       if (!entry) continue;
+      const shareKey = findSharedKey(candidate, shared) ?? candidate;
+      const allowNodeModulesSuffixMatch =
+        shared[shareKey]?.shareConfig?.allowNodeModulesSuffixMatch === true;
       if (
         normalizeNodeModulePath(entry) === normalizeNodeModulePath(resolvedSource) ||
-        getNodeModulesSuffix(entry) === suffix
+        (allowNodeModulesSuffixMatch && getNodeModulesSuffix(entry) === suffix)
       )
         return candidate;
     }

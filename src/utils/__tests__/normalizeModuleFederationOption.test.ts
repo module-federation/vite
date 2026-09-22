@@ -597,6 +597,17 @@ describe('normalizeModuleFederationOption', () => {
       expect(normalized.shared.react.shareConfig.eager).toBe(true);
     });
 
+    it('preserves allowNodeModulesSuffixMatch for shared resolution', () => {
+      const normalized = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          react: { allowNodeModulesSuffixMatch: true },
+        },
+      });
+
+      expect(normalized.shared.react.shareConfig.allowNodeModulesSuffixMatch).toBe(true);
+    });
+
     it('rejects eager shared configuration combined with tree shaking', () => {
       expect(() =>
         normalizeModuleFederationOptions({
