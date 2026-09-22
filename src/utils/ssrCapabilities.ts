@@ -17,12 +17,9 @@ export interface SsrCapabilities {
   injectSsrEntryLoader: boolean;
 }
 
-type SsrEnvironmentConfig = {
+/** The environment fields that mark a server graph, on Vite 5–8 shapes. */
+export type SsrEnvironmentConfig = {
   consumer?: string;
-  config?: {
-    consumer?: string;
-    build?: { ssr?: boolean | string };
-  };
   build?: { ssr?: boolean | string };
 };
 
@@ -31,28 +28,33 @@ export type SsrConfig = SsrEnvironmentConfig & {
 };
 
 /**
- * Detect whether Vite is resolving a server graph.
+ * Whether a Vite environment builds a server graph.
  *
- * Vite 6+ exposes the environment consumer on `environment.config`, while
- * older Vite versions use `build.ssr`. Resolved Vite 8 environment configs
- * expose the same consumer directly, so support that shape too.
+ * Vite 6+ sets `consumer` on the environment config; `build.ssr` covers the
+ * legacy `vite build --ssr` flag. Environment names are user-defined, so `ssr`
+ * and `server` are only a fallback for configs that carry neither field.
+ */
+export function isServerEnvironment(
+  name: string | undefined,
+  config: SsrEnvironmentConfig | undefined
+): boolean {
+  return (
+    config?.consumer === 'server' ||
+    Boolean(config?.build?.ssr) ||
+    name === 'ssr' ||
+    name === 'server'
+  );
+}
+
+/**
+ * Whether a resolved Vite config includes a server graph: the legacy
+ * `build.ssr` flag, or any server environment. Vite always registers an `ssr`
+ * environment for `serve`, so this only gates builds.
  */
 export function isSsrConfig(config: SsrConfig): boolean {
-  if (
-    config.consumer === 'server' ||
-    config.config?.consumer === 'server' ||
-    Boolean(config.build?.ssr) ||
-    Boolean(config.config?.build?.ssr)
-  ) {
-    return true;
-  }
-
-  return Object.values(config.environments ?? {}).some(
-    (environment) =>
-      environment.consumer === 'server' ||
-      environment.config?.consumer === 'server' ||
-      Boolean(environment.build?.ssr) ||
-      Boolean(environment.config?.build?.ssr)
+  if (Boolean(config.build?.ssr)) return true;
+  return Object.entries(config.environments ?? {}).some(([name, environment]) =>
+    isServerEnvironment(name, environment)
   );
 }
 

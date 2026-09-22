@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getSsrCapabilities,
+  isServerEnvironment,
   isSsrConfig,
   SERVER_ENV_GUARD,
   SSR_ENTRY_LOADER_SPECIFIER,
@@ -74,8 +75,23 @@ describe('isSsrConfig', () => {
     expect(
       isSsrConfig({ environments: { ssr: { consumer: 'server' }, client: { consumer: 'client' } } })
     ).toBe(true);
-    expect(isSsrConfig({ environments: { federation: { config: { consumer: 'server' } } } })).toBe(
-      true
-    );
+    expect(isSsrConfig({ environments: { federation: { build: { ssr: true } } } })).toBe(true);
+    expect(isSsrConfig({ environments: { client: { consumer: 'client' } } })).toBe(false);
+  });
+
+  it('falls back to the ssr/server environment names', () => {
+    expect(isSsrConfig({ environments: { ssr: {} } })).toBe(true);
+    expect(isSsrConfig({ environments: { server: {} } })).toBe(true);
+    expect(isSsrConfig({ environments: { worker: {} } })).toBe(false);
+  });
+});
+
+describe('isServerEnvironment', () => {
+  it('prefers consumer and build.ssr over the environment name', () => {
+    expect(isServerEnvironment('client', { consumer: 'server' })).toBe(true);
+    expect(isServerEnvironment('client', { build: { ssr: true } })).toBe(true);
+    expect(isServerEnvironment('ssr', { consumer: 'client' })).toBe(true);
+    expect(isServerEnvironment('client', { consumer: 'client' })).toBe(false);
+    expect(isServerEnvironment(undefined, undefined)).toBe(false);
   });
 });

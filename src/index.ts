@@ -80,6 +80,7 @@ import {
 import { getSharedExportUsage } from './utils/treeShaking';
 import {
   getSsrCapabilities,
+  isServerEnvironment,
   isSsrConfig,
   SSR_ENTRY_LOADER_SPECIFIER,
   SSR_ONLY_RUNTIME_PLUGINS,
@@ -1185,10 +1186,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     const isSsr =
       loadOptions?.ssr === true ||
       isSsrBuild ||
-      environment?.config?.consumer === 'server' ||
-      Boolean(environment?.config?.build?.ssr) ||
-      environment?.name === 'ssr' ||
-      environment?.name === 'server';
+      isServerEnvironment(environment?.name, environment?.config);
     return getSharedExportConditions({
       environmentConditions: environment?.config?.resolve?.conditions,
       isProduction: environment?.config?.isProduction ?? isProduction,
@@ -2054,13 +2052,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
       },
       configEnvironment(name: string, config: EnvironmentOptions) {
-        const isServerEnvironment =
-          config.consumer === 'server' ||
-          name === 'ssr' ||
-          name === 'server' ||
-          config.build?.ssr === true;
         // Client graphs keep ENV_TARGET from root config(); only server/ssr envs need node.
-        if (!isServerEnvironment) return;
+        if (!isServerEnvironment(name, config)) return;
 
         const isAstro = hasPackageDependency('astro');
         // Copy define per environment — Vite may reuse the same object across envs.
