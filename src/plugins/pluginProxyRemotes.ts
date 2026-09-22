@@ -2,7 +2,7 @@ import type { Plugin } from 'vite';
 import { version as viteVersion } from 'vite';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { resolveRemoteConsumer } from '../utils/remoteConsumerTarget';
-import { getSsrCapabilities } from '../utils/ssrCapabilities';
+import { getSsrCapabilities, isSsrConfig } from '../utils/ssrCapabilities';
 import { getInstalledPackageEntry } from '../utils/packageUtils';
 import { filterId } from '../utils/pathNormalization';
 import { escapeRegExp } from '../utils/regexEscape';
@@ -84,7 +84,8 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
       enableSsrInit = getSsrCapabilities(
         parseInt(viteVersion, 10),
         command as 'serve' | 'build',
-        Object.keys(remotes).length > 0
+        Object.keys(remotes).length > 0,
+        isSsrConfig(config)
       ).enableSsrInitBootstrap;
     },
     resolveId(source, importer) {

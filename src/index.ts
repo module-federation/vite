@@ -80,6 +80,7 @@ import {
 import { getSharedExportUsage } from './utils/treeShaking';
 import {
   getSsrCapabilities,
+  isSsrConfig,
   SSR_ENTRY_LOADER_SPECIFIER,
   SSR_ONLY_RUNTIME_PLUGINS,
 } from './utils/ssrCapabilities';
@@ -974,7 +975,8 @@ export default __mfShared.default ?? __mfShared;`,
       const ssrCapabilities = getSsrCapabilities(
         viteMajor,
         config.command as 'serve' | 'build',
-        hasRemotes(options)
+        hasRemotes(options),
+        isSsrConfig(config)
       );
       if (!ssrCapabilities.injectSsrEntryLoader) return;
 
@@ -1405,7 +1407,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         const ssrCapabilities = getSsrCapabilities(
           parseInt(viteVersion, 10),
           command as 'serve' | 'build',
-          Object.keys(options.remotes).length > 0
+          Object.keys(options.remotes).length > 0,
+          isSsrConfig(config)
         );
         resolveSharedVersions(shared, config.root);
         initVirtualModules(command, remoteEntryId, ssrCapabilities.enableSsrInitBootstrap, options);
