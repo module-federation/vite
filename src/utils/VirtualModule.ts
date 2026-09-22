@@ -108,6 +108,11 @@ export default class VirtualModule {
     cacheMap[this.tag][this.name] = this;
   }
 
+  /** The federation scope this module was created under, if it was scoped. */
+  getScopeName(): string | undefined {
+    return this.scopeName;
+  }
+
   getImportId() {
     const mfName = this.scopeName ?? getNormalizeModuleFederationOptions().internalName;
     const importIdKey = `${mfName}${this.tag}${this.name}${this.tag}`;
