@@ -23,6 +23,7 @@ import type { Plugin } from 'vite';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
 import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
+import { getInstalledPackageEntry } from '../utils/packageUtils';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import {
   LOAD_REMOTE_TAG,
@@ -532,6 +533,7 @@ function collectFromRegex(
 
 export function pluginRemoteNamedExports(options: NormalizedModuleFederationOptions): Plugin {
   const remoteNames = Object.keys(options.remotes);
+  let root = process.cwd();
   const isNodeModulesId = (id: string) =>
     id.includes('/node_modules/') || id.includes('\\node_modules\\');
 
@@ -540,7 +542,9 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
       remoteNames.some((name) => {
         if (source.startsWith(name + '/')) return true;
         if (source !== name) return false;
-        return !isNodeModulesId(importerId);
+        // Mirror pluginProxyRemotes: a bare remote name inside node_modules only
+        // resolves to a real package when one with that name is installed.
+        return !isNodeModulesId(importerId) || !getInstalledPackageEntry(source, { cwd: root });
       }) || source.includes(LOAD_REMOTE_TAG)
     );
   }
@@ -548,6 +552,9 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
   return {
     name: 'module-federation-remote-named-exports',
     enforce: 'post',
+    configResolved(config) {
+      root = config.root || process.cwd();
+    },
     async transform(code: string, id: string) {
       if (remoteNames.length === 0) return;
       // Skip federation internal modules
