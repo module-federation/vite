@@ -1478,6 +1478,37 @@ describe('module-federation-esm-shims', () => {
 });
 
 describe('vite:module-federation-early-init', () => {
+  it('uses the canonical runtime key for aliased shared config during early init', () => {
+    const plugins = federation({
+      name: 'aliased-early-init',
+      shared: {
+        'my-lodash': {
+          import: 'lodash',
+          request: 'lodash/',
+          shareKey: 'lodash/',
+        },
+      },
+    }) as Plugin[];
+    const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+    const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+      | (Plugin & { _options: NormalizedModuleFederationOptions })
+      | undefined;
+    if (!early || !owner) throw new Error('module federation plugins not found');
+
+    runConfig(
+      early,
+      { meta: {} } as ConfigPluginContext,
+      {},
+      {
+        command: 'serve',
+        mode: 'test',
+      }
+    );
+
+    const code = generateLocalSharedImportMap(owner._options);
+    expect(code).not.toContain('"lodash/": {');
+  });
+
   it('materializes shares imported by the entry graph but leaves configured-only shares lazy', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'mf-entry-shares-'));
     mkdirSync(path.join(root, 'src'));

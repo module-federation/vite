@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 import { getNodeModulesSuffix } from './pathNormalization';
+import { getSharedRuntimeKey } from './sharedKeyMatcher';
 
 type PackageJsonDependencyGroups = {
   dependencies?: Record<string, string>;
@@ -312,8 +313,12 @@ export function getSharedCacheKeyParts(input: SharedCacheKeyInput) {
 }
 
 export function getSharedCacheDescriptor(pkg: string, shareItem: ShareItem): SharedCacheDescriptor {
+  const runtimeKey =
+    shareItem.shareConfig.request !== undefined || shareItem.shareConfig.shareKey !== undefined
+      ? getSharedRuntimeKey(pkg, shareItem)
+      : pkg;
   const parts = getSharedCacheKeyParts({
-    pkg,
+    pkg: runtimeKey,
     singleton: shareItem.shareConfig.singleton,
     version: shareItem.version,
     scope: shareItem.scope,

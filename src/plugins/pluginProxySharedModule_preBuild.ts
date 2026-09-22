@@ -16,8 +16,10 @@ import {
 import { isNodeModulePath, isAssetLikeImport } from '../utils/pathNormalization';
 import {
   findSharedKey,
+  getSharedRequest,
   invalidateSharedKeyMatcher,
   matchesSharedSource,
+  getSharedRuntimeKey,
 } from '../utils/sharedKeyMatcher';
 import {
   getIsRolldown,
@@ -673,7 +675,9 @@ export function proxySharedModule(options: {
             // finalized, immediately before Rollup discovers their imports.
             refreshTreeShakingForEnvironment(this);
             const providerPackages = new Set([
-              ...Object.keys(shared).filter((pkg) => !pkg.endsWith('/')),
+              ...Object.keys(shared).filter(
+                (pkg) => !getSharedRequest(pkg, shared[pkg]).endsWith('/')
+              ),
               ...getUsedShares(federationOptions),
             ]);
             for (const pkg of providerPackages) {
@@ -739,18 +743,19 @@ export function proxySharedModule(options: {
             ? addUsedShares
             : addConfiguredShare;
         Object.keys(shared).forEach((key) => {
-          if (key.endsWith('/')) return;
-          if (useDirectReactImport && key === 'react') {
-            registerConfiguredShare(key, federationOptions);
+          if (key.endsWith('/') || getSharedRequest(key, shared[key]).endsWith('/')) return;
+          const runtimeKey = getSharedRuntimeKey(key, shared[key]);
+          if (useDirectReactImport && runtimeKey === 'react') {
+            registerConfiguredShare(runtimeKey, federationOptions);
             return;
           }
-          writeLoadShareModule(key, shared[key], _command, isRolldown, federationOptions);
+          writeLoadShareModule(runtimeKey, shared[key], _command, isRolldown, federationOptions);
           // Skip prebuild for shared deps with import: false — the host must
           // provide them, so no local fallback source is needed.
           if (shared[key].shareConfig.import !== false) {
-            writePreBuildLibPath(key, shared[key], federationOptions);
+            writePreBuildLibPath(runtimeKey, shared[key], federationOptions);
           }
-          registerConfiguredShare(key, federationOptions);
+          registerConfiguredShare(runtimeKey, federationOptions);
         });
         writeLocalSharedImportMap(federationOptions);
         refreshHostAutoInit(federationOptions);
@@ -897,15 +902,18 @@ export function proxySharedModule(options: {
           const importerIsUnsharedWorkspacePackage =
             !isNodeModulePath(importer!) &&
             !Object.keys(shared).some((sharedKey) => getPackageName(sharedKey) === importerPackage);
+          const request = getSharedRequest(key, shared[key]);
           const runtimeDependencyRequest =
-            key.endsWith('/') && matchesSharedSource(sharedSource, key) ? sharedSource : key;
+            request.endsWith('/') && matchesSharedSource(sharedSource, key, shared[key])
+              ? sharedSource
+              : request;
           const keepsOrdinaryEdge = importerIsUnsharedWorkspacePackage
             ? isSharedPackageRuntimeDependency(
                 runtimeDependencyRequest,
                 importerPackage,
                 getRuntimeDependencyConditions(this, resolveOptions)
               )
-            : isSharedPackageDependency(key, importerPackage);
+            : isSharedPackageDependency(request, importerPackage);
           if (keepsOrdinaryEdge) return;
         }
         if (useDirectReactImport && key === 'react') return;

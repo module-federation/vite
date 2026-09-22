@@ -389,6 +389,8 @@ function normalizeShareItem(
         import: moduleFederationPlugin.SharedConfig['import'];
         version?: string;
         shareScope?: string;
+        request?: moduleFederationPlugin.SharedConfig['request'];
+        shareKey?: moduleFederationPlugin.SharedConfig['shareKey'];
         singleton?: boolean;
         eager?: boolean;
         requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
@@ -448,6 +450,8 @@ function normalizeShareItem(
       eager: shareItem.eager || false,
       requiredVersion,
       strictVersion: !!shareItem.strictVersion,
+      ...(shareItem.request !== undefined ? { request: shareItem.request } : {}),
+      ...(shareItem.shareKey !== undefined ? { shareKey: shareItem.shareKey } : {}),
       ...(shareItem.suppressMissingImportWarning ? { suppressMissingImportWarning: true } : {}),
       ...(treeShaking ? { treeShaking: { ...treeShaking } } : {}),
     },
@@ -490,6 +494,8 @@ function normalizeShared(
             import?: moduleFederationPlugin.SharedConfig['import'];
             version?: string;
             shareScope?: string;
+            request?: moduleFederationPlugin.SharedConfig['request'];
+            shareKey?: moduleFederationPlugin.SharedConfig['shareKey'];
             singleton?: boolean;
             eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
@@ -638,6 +644,8 @@ export type ModuleFederationOptions = {
             name?: string;
             version?: string;
             shareScope?: string;
+            request?: moduleFederationPlugin.SharedConfig['request'];
+            shareKey?: moduleFederationPlugin.SharedConfig['shareKey'];
             singleton?: boolean;
             eager?: boolean;
             requiredVersion?: moduleFederationPlugin.SharedConfig['requiredVersion'];
@@ -961,7 +969,18 @@ export function getNormalizeShareItem(
     (matchedKey ? options.shared[matchedKey] : undefined) ||
     options.shared[getPackageName(key)] ||
     options.shared[getPackageName(key) + '/'];
-  return shareItem;
+  if (shareItem) return shareItem;
+
+  // Generated runtime maps are keyed by shareKey rather than by the
+  // user-facing shared config key. Recover the original item for aliases and
+  // concrete prefix entries so all downstream code uses the same metadata.
+  return Object.entries(options.shared).find(([sharedKey, item]) => {
+    const runtimeKey =
+      typeof item.shareConfig.shareKey === 'string' ? item.shareConfig.shareKey : sharedKey;
+    return runtimeKey.endsWith('/')
+      ? key === runtimeKey.slice(0, -1) || key.startsWith(runtimeKey)
+      : runtimeKey === key;
+  })?.[1];
 }
 
 export function normalizeModuleFederationOptions(

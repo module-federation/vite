@@ -46,6 +46,7 @@ import {
 import { isTestEnv } from './utils/isTestEnv';
 import { createModuleFederationError, mfWarn } from './utils/logger';
 import { getSharedExportConditions } from './utils/sharedExportConditions';
+import { getSharedRequest, getSharedRuntimeKey } from './utils/sharedKeyMatcher';
 import type {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -871,12 +872,14 @@ export default __mfShared.default ?? __mfShared;`,
         }
         for (const key of Object.keys(shared)) {
           const shareItem: ShareItem = shared[key];
-          if (key.endsWith('/')) {
+          const request = getSharedRequest(key, shareItem);
+          const runtimeKey = getSharedRuntimeKey(key, shareItem);
+          if (key.endsWith('/') || request.endsWith('/') || runtimeKey.endsWith('/')) {
             if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
               const optimizeDeps = (config.optimizeDeps ??= {});
               optimizeDeps.include ??= [];
               optimizeDeps.exclude ??= [];
-              for (const subpath of getCommonSharedSubpaths(key)) {
+              for (const subpath of getCommonSharedSubpaths(request)) {
                 writePreBuildLibPath(subpath, shareItem, options);
                 if (canResolveSharedSubpath(subpath, root)) {
                   optimizeDeps.include.push(subpath);
@@ -887,18 +890,18 @@ export default __mfShared.default ?? __mfShared;`,
             }
             continue;
           }
-          if (isVinext && key === 'react') {
-            addConfiguredShare(key, options);
+          if (isVinext && runtimeKey === 'react') {
+            addConfiguredShare(runtimeKey, options);
             continue;
           }
-          getLoadShareModulePath(key, isRolldown, options);
-          writeLoadShareModule(key, shareItem, _command, isRolldown, options);
+          getLoadShareModulePath(runtimeKey, isRolldown, options);
+          writeLoadShareModule(runtimeKey, shareItem, _command, isRolldown, options);
           // Skip prebuild for shared deps with import: false — the host must
           // provide them, so no local fallback source is needed.
           if (shareItem.shareConfig?.import !== false) {
-            writePreBuildLibPath(key, shareItem, options);
+            writePreBuildLibPath(runtimeKey, shareItem, options);
           }
-          addConfiguredShare(key, options);
+          addConfiguredShare(runtimeKey, options);
           if (_command === 'serve' && shareItem.shareConfig?.import !== false) {
             const optimizeDeps = (config.optimizeDeps ??= {});
             optimizeDeps.include ??= [];
@@ -911,15 +914,21 @@ export default __mfShared.default ?? __mfShared;`,
             // and loadShare proxy, independently from dependency optimization.
             // Shares resolving to raw .jsx/.tsx source can't be optimized by
             // Vite at all, so route them to exclude the same way.
-            const shouldBypassOptimizeDep = isLitShare(key) || !canResolveSharedSubpath(key, root);
-            if (optimizeDeps.include.includes(key)) {
-              optimizeDeps.exclude = optimizeDeps.exclude.filter((dep) => dep !== key);
-            } else if (shouldBypassOptimizeDep || optimizeDeps.exclude.includes(key)) {
-              optimizeDeps.exclude.push(key);
+            const shouldBypassOptimizeDep =
+              isLitShare(runtimeKey) || !canResolveSharedSubpath(runtimeKey, root);
+            if (optimizeDeps.include.includes(runtimeKey)) {
+              optimizeDeps.exclude = optimizeDeps.exclude.filter((dep) => dep !== runtimeKey);
+            } else if (shouldBypassOptimizeDep || optimizeDeps.exclude.includes(runtimeKey)) {
+              optimizeDeps.exclude.push(runtimeKey);
             } else {
-              optimizeDeps.include.push(key);
+              optimizeDeps.include.push(runtimeKey);
             }
-            for (const subpath of getCommonSharedSubpaths(key)) {
+            const commonSubpaths =
+              shareItem.shareConfig.request === undefined &&
+              shareItem.shareConfig.shareKey === undefined
+                ? getCommonSharedSubpaths(runtimeKey)
+                : [];
+            for (const subpath of commonSubpaths) {
               const canResolveSubpath = canResolveSharedSubpath(subpath, root);
               if (
                 ['react/compiler-runtime', 'react-dom/client', 'react-dom/profiling'].includes(
@@ -940,7 +949,9 @@ export default __mfShared.default ?? __mfShared;`,
               if (canResolveSubpath) {
                 optimizeDeps.include.push(subpath);
                 // Prevent subpaths like react-dom/client from using a later, incompatible optimizer generation.
-                if (key === 'react-dom') optimizeDeps.include.push(`${key} > ${subpath}`);
+                if (runtimeKey === 'react-dom') {
+                  optimizeDeps.include.push(`${runtimeKey} > ${subpath}`);
+                }
               } else {
                 optimizeDeps.exclude.push(subpath);
               }

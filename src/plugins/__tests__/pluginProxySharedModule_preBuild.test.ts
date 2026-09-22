@@ -377,6 +377,68 @@ describe('pluginProxySharedModule_preBuild', () => {
       expect(findSharedKey('react-dom/client', shared)).toBe('react-dom');
     });
 
+    it('matches an aliased shared dependency by its configured request', () => {
+      const shared: NormalizedShared = {
+        'my-alias': {
+          name: 'my-alias',
+          from: '',
+          version: '19.2.4',
+          scope: 'default',
+          shareConfig: {
+            import: 'react',
+            request: 'react',
+            shareKey: 'react',
+            singleton: true,
+            requiredVersion: '^19.2.4',
+            strictVersion: false,
+          },
+        },
+      };
+
+      expect(findSharedKey('react', shared)).toBe('my-alias');
+    });
+
+    it('does not expand an explicit exact request to common package subpaths', () => {
+      const shared: NormalizedShared = {
+        'my-alias': {
+          name: 'my-alias',
+          from: '',
+          version: '19.2.4',
+          scope: 'default',
+          shareConfig: {
+            import: 'react',
+            request: 'react',
+            shareKey: 'react',
+            singleton: true,
+            requiredVersion: '^19.2.4',
+            strictVersion: false,
+          },
+        },
+      };
+
+      expect(findSharedKey('react/jsx-runtime', shared)).toBeUndefined();
+    });
+
+    it('matches prefix requests while returning the configured alias key', () => {
+      const shared: NormalizedShared = {
+        'my-lodash/': {
+          name: 'my-lodash/',
+          from: '',
+          version: '4.17.21',
+          scope: 'default',
+          shareConfig: {
+            request: 'lodash/',
+            shareKey: 'lodash/',
+            singleton: false,
+            requiredVersion: '^4.17.21',
+            strictVersion: false,
+          },
+        },
+      };
+
+      expect(findSharedKey('lodash/debounce', shared)).toBe('my-lodash/');
+    });
+
     it('prefers the longest trailing-slash wildcard prefix', () => {
       const wildcardShare = (name: string): NormalizedShared[string] => ({
         name,

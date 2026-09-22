@@ -469,6 +469,25 @@ describe('normalizeModuleFederationOption', () => {
   });
 
   describe('shared', () => {
+    it('preserves request and shareKey for aliased shared dependencies', () => {
+      const normalized = normalizeModuleFederationOptions({
+        ...minimalOptions,
+        shared: {
+          'my-alias': {
+            import: 'react',
+            request: 'react',
+            shareKey: 'react',
+          },
+        },
+      });
+
+      expect(normalized.shared['my-alias'].shareConfig).toMatchObject({
+        import: 'react',
+        request: 'react',
+        shareKey: 'react',
+      });
+    });
+
     it('resolves metadata for a nested package prefix', () => {
       const options = normalizeModuleFederationOptions({
         ...minimalOptions,
