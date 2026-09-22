@@ -1,5 +1,7 @@
+import { REACT_CLIENT_INTERNALS_KEY } from '../utils/reactShares';
+
 export function createReactMixedModeRuntimeGuard(): string {
-  return `const __mfReactInternals = mod["__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE"];
+  return `const __mfReactInternals = mod[${JSON.stringify(REACT_CLIENT_INTERNALS_KEY)}];
 if (__mfReactInternals && "A" in __mfReactInternals) {
   let __mfReactDispatcher = __mfReactInternals.A;
   Object.defineProperty(__mfReactInternals, "A", {

@@ -47,6 +47,7 @@ import {
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
 import { getFederationScopeKey } from './virtualModuleScope';
+import { REACT_CLIENT_INTERNALS_KEY, REACT_DOM_CLIENT_SHARE } from '../utils/reactShares';
 import { getSharedCacheHelpersImportCode } from './loadShareSharedChunk';
 import { LOAD_SHARE_TAG, PREBUILD_TAG } from './shareTags';
 
@@ -1493,7 +1494,7 @@ export function writePreBuildLibPath(
       const cache = globalThis[__mfCacheGlobalKey]?.share;
       const sharedReact = cache && __mfReadSharedCache(cache, ${reactCacheDescriptor});
       const reactExports = sharedReact?.default ?? sharedReact;
-      const internals = reactExports?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+      const internals = reactExports?.[${JSON.stringify(REACT_CLIENT_INTERNALS_KEY)}];
       return internals?.H?.useMemoCache(size);
     };
     export default { c };
@@ -1804,7 +1805,8 @@ function generateLazyWorkspaceSingletonExports(
   cacheOwner: string,
   treeShakingConsumer?: string,
   serveLocalFallback = false,
-  mutableExports: string[] = []
+  mutableExports: string[] = [],
+  deferredRendererFallback = false
 ) {
   const copiedExports = namedExports.filter((name) => !mutableExports.includes(name));
   const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
@@ -1831,19 +1833,24 @@ function generateLazyWorkspaceSingletonExports(
   const applyLocalFallback = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
       __mfApplyLazyShareExports(exportModule);`;
-
-  const body = `${declarations}
-    const __mfApplyLazyShareExports = (mod) => {
-      ${assignments}
-    };
-    __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyLazyShareExports);
-    let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
-    if (exportModule === undefined) {
-      if (import.meta.env.SSR${serveLocalFallback ? " || (import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')" : ''}) {
-        ${applyLocalFallback}
-      } else {
-        __mfTrackPendingShareLoad(initPromise.then(() => {
-          exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
+  const readDeferredShare = getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer);
+  // A second federation() plugin on the same page is not initialized by the HTML
+  // bootstrap, so its initPromise stays pending. Waiting only on that promise
+  // pins the shared pendingShareLoads barrier and the entry never runs. A
+  // sibling container publishes into the same cache; that write has to unblock
+  // the local fallback too. The local client import still happens only when
+  // neither init nor the cache produced a renderer. The cache subscription is
+  // never removed (listener sets have no unsubscribe); a settled promise
+  // ignores later notifications.
+  const deferredClientLoad = `Promise.race([
+          initPromise.then(() => ${readDeferredShare}),
+          new Promise((resolve) => {
+            const current = ${readDeferredShare};
+            if (current !== undefined) resolve(current);
+            else __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, resolve);
+          })
+        ]).then((cached) => {
+          exportModule = cached;
           if (exportModule !== undefined) {
             __mfApplyLazyShareExports(exportModule);
             return;
@@ -1852,8 +1859,48 @@ function generateLazyWorkspaceSingletonExports(
             exportModule = __mfNormalizeShareModule(mod);
             __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
           });
-        }));
-      }
+        })`;
+  const deferredInitLoad = `initPromise.then(() => {
+          exportModule = ${readDeferredShare};
+          if (exportModule !== undefined) {
+            __mfApplyLazyShareExports(exportModule);
+            return;
+          }
+          return import(${escapeGeneratedStringLiteral(importSource)}).then((mod) => {
+            exportModule = __mfNormalizeShareModule(mod);
+            __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
+          });
+        })`;
+
+  // Where the local fallback may be applied synchronously. A deferred renderer
+  // fallback never is, not even on the server: it emits no
+  // `if (import.meta.env.SSR)` branch, so `prependWorkspaceSingletonSsrImport`
+  // leaves the wrapper alone and both builds resolve it through the cache or
+  // init, then the dynamic import.
+  const synchronousFallbackConditions = [
+    ...(deferredRendererFallback ? [] : ['import.meta.env.SSR']),
+    ...(serveLocalFallback
+      ? ["(import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')"]
+      : []),
+  ];
+  const trackPendingLoad = `__mfTrackPendingShareLoad(${deferredRendererFallback ? deferredClientLoad : deferredInitLoad});`;
+  const resolveMissingShare =
+    synchronousFallbackConditions.length > 0
+      ? `if (${synchronousFallbackConditions.join(' || ')}) {
+        ${applyLocalFallback}
+      } else {
+        ${trackPendingLoad}
+      }`
+      : trackPendingLoad;
+
+  const body = `${declarations}
+    const __mfApplyLazyShareExports = (mod) => {
+      ${assignments}
+    };
+    __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyLazyShareExports);
+    let exportModule = ${readDeferredShare};
+    if (exportModule === undefined) {
+      ${resolveMissingShare}
     } else {
       __mfApplyLazyShareExports(exportModule);
     }
@@ -2191,6 +2238,14 @@ export function writeLoadShareModule(
     shareItem.shareConfig.singleton === true &&
     resolvedOptions.hostInitInjectLocation === 'entry' &&
     (command === 'build' || isConsumedByPeerSingleton);
+  // Importing an entry-injected leaf's eager renderer fallback has a side
+  // effect even when the shared cache already contains the host's renderer.
+  // Keep React's synchronous fallback, but defer this one import until the
+  // cache has had a chance to provide the coherent React pair. This prevents
+  // an unused same-version renderer from registering on the page and taking
+  // ownership away from the renderer that owns the root.
+  const usesDeferredEntryInjectedReactDomFallback =
+    usesEntryInjectedRemoteFallback && pkg === REACT_DOM_CLIENT_SHARE;
   const usesEagerWorkspaceFallback =
     hasCompleteExportCoverage &&
     isWorkspaceSingleton &&
@@ -2213,6 +2268,19 @@ export function writeLoadShareModule(
         !servesRemoteSingletonFallback &&
         (isWorkspaceSingleton || isWorkspacePackage),
       liveNamedExports
+    );
+  } else if (usesDeferredEntryInjectedReactDomFallback) {
+    importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
+    exportLine = generateLazyWorkspaceSingletonExports(
+      edges,
+      namedExports,
+      lazyLocalFallbackSource,
+      cacheDescriptor,
+      cacheOwner,
+      treeShakingConsumer,
+      false,
+      liveNamedExports,
+      true
     );
   } else if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
     exportLine = generateEagerWorkspaceSingletonExports(
@@ -2343,7 +2411,9 @@ export function writeLoadShareModule(
         : edges.importNamespace(staticLocalShareSource);
   const devDynamicImportLine = isWorkspacePackage
     ? ''
-    : usesDeferredSingletonFallback || usesDeferredTreeShakingFallback
+    : usesDeferredSingletonFallback ||
+        usesDeferredTreeShakingFallback ||
+        usesDeferredEntryInjectedReactDomFallback
       ? ''
       : command !== 'build' && !skipServePrebuildWarmup
         ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
@@ -2364,11 +2434,12 @@ export function writeLoadShareModule(
   const exportLineDeclaresModule =
     usesDeferredSingletonFallback ||
     usesDeferredTreeShakingFallback ||
+    usesDeferredEntryInjectedReactDomFallback ||
     usesEagerWorkspaceFallback ||
     usesEntryInjectedRemoteFallback;
   const moduleBody = exportLineDeclaresModule
     ? `
-    ${prebuildImportLine}
+    ${usesDeferredEntryInjectedReactDomFallback ? '' : prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
     ${cacheHelpers}

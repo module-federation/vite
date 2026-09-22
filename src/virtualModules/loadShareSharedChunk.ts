@@ -27,6 +27,8 @@ export const SHARED_CACHE_HELPER_NAMES = [
   '__mfSharedCacheOwnersKey',
   '__mfGetSharedCacheOwners',
   '__mfReadSharedCacheOwner',
+  '__mfGetSharedModuleIdentity',
+  '__mfIsSameSharedModule',
   '__mfWriteSharedCache',
   '__mfTreeShakingSharedCacheKey',
   '__mfGetTreeShakingSharedCache',

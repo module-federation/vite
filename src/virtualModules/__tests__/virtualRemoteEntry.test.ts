@@ -1349,6 +1349,106 @@ describe('virtualRemoteEntry', () => {
     );
   });
 
+  it('preloads react-dom/client when the shared key collapsed from react-dom/', async () => {
+    const share = (name: string, importFalse = false) => ({
+      name,
+      version: '19.2.4',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        ...(importFalse ? { import: false as const } : {}),
+      },
+    });
+    normalizedSharedMock.mockReturnValue({
+      'react-dom': share('react-dom'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react-dom');
+    mod.addUsedShares('react-dom/client');
+
+    const buildCode = mod.generatePendingSharesCode('build');
+
+    expect(buildCode).toContain(
+      '["react-dom/client", () => import("virtual:loadShare:react-dom/client")]'
+    );
+  });
+
+  it('preloads an entry-injected remote react-dom/client before the subpath is materialized', async () => {
+    const share = (name: string) => ({
+      name,
+      version: '19.2.4',
+      scope: 'default',
+      shareConfig: { singleton: true, strictVersion: false },
+    });
+    normalizedSharedMock.mockReturnValue({
+      react: share('react'),
+      'react-dom': share('react-dom'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const remoteOptions = {
+      name: 'remote',
+      exposes: { './App': './src/App.jsx' },
+      hostInitInjectLocation: 'entry' as const,
+      shared: normalizedSharedMock(),
+    };
+    const buildCode = mod.generatePendingSharesCode('build', remoteOptions as any);
+
+    expect(buildCode).toContain(
+      '["react-dom/client", () => import("virtual:loadShare:react-dom/client")]'
+    );
+    expect(buildCode).toContain('const __mfRendererShare = "react-dom/client";');
+    expect(buildCode).toContain('const __mfRendererParent = "react-dom";');
+    expect(buildCode).toContain('pkg !== __mfRendererShare');
+    expect(mod.generatePendingSharesCode('serve', remoteOptions as any)).toContain(
+      'const __mfPendingShareImports = [];'
+    );
+
+    const hostOptions = {
+      name: 'host',
+      remotes: { remote: { type: 'module', name: 'remote', entry: '/remoteEntry.js' } },
+      hostInitInjectLocation: 'entry' as const,
+      shared: normalizedSharedMock(),
+    };
+    const hostCode = mod.generatePendingSharesCode('build', hostOptions as any);
+    const hostImports = hostCode.slice(
+      hostCode.indexOf('const __mfPendingShareImports'),
+      hostCode.indexOf('export async function preloadPendingShares')
+    );
+    expect(hostImports).not.toContain('react-dom/client');
+  });
+
+  it('does not preload react-dom/client from an import:false react-dom share', async () => {
+    normalizedSharedMock.mockReturnValue({
+      'react-dom': {
+        name: 'react-dom',
+        version: '19.2.4',
+        scope: 'default',
+        shareConfig: { singleton: true, strictVersion: false, import: false },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react-dom/client');
+
+    const buildCode = mod.generatePendingSharesCode('build', {
+      name: 'remote',
+      exposes: { './App': './src/App.jsx' },
+      hostInitInjectLocation: 'entry',
+      shared: normalizedSharedMock(),
+    } as any);
+
+    const imports = buildCode.slice(
+      buildCode.indexOf('const __mfPendingShareImports'),
+      buildCode.indexOf('export async function preloadPendingShares')
+    );
+    expect(imports).toContain('const __mfPendingShareImports = [];');
+  });
+
   it('does not preload an implicit subpath from a bare shared package', async () => {
     normalizedSharedMock.mockReturnValue({
       lit: {

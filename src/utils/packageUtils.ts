@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 import { getNodeModulesSuffix } from './pathNormalization';
+import { REACT_INTERNALS_KEYS } from './reactShares';
 import { getSharedRuntimeKey } from './sharedKeyMatcher';
 
 type PackageJsonDependencyGroups = {
@@ -389,7 +390,47 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
           };
           const __mfReadSharedCacheOwner = (cache, descriptor) =>
             cache[__mfSharedCacheOwnersKey]?.[descriptor.canonical];
+          const __mfGetSharedModuleIdentity = (value) => {
+            const candidates = [value, value?.default];
+            for (const candidate of candidates) {
+              if (!candidate || typeof candidate !== "object") continue;
+              for (const key of ${JSON.stringify(REACT_INTERNALS_KEYS)}) {
+                const internals = candidate[key];
+                if (internals && typeof internals === "object") {
+                  return { internals };
+                }
+              }
+              if (typeof candidate.useState === "function") return { hook: candidate.useState };
+            }
+            return undefined;
+          };
+          const __mfIsSameSharedModule = (current, next) => {
+            if (current === next) return true;
+            const currentIdentity = __mfGetSharedModuleIdentity(current);
+            const nextIdentity = __mfGetSharedModuleIdentity(next);
+            if (!currentIdentity || !nextIdentity) return false;
+            const currentInternals = currentIdentity.internals;
+            const nextInternals = nextIdentity.internals;
+            // Internals identity is authoritative when either side exposes it.
+            // Never treat absent fields as equal (undefined === undefined).
+            if (currentInternals !== undefined || nextInternals !== undefined) {
+              return (
+                currentInternals !== undefined &&
+                currentInternals === nextInternals
+              );
+            }
+            // Hook identity is only a fallback when neither side exposes internals.
+            return (
+              typeof currentIdentity.hook === "function" &&
+              currentIdentity.hook === nextIdentity.hook
+            );
+          };
           const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
+            // Rewriting the same instance is a no-op on purpose: the first
+            // provider keeps ownership and subscribers are not re-notified, so
+            // an already-bound renderer never sees its React rebound.
+            const current = __mfReadSharedCache(cache, descriptor);
+            if (current !== undefined && __mfIsSameSharedModule(current, value)) return value;
             cache[descriptor.canonical] = value;
             const aliases = descriptor.aliases || [];
             for (const alias of aliases) {

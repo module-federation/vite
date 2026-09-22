@@ -4330,6 +4330,39 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
+  it('defers entry-injected react-dom/client fallbacks to avoid duplicate renderers', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      hostInitInjectLocation: 'entry',
+      exposes: { './App': './src/App.jsx' },
+      shared: { 'react-dom/client': { singleton: true } },
+    });
+    const pkg = 'react-dom/client';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '19.2.8',
+      shareConfig: {
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^19.2.4',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
+    expect(generatedCode).toContain('initPromise.then');
+    expect(generatedCode).toContain('Promise.race([');
+    expect(generatedCode).toContain('import("/resolved/react-dom/client").then((mod) => {');
+    expect(generatedCode).not.toContain('await ');
+    // No synchronous fallback branch at all, so the server build resolves it the same way.
+    expect(generatedCode).not.toContain('import.meta.env.SSR');
+    expect(generatedCode).not.toContain('&& false');
+  });
+
   it('keeps entry-injected singleton fallbacks eager in remote builds that also consume remotes', () => {
     // Regression for #1284 follow-up: a remote that also consumes remotes
     // (a calendar shipped standalone that shares react and the CJS
