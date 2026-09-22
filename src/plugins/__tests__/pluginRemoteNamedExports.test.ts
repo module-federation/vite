@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseAst } from 'rollup/parseAst';
 
-const { getIsRolldownMock } = vi.hoisted(() => ({
+const { getIsRolldownMock, getInstalledPackageEntryMock } = vi.hoisted(() => ({
   getIsRolldownMock: vi.fn(() => true),
+  getInstalledPackageEntryMock: vi.fn((): string | undefined => undefined),
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
   getIsRolldown: getIsRolldownMock,
+  getInstalledPackageEntry: getInstalledPackageEntryMock,
 }));
 
 import { pluginRemoteNamedExports } from '../pluginRemoteNamedExports';
@@ -39,6 +41,7 @@ async function transform(code: string, id = '/src/app.js', parseError = false, o
 describe('pluginRemoteNamedExports', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getInstalledPackageEntryMock.mockReturnValue(undefined);
     getIsRolldownMock.mockReturnValue(true);
   });
 
@@ -159,12 +162,31 @@ describe('pluginRemoteNamedExports', () => {
       expect(result).toContain('let foo;');
     });
 
-    it('skips bare remote-name rewrites inside node_modules files', async () => {
+    it('skips bare remote-name rewrites inside node_modules files when that package is installed', async () => {
+      getInstalledPackageEntryMock.mockReturnValue('/repo/node_modules/remoteApp/index.js');
       const result = await transform(
         'import { foo } from "remoteApp";',
         '/repo/node_modules/some-package/index.js'
       );
       expect(result).toBeUndefined();
+    });
+
+    it('rewrites bare remote names inside node_modules files when no such package is installed', async () => {
+      const result = await transform(
+        'import { foo } from "remoteApp";',
+        '/repo/node_modules/some-package/index.js'
+      );
+      expect(result).toContain('__moduleExports');
+      expect(result).toContain('let foo;');
+    });
+
+    it('wraps bare-name dynamic import from node_modules when no such package is installed', async () => {
+      const result = await transform(
+        'const m = import("remoteApp");',
+        '/repo/node_modules/some-library/dist/index.js'
+      );
+      expect(result).toContain('.then(function(__mf_m__)');
+      expect(result).toContain('__moduleExports');
     });
 
     it('still rewrites remote subpaths inside node_modules files', async () => {
