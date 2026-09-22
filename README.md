@@ -154,6 +154,16 @@ shared: {
 
 `suppressMissingImportWarning` defaults to `false`. Enable it only when the host is guaranteed to provide the dependency and local named-export detection is unnecessary.
 
+### Shared dependencies installed in several places
+
+An absolute import that resolves inside a different `node_modules` directory than the one the share itself resolves to, for example a workspace package with its own nested copy, is not treated as the shared module by default. Set `allowNodeModulesSuffixMatch: true` on the share to match it by the path after `node_modules/`, as webpack and rspack do with the same option:
+
+```ts
+shared: {
+  react: { singleton: true, allowNodeModulesSuffixMatch: true },
+},
+```
+
 ## The Host Application configuration
 
 file **host/vite.config.ts**
