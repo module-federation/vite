@@ -1401,7 +1401,9 @@ describe('virtualRemoteEntry', () => {
     expect(buildCode).toContain(
       '["react-dom/client", () => import("virtual:loadShare:react-dom/client")]'
     );
-    expect(buildCode).toContain('pkg !== "react-dom/client"');
+    expect(buildCode).toContain('const __mfRendererShare = "react-dom/client";');
+    expect(buildCode).toContain('const __mfRendererParent = "react-dom";');
+    expect(buildCode).toContain('pkg !== __mfRendererShare');
     expect(mod.generatePendingSharesCode('serve', remoteOptions as any)).toContain(
       'const __mfPendingShareImports = [];'
     );

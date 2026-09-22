@@ -4358,6 +4358,9 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('Promise.race([');
     expect(generatedCode).toContain('import("/resolved/react-dom/client").then((mod) => {');
     expect(generatedCode).not.toContain('await ');
+    // No synchronous fallback branch at all, so the server build resolves it the same way.
+    expect(generatedCode).not.toContain('import.meta.env.SSR');
+    expect(generatedCode).not.toContain('&& false');
   });
 
   it('keeps entry-injected singleton fallbacks eager in remote builds that also consume remotes', () => {

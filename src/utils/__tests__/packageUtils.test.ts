@@ -1056,6 +1056,55 @@ describe('getSharedCacheKey', () => {
     expect(cache.react).toBe(unownedReact);
   });
 
+  it('keeps the first owner and stays silent when the same instance is rewritten', () => {
+    const runtime = new Function(
+      `${sharedCacheHelperCode}
+      return {
+        readOwner: __mfReadSharedCacheOwner,
+        subscribe: __mfSubscribeSharedCache,
+        write: __mfWriteSharedCache
+      };`
+    )() as {
+      readOwner: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string }
+      ) => unknown;
+      subscribe: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string },
+        listener: (value: unknown) => void
+      ) => void;
+      write: (
+        cache: Record<PropertyKey, unknown>,
+        descriptor: { canonical: string; aliases?: string[] },
+        value: unknown,
+        owner?: string
+      ) => unknown;
+    };
+    const cache: Record<PropertyKey, unknown> = {};
+    const descriptor = { canonical: 'default:react', aliases: ['react'] };
+    const internals = { H: null };
+    const hostReact = {
+      useState() {},
+      __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: internals,
+    };
+    const sameReactRewrapped = {
+      default: hostReact,
+      __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: internals,
+    };
+    const notified: unknown[] = [];
+
+    runtime.write(cache, descriptor, hostReact, 'host');
+    runtime.subscribe(cache, descriptor, (value) => notified.push(value));
+
+    runtime.write(cache, descriptor, sameReactRewrapped, 'leaf');
+
+    // Same instance: the host keeps ownership and no subscriber is re-notified.
+    expect(runtime.readOwner(cache, descriptor)).toBe('host');
+    expect(cache['default:react']).toBe(hostReact);
+    expect(notified).toEqual([]);
+  });
+
   it('keeps partial modules coverage-aware without poisoning the full-module cache', () => {
     const runtime = new Function(
       `${sharedCacheHelperCode}

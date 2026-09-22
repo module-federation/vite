@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { createModuleFederationError } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 import { getNodeModulesSuffix } from './pathNormalization';
+import { REACT_INTERNALS_KEYS } from './reactShares';
 
 type PackageJsonDependencyGroups = {
   dependencies?: Record<string, string>;
@@ -388,11 +389,7 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
             const candidates = [value, value?.default];
             for (const candidate of candidates) {
               if (!candidate || typeof candidate !== "object") continue;
-              for (const key of [
-                "__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE",
-                "__TEST_INTERNALS",
-                "__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED"
-              ]) {
+              for (const key of ${JSON.stringify(REACT_INTERNALS_KEYS)}) {
                 const internals = candidate[key];
                 if (internals && typeof internals === "object") {
                   return { internals };
@@ -424,6 +421,9 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg,
             );
           };
           const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
+            // Rewriting the same instance is a no-op on purpose: the first
+            // provider keeps ownership and subscribers are not re-notified, so
+            // an already-bound renderer never sees its React rebound.
             const current = __mfReadSharedCache(cache, descriptor);
             if (current !== undefined && __mfIsSameSharedModule(current, value)) return value;
             cache[descriptor.canonical] = value;
