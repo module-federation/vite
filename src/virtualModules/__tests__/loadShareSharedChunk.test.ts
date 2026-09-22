@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { sharedCacheHelperCode } from '../../utils/packageUtils';
 import {
   findEagerFallbacksInSharedChunk,
   getSharedChunkName,
   isSharedCacheHelpersId,
+  SHARED_CACHE_HELPER_NAMES,
 } from '../loadShareSharedChunk';
 
 const SHARED_CHUNK = 'assets/app__mf_owner__7__loadShare__shared-abc123.js';
@@ -14,6 +16,37 @@ const chunk = (over: Partial<{ name: string; imports: string[]; modules: object 
   imports: [],
   modules: {},
   ...over,
+});
+
+describe('SHARED_CACHE_HELPER_NAMES', () => {
+  // Top-level `const __mf…` declarations, skipping nested ones by bracket depth.
+  function topLevelHelperNames(code: string): string[] {
+    const names: string[] = [];
+    let depth = 0;
+    for (const line of code.split('\n')) {
+      if (depth === 0) {
+        const match = line.match(/^\s*const (__mf[A-Za-z0-9_$]*)\s*=/);
+        if (match) names.push(match[1]);
+      }
+      for (const char of line) {
+        if (char === '{' || char === '(' || char === '[') depth++;
+        else if (char === '}' || char === ')' || char === ']') depth--;
+      }
+    }
+    return names;
+  }
+
+  it('lists every top-level helper the source declares, in order', () => {
+    expect([...SHARED_CACHE_HELPER_NAMES]).toEqual(topLevelHelperNames(sharedCacheHelperCode));
+  });
+
+  it('names bindings the helper source defines', () => {
+    const bindings = new Function(
+      `${sharedCacheHelperCode}
+      return { ${SHARED_CACHE_HELPER_NAMES.join(', ')} };`
+    )() as Record<string, unknown>;
+    for (const name of SHARED_CACHE_HELPER_NAMES) expect(bindings[name]).toBeDefined();
+  });
 });
 
 describe('getSharedChunkName', () => {

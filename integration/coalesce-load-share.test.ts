@@ -118,6 +118,30 @@ describe('experiments.coalesceLoadShareWrappers', () => {
     expect(wrapperChunks(on).map(stripOwner)).toEqual(wrapperChunks(off).map(stripOwner));
   });
 
+  it('merges the wrappers of the instance that opted in, whichever instance chunks them', async () => {
+    // Only the last instance's chunking callback survives in the output
+    // options, so the first instance's wrappers are named by the second.
+    const instance = (name: string, coalesceLoadShareWrappers: boolean) => ({
+      name,
+      filename: `${name}.js`,
+      exposes: { './Module': resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js') },
+      shareStrategy: 'loaded-first' as const,
+      shared: SHARED,
+      experiments: { coalesceLoadShareWrappers },
+      dts: false,
+    });
+    const output = await buildFixture({
+      fixture: 'react-skew-remote',
+      mfOptions: [instance('coalesceOn', true), instance('coalesceOff', false)],
+    });
+    const merged = wrapperChunks(output).filter(isMerged);
+    const separate = wrapperChunks(output).filter((chunk) => !isMerged(chunk));
+
+    expect(merged.map((chunk) => chunk.name.includes('coalesceOn'))).toEqual([true]);
+    expect(separate).toHaveLength(SHARE_COUNT);
+    expect(separate.every((chunk) => chunk.name.includes('coalesceOff'))).toBe(true);
+  });
+
   it('adds no static import cycle to the chunk graph', async () => {
     const output = await buildRemote(true);
     const byFileName = new Map(chunksOf(output).map((chunk) => [chunk.fileName, chunk]));

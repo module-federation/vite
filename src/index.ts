@@ -1627,12 +1627,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               // of its own. Leave those to the bundler's own chunking.
               if (key && shared[key].shareConfig.import === false) return null;
               // generateBundle finds the CommonJS proxies by file name, so they keep
-              // their own chunks.
+              // their own chunks. Eligibility is recorded by the instance that owns the
+              // wrapper, so it holds even when another instance's callback runs here.
               if (
-                coalesceLoadShareWrappers &&
                 pkg &&
                 !id.includes('commonjs-proxy') &&
-                isCoalescableLoadShareWrapper(pkg, options)
+                isCoalescableLoadShareWrapper(pkg, options, id)
               ) {
                 return getSharedChunkName(id);
               }
@@ -1841,7 +1841,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             const withSsrImport = prependWorkspaceSingletonSsrImport(code);
             if (withSsrImport !== code) {
               const pkg = getCachedLoadSharePkg(id);
-              if (pkg) markLoadShareWrapperNotCoalescable(pkg, options);
+              if (pkg) markLoadShareWrapperNotCoalescable(pkg, options, id);
               code = withSsrImport;
             }
           }

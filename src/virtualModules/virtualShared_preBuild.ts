@@ -1231,6 +1231,9 @@ const sharedVirtualModuleStates = new WeakMap<
   NormalizedModuleFederationOptions,
   SharedVirtualModuleState
 >();
+// Only one `federation()` instance's chunking callback survives in the bundler
+// output options, so state has to be reachable from a virtual id's owner too.
+const sharedVirtualModuleStatesByOwner = new Map<string, SharedVirtualModuleState>();
 function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions) {
   if (!options) {
     try {
@@ -1253,8 +1256,21 @@ function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions
       ownerKey: getFederationScopeKey(options),
     };
     sharedVirtualModuleStates.set(options, state);
+    if (state.ownerKey !== undefined) sharedVirtualModuleStatesByOwner.set(state.ownerKey, state);
   }
   return state;
+}
+
+/** State of the instance that owns a scoped virtual id; `options` covers unscoped ids. */
+function getSharedVirtualModuleStateForId(
+  id: string | undefined,
+  options?: NormalizedModuleFederationOptions
+): SharedVirtualModuleState {
+  const ownerKey = id === undefined ? undefined : VirtualModule.findById(id)?.getScopeName();
+  return (
+    (ownerKey !== undefined ? sharedVirtualModuleStatesByOwner.get(ownerKey) : undefined) ??
+    getSharedVirtualModuleState(options)
+  );
 }
 
 function createScopedSharedVirtualModule(
@@ -2033,20 +2049,24 @@ function recordCoalescability(
 
 /**
  * `prependWorkspaceSingletonSsrImport` adds a local-payload edge in the server
- * build's load hook, after this module has generated the wrapper.
+ * build's load hook, after this module has generated the wrapper. `id` names
+ * the owning instance when the hook belongs to a different one.
  */
 export function markLoadShareWrapperNotCoalescable(
   pkg: string,
-  options?: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  id?: string
 ): void {
-  getSharedVirtualModuleState(options).coalescableLoadShares.delete(pkg);
+  getSharedVirtualModuleStateForId(id, options).coalescableLoadShares.delete(pkg);
 }
 
+/** With `id`, answers from the owning instance's state, whichever instance asks. */
 export function isCoalescableLoadShareWrapper(
   pkg: string,
-  options: NormalizedModuleFederationOptions
+  options?: NormalizedModuleFederationOptions,
+  id?: string
 ): boolean {
-  return getSharedVirtualModuleState(options).coalescableLoadShares.has(pkg);
+  return getSharedVirtualModuleStateForId(id, options).coalescableLoadShares.has(pkg);
 }
 
 export function writeLoadShareModule(

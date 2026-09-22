@@ -13,16 +13,32 @@ const HELPERS_MODULE_MARKER = `${HELPERS_MODULE_TAG}${HELPERS_MODULE_NAME}${HELP
 // the passes that match wrapper chunks by file name still find it.
 const SHARED_CHUNK_SUFFIX = `${LOAD_SHARE_TAG}shared`;
 
-let helperNames: string[] | undefined;
+/**
+ * Top-level bindings `sharedCacheHelperCode` declares, in declaration order.
+ * Hoisting the helpers exports exactly these; a test keeps the list in sync
+ * with the source, so a new helper fails there instead of at bundle time.
+ */
+export const SHARED_CACHE_HELPER_NAMES = [
+  '__mfGetSharedCacheDescriptor',
+  '__mfReadSharedCache',
+  '__mfSharedCacheListenersKey',
+  '__mfGetSharedCacheListeners',
+  '__mfSubscribeSharedCache',
+  '__mfSharedCacheOwnersKey',
+  '__mfGetSharedCacheOwners',
+  '__mfReadSharedCacheOwner',
+  '__mfWriteSharedCache',
+  '__mfTreeShakingSharedCacheKey',
+  '__mfGetTreeShakingSharedCache',
+  '__mfReadTreeShakingSharedCache',
+  '__mfWriteTreeShakingSharedCache',
+  '__mfTreeShakingSelectionCacheKey',
+  '__mfGetTreeShakingSelectionCache',
+  '__mfReadTreeShakingSharedSelection',
+  '__mfWriteTreeShakingSharedSelection',
+] as const;
 
-// Read off the helper source so the export list can't drift from the bodies.
-function getSharedCacheHelperNames(): string[] {
-  helperNames ??= Array.from(
-    sharedCacheHelperCode.matchAll(/^\s*const (__mf[A-Za-z0-9_$]*)\s*=/gm),
-    (match) => match[1]
-  );
-  return helperNames;
-}
+const HELPER_EXPORT_LIST = SHARED_CACHE_HELPER_NAMES.join(', ');
 
 const helperModules = new WeakMap<NormalizedModuleFederationOptions, VirtualModule>();
 
@@ -35,9 +51,7 @@ function getSharedCacheHelpersModule(options: NormalizedModuleFederationOptions)
       '',
       getFederationScopeKey(options)
     );
-    module.writeSync(
-      `${sharedCacheHelperCode}\nexport { ${getSharedCacheHelperNames().join(', ')} };`
-    );
+    module.writeSync(`${sharedCacheHelperCode}\nexport { ${HELPER_EXPORT_LIST} };`);
     helperModules.set(options, module);
   }
   return module;
@@ -47,7 +61,7 @@ export function getSharedCacheHelpersImportCode(
   options: NormalizedModuleFederationOptions
 ): string {
   const importId = getSharedCacheHelpersModule(options).getImportId();
-  return `import { ${getSharedCacheHelperNames().join(', ')} } from ${JSON.stringify(importId)};`;
+  return `import { ${HELPER_EXPORT_LIST} } from ${JSON.stringify(importId)};`;
 }
 
 export function isSharedCacheHelpersId(id: string): boolean {
