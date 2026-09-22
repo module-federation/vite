@@ -193,7 +193,7 @@ describe('pluginProxyRemotes', () => {
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler/SchedulePanel',
       'serve',
-      true,
+      false,
       'unified',
       expect.objectContaining({ name: 'host' })
     );
@@ -248,7 +248,7 @@ describe('pluginProxyRemotes', () => {
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler',
       'serve',
-      true,
+      false,
       'unified',
       expect.objectContaining({ name: 'host' })
     );
@@ -268,7 +268,7 @@ describe('pluginProxyRemotes', () => {
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler',
       'serve',
-      true,
+      false,
       'unified',
       expect.objectContaining({ name: 'host' })
     );
@@ -302,7 +302,7 @@ describe('pluginProxyRemotes', () => {
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler/SchedulePanel',
       'serve',
-      true,
+      false,
       'unified',
       expect.objectContaining({ name: 'host' })
     );
@@ -315,7 +315,16 @@ describe('pluginProxyRemotes', () => {
 
   it('resolves client and server wrappers separately when environments.ssr is configured', () => {
     const { plugin } = getSchedulerPluginAndConfig();
-    runConfig(plugin, { resolve: { alias: [] } }, { environments: { client: {}, ssr: {} } });
+    runConfig(
+      plugin,
+      { resolve: { alias: [] } },
+      {
+        environments: {
+          client: { consumer: 'client' },
+          ssr: { consumer: 'server' },
+        },
+      }
+    );
 
     runResolveId(plugin, 'scheduler/Button', '/repo/src/App.tsx', {
       environment: { name: 'client' },

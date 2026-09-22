@@ -154,6 +154,16 @@ shared: {
 
 `suppressMissingImportWarning` defaults to `false`. Enable it only when the host is guaranteed to provide the dependency and local named-export detection is unnecessary.
 
+### Shared dependencies installed in several places
+
+An absolute import that resolves inside a different `node_modules` directory than the one the share itself resolves to, for example a workspace package with its own nested copy, is not treated as the shared module by default. Set `allowNodeModulesSuffixMatch: true` on the share to match it by the path after `node_modules/`, as webpack and rspack do with the same option:
+
+```ts
+shared: {
+  react: { singleton: true, allowNodeModulesSuffixMatch: true },
+},
+```
+
 ## The Host Application configuration
 
 file **host/vite.config.ts**
@@ -395,6 +405,8 @@ The `externalRuntime` rewrite applies to the browser remote graph; SSR remote en
 Do not set `build.rollupOptions.output.codeSplitting` or
 `build.rolldownOptions.output.codeSplitting` to `false` — it will be **ignored** (with a warning).
 Module Federation requires chunk splitting so `runtimeInitStatus` and deferred `loadShare` wrappers stay isolated for correct bootstrap order. Eager `loadShare` wrappers are coalesced into one `loadShare-eager` chunk to reduce startup requests, on both Rolldown (Vite 8+) and Rollup (Vite 5–7).
+
+Non-eager `loadShare` wrappers that reach their local `__prebuild__` fallback only through `import()` are merged into one `__loadShare__shared` chunk per `federation()` instance, with the shared-cache helpers included once. A wrapper that statically imports its local payload keeps its own chunk, since merging it could close a top-level-await cycle. `__prebuild__` fallbacks stay in separate lazily imported chunks, so a consumer never downloads its local copy when a peer already provides the share. The plugin warns at build time if a fallback ends up inside the merged chunk.
 
 ### `codeSplitting.groups` (Vite 8+ / Rolldown)
 

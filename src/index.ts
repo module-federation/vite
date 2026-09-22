@@ -81,6 +81,8 @@ import {
 import { getSharedExportUsage } from './utils/treeShaking';
 import {
   getSsrCapabilities,
+  isServerEnvironment,
+  isSsrConfig,
   SSR_ENTRY_LOADER_SPECIFIER,
   SSR_ONLY_RUNTIME_PLUGINS,
 } from './utils/ssrCapabilities';
@@ -124,12 +126,19 @@ import {
 } from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
+  findEagerFallbacksInSharedChunk,
+  getSharedChunkName,
+  isSharedCacheHelpersId,
+} from './virtualModules/loadShareSharedChunk';
+import {
   findCurrentLoadShareForStaleOwnerId,
   getCachedLoadSharePkg,
   getCachedPreBuildPkg,
   getLoadShareModulePath,
   getPreBuildLibImportId,
   invalidateSharedExportInspectionCache,
+  isCoalescableLoadShareWrapper,
+  markLoadShareWrapperNotCoalescable,
   materializeCachedLoadShareModule,
   prependWorkspaceSingletonSsrImport,
   resetConcreteSharedImportSourceCache,
@@ -237,7 +246,13 @@ type EnvironmentWithRolldownOptions = {
 type BuilderLike = { environments: Record<string, EnvironmentWithRolldownOptions> };
 type ModulePreloadResolveContext = { hostId: string; hostType: 'html' | 'js' };
 type ResolveAliasEntry = { find: string | RegExp; replacement: string };
-type BundleChunkLike = { type: 'chunk'; fileName: string; code: string };
+type BundleChunkLike = {
+  type: 'chunk';
+  fileName: string;
+  code: string;
+  imports?: string[];
+  modules?: Record<string, unknown>;
+};
 type BundleAssetLike = { type: 'asset'; fileName: string };
 type BundleLike = Record<string, BundleChunkLike | BundleAssetLike>;
 type NormalizedOutputOptionsLike = { dir?: string };
@@ -985,7 +1000,8 @@ export default __mfShared.default ?? __mfShared;`,
       const ssrCapabilities = getSsrCapabilities(
         viteMajor,
         config.command as 'serve' | 'build',
-        hasRemotes(options)
+        hasRemotes(options),
+        isSsrConfig(config)
       );
       if (!ssrCapabilities.injectSsrEntryLoader) return;
 
@@ -1194,10 +1210,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     const isSsr =
       loadOptions?.ssr === true ||
       isSsrBuild ||
-      environment?.config?.consumer === 'server' ||
-      Boolean(environment?.config?.build?.ssr) ||
-      environment?.name === 'ssr' ||
-      environment?.name === 'server';
+      isServerEnvironment(environment?.name, environment?.config);
     return getSharedExportConditions({
       environmentConditions: environment?.config?.resolve?.conditions,
       isProduction: environment?.config?.isProduction ?? isProduction,
@@ -1416,7 +1429,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         const ssrCapabilities = getSsrCapabilities(
           parseInt(viteVersion, 10),
           command as 'serve' | 'build',
-          Object.keys(options.remotes).length > 0
+          Object.keys(options.remotes).length > 0,
+          isSsrConfig(config)
         );
         resolveSharedVersions(shared, config.root);
         initVirtualModules(command, remoteEntryId, ssrCapabilities.enableSsrInitBootstrap, options);
@@ -1612,6 +1626,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             if (id.includes(runtimeInitId) || id.includes('__mf_v__runtimeInit__mf_v__')) {
               return 'runtimeInit';
             }
+            if (isSharedCacheHelpersId(id)) return getSharedChunkName(id);
             if (id.includes(LOAD_SHARE_TAG)) {
               const pkg = getCachedLoadSharePkg(id);
               const key = pkg && findSharedKey(pkg, shared);
@@ -1622,6 +1637,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               // cycle across wrappers: isolating it only turns each such share into a request
               // of its own. Leave those to the bundler's own chunking.
               if (key && shared[key].shareConfig.import === false) return null;
+              // generateBundle finds the CommonJS proxies by file name, so they keep
+              // their own chunks. Eligibility is recorded by the instance that owns the
+              // wrapper, so it holds even when another instance's callback runs here.
+              if (
+                pkg &&
+                !id.includes('commonjs-proxy') &&
+                isCoalescableLoadShareWrapper(pkg, options, id)
+              ) {
+                return getSharedChunkName(id);
+              }
               // Use the virtual module path as the chunk name
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';
@@ -1824,7 +1849,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           // Vite 5-7 SSR builds do not expose `this.environment`, so fall back to root
           // build.ssr to ensure SSR-only local fallback imports are still prepended.
           if (consumerTarget === 'server' || (!consumerTarget && isSsrBuild)) {
-            code = prependWorkspaceSingletonSsrImport(code);
+            const withSsrImport = prependWorkspaceSingletonSsrImport(code);
+            if (withSsrImport !== code) {
+              const pkg = getCachedLoadSharePkg(id);
+              if (pkg) markLoadShareWrapperNotCoalescable(pkg, options, id);
+              code = withSsrImport;
+            }
           }
 
           // Remove static imports/re-exports of prebuild modules to prevent
@@ -1893,6 +1923,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         bundle: BundleLike,
         _isWrite: boolean
       ) {
+        for (const [fileName, fallbacks] of findEagerFallbacksInSharedChunk(bundle)) {
+          mfWarn(
+            `A shared-dependency fallback was merged into the loadShare chunk ${fileName}: ` +
+              `${fallbacks.join(', ')}.\n` +
+              '  That fallback is no longer lazy, so consumers download their local copy even when a peer ' +
+              'provides the share, and the container can deadlock.\n' +
+              '  Stop the shared module from statically importing another share.'
+          );
+        }
+
         for (const [fileName, chunk] of Object.entries(bundle)) {
           if (!isOutputChunk(chunk)) continue;
           if (!isFederationControlChunk(fileName, filename)) continue;
@@ -2062,13 +2102,8 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         }
       },
       configEnvironment(name: string, config: EnvironmentOptions) {
-        const isServerEnvironment =
-          config.consumer === 'server' ||
-          name === 'ssr' ||
-          name === 'server' ||
-          config.build?.ssr === true;
         // Client graphs keep ENV_TARGET from root config(); only server/ssr envs need node.
-        if (!isServerEnvironment) return;
+        if (!isServerEnvironment(name, config)) return;
 
         const isAstro = hasPackageDependency('astro');
         // Copy define per environment — Vite may reuse the same object across envs.

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NormalizedShared } from '../normalizeModuleFederationOptions';
 import { createSharedSourceResolver } from '../sharedSource';
 
-function makeShared(keys: string[]): NormalizedShared {
+function makeShared(keys: string[], shareConfig: Record<string, unknown> = {}): NormalizedShared {
   return Object.fromEntries(
     keys.map((key) => [
       key,
@@ -14,7 +14,7 @@ function makeShared(keys: string[]): NormalizedShared {
         version: '1.0.0',
         scope: 'default',
         from: '',
-        shareConfig: { singleton: true, requiredVersion: '*' },
+        shareConfig: { singleton: true, requiredVersion: '*', ...shareConfig },
       },
     ])
   ) as unknown as NormalizedShared;
@@ -78,6 +78,33 @@ describe('createSharedSourceResolver', () => {
       'mf-test-private-subpath/internal/file.js',
       expect.anything(),
       expect.anything()
+    );
+  });
+
+  it('does not match different node_modules roots unless suffix matching is enabled', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
+    tempDirs.push(root);
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+
+    const source = '/consumer/node_modules/mf-test-suffix-match/index.js';
+    const provider = '/provider/node_modules/mf-test-suffix-match/index.js';
+    const resolve = vi.fn(async (id: string) => ({
+      id: id === 'mf-test-suffix-match' ? provider : id,
+      external: false,
+    }));
+
+    const withoutOptIn = createSharedSourceResolver(makeShared(['mf-test-suffix-match']), () => ({
+      root,
+      conditions: [],
+    }));
+    await expect(withoutOptIn.resolve({ resolve } as any, source, {})).resolves.toBeUndefined();
+
+    const withOptIn = createSharedSourceResolver(
+      makeShared(['mf-test-suffix-match'], { allowNodeModulesSuffixMatch: true }),
+      () => ({ root, conditions: [] })
+    );
+    await expect(withOptIn.resolve({ resolve } as any, source, {})).resolves.toBe(
+      'mf-test-suffix-match'
     );
   });
 });
