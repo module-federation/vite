@@ -123,12 +123,19 @@ import {
 } from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import {
+  findEagerFallbacksInSharedChunk,
+  getSharedChunkName,
+  isSharedCacheHelpersId,
+} from './virtualModules/loadShareSharedChunk';
+import {
   findCurrentLoadShareForStaleOwnerId,
   getCachedLoadSharePkg,
   getCachedPreBuildPkg,
   getLoadShareModulePath,
   getPreBuildLibImportId,
   invalidateSharedExportInspectionCache,
+  isCoalescableLoadShareWrapper,
+  markLoadShareWrapperNotCoalescable,
   materializeCachedLoadShareModule,
   prependWorkspaceSingletonSsrImport,
   resetConcreteSharedImportSourceCache,
@@ -236,7 +243,13 @@ type EnvironmentWithRolldownOptions = {
 type BuilderLike = { environments: Record<string, EnvironmentWithRolldownOptions> };
 type ModulePreloadResolveContext = { hostId: string; hostType: 'html' | 'js' };
 type ResolveAliasEntry = { find: string | RegExp; replacement: string };
-type BundleChunkLike = { type: 'chunk'; fileName: string; code: string };
+type BundleChunkLike = {
+  type: 'chunk';
+  fileName: string;
+  code: string;
+  imports?: string[];
+  modules?: Record<string, unknown>;
+};
 type BundleAssetLike = { type: 'asset'; fileName: string };
 type BundleLike = Record<string, BundleChunkLike | BundleAssetLike>;
 type NormalizedOutputOptionsLike = { dir?: string };
@@ -1125,6 +1138,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
   const isVinext = hasPackageDependency('vinext');
   const { name, shared, filename, hostInitInjectLocation } = options;
+  const coalesceLoadShareWrappers = options.experiments.coalesceLoadShareWrappers;
   const hasTreeShakingShared = Object.values(shared).some(
     (share) => !!share.shareConfig.treeShaking
   );
@@ -1601,6 +1615,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             if (id.includes(runtimeInitId) || id.includes('__mf_v__runtimeInit__mf_v__')) {
               return 'runtimeInit';
             }
+            if (isSharedCacheHelpersId(id)) return getSharedChunkName(id);
             if (id.includes(LOAD_SHARE_TAG)) {
               const pkg = getCachedLoadSharePkg(id);
               const key = pkg && findSharedKey(pkg, shared);
@@ -1611,6 +1626,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               // cycle across wrappers: isolating it only turns each such share into a request
               // of its own. Leave those to the bundler's own chunking.
               if (key && shared[key].shareConfig.import === false) return null;
+              // generateBundle finds the CommonJS proxies by file name, so they keep
+              // their own chunks.
+              if (
+                coalesceLoadShareWrappers &&
+                pkg &&
+                !id.includes('commonjs-proxy') &&
+                isCoalescableLoadShareWrapper(pkg, options)
+              ) {
+                return getSharedChunkName(id);
+              }
               // Use the virtual module path as the chunk name
               const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
               return match ? match[1] : 'loadShare';
@@ -1813,7 +1838,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           // Vite 5-7 SSR builds do not expose `this.environment`, so fall back to root
           // build.ssr to ensure SSR-only local fallback imports are still prepended.
           if (consumerTarget === 'server' || (!consumerTarget && isSsrBuild)) {
-            code = prependWorkspaceSingletonSsrImport(code);
+            const withSsrImport = prependWorkspaceSingletonSsrImport(code);
+            if (withSsrImport !== code) {
+              const pkg = getCachedLoadSharePkg(id);
+              if (pkg) markLoadShareWrapperNotCoalescable(pkg, options);
+              code = withSsrImport;
+            }
           }
 
           // Remove static imports/re-exports of prebuild modules to prevent
@@ -1882,6 +1912,18 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         bundle: BundleLike,
         _isWrite: boolean
       ) {
+        if (coalesceLoadShareWrappers) {
+          for (const [fileName, fallbacks] of findEagerFallbacksInSharedChunk(bundle)) {
+            mfWarn(
+              `\`experiments.coalesceLoadShareWrappers\` merged a shared-dependency fallback into ${fileName}: ` +
+                `${fallbacks.join(', ')}.\n` +
+                '  That fallback is no longer lazy, so consumers download their local copy even when a peer ' +
+                'provides the share, and the container can deadlock.\n' +
+                '  Turn the option off, or stop the shared module from statically importing another share.'
+            );
+          }
+        }
+
         for (const [fileName, chunk] of Object.entries(bundle)) {
           if (!isOutputChunk(chunk)) continue;
           if (!isFederationControlChunk(fileName, filename)) continue;

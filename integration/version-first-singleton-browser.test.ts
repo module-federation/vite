@@ -1,85 +1,16 @@
-import { chromium } from '@playwright/test';
-import { createServer } from 'node:http';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { build } from 'vite';
 import { describe, expect, it } from 'vitest';
-import { federation } from '../src';
+import type { federation } from '../src';
 import { getPackageDetectionCwd, setPackageDetectionCwd } from '../src/utils/packageUtils';
+import {
+  buildFixtureTo,
+  createBrowser,
+  serveDirectory,
+  type StaticServer,
+} from './helpers/browser';
 import { FIXTURES } from './helpers/build';
-
-type StaticServer = {
-  origin: string;
-  close: () => Promise<void>;
-};
-
-async function serveDirectory(root: string): Promise<StaticServer> {
-  const server = createServer(async (request, response) => {
-    const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
-    const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
-    const filePath = path.resolve(root, relativePath);
-
-    if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) {
-      response.writeHead(403).end();
-      return;
-    }
-
-    try {
-      const content = await readFile(filePath);
-      const contentType = filePath.endsWith('.html')
-        ? 'text/html'
-        : filePath.endsWith('.js')
-          ? 'application/javascript'
-          : 'application/octet-stream';
-      response.writeHead(200, {
-        'access-control-allow-origin': '*',
-        'content-type': contentType,
-      });
-      response.end(content);
-    } catch {
-      response.writeHead(404).end();
-    }
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Static server did not bind');
-
-  return {
-    origin: `http://127.0.0.1:${address.port}`,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      }),
-  };
-}
-
-async function buildFixtureTo(
-  fixture: string,
-  outDir: string,
-  mfOptions: Parameters<typeof federation>[0]
-): Promise<void> {
-  const result = await build({
-    root: path.resolve(FIXTURES, fixture),
-    logLevel: 'silent',
-    build: {
-      outDir,
-      emptyOutDir: true,
-      target: 'chrome91',
-    },
-    plugins: [federation(mfOptions)],
-  });
-
-  if (Array.isArray(result)) throw new Error('Expected a single Rollup output');
-}
-
-async function createBrowser() {
-  return chromium.launch({ channel: 'chrome', headless: true });
-}
 
 const remoteOptions = {
   name: 'remoteApp',
@@ -115,7 +46,8 @@ function hostOptions(remoteEntry: string) {
 }
 
 async function readNegotiatedSharedVersions(
-  sharedImports: { host?: string; remote?: string } = {}
+  sharedImports: { host?: string; remote?: string } = {},
+  experiments?: Parameters<typeof federation>[0]['experiments']
 ) {
   const originalPackageDetectionCwd = getPackageDetectionCwd();
   const workspace = await mkdtemp(path.join(tmpdir(), 'mf-version-first-singleton-browser-'));
@@ -129,6 +61,7 @@ async function readNegotiatedSharedVersions(
     // The remote provides 1.5.0 and the host provides 1.0.0.
     await buildFixtureTo('version-first-singleton-remote', remoteOutDir, {
       ...remoteOptions,
+      experiments,
       shared: {
         'shared-lib': { singleton: true, import: sharedImports.remote },
       },
@@ -136,6 +69,7 @@ async function readNegotiatedSharedVersions(
     remoteServer = await serveDirectory(remoteOutDir);
     await buildFixtureTo('version-first-singleton-host', hostOutDir, {
       ...hostOptions(`${remoteServer.origin}/remoteEntry.js`),
+      experiments,
       shared: {
         'shared-lib': { singleton: true, import: sharedImports.host },
       },
@@ -277,14 +211,21 @@ describe('version-first singleton static import browser bootstrap', () => {
     }
   }, 60_000);
 
-  it('resolves both host and remote static imports to the higher negotiated version', async () => {
-    expect(await readNegotiatedSharedVersions()).toEqual({
-      hostSaw: '1.5.0',
-      remoteSaw: '1.5.0',
-      pageErrors: [],
-      consoleErrors: [],
-    });
-  }, 60_000);
+  it.each([
+    ['one wrapper chunk per share', undefined],
+    ['coalesced wrapper chunks', { coalesceLoadShareWrappers: true }],
+  ])(
+    'resolves both host and remote static imports to the higher negotiated version with %s',
+    async (_label, experiments) => {
+      expect(await readNegotiatedSharedVersions({}, experiments)).toEqual({
+        hostSaw: '1.5.0',
+        remoteSaw: '1.5.0',
+        pageErrors: [],
+        consoleErrors: [],
+      });
+    },
+    60_000
+  );
 
   it('preserves singleton negotiation when comments separate export tokens', async () => {
     const result = await readNegotiatedSharedVersions({
@@ -300,87 +241,96 @@ describe('version-first singleton static import browser bootstrap', () => {
     });
   }, 60_000);
 
-  it('keeps eager React fallbacks coherent across patch versions', async () => {
-    const originalPackageDetectionCwd = getPackageDetectionCwd();
-    const workspace = await mkdtemp(path.join(tmpdir(), 'mf-react-skew-browser-'));
-    let remoteServer: StaticServer | undefined;
-    let hostServer: StaticServer | undefined;
-    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+  it.each([
+    ['one wrapper chunk per share', undefined],
+    ['coalesced wrapper chunks', { coalesceLoadShareWrappers: true }],
+  ])(
+    'keeps eager React fallbacks coherent across patch versions with %s',
+    async (_label, experiments) => {
+      const originalPackageDetectionCwd = getPackageDetectionCwd();
+      const workspace = await mkdtemp(path.join(tmpdir(), 'mf-react-skew-browser-'));
+      let remoteServer: StaticServer | undefined;
+      let hostServer: StaticServer | undefined;
+      let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
 
-    try {
-      const remoteOutDir = path.join(workspace, 'remote');
-      const hostOutDir = path.join(workspace, 'host');
-      await buildFixtureTo('react-skew-remote', remoteOutDir, {
-        name: 'reactSkewRemote',
-        filename: 'remoteEntry.js',
-        exposes: {
-          './Module': path.resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js'),
-        },
-        shareStrategy: 'version-first',
-        shared: {
-          react: { singleton: true, requiredVersion: '^19.2.4' },
-          'react-dom/client': { singleton: true, requiredVersion: '^19.2.4' },
-        },
-        hostInitInjectLocation: 'entry',
-        dts: false,
-      });
-      remoteServer = await serveDirectory(remoteOutDir);
-
-      await buildFixtureTo('react-skew-host', hostOutDir, {
-        name: 'reactSkewHost',
-        filename: 'remoteEntry.js',
-        remotes: {
-          remote: {
-            name: 'remote',
-            entry: `${remoteServer.origin}/remoteEntry.js`,
-            type: 'module',
-          },
-        },
-        shareStrategy: 'version-first',
-        shared: {
-          react: { singleton: true, requiredVersion: '^19.2.4' },
-          'react-dom/client': { singleton: true, requiredVersion: '^19.2.4' },
-        },
-        hostInitInjectLocation: 'entry',
-        dts: false,
-      });
-      hostServer = await serveDirectory(hostOutDir);
-
-      browser = await createBrowser();
-      const page = await browser.newPage();
-      const pageErrors: string[] = [];
-      page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
-
-      await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
       try {
-        await page.waitForFunction(
-          () => document.querySelector('#app')?.textContent === 'rendered',
-          undefined,
-          { timeout: 5_000 }
-        );
-      } catch (error) {
-        throw new Error(
-          JSON.stringify(
-            {
-              cause: String(error),
-              pageErrors,
-              content: await page.content(),
-            },
-            null,
-            2
-          )
-        );
-      }
+        const remoteOutDir = path.join(workspace, 'remote');
+        const hostOutDir = path.join(workspace, 'host');
+        await buildFixtureTo('react-skew-remote', remoteOutDir, {
+          name: 'reactSkewRemote',
+          filename: 'remoteEntry.js',
+          exposes: {
+            './Module': path.resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js'),
+          },
+          shareStrategy: 'version-first',
+          shared: {
+            react: { singleton: true, requiredVersion: '^19.2.4' },
+            'react-dom/client': { singleton: true, requiredVersion: '^19.2.4' },
+          },
+          hostInitInjectLocation: 'entry',
+          experiments,
+          dts: false,
+        });
+        remoteServer = await serveDirectory(remoteOutDir);
 
-      expect(pageErrors).toEqual([]);
-    } finally {
-      await browser?.close();
-      await hostServer?.close();
-      await remoteServer?.close();
-      await rm(workspace, { recursive: true, force: true });
-      setPackageDetectionCwd(originalPackageDetectionCwd);
-    }
-  }, 60_000);
+        await buildFixtureTo('react-skew-host', hostOutDir, {
+          name: 'reactSkewHost',
+          filename: 'remoteEntry.js',
+          remotes: {
+            remote: {
+              name: 'remote',
+              entry: `${remoteServer.origin}/remoteEntry.js`,
+              type: 'module',
+            },
+          },
+          shareStrategy: 'version-first',
+          shared: {
+            react: { singleton: true, requiredVersion: '^19.2.4' },
+            'react-dom/client': { singleton: true, requiredVersion: '^19.2.4' },
+          },
+          hostInitInjectLocation: 'entry',
+          experiments,
+          dts: false,
+        });
+        hostServer = await serveDirectory(hostOutDir);
+
+        browser = await createBrowser();
+        const page = await browser.newPage();
+        const pageErrors: string[] = [];
+        page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+
+        await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
+        try {
+          await page.waitForFunction(
+            () => document.querySelector('#app')?.textContent === 'rendered',
+            undefined,
+            { timeout: 5_000 }
+          );
+        } catch (error) {
+          throw new Error(
+            JSON.stringify(
+              {
+                cause: String(error),
+                pageErrors,
+                content: await page.content(),
+              },
+              null,
+              2
+            )
+          );
+        }
+
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser?.close();
+        await hostServer?.close();
+        await remoteServer?.close();
+        await rm(workspace, { recursive: true, force: true });
+        setPackageDetectionCwd(originalPackageDetectionCwd);
+      }
+    },
+    60_000
+  );
 
   it('keeps the host React provider when a nested same-version leaf sorts after it', async () => {
     const originalPackageDetectionCwd = getPackageDetectionCwd();

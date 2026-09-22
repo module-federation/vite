@@ -57,6 +57,7 @@ describe('react island source classification', () => {
         externalRuntime: false,
         provideExternalRuntime: false,
         ssrMode: 'ISLAND',
+        coalesceLoadShareWrappers: false,
       },
     });
     expect([...getReactIslandExposes(options, root)]).toEqual(['./Button']);
