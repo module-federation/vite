@@ -85,6 +85,20 @@ describe('pluginCheckAliasConflicts', () => {
     );
   });
 
+  it('checks an aliased share against its request, not its property name', () => {
+    const aliased = createSharedItem('my-vue', '3.2.45');
+    aliased.shareConfig = { ...aliased.shareConfig, request: 'vue', shareKey: 'vue' };
+    const plugin = checkAliasConflicts({ shared: { 'my-vue': aliased } });
+
+    runConfigResolved(plugin, {
+      resolve: { alias: [{ find: 'vue', replacement: '/path/to/project/vendor/vue' }] },
+    });
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Shared module "my-vue" is aliased by "vue"')
+    );
+  });
+
   it('should not warn when alias points at the same node_modules package', () => {
     const plugin = checkAliasConflicts({
       shared: {

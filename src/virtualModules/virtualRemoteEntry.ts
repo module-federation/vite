@@ -22,6 +22,7 @@ import { getCommonSharedSubpaths } from '../utils/pathNormalization';
 import { REACT_DOM_CLIENT_SHARE } from '../utils/reactShares';
 import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import { SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
+import { getSharedRequest, getSharedRuntimeKey } from '../utils/sharedKeyMatcher';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
 import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
@@ -149,6 +150,13 @@ function getLocalSharedPackagePath(
   );
 }
 
+function getCanonicalSharedKey(pkg: string, shareItem: ShareItem): string {
+  const { request, shareKey } = shareItem.shareConfig;
+  return request !== undefined || shareKey !== undefined
+    ? getSharedRuntimeKey(pkg, shareItem)
+    : pkg;
+}
+
 function getDirectSharedCacheSeedImportPath(pkg: string, shareItem: ShareItem) {
   return (
     getConcreteSharedImportSource(pkg, shareItem) ||
@@ -169,7 +177,9 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
   const eagerImports = orderedShares
     .map((pkg, index) => {
       const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
-      if (!shareItem?.shareConfig.eager || shareItem.shareConfig.import === false) return '';
+      if (!shareItem || !shareItem.shareConfig.eager || shareItem.shareConfig.import === false) {
+        return '';
+      }
       return `import * as __mfEagerShare_${index} from ${toSafeJsLiteral(
         getLocalSharedPackagePath(pkg, shareItem, options)
       )};`;
@@ -222,7 +232,8 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
       ${orderedShares
         .map((pkg, index) => {
           const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
-          if (shareItem?.shareConfig.import === false) {
+          if (!shareItem) return '';
+          if (shareItem.shareConfig.import === false) {
             return `
         ${toSafeJsLiteral(pkg)}: __mfHostOnly(${toSafeJsLiteral(pkg)})`;
           }
@@ -267,7 +278,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           // Without tree-shaking metadata a consume-only entry carries nothing key-specific beyond its config: one call, not ~350 bytes of literal
           if (shareItem.shareConfig.import === false && !treeShakingConfig) {
             return `
-          ${toSafeJsLiteral(key)}: __mfConsumeOnly(${toSafeJsLiteral(key)}, ${toSafeJsLiteral(shareItem.version)}, ${toSafeJsLiteral(shareItem.scope)}, ${sharesToMaterialize.has(key)}, {singleton: ${shareItem.shareConfig.singleton}, requiredVersion: ${toSafeJsLiteral(shareItem.shareConfig.requiredVersion)}, strictVersion: ${shareItem.shareConfig.strictVersion}, eager: ${Boolean(shareItem.shareConfig.eager)}})`;
+          ${toSafeJsLiteral(key)}: __mfConsumeOnly(${toSafeJsLiteral(key)}, ${toSafeJsLiteral(shareItem.version)}, ${toSafeJsLiteral(shareItem.scope)}, ${sharesToMaterialize.has(key)}, {singleton: ${shareItem.shareConfig.singleton}, requiredVersion: ${toSafeJsLiteral(shareItem.shareConfig.requiredVersion)}, strictVersion: ${shareItem.shareConfig.strictVersion}, eager: ${Boolean(shareItem.shareConfig.eager)}, ${shareItem.shareConfig.request !== undefined ? `request: ${toSafeJsLiteral(shareItem.shareConfig.request)},` : ''} ${shareItem.shareConfig.shareKey !== undefined ? `shareKey: ${toSafeJsLiteral(shareItem.shareConfig.shareKey)},` : ''}})`;
           }
           const treeShakingUsage = treeShakingConfig
             ? getTreeShakingExportUsage(key, shareItem, shareItem.name, options)
@@ -363,6 +374,8 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
               requiredVersion: ${toSafeJsLiteral(shareItem.shareConfig.requiredVersion)},
               strictVersion: ${shareItem.shareConfig.strictVersion},
               eager: ${Boolean(shareItem.shareConfig.eager)},
+              ${shareItem.shareConfig.request !== undefined ? `request: ${toSafeJsLiteral(shareItem.shareConfig.request)},` : ''}
+              ${shareItem.shareConfig.shareKey !== undefined ? `shareKey: ${toSafeJsLiteral(shareItem.shareConfig.shareKey)},` : ''}
               ${shareItem.shareConfig.import === false ? 'import: false,' : ''}
             },
             ${
@@ -433,13 +446,21 @@ export function expandSharedPrefixKey(prefixKey: string, used: Iterable<string>)
 function getOrderedUsedShares(options?: NormalizedModuleFederationOptions) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const used = getUsedShares(options);
-  const shares = new Set(used);
+  const shares = new Set<string>();
+  const addShare = (pkg: string) => {
+    const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
+    shares.add(shareItem ? getCanonicalSharedKey(pkg, shareItem) : pkg);
+  };
+  used.forEach(addShare);
   Object.keys(resolvedOptions.shared ?? {}).forEach((pkg) => {
-    if (!pkg.endsWith('/')) shares.add(pkg);
+    const share = resolvedOptions.shared?.[pkg];
+    if (share && !getSharedRequest(pkg, share).endsWith('/')) addShare(pkg);
   });
   for (const [pkg, share] of Object.entries(resolvedOptions.shared ?? {})) {
-    if (pkg.endsWith('/') && share.shareConfig?.eager) {
-      for (const concrete of expandSharedPrefixKey(pkg, used)) shares.add(concrete);
+    if (share.shareConfig?.eager && getSharedRequest(pkg, share).endsWith('/')) {
+      for (const concrete of expandSharedPrefixKey(getSharedRequest(pkg, share), used)) {
+        addShare(concrete);
+      }
     }
   }
   const sorted = Array.from(shares).sort((a, b) => {
@@ -461,8 +482,9 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
   const usedForEager = options ? (usedSharesByOptions.get(options) ?? []) : usedShares;
   for (const [pkg, share] of Object.entries(resolvedOptions.shared ?? {})) {
     if (!share.shareConfig?.eager) continue;
-    if (pkg.endsWith('/')) {
-      for (const concrete of expandSharedPrefixKey(pkg, usedForEager)) shares.add(concrete);
+    const request = getSharedRequest(pkg, share);
+    if (request.endsWith('/')) {
+      for (const concrete of expandSharedPrefixKey(request, usedForEager)) shares.add(concrete);
     } else {
       shares.add(pkg);
     }
@@ -505,7 +527,13 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
       pkg === 'react' ? 0 : pkg === 'react-dom' ? 1 : pkg.startsWith('react/') ? 2 : 3;
     return priority(a) - priority(b) || a.localeCompare(b);
   });
-  return orderSharedDependenciesFirst(sorted);
+  const runtimeKeys = new Set(
+    sorted.map((pkg) => {
+      const shareItem = getNormalizeShareItem(pkg, resolvedOptions);
+      return shareItem ? getCanonicalSharedKey(pkg, shareItem) : pkg;
+    })
+  );
+  return orderSharedDependenciesFirst([...runtimeKeys]);
 }
 
 /** Shared keys a share's package.json depends on (roots stand in for their subpaths, subpaths for their root), keyed by share. */
@@ -641,6 +669,23 @@ function getShareItemForPreload(
     getCommonSharedSubpaths(packageName).includes(pkg)
   ) {
     return shared[packageName];
+  }
+
+  const shareItem = getNormalizeShareItem(pkg, options);
+  if (!shareItem) return undefined;
+
+  // Any other implicit subpath of a bare shared package is not a preload
+  // target. Only an alias with an explicit request/shareKey can recover a
+  // canonical runtime key here.
+  if (shareItem.shareConfig.request === undefined && shareItem.shareConfig.shareKey === undefined) {
+    return undefined;
+  }
+  const runtimeKey = getSharedRuntimeKey(pkg, shareItem);
+  if (
+    runtimeKey === pkg ||
+    (runtimeKey.endsWith('/') && (pkg === runtimeKey.slice(0, -1) || pkg.startsWith(runtimeKey)))
+  ) {
+    return shareItem;
   }
   return undefined;
 }

@@ -12,7 +12,7 @@ import {
   normalizeNodeModulePath,
   stripViteFsPrefix,
 } from './pathNormalization';
-import { findSharedKey } from './sharedKeyMatcher';
+import { findSharedKey, getSharedRequest } from './sharedKeyMatcher';
 
 type ResolveIdHook = HookHandler<NonNullable<Plugin['resolveId']>>;
 type ResolveContext = Pick<ThisParameterType<ResolveIdHook>, 'resolve'> & {
@@ -45,9 +45,10 @@ export function createSharedSourceResolver(
     if (findSharedKey(packageName, shared)) candidates.add(packageName);
     if (findSharedKey(suffix, shared)) candidates.add(suffix);
     for (const key of Object.keys(shared)) {
-      if (getPackageName(key) !== packageName) continue;
-      if (!key.endsWith('/')) candidates.add(key);
-      for (const subpath of getCommonSharedSubpaths(key)) {
+      const request = getSharedRequest(key, shared[key]);
+      if (getPackageName(request) !== packageName) continue;
+      if (!request.endsWith('/')) candidates.add(request);
+      for (const subpath of getCommonSharedSubpaths(request)) {
         if (findSharedKey(subpath, shared)) candidates.add(subpath);
       }
     }

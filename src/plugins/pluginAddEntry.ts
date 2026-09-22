@@ -22,6 +22,7 @@ import { mfWarn } from '../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import {
   getNormalizeModuleFederationOptions,
+  getNormalizeShareItem,
   isRemoteOnlyContainer,
 } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
@@ -575,11 +576,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         ? Array.from(getUsedShares(federationOptions))
             .filter((pkg) => !pkg.endsWith('/'))
             .filter((pkg) => {
-              const shareItem =
-                federationOptions.shared[pkg] ||
-                Object.entries(federationOptions.shared).find(
-                  ([key]) => key.endsWith('/') && pkg.startsWith(key)
-                )?.[1];
+              const shareItem = getNormalizeShareItem(pkg, federationOptions);
               const isExplicitShare = Object.hasOwn(federationOptions.shared, pkg);
               return (
                 shareItem?.shareConfig?.singleton === true &&
