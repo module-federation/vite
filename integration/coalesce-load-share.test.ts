@@ -15,7 +15,7 @@ const SHARED = {
 
 const SHARE_COUNT = Object.keys(SHARED).length;
 
-function buildRemote(coalesceLoadShareWrappers: boolean, shared: object = SHARED) {
+function buildRemote(shared: object = SHARED) {
   return buildFixture({
     fixture: 'react-skew-remote',
     mfOptions: {
@@ -24,7 +24,6 @@ function buildRemote(coalesceLoadShareWrappers: boolean, shared: object = SHARED
       exposes: { './Module': resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js') },
       shareStrategy: 'loaded-first',
       shared,
-      experiments: { coalesceLoadShareWrappers },
       dts: false,
     },
   });
@@ -32,7 +31,7 @@ function buildRemote(coalesceLoadShareWrappers: boolean, shared: object = SHARED
 
 // A host consumes the same shares without exposing anything, so its wrappers
 // hold the local payload as a static import instead of a lazy fallback.
-function buildHost(coalesceLoadShareWrappers: boolean) {
+function buildHost() {
   return buildFixture({
     fixture: 'react-skew-host',
     mfOptions: {
@@ -43,7 +42,6 @@ function buildHost(coalesceLoadShareWrappers: boolean) {
       hostInitInjectLocation: 'html',
       shareStrategy: 'loaded-first',
       shared: SHARED,
-      experiments: { coalesceLoadShareWrappers },
       dts: false,
     },
   });
@@ -63,34 +61,17 @@ const HELPER_MARKER = 'module-federation.shared-cache-listeners';
 const helperCopies = (output: Rollup.RollupOutput) =>
   wrapperChunks(output).reduce((n, chunk) => n + chunk.code.split(HELPER_MARKER).length - 1, 0);
 
-describe('experiments.coalesceLoadShareWrappers', () => {
+describe('loadShare wrapper coalescing', () => {
   it('replaces the per-share wrapper chunks with one, helpers included once', async () => {
-    const [off, on] = await Promise.all([buildRemote(false), buildRemote(true)]);
+    const output = await buildRemote();
 
-    expect(wrapperChunks(off)).toHaveLength(SHARE_COUNT);
-    expect(helperCopies(off)).toBe(SHARE_COUNT);
-
-    expect(wrapperChunks(on)).toHaveLength(1);
-    expect(wrapperChunks(on).every(isMerged)).toBe(true);
-    expect(helperCopies(on)).toBe(1);
-  });
-
-  it('is off by default', async () => {
-    const output = await buildFixture({
-      fixture: 'react-skew-remote',
-      mfOptions: {
-        name: 'coalesceRemote',
-        filename: 'remoteEntry.js',
-        exposes: { './Module': resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js') },
-        shared: SHARED,
-        dts: false,
-      },
-    });
-    expect(wrapperChunks(output)).toHaveLength(SHARE_COUNT);
+    expect(wrapperChunks(output)).toHaveLength(1);
+    expect(wrapperChunks(output).every(isMerged)).toBe(true);
+    expect(helperCopies(output)).toBe(1);
   });
 
   it('keeps eager wrappers in their own chunk', async () => {
-    const output = await buildRemote(true, {
+    const output = await buildRemote({
       ...SHARED,
       'react-dom/client': { singleton: true, requiredVersion: '^19.2.4', eager: true },
     });
@@ -102,7 +83,7 @@ describe('experiments.coalesceLoadShareWrappers', () => {
   });
 
   it('leaves the local fallbacks in their own lazily imported chunks', async () => {
-    const output = await buildRemote(true);
+    const output = await buildRemote();
     const [merged] = wrapperChunks(output);
 
     expect(Object.keys(merged.modules).filter((id) => id.includes('__prebuild__'))).toEqual([]);
@@ -111,39 +92,48 @@ describe('experiments.coalesceLoadShareWrappers', () => {
   });
 
   it('leaves a wrapper that statically imports its fallback out of the merged chunk', async () => {
-    const [off, on] = await Promise.all([buildHost(false), buildHost(true)]);
-    const stripOwner = (chunk: { name: string }) => chunk.name.replace(/__mf_owner__\d+/, '');
+    const output = await buildHost();
 
-    expect(wrapperChunks(on).filter(isMerged)).toEqual([]);
-    expect(wrapperChunks(on).map(stripOwner)).toEqual(wrapperChunks(off).map(stripOwner));
+    expect(wrapperChunks(output)).not.toEqual([]);
+    expect(wrapperChunks(output).filter(isMerged)).toEqual([]);
   });
 
-  it('merges the wrappers of the instance that opted in, whichever instance chunks them', async () => {
+  it('judges each wrapper by its owning instance, whichever instance chunks it', async () => {
     // Only the last instance's chunking callback survives in the output
-    // options, so the first instance's wrappers are named by the second.
-    const instance = (name: string, coalesceLoadShareWrappers: boolean) => ({
-      name,
-      filename: `${name}.js`,
-      exposes: { './Module': resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js') },
-      shareStrategy: 'loaded-first' as const,
-      shared: SHARED,
-      experiments: { coalesceLoadShareWrappers },
-      dts: false,
-    });
+    // options, so the remote's wrappers are named by the host-like instance,
+    // whose own wrappers hold a static payload import and never merge.
     const output = await buildFixture({
       fixture: 'react-skew-remote',
-      mfOptions: [instance('coalesceOn', true), instance('coalesceOff', false)],
+      mfOptions: [
+        {
+          name: 'mixedRemote',
+          filename: 'mixedRemote.js',
+          exposes: { './Module': resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js') },
+          shareStrategy: 'loaded-first',
+          shared: SHARED,
+          dts: false,
+        },
+        {
+          name: 'mixedHost',
+          filename: 'mixedHost.js',
+          remotes: {
+            remote: { name: 'remote', entry: 'https://example.com/remoteEntry.js', type: 'module' },
+          },
+          hostInitInjectLocation: 'html',
+          shareStrategy: 'loaded-first',
+          shared: SHARED,
+          dts: false,
+        },
+      ],
     });
     const merged = wrapperChunks(output).filter(isMerged);
-    const separate = wrapperChunks(output).filter((chunk) => !isMerged(chunk));
 
-    expect(merged.map((chunk) => chunk.name.includes('coalesceOn'))).toEqual([true]);
-    expect(separate).toHaveLength(SHARE_COUNT);
-    expect(separate.every((chunk) => chunk.name.includes('coalesceOff'))).toBe(true);
+    expect(merged.map((chunk) => chunk.name.includes('mixedRemote'))).toEqual([true]);
+    expect(merged.some((chunk) => chunk.name.includes('mixedHost'))).toBe(false);
   });
 
   it('adds no static import cycle to the chunk graph', async () => {
-    const output = await buildRemote(true);
+    const output = await buildRemote();
     const byFileName = new Map(chunksOf(output).map((chunk) => [chunk.fileName, chunk]));
     const seen = new Set<string>();
 
@@ -171,7 +161,6 @@ describe('experiments.coalesceLoadShareWrappers', () => {
         exposes: { './Module': resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js') },
         shareStrategy: 'loaded-first' as const,
         shared: SHARED,
-        experiments: { coalesceLoadShareWrappers: true },
         dts: false,
       })),
     });
@@ -188,7 +177,6 @@ describe('experiments.coalesceLoadShareWrappers', () => {
         filename: 'remoteEntry.js',
         exposes: { './Module': resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js') },
         shared: SHARED,
-        experiments: { coalesceLoadShareWrappers: true },
         dts: false,
       },
       viteConfig: {
@@ -245,7 +233,6 @@ describe('experiments.coalesceLoadShareWrappers', () => {
           exposes: { './Module': resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js') },
           shareStrategy: 'loaded-first',
           shared: SHARED,
-          experiments: { coalesceLoadShareWrappers: true },
           dts: false,
           ...overrides,
         },
@@ -257,7 +244,7 @@ describe('experiments.coalesceLoadShareWrappers', () => {
       expect(
         warn.mock.calls
           .map(([message]) => (typeof message === 'string' ? message : ''))
-          .filter((message) => message.includes('coalesceLoadShareWrappers'))
+          .filter((message) => message.includes('merged into the loadShare chunk'))
       ).toEqual([]);
     } finally {
       warn.mockRestore();
@@ -267,10 +254,10 @@ describe('experiments.coalesceLoadShareWrappers', () => {
   it('never warns that a fallback reached the merged chunk', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      await Promise.all([buildRemote(true), buildHost(true)]);
+      await Promise.all([buildRemote(), buildHost()]);
       const messages = warn.mock.calls
         .map(([message]) => (typeof message === 'string' ? message : ''))
-        .filter((message) => message.includes('coalesceLoadShareWrappers'));
+        .filter((message) => message.includes('merged into the loadShare chunk'));
 
       // The eligibility rule should make the guard unreachable.
       expect(messages).toEqual([]);

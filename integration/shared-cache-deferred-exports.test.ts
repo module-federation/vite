@@ -5,6 +5,7 @@ import {
   normalizeModuleFederationOptions,
   type ModuleFederationOptions,
 } from '../src/utils/normalizeModuleFederationOptions';
+import { sharedCacheHelperCode } from '../src/utils/packageUtils';
 import VirtualModule from '../src/utils/VirtualModule';
 import { generateRemoteEntry } from '../src/virtualModules/virtualRemoteEntry';
 import {
@@ -29,6 +30,15 @@ import { findChunk, getAllChunkCode, getHtmlAsset } from './helpers/matchers';
  */
 
 const SHARED_DEP = 'mock-shared-dep';
+
+// A build wrapper imports the hoisted shared-cache helpers from a virtual
+// module; evaluating it standalone needs them inlined instead.
+function inlineSharedCacheHelpers(code: string | undefined): string | undefined {
+  return code?.replace(
+    /^\s*import \{[^}]*\} from "[^"]*loadShareHelpers[^"]*";/m,
+    sharedCacheHelperCode
+  );
+}
 
 function dataUrl(source: string): string {
   return `data:text/javascript;charset=utf-8,${encodeURIComponent(source)}`;
@@ -250,7 +260,7 @@ describe('pendingShareLoads lifecycle', () => {
     });
     const loadShareId = getLoadShareModulePath(pkg, false, options);
     writeLoadShareModule(pkg, options.shared[pkg], 'build', false, options);
-    const generated = VirtualModule.findById(loadShareId)?.code;
+    const generated = inlineSharedCacheHelpers(VirtualModule.findById(loadShareId)?.code);
     expect(generated).toBeTruthy();
     if (!generated) return;
 
@@ -328,7 +338,7 @@ describe('pendingShareLoads lifecycle', () => {
     });
     const loadShareId = getLoadShareModulePath(pkg, false, options);
     writeLoadShareModule(pkg, options.shared[pkg], 'build', false, options);
-    const generated = VirtualModule.findById(loadShareId)?.code;
+    const generated = inlineSharedCacheHelpers(VirtualModule.findById(loadShareId)?.code);
     expect(generated).toBeTruthy();
     if (!generated) return;
 
@@ -397,7 +407,7 @@ describe('pendingShareLoads lifecycle', () => {
     });
     const loadShareId = getLoadShareModulePath(pkg, false, options);
     writeLoadShareModule(pkg, options.shared[pkg], 'build', false, options);
-    const generated = VirtualModule.findById(loadShareId)?.code;
+    const generated = inlineSharedCacheHelpers(VirtualModule.findById(loadShareId)?.code);
     expect(generated).toBeTruthy();
     if (!generated) return;
 
@@ -496,7 +506,7 @@ describe('pendingShareLoads lifecycle', () => {
     });
     const loadShareId = getLoadShareModulePath(pkg, false, options);
     writeLoadShareModule(pkg, options.shared[pkg], 'build', false, options, exportConditions);
-    const generated = VirtualModule.findById(loadShareId)?.code;
+    const generated = inlineSharedCacheHelpers(VirtualModule.findById(loadShareId)?.code);
     expect(generated).toBeTruthy();
     if (!generated) return;
 

@@ -68,7 +68,6 @@ describe('normalizeModuleFederationOption', () => {
         externalRuntime: false,
         provideExternalRuntime: false,
         ssrMode: undefined,
-        coalesceLoadShareWrappers: false,
       },
     });
   });
@@ -160,7 +159,6 @@ describe('normalizeModuleFederationOption', () => {
     ).toEqual({
       externalRuntime: true,
       provideExternalRuntime: true,
-      coalesceLoadShareWrappers: false,
     });
   });
 
@@ -168,7 +166,6 @@ describe('normalizeModuleFederationOption', () => {
     expect(normalizeModuleFederationOptions(minimalOptions).experiments).toEqual({
       externalRuntime: false,
       provideExternalRuntime: false,
-      coalesceLoadShareWrappers: false,
     });
   });
 

@@ -1138,7 +1138,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
 
   const isVinext = hasPackageDependency('vinext');
   const { name, shared, filename, hostInitInjectLocation } = options;
-  const coalesceLoadShareWrappers = options.experiments.coalesceLoadShareWrappers;
   const hasTreeShakingShared = Object.values(shared).some(
     (share) => !!share.shareConfig.treeShaking
   );
@@ -1912,16 +1911,14 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         bundle: BundleLike,
         _isWrite: boolean
       ) {
-        if (coalesceLoadShareWrappers) {
-          for (const [fileName, fallbacks] of findEagerFallbacksInSharedChunk(bundle)) {
-            mfWarn(
-              `\`experiments.coalesceLoadShareWrappers\` merged a shared-dependency fallback into ${fileName}: ` +
-                `${fallbacks.join(', ')}.\n` +
-                '  That fallback is no longer lazy, so consumers download their local copy even when a peer ' +
-                'provides the share, and the container can deadlock.\n' +
-                '  Turn the option off, or stop the shared module from statically importing another share.'
-            );
-          }
+        for (const [fileName, fallbacks] of findEagerFallbacksInSharedChunk(bundle)) {
+          mfWarn(
+            `A shared-dependency fallback was merged into the loadShare chunk ${fileName}: ` +
+              `${fallbacks.join(', ')}.\n` +
+              '  That fallback is no longer lazy, so consumers download their local copy even when a peer ' +
+              'provides the share, and the container can deadlock.\n' +
+              '  Stop the shared module from statically importing another share.'
+          );
         }
 
         for (const [fileName, chunk] of Object.entries(bundle)) {

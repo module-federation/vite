@@ -25,7 +25,6 @@ export function getDefaultMockOptions(
       externalRuntime: false,
       provideExternalRuntime: false,
       ssrMode: undefined,
-      coalesceLoadShareWrappers: false,
     },
     ...overrides,
   };

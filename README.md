@@ -396,33 +396,7 @@ Do not set `build.rollupOptions.output.codeSplitting` or
 `build.rolldownOptions.output.codeSplitting` to `false` — it will be **ignored** (with a warning).
 Module Federation requires chunk splitting so `runtimeInitStatus` and deferred `loadShare` wrappers stay isolated for correct bootstrap order. Eager `loadShare` wrappers are coalesced into one `loadShare-eager` chunk to reduce startup requests, on both Rolldown (Vite 8+) and Rollup (Vite 5–7).
 
-### `experiments.coalesceLoadShareWrappers`
-
-By default, each non-eager shared dependency gets its own `__loadShare__` wrapper chunk. Every wrapper repeats the same shared-cache bootstrap code.
-
-Enable this opt-in experiment to merge wrappers the plugin can prove are safe into one chunk:
-
-```ts
-federation({
-  name: "remote",
-  shared: { react: { singleton: true }, "react-dom": { singleton: true } },
-  experiments: {
-    coalesceLoadShareWrappers: true,
-  },
-});
-```
-
-A wrapper qualifies when it reaches its local `__prebuild__` fallback through `import()` alone. It has no static import, so no cycle can run through the merged chunk.
-
-A wrapper that statically imports its local payload keeps its own chunk. The payload's imports are rewritten to the other shares' wrappers; merging it can close a top-level-await cycle that deadlocks the container.
-
-The shared-cache helpers are hoisted into the merged chunk once. Eager wrappers keep their own `loadShare-eager` chunk, while `import: false` wrappers use the bundler's chunking.
-
-`__prebuild__` fallbacks stay in separate chunks reached only through `import()`: this prevents a consumer from downloading its local copy when a peer already provides the share.
-
-Merged wrappers share one evaluation. A consumer of any share in the chunk waits for every share in it to resolve. The plugin warns at build time if a fallback ends up inside the merged chunk.
-
-Chunking precedence stays the same. The federation group claims wrappers ahead of your `codeSplitting.groups` or `manualChunks`, so a user group cannot capture a merged or unmerged wrapper.
+Non-eager `loadShare` wrappers that reach their local `__prebuild__` fallback only through `import()` are merged into one `__loadShare__shared` chunk per `federation()` instance, with the shared-cache helpers included once. A wrapper that statically imports its local payload keeps its own chunk, since merging it could close a top-level-await cycle. `__prebuild__` fallbacks stay in separate lazily imported chunks, so a consumer never downloads its local copy when a peer already provides the share. The plugin warns at build time if a fallback ends up inside the merged chunk.
 
 ### `codeSplitting.groups` (Vite 8+ / Rolldown)
 

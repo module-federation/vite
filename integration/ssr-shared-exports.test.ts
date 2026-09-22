@@ -29,54 +29,47 @@ afterEach(async () => {
 });
 
 describe('SSR shared conditional exports', () => {
-  it.each([
-    ['one wrapper chunk per share', false],
-    ['coalesced wrapper chunks', true],
-  ])(
-    'builds and executes the node export surface of react-dom/server with %s',
-    async (_label, coalesceLoadShareWrappers) => {
-      const outDir = await mkdtemp(resolve(reactWorkspaceRoot, '.mf-vite-ssr-'));
-      outputDirs.push(outDir);
+  it('builds and executes the node export surface of react-dom/server', async () => {
+    const outDir = await mkdtemp(resolve(reactWorkspaceRoot, '.mf-vite-ssr-'));
+    outputDirs.push(outDir);
 
-      const result = await build({
-        root: reactWorkspaceRoot,
-        configFile: false,
-        logLevel: 'silent',
-        plugins: [
-          ssrEntryPlugin,
-          federation({
-            experiments: { coalesceLoadShareWrappers },
-            name: 'ssrHost',
-            shared: {
-              'react-dom': { singleton: true },
-            },
-            dts: false,
-          }),
-        ],
-        build: {
-          ssr: true,
-          outDir,
-          write: true,
-          minify: false,
-          target: 'node20',
-          rollupOptions: {
-            input: ssrEntryId,
+    const result = await build({
+      root: reactWorkspaceRoot,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [
+        ssrEntryPlugin,
+        federation({
+          name: 'ssrHost',
+          shared: {
+            'react-dom': { singleton: true },
           },
+          dts: false,
+        }),
+      ],
+      build: {
+        ssr: true,
+        outDir,
+        write: true,
+        minify: false,
+        target: 'node20',
+        rollupOptions: {
+          input: ssrEntryId,
         },
-      });
-      expect(Array.isArray(result), 'Expected a single RollupOutput, not an array').toBe(false);
-      const output = result as Rollup.RollupOutput;
+      },
+    });
+    expect(Array.isArray(result), 'Expected a single RollupOutput, not an array').toBe(false);
+    const output = result as Rollup.RollupOutput;
 
-      const entryChunk = output.output.find(
-        (item): item is Rollup.OutputChunk =>
-          item.type === 'chunk' && item.isEntry && item.facadeModuleId === resolvedSsrEntryId
-      );
-      expect(entryChunk, 'Expected the virtual SSR entry chunk').toBeDefined();
+    const entryChunk = output.output.find(
+      (item): item is Rollup.OutputChunk =>
+        item.type === 'chunk' && item.isEntry && item.facadeModuleId === resolvedSsrEntryId
+    );
+    expect(entryChunk, 'Expected the virtual SSR entry chunk').toBeDefined();
 
-      const serverEntry = await import(
-        `${pathToFileURL(resolve(outDir, entryChunk!.fileName)).href}?test=${Date.now()}`
-      );
-      expect(serverEntry.renderToPipeableStream).toBeTypeOf('function');
-    }
-  );
+    const serverEntry = await import(
+      `${pathToFileURL(resolve(outDir, entryChunk!.fileName)).href}?test=${Date.now()}`
+    );
+    expect(serverEntry.renderToPipeableStream).toBeTypeOf('function');
+  });
 });

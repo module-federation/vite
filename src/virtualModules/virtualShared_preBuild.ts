@@ -2032,12 +2032,10 @@ function recordCoalescability(
   hasNoLocalPayloadEdge: boolean,
   command: string,
   shareConfig: ShareItem['shareConfig'],
-  options: NormalizedModuleFederationOptions,
   coalescableLoadShares: Set<string>
 ): boolean {
   const coalescable =
     command === 'build' &&
-    options.experiments.coalesceLoadShareWrappers &&
     shareConfig.eager !== true &&
     shareConfig.import !== false &&
     hasNoLocalPayloadEdge;
@@ -2132,14 +2130,7 @@ export function writeLoadShareModule(
         treeShakingConsumer
       );
     }
-    recordCoalescability(
-      pkg,
-      edges.none,
-      command,
-      shareItem.shareConfig,
-      resolvedOptions,
-      coalescableLoadShares
-    );
+    recordCoalescability(pkg, edges.none, command, shareItem.shareConfig, coalescableLoadShares);
     loadShareCacheMap[pkg].writeSync(
       `
     ${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}
@@ -2364,7 +2355,6 @@ export function writeLoadShareModule(
     edges.none,
     command,
     shareItem.shareConfig,
-    resolvedOptions,
     coalescableLoadShares
   )
     ? getSharedCacheHelpersImportCode(resolvedOptions)

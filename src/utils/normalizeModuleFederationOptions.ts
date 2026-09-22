@@ -586,7 +586,6 @@ function normalizeExperiments(
     externalRuntime: experiments?.externalRuntime === true,
     provideExternalRuntime: experiments?.provideExternalRuntime === true,
     ssrMode: experiments?.ssrMode === 'ISLAND' ? 'ISLAND' : undefined,
-    coalesceLoadShareWrappers: experiments?.coalesceLoadShareWrappers === true,
   };
 }
 
@@ -743,15 +742,6 @@ export interface PluginExperimentsOptions {
   provideExternalRuntime?: boolean;
   /** Generate the React SSR/hydration island capability for eligible exposes. */
   ssrMode?: 'ISLAND';
-  /**
-   * Merge the non-eager `__loadShare__` wrappers into a single chunk instead of
-   * emitting one chunk per shared module.
-   *
-   * Only wrappers that reach their local fallback through `import()` alone are
-   * merged; one that statically imports its payload keeps its own chunk, so a
-   * share's local copy never lands in a chunk its peers share.
-   */
-  coalesceLoadShareWrappers?: boolean;
 }
 
 export type SsrEntryLoaderStrategy = 'temp-file' | 'vm';
@@ -774,7 +764,6 @@ export interface NormalizedExperimentsOptions {
   externalRuntime: boolean;
   provideExternalRuntime: boolean;
   ssrMode: 'ISLAND' | undefined;
-  coalesceLoadShareWrappers: boolean;
 }
 
 export interface NormalizedModuleFederationOptions extends Omit<

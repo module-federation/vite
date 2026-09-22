@@ -4864,7 +4864,7 @@ describe('getRequiredNamedExports side effects', () => {
   });
 });
 
-describe('coalesceLoadShareWrappers eligibility', () => {
+describe('loadShare wrapper coalescing eligibility', () => {
   // VirtualModule ids are mocked here, so match the import shape, not the id.
   const HELPERS_IMPORT = /import \{[^}]*__mfGetSharedCacheDescriptor[^}]*\} from "/;
   const INLINED_HELPERS = 'const __mfGetSharedCacheDescriptor =';
@@ -4884,17 +4884,10 @@ describe('coalesceLoadShareWrappers eligibility', () => {
 
   // Exposing something makes the container a remote, which is what makes its
   // singleton wrappers reach the fallback lazily.
-  const write = (
-    pkg: string,
-    item: ShareItem,
-    command: string,
-    coalesceLoadShareWrappers: boolean,
-    asRemote = true
-  ) => {
+  const write = (pkg: string, item: ShareItem, command: string, asRemote = true) => {
     const options = normalizeModuleFederationOptions({
       name: 'test',
       ...(asRemote ? { exposes: { './Module': './module.js' } } : {}),
-      experiments: { coalesceLoadShareWrappers },
     });
     writeLoadShareModule(pkg, item, command, false, options);
     return {
@@ -4913,7 +4906,7 @@ describe('coalesceLoadShareWrappers eligibility', () => {
 
   it('merges a wrapper that reaches its fallback only through import()', () => {
     const pkg = SHARE_WITH_LAZY_FALLBACK;
-    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'build', true);
+    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'build');
 
     expect(code).not.toContain('import * as __mfLocalShare');
     expect(code).not.toContain('export * from');
@@ -4925,7 +4918,7 @@ describe('coalesceLoadShareWrappers eligibility', () => {
   it('keeps a wrapper that statically imports its local payload on its own', () => {
     const pkg = SHARE_WITH_LAZY_FALLBACK;
     // Same share consumed by a host: it holds the payload as a static import.
-    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'build', true, false);
+    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'build', false);
 
     expect(code).toContain('import * as __mfLocalShare');
     expect(coalescable).toBe(false);
@@ -4937,7 +4930,7 @@ describe('coalesceLoadShareWrappers eligibility', () => {
     ['a consume-only wrapper, which the bundler chunks', shareItem({ import: false })],
   ])('leaves the helpers inlined in %s', (_label, item) => {
     const pkg = SHARE_WITH_LAZY_FALLBACK;
-    const { code, coalescable } = write(pkg, { ...item, name: pkg }, 'build', true);
+    const { code, coalescable } = write(pkg, { ...item, name: pkg }, 'build');
 
     expect(coalescable).toBe(false);
     expect(code).toContain(INLINED_HELPERS);
@@ -4945,7 +4938,7 @@ describe('coalesceLoadShareWrappers eligibility', () => {
 
   it('never merges in serve mode, where the dep pre-bundler cannot resolve the helper id', () => {
     const pkg = SHARE_WITH_LAZY_FALLBACK;
-    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'serve', true);
+    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'serve');
 
     expect(coalescable).toBe(false);
     expect(code).toContain(INLINED_HELPERS);
@@ -4956,7 +4949,6 @@ describe('coalesceLoadShareWrappers eligibility', () => {
     const options = normalizeModuleFederationOptions({
       name: 'test',
       exposes: { './Module': './module.js' },
-      experiments: { coalesceLoadShareWrappers: true },
     });
     writeLoadShareModule(pkg, { ...shareItem(), name: pkg }, 'build', false, options);
     expect(isCoalescableLoadShareWrapper(pkg, options)).toBe(true);
@@ -4965,13 +4957,5 @@ describe('coalesceLoadShareWrappers eligibility', () => {
     markLoadShareWrapperNotCoalescable(pkg, options);
 
     expect(isCoalescableLoadShareWrapper(pkg, options)).toBe(false);
-  });
-
-  it('leaves wrappers untouched when the experiment is off', () => {
-    const pkg = SHARE_WITH_LAZY_FALLBACK;
-    const { code, coalescable } = write(pkg, { ...shareItem(), name: pkg }, 'build', false);
-
-    expect(coalescable).toBe(false);
-    expect(code).toContain(INLINED_HELPERS);
   });
 });
