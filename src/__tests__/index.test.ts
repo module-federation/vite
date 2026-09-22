@@ -4168,7 +4168,11 @@ describe('ssrEntryLoader strategy injection', () => {
       callHook(
         earlyInitPlugin.configResolved,
         {} as MinimalPluginContextWithoutEnvironment,
-        { command: 'build', root: process.cwd() } as ResolvedConfig
+        {
+          command: 'build',
+          root: process.cwd(),
+          build: { ssr: true },
+        } as ResolvedConfig
       );
     } finally {
       resolverMock.mockImplementation(originalImplementation!);
@@ -4179,6 +4183,54 @@ describe('ssrEntryLoader strategy injection', () => {
       return specifier === '@module-federation/vite/ssrEntryLoader';
     });
   }
+
+  function getClientRuntimePlugins() {
+    const plugins = federation({
+      name: 'host',
+      filename: 'remoteEntry.js',
+      remotes: hostRemotes,
+    }) as Plugin[];
+    const earlyInitPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-early-init'
+    );
+    const optionsPlugin = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+      | (Plugin & { _options: NormalizedModuleFederationOptions })
+      | undefined;
+    if (!earlyInitPlugin || !optionsPlugin) {
+      throw new Error('module federation plugins not found');
+    }
+
+    const resolverMock = vi.mocked(resolveImportPath);
+    const originalImplementation = resolverMock.getMockImplementation();
+    resolverMock.mockImplementation((id: string) => {
+      if (id === '@module-federation/vite/ssrEntryLoader') {
+        return '/plugin/lib/utils/ssrEntryLoader.js';
+      }
+      return originalImplementation!(id);
+    });
+    try {
+      callHook(
+        earlyInitPlugin.configResolved,
+        {} as MinimalPluginContextWithoutEnvironment,
+        {
+          command: 'build',
+          root: process.cwd(),
+          build: { ssr: false },
+          environments: { client: { consumer: 'client', build: { ssr: false } } },
+        } as unknown as ResolvedConfig
+      );
+    } finally {
+      resolverMock.mockImplementation(originalImplementation!);
+    }
+
+    return optionsPlugin._options.runtimePlugins;
+  }
+
+  it('does not inject the SSR loader into a client-only build', () => {
+    expect(getClientRuntimePlugins()).not.toEqual(
+      expect.arrayContaining([expect.arrayContaining(['@module-federation/vite/ssrEntryLoader'])])
+    );
+  });
 
   it('injects resolvedShared without strategy when ssrEntryLoader is omitted', () => {
     const injected = injectSsrEntryLoader();

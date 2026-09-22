@@ -396,6 +396,8 @@ Do not set `build.rollupOptions.output.codeSplitting` or
 `build.rolldownOptions.output.codeSplitting` to `false` — it will be **ignored** (with a warning).
 Module Federation requires chunk splitting so `runtimeInitStatus` and deferred `loadShare` wrappers stay isolated for correct bootstrap order. Eager `loadShare` wrappers are coalesced into one `loadShare-eager` chunk to reduce startup requests, on both Rolldown (Vite 8+) and Rollup (Vite 5–7).
 
+Non-eager `loadShare` wrappers that reach their local `__prebuild__` fallback only through `import()` are merged into one `__loadShare__shared` chunk per `federation()` instance, with the shared-cache helpers included once. A wrapper that statically imports its local payload keeps its own chunk, since merging it could close a top-level-await cycle. `__prebuild__` fallbacks stay in separate lazily imported chunks, so a consumer never downloads its local copy when a peer already provides the share. The plugin warns at build time if a fallback ends up inside the merged chunk.
+
 ### `codeSplitting.groups` (Vite 8+ / Rolldown)
 
 User groups are now **preserved**. The plugin installs its own federation groups at the highest priority and appends your groups below them, so your groups can only claim modules the federation groups didn't.
