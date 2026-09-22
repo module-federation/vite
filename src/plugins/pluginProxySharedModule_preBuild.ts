@@ -116,12 +116,16 @@ function getPackageDependencies(pkg: string): string[] {
  */
 export function excludeSharedSubDependencies(shared: NormalizedShared): void {
   const sharedKeys = new Set(Object.keys(shared));
-  const sharedKeyByBase = new Map(
-    Object.keys(shared).map((key) => [key.endsWith('/') ? key.slice(0, -1) : key, key])
-  );
+  // Dependencies are looked up by the package a share intercepts, which an
+  // aliased share names in `request` rather than in its property name.
+  const requestBase = (key: string) => {
+    const request = getSharedRequest(key, shared[key]);
+    return request.endsWith('/') ? request.slice(0, -1) : request;
+  };
+  const sharedKeyByBase = new Map(Object.keys(shared).map((key) => [requestBase(key), key]));
 
   for (const parentKey of sharedKeys) {
-    const deps = getPackageDependencies(parentKey);
+    const deps = getPackageDependencies(requestBase(parentKey));
     for (const dep of deps) {
       const depKey = sharedKeyByBase.get(dep);
       if (depKey && depKey !== parentKey) {

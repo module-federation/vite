@@ -412,6 +412,17 @@ function normalizeShareItem(
       `Invalid shared config for "${key}": cannot use both "eager: true" and "treeShaking.mode" simultaneously. Choose one strategy.`
     );
   }
+  if (typeof shareItem === 'object') {
+    // A prefix request appends the concrete remainder to the share key, so a
+    // non-prefix share key would produce a malformed runtime key.
+    const request = typeof shareItem.request === 'string' ? shareItem.request : key;
+    const shareKey = typeof shareItem.shareKey === 'string' ? shareItem.shareKey : key;
+    if (request.endsWith('/') !== shareKey.endsWith('/')) {
+      throw createModuleFederationError(
+        `Invalid shared config for "${key}": "request" and "shareKey" must both end with "/" for a prefix share, or neither. Got request "${request}" and shareKey "${shareKey}".`
+      );
+    }
+  }
   if (
     treeShaking?.mode === 'runtime-infer' &&
     typeof shareItem === 'object' &&
@@ -538,7 +549,8 @@ function normalizeShared(
       const hadConfiguredPackageSubpath =
         (result[normalizedKey]?.shareConfig as any)?.__mfConfiguredPackageSubpath === true;
       result[normalizedKey] = normalizeShareItem(normalizedKey, value);
-      if (key.endsWith('/') || hadConfiguredPackageSubpath) {
+      const requestIsPrefix = typeof value?.request === 'string' && value.request.endsWith('/');
+      if (key.endsWith('/') || requestIsPrefix || hadConfiguredPackageSubpath) {
         (result[normalizedKey].shareConfig as any).__mfConfiguredPackageSubpath = true;
       }
       explicitSharedKeys.add(normalizedKey);

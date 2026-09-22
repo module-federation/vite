@@ -2,6 +2,7 @@ import type { Alias, Plugin } from 'vite';
 import { NormalizedShared } from '../utils/normalizeModuleFederationOptions';
 import { mfWarn } from '../utils/logger';
 import { getPackageNameFromNodeModulePath } from '../utils/packageUtils';
+import { getSharedRequest } from '../utils/sharedKeyMatcher';
 
 /**
  * Check if user-defined alias conflicts with shared modules
@@ -38,9 +39,11 @@ export function checkAliasConflicts(options: { shared?: NormalizedShared }): Plu
       };
 
       for (const sharedKey of sharedKeys) {
+        // An aliased share intercepts its `request`, not its property name.
+        const request = getSharedRequest(sharedKey, shared[sharedKey]);
         for (const aliasEntry of userAliases) {
           const replacement = aliasEntry.replacement;
-          if (!matchesSharedKey(aliasEntry, sharedKey)) continue;
+          if (!matchesSharedKey(aliasEntry, request)) continue;
 
           // Module Federation aliases are prepended. Once one matches, later
           // user aliases for the same package no longer bypass sharing.
@@ -48,7 +51,7 @@ export function checkAliasConflicts(options: { shared?: NormalizedShared }): Plu
 
           if (typeof replacement === 'string') {
             const packageName = getPackageNameFromNodeModulePath(replacement);
-            const sharedPackageName = sharedKey.endsWith('/') ? sharedKey.slice(0, -1) : sharedKey;
+            const sharedPackageName = request.endsWith('/') ? request.slice(0, -1) : request;
             if (packageName === sharedPackageName) continue;
 
             conflicts.push({

@@ -359,6 +359,36 @@ describe('virtualRemoteEntrySSR', () => {
     expect((globalThis as any).__mf_module_cache__).toBeUndefined();
   });
 
+  it('keys an aliased prefix share by its shareKey, expanding by its request', () => {
+    const aliased = {
+      name: 'my-react',
+      version: '19.0.0',
+      scope: 'default',
+      from: '',
+      shareConfig: {
+        singleton: true,
+        import: false,
+        requiredVersion: '^19.0.0',
+        request: 'react/',
+        shareKey: 'shared-react/',
+      },
+    };
+    const options = getDefaultMockOptions({
+      name: 'remote',
+      shared: { 'my-react': aliased },
+    } as any);
+
+    addUsedShares('react', options);
+    addUsedShares('react/jsx-runtime', options);
+
+    // The singleton map is keyed by runtime key; the config still carries the prefix.
+    const code = generateRemoteEntrySSR(options);
+    expect(code).toContain('"shared-react":{');
+    expect(code).toContain('"shared-react/jsx-runtime":{');
+    expect(code).not.toContain('"my-react":{');
+    expect(code).not.toContain('"shared-react/":{');
+  });
+
   it('expands react/ prefix into concrete SSR loadShare targets, never the prefix string', async () => {
     const reactNamespace = {
       name: 'react/',

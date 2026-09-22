@@ -18,6 +18,11 @@ export function getSharedRequest(key: string, shareItem?: SharedKeyLookup[string
   return typeof request === 'string' ? request : key;
 }
 
+/** `prefix` ends with `/` and `source` is its base or a subpath under it. */
+function isUnderPrefix(prefix: string, source: string): boolean {
+  return prefix.endsWith('/') && (source === prefix.slice(0, -1) || source.startsWith(prefix));
+}
+
 /**
  * Resolve the runtime share-scope key for a concrete request. The configured
  * property name is the default runtime key; `shareKey` only changes it when
@@ -25,42 +30,30 @@ export function getSharedRequest(key: string, shareItem?: SharedKeyLookup[string
  * runtime key as required by the Module Federation shared contract.
  */
 export function getSharedRuntimeKey(source: string, shareItem?: SharedKeyLookup[string]): string {
+  const name = typeof shareItem?.name === 'string' ? shareItem.name : undefined;
+  const request = getSharedRequest(name ?? source, shareItem);
   const configuredShareKey = shareItem?.shareConfig?.shareKey;
-  const request =
-    typeof shareItem?.shareConfig?.request === 'string'
-      ? shareItem.shareConfig.request
-      : typeof shareItem?.name === 'string'
-        ? shareItem.name
-        : source;
-  const requestMatchesSource =
-    source === request ||
-    (request.endsWith('/') && (source === request.slice(0, -1) || source.startsWith(request)));
-  const configuredPrefixMatchesSource =
-    typeof shareItem?.name === 'string' &&
-    shareItem.name.endsWith('/') &&
-    (source === shareItem.name.slice(0, -1) || source.startsWith(shareItem.name));
+
+  // 1. The share key: configured, else the property name when the source is
+  //    what the share intercepts, else the source itself (already a runtime key).
+  const sourceMatchesRequest = source === request || isUnderPrefix(request, source);
   const shareKey =
     typeof configuredShareKey === 'string'
       ? configuredShareKey
-      : typeof shareItem?.name === 'string' &&
-          (requestMatchesSource || configuredPrefixMatchesSource)
-        ? configuredPrefixMatchesSource && !requestMatchesSource
-          ? source
-          : shareItem.name
+      : name !== undefined && sourceMatchesRequest
+        ? name
         : source;
   if (!request.endsWith('/')) return shareKey;
 
+  // 2. A prefix request maps `<base>/<rest>` to `<shareKey><rest>`, and the
+  //    bare base to the share key's base: a runtime key never ends with `/`.
   const requestBase = request.slice(0, -1);
-  const isConcreteRequest = source === requestBase || source.startsWith(`${requestBase}/`);
-  if (isConcreteRequest) return shareKey + source.slice(request.length);
+  if (source === requestBase) return shareKey.endsWith('/') ? shareKey.slice(0, -1) : shareKey;
+  if (source.startsWith(`${requestBase}/`)) return shareKey + source.slice(request.length);
 
-  // Callers that already operate on a concrete runtime key (for example the
-  // generated shared map) should remain concrete instead of being collapsed
-  // back to the configured prefix.
-  if (shareKey.endsWith('/') && (source === shareKey.slice(0, -1) || source.startsWith(shareKey))) {
-    return source;
-  }
-  return shareKey;
+  // 3. A source that is already concrete under the prefix share key (for
+  //    example from the generated shared map) stays concrete.
+  return isUnderPrefix(shareKey, source) ? source : shareKey;
 }
 
 export function matchesSharedSource(
