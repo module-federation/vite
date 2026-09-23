@@ -37,6 +37,20 @@ export function isClientEnvironment(ctx: unknown): boolean {
   return resolveEnvironmentConsumerTarget(ctx) !== 'server';
 }
 
+/**
+ * Whether a build hook runs for a server graph. Vite 6+ hooks carry an
+ * environment; Vite 5 (and hooks invoked before `configResolved`) fall back to
+ * the legacy root `build.ssr` flag.
+ */
+export function isServerBuildContext(
+  ctx: unknown,
+  config: { build?: { ssr?: boolean | string } } | undefined
+): boolean {
+  const target = resolveEnvironmentConsumerTarget(ctx);
+  if (target) return target === 'server';
+  return Boolean(config?.build?.ssr);
+}
+
 export function resolveRemoteConsumer(ctx: unknown, hasMultiEnvironment: boolean): RemoteConsumer {
   if (!hasMultiEnvironment) return 'unified';
   return resolveEnvironmentConsumerTarget(ctx) ?? 'client';

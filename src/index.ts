@@ -86,6 +86,7 @@ import {
   SSR_ENTRY_LOADER_SPECIFIER,
   SSR_ONLY_RUNTIME_PLUGINS,
 } from './utils/ssrCapabilities';
+import { getRuntimePluginSpecifier } from './utils/runtimePluginSpecifier';
 import {
   getCommonSharedSubpaths,
   isAssetLikeImport,
@@ -1005,10 +1006,9 @@ export default __mfShared.default ?? __mfShared;`,
       );
       if (!ssrCapabilities.injectSsrEntryLoader) return;
 
-      const alreadyInjected = options.runtimePlugins.some((p) => {
-        const specifier = typeof p === 'string' ? p : p[0];
-        return specifier === SSR_ENTRY_LOADER_SPECIFIER;
-      });
+      const alreadyInjected = options.runtimePlugins.some(
+        (p) => getRuntimePluginSpecifier(p) === SSR_ENTRY_LOADER_SPECIFIER
+      );
       if (alreadyInjected) return;
 
       const projectRequire = createRequire(pathToFileURL(path.join(config.root, 'package.json')));
@@ -1112,10 +1112,9 @@ function isInjectExternalRuntimeCorePlugin(specifier: string): boolean {
 function hasInjectExternalRuntimeCorePlugin(
   runtimePlugins: Array<string | [string, Record<string, unknown>]>
 ): boolean {
-  return runtimePlugins.some((plugin) => {
-    const specifier = typeof plugin === 'string' ? plugin : plugin[0];
-    return isInjectExternalRuntimeCorePlugin(specifier);
-  });
+  return runtimePlugins.some((plugin) =>
+    isInjectExternalRuntimeCorePlugin(getRuntimePluginSpecifier(plugin))
+  );
 }
 
 function resolveInjectExternalRuntimeCorePlugin(): string {
@@ -2040,7 +2039,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         // Add all runtime plugins to optimizeDeps to prevent 504 re-optimization.
         // SSR-only plugins import Node modules — exclude them from browser optimisation.
         options.runtimePlugins.forEach((p) => {
-          const pluginPath = typeof p === 'string' ? p : p[0];
+          const pluginPath = getRuntimePluginSpecifier(p);
           if (SSR_ONLY_RUNTIME_PLUGINS.has(pluginPath)) return;
           // Only add bare imports to optimizeDeps
           if (
