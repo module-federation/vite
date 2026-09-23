@@ -169,6 +169,22 @@ describe('normalizeModuleFederationOption', () => {
     });
   });
 
+  it('accepts dts generateTypes afterGenerate callbacks', () => {
+    const options: ModuleFederationOptions = {
+      ...minimalOptions,
+      dts: {
+        generateTypes: {
+          afterGenerate: ({ zipTypesPath, apiTypesPath }) => {
+            expect(zipTypesPath).toEqual(expect.any(String));
+            expect(apiTypesPath).toEqual(expect.any(String));
+          },
+        },
+      },
+    };
+
+    expect(normalizeModuleFederationOptions(options).dts).toBe(options.dts);
+  });
+
   it('preserves runtime capability optimization options', () => {
     const normalized = normalizeModuleFederationOptions({
       ...minimalOptions,
