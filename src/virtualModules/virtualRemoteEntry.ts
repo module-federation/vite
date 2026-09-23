@@ -22,6 +22,7 @@ import { getCommonSharedSubpaths } from '../utils/pathNormalization';
 import { REACT_DOM_CLIENT_SHARE } from '../utils/reactShares';
 import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import { SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
+import { filterRuntimePluginsForTarget } from '../utils/runtimePluginSpecifier';
 import { getSharedRequest, getSharedRuntimeKey } from '../utils/sharedKeyMatcher';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
 import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
@@ -1341,11 +1342,11 @@ export function generateRemoteEntry(
     ...(hasTreeShakingShared ? ['global as runtimeGlobal'] : []),
     ...(needsSharedProviderSelectionHelper ? ['share as runtimeShare'] : []),
   ];
-  const runtimePlugins = isSsrBuild
-    ? options.runtimePlugins
-    : options.runtimePlugins.filter(
-        (plugin) => !SSR_ONLY_RUNTIME_PLUGINS.has(typeof plugin === 'string' ? plugin : plugin[0])
-      );
+  const runtimePlugins = filterRuntimePluginsForTarget(
+    options.runtimePlugins,
+    SSR_ONLY_RUNTIME_PLUGINS,
+    isSsrBuild
+  );
   const pluginImportNames = runtimePlugins.map((p, i) => {
     if (typeof p === 'string') {
       return [`$runtimePlugin_${i}`, `import $runtimePlugin_${i} from "${p}";`, `undefined`];

@@ -14,7 +14,7 @@ import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap'
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
-import { resolveEnvironmentConsumerTarget } from '../utils/remoteConsumerTarget';
+import { isServerBuildContext } from '../utils/remoteConsumerTarget';
 import { formatDevServerHostForOrigin } from '../utils/devServerHost';
 import { ensureTrailingSlash, filterId, resolvePublicPath } from '../utils/pathNormalization';
 import {
@@ -62,9 +62,7 @@ export default function ({
     (context as { environment?: { config?: { resolve?: { conditions?: string[] } } } }).environment
       ?.config?.resolve?.conditions;
 
-  const isSsrBuild = (context: unknown): boolean =>
-    (resolveEnvironmentConsumerTarget(context) ?? (viteConfig.build?.ssr ? 'server' : 'client')) ===
-    'server';
+  const isSsrBuild = (context: unknown): boolean => isServerBuildContext(context, viteConfig);
 
   function isRemoteImport(source: string): boolean {
     return Object.keys(options.remotes).some(

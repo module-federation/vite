@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isClientEnvironment,
+  isServerBuildContext,
   resolveEnvironmentConsumerTarget,
   resolveRemoteConsumer,
 } from '../remoteConsumerTarget';
@@ -75,5 +76,26 @@ describe('isClientEnvironment', () => {
     expect(
       isClientEnvironment({ environment: { name: 'federation', config: { consumer: 'server' } } })
     ).toBe(false);
+  });
+});
+
+describe('isServerBuildContext', () => {
+  it('prefers the hook environment over the root build.ssr flag', () => {
+    expect(isServerBuildContext({ environment: { config: { consumer: 'server' } } }, {})).toBe(
+      true
+    );
+    expect(
+      isServerBuildContext(
+        { environment: { config: { consumer: 'client' } } },
+        { build: { ssr: true } }
+      )
+    ).toBe(false);
+  });
+
+  it('falls back to build.ssr without an environment and tolerates a missing config', () => {
+    expect(isServerBuildContext({}, { build: { ssr: true } })).toBe(true);
+    expect(isServerBuildContext({}, { build: { ssr: 'src/entry.ts' } })).toBe(true);
+    expect(isServerBuildContext({}, {})).toBe(false);
+    expect(isServerBuildContext({}, undefined)).toBe(false);
   });
 });
