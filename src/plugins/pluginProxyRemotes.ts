@@ -58,7 +58,10 @@ export default function (options: NormalizedModuleFederationOptions): Plugin {
     const remoteModule = getRemoteVirtualModule(source, command, enableSsrInit, consumer, options);
     addUsedRemote(remoteName, source, options);
     refreshHostAutoInit(options);
-    return remoteModule.getImportId();
+    // Return the same "\0" id the virtual-module resolver produces so a
+    // Rolldown lazy-compilation wrapper (Vite bundled dev) re-resolving this
+    // id registers the module under the id the importer already holds.
+    return remoteModule.getResolvedId();
   }
 
   return {

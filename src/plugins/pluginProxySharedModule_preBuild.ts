@@ -665,8 +665,12 @@ export function proxySharedModule(options: {
         }, federationOptions);
       },
       resolveId(source) {
-        if (source === getLocalSharedImportMapPath(federationOptions)) {
-          return getResolvedLocalSharedImportMapId(federationOptions);
+        // Vite's bundled dev mode (Rolldown lazy compilation) re-resolves the
+        // already-resolved "\0" id from the lazy wrapper; match it as well so the
+        // module is bundled instead of being left as an unfetchable external.
+        const resolvedId = getResolvedLocalSharedImportMapId(federationOptions);
+        if (source === getLocalSharedImportMapPath(federationOptions) || source === resolvedId) {
+          return resolvedId;
         }
       },
       load(id) {
