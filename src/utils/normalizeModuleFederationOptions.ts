@@ -885,6 +885,9 @@ interface DtsRemoteOptions {
   extractRemoteTypes?: boolean;
   abortOnError?: boolean;
   deleteTsConfig?: boolean;
+  afterGenerate?: (
+    options: moduleFederationPlugin.DtsGenerateTypesHookOptions
+  ) => Promise<void> | void;
 }
 
 interface DtsHostOptions {
