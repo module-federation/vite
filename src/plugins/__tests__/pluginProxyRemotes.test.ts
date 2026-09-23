@@ -97,6 +97,7 @@ describe('pluginProxyRemotes', () => {
     vi.clearAllMocks();
     getRemoteVirtualModuleMock.mockReturnValue({
       getImportId: () => remoteModuleId,
+      getResolvedId: () => `\0${remoteModuleId}`,
     });
   });
 
@@ -153,7 +154,7 @@ describe('pluginProxyRemotes', () => {
 
     const result = runResolveId(plugin, 'catalog/Product', '/repo/src/App.tsx');
 
-    expect(result).toBe(remoteModuleId);
+    expect(result).toBe(`\0${remoteModuleId}`);
     expect(addUsedRemoteMock).toHaveBeenCalledWith(
       'catalog',
       'catalog/Product',
@@ -189,7 +190,7 @@ describe('pluginProxyRemotes', () => {
 
     const result = runResolveId(plugin, 'scheduler/SchedulePanel', '/repo/src/App.tsx');
 
-    expect(result).toBe(remoteModuleId);
+    expect(result).toBe(`\0${remoteModuleId}`);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler/SchedulePanel',
       'serve',
@@ -244,7 +245,7 @@ describe('pluginProxyRemotes', () => {
     runConfig(plugin, config);
     const result = runResolveId(plugin, 'scheduler', '/repo/src/App.tsx');
 
-    expect(result).toBe(remoteModuleId);
+    expect(result).toBe(`\0${remoteModuleId}`);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler',
       'serve',
@@ -264,7 +265,7 @@ describe('pluginProxyRemotes', () => {
 
     const result = runResolveId(plugin, 'scheduler', '/repo/node_modules/.vite/deps/react-dom.js');
 
-    expect(result).toBe(remoteModuleId);
+    expect(result).toBe(`\0${remoteModuleId}`);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler',
       'serve',
@@ -298,7 +299,7 @@ describe('pluginProxyRemotes', () => {
       '/repo/node_modules/some-package/index.js'
     );
 
-    expect(result).toBe(remoteModuleId);
+    expect(result).toBe(`\0${remoteModuleId}`);
     expect(getRemoteVirtualModuleMock).toHaveBeenCalledWith(
       'scheduler/SchedulePanel',
       'serve',
