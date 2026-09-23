@@ -276,6 +276,49 @@ describe('virtualRuntimeInitStatus', () => {
     expect(code).toContain('"entry":"http://localhost:4174/remoteEntry.js"');
   });
 
+  it('uses the SSR loader fallback when host init rejects', async () => {
+    const { getRuntimeInitBootstrapCode } = await import('../virtualRuntimeInitStatus');
+    const remotes = [
+      { name: 'remote', entry: 'http://localhost:4174/remoteEntry.js', type: 'module' },
+    ];
+    const loaderPlugin = { name: 'ssr-loader' };
+    const runtime = { loadRemote: vi.fn() };
+    const init = vi.fn(() => runtime);
+    const loadModule = vi.fn(async (specifier: string) => {
+      if (specifier === 'virtual:hostInit') throw new Error('host init failed');
+      if (specifier === '@module-federation/runtime') return { init };
+      if (specifier === '@module-federation/vite/ssrEntryLoader') {
+        return { default: () => loaderPlugin };
+      }
+      throw new Error(`Unexpected import: ${specifier}`);
+    });
+    const code = getRuntimeInitBootstrapCode(
+      true,
+      'virtual:runtimeInit',
+      remotes,
+      'virtual:hostInit'
+    )
+      .replaceAll('import.meta.env.SSR', 'true')
+      .replace(/\bimport\s*\(/g, '__import(');
+
+    const initPromise = Function(
+      '__import',
+      `${code}\nreturn globalThis[globalKey].initPromise;`
+    )(loadModule) as Promise<unknown>;
+    await expect(initPromise).resolves.toBe(runtime);
+    expect(loadModule.mock.calls.map(([specifier]) => specifier)).toEqual([
+      'virtual:hostInit',
+      '@module-federation/runtime',
+      '@module-federation/vite/ssrEntryLoader',
+    ]);
+    expect(init).toHaveBeenCalledWith({
+      name: '__mf_ssr_host__',
+      remotes,
+      shared: {},
+      plugins: [loaderPlugin],
+    });
+  });
+
   it('maps configured remotes through the scoped runtime alias', async () => {
     const { getRuntimeRemoteAlias, getSsrRuntimeRemotes } =
       await import('../virtualRuntimeInitStatus');

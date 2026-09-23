@@ -14,6 +14,7 @@ import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap'
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
+import { resolveEnvironmentConsumerTarget } from '../utils/remoteConsumerTarget';
 import { formatDevServerHostForOrigin } from '../utils/devServerHost';
 import { ensureTrailingSlash, filterId, resolvePublicPath } from '../utils/pathNormalization';
 import {
@@ -60,6 +61,10 @@ export default function ({
   const getEnvironmentConditions = (context: unknown): readonly string[] | undefined =>
     (context as { environment?: { config?: { resolve?: { conditions?: string[] } } } }).environment
       ?.config?.resolve?.conditions;
+
+  const isSsrBuild = (context: unknown): boolean =>
+    (resolveEnvironmentConsumerTarget(context) ?? (viteConfig.build?.ssr ? 'server' : 'client')) ===
+    'server';
 
   function isRemoteImport(source: string): boolean {
     return Object.keys(options.remotes).some(
@@ -211,7 +216,13 @@ export default function ({
     async load(id: string) {
       if (id === remoteEntryId) {
         return getParsePromise().then((_) =>
-          generateRemoteEntry(options, virtualExposesId, _command, getEnvironmentConditions(this))
+          generateRemoteEntry(
+            options,
+            virtualExposesId,
+            _command,
+            getEnvironmentConditions(this),
+            isSsrBuild(this)
+          )
         );
       }
       if (id === virtualExposesId) {
@@ -227,7 +238,13 @@ export default function ({
         if (!filterId(id)) return;
         if (id.includes(remoteEntryId)) {
           return getParsePromise().then((_) =>
-            generateRemoteEntry(options, virtualExposesId, _command, getEnvironmentConditions(this))
+            generateRemoteEntry(
+              options,
+              virtualExposesId,
+              _command,
+              getEnvironmentConditions(this),
+              isSsrBuild(this)
+            )
           );
         }
         if (id === virtualExposesId) {

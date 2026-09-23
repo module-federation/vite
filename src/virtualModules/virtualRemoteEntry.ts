@@ -1321,7 +1321,8 @@ export function generateRemoteEntry(
   options: NormalizedModuleFederationOptions,
   virtualExposesId = getVirtualExposesId(options),
   command = 'build',
-  exportConditions?: readonly string[]
+  exportConditions?: readonly string[],
+  isSsrBuild = false
 ): string {
   const needsSharedProviderSelectionHelper = hasShared(options);
   const hasTreeShakingShared = Object.values(options.shared ?? {}).some(
@@ -1340,7 +1341,12 @@ export function generateRemoteEntry(
     ...(hasTreeShakingShared ? ['global as runtimeGlobal'] : []),
     ...(needsSharedProviderSelectionHelper ? ['share as runtimeShare'] : []),
   ];
-  const pluginImportNames = options.runtimePlugins.map((p, i) => {
+  const runtimePlugins = isSsrBuild
+    ? options.runtimePlugins
+    : options.runtimePlugins.filter(
+        (plugin) => !SSR_ONLY_RUNTIME_PLUGINS.has(typeof plugin === 'string' ? plugin : plugin[0])
+      );
+  const pluginImportNames = runtimePlugins.map((p, i) => {
     if (typeof p === 'string') {
       return [`$runtimePlugin_${i}`, `import $runtimePlugin_${i} from "${p}";`, `undefined`];
     } else {
