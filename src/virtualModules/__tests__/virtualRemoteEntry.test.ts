@@ -1042,6 +1042,37 @@ describe('virtualRemoteEntry', () => {
     );
   });
 
+  it('resolves a share away from a consume-only stub when the Runtime settles on one', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    // The resolveShare instrumentation swaps a stub for the provider this container selects
+    const resolver = code.slice(
+      code.indexOf('const instrumentedResolver = (...resolverArgs) => {'),
+      code.indexOf('args.resolver = instrumentedResolver;')
+    );
+    expect(resolver).toContain('resolved?.shared?.shareConfig?.import === false');
+    expect(resolver).toContain(
+      "__mfSelectSharedProvider(\n            args.shareScopeMap?.[args.scope]?.[args.pkgName],\n            args.pkgName,\n            usedShared[args.pkgName],\n            'version-first'\n          )"
+    );
+    expect(resolver).toContain(
+      'if (provider && provider.shareConfig?.import !== false) {\n            resolved = { shared: provider, useTreesShaking: resolved.useTreesShaking };'
+    );
+  });
+
   it('omits the consume-only helpers when no share is consume-only', async () => {
     const mod = await import('../virtualRemoteEntry');
 

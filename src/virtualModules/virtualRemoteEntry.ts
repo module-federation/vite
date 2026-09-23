@@ -1760,7 +1760,25 @@ export function generateRemoteEntry(
       const resolver = args.resolver;
       if (typeof resolver !== "function") return args;
       const instrumentedResolver = (...resolverArgs) => {
-        const resolved = resolver(...resolverArgs);
+        let resolved = resolver(...resolverArgs);
+        // A consume-only stub can never be loaded. The Runtime still settles on one when
+        // it carries the highest version, e.g. a parent that registers its provider under
+        // "0.0.0"; hand back the provider this container selects for itself instead.
+        if (
+          resolved?.shared?.shareConfig?.import === false &&
+          typeof __mfSelectSharedProvider === "function" &&
+          usedShared[args.pkgName]
+        ) {
+          const provider = __mfSelectSharedProvider(
+            args.shareScopeMap?.[args.scope]?.[args.pkgName],
+            args.pkgName,
+            usedShared[args.pkgName],
+            '${options.shareStrategy}'
+          );
+          if (provider && provider.shareConfig?.import !== false) {
+            resolved = { shared: provider, useTreesShaking: resolved.useTreesShaking };
+          }
+        }
         const selectedProvider = resolved?.shared;
         if (
           selectedProvider &&
