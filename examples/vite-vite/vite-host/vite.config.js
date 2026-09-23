@@ -45,6 +45,8 @@ const shared = {
     requiredVersion: '^0.0.1',
   },
   '@vite-vite/shared-lib/helpers': { singleton: true },
+  // Provided for the remote's lazily loaded panel; the host never imports it.
+  '@vite-vite/shared-lazy': { singleton: true, requiredVersion: false },
   'styled-components': { import: false, requiredVersion: '6.1.19' },
   antd: {
     ...antdShared,

@@ -16,6 +16,7 @@
     "@module-federation/vite": "workspace:*",
     "@mui/material": "7.3.2",
     "@vite-vite/shared-lib": "workspace:*",
+    "@vite-vite/shared-lazy": "workspace:*",
     "ag-grid-community": "34.1.2",
     "ag-grid-react": "34.1.2",
     "react": "19.2.4",

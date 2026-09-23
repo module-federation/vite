@@ -10,6 +10,7 @@ import AgGridDemo from "@namespace/viteViteRemote/AgGridDemo";
 import App1 from "@namespace/viteViteRemote/App1";
 import App2 from "@namespace/viteViteRemote/App2";
 import EmotionDemo from "@namespace/viteViteRemote/EmotionDemo";
+import LazySharedDemo from "@namespace/viteViteRemote/LazySharedDemo";
 import MuiDemo from "@namespace/viteViteRemote/MuiDemo";
 import StyledDemo from "@namespace/viteViteRemote/StyledDemo";
 import PrimaryFederationMarker from "./PrimaryFederationMarker";
@@ -99,6 +100,9 @@ export default function HostApp() {
 
       <h2>Vite Remote AgGridDemo</h2>
       <AgGridDemo />
+
+      <h2>Lazy Shared Demo</h2>
+      <LazySharedDemo />
 
       <hr />
     </div>

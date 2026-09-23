@@ -191,6 +191,8 @@ importers:
         specifier: workspace:*
         version: link:../shared-lib
 
+  examples/vite-vite/shared-lazy: {}
+
   examples/vite-vite/shared-lib:
     dependencies:
       typescript:
@@ -224,6 +226,9 @@ importers:
       '@vite-vite/shared-consumer':
         specifier: workspace:*
         version: link:../shared-consumer
+      '@vite-vite/shared-lazy':
+        specifier: workspace:*
+        version: link:../shared-lazy
       '@vite-vite/shared-lib':
         specifier: workspace:*
         version: link:../shared-lib
@@ -282,6 +287,9 @@ importers:
       '@mui/material':
         specifier: 7.3.2
         version: 7.3.2(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@19.2.14)(react@19.2.4))(@types/react@19.2.14)(react@19.2.4))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@vite-vite/shared-lazy':
+        specifier: workspace:*
+        version: link:../shared-lazy
       '@vite-vite/shared-lib':
         specifier: workspace:*
         version: link:../shared-lib

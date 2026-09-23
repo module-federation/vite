@@ -81,6 +81,7 @@ export function addConfiguredShare(pkg: string, options?: NormalizedModuleFedera
   if (options) getScopedUsedShares(options).add(pkg);
 }
 const LOCAL_SHARED_IMPORT_MAP_ID = 'virtual:mf-localSharedImportMap';
+export const LAZY_CONSUME_ONLY_SHARES_PLACEHOLDER = '__MF_LAZY_CONSUME_ONLY_SHARES__';
 
 const localOwnerIds = new WeakMap<NormalizedModuleFederationOptions, number>();
 let nextLocalOwnerId = 1;
@@ -215,12 +216,17 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
     const __mfHostOnly = (name) => async () => {
       throw new Error(\`[Module Federation] Shared module '\${name}' must be provided by host\`);
     };
+    // Replaced by the lazy consume-only share plugin with the keys that only a dynamic
+    // import() reaches, so init() leaves them to that import; an unreplaced string matches no key.
+    const __mfLazyShares = ${JSON.stringify(LAZY_CONSUME_ONLY_SHARES_PLACEHOLDER)};
+    const __mfIsLazyShare = (name) => Array.isArray(__mfLazyShares) && __mfLazyShares.includes(name);
     const __mfConsumeOnly = (name, version, scope, materialize, shareConfig) => ({
       name,
       version,
       scope: [scope],
       loaded: false,
-      materialize,
+      materialize: materialize && !__mfIsLazyShare(name),
+      lazy: __mfIsLazyShare(name),
       eager: shareConfig.eager,
       from: ${toSafeJsLiteral(resolvedOptions.name)},
       canLiveRebind: true,
@@ -899,6 +905,28 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
             return { provider, scopeRootProvider };
           };`;
 
+/**
+ * A consume-only stub never outranks a provider: when registering this container's
+ * `import: false` share replaces an unloaded provider of the same version (#1311),
+ * the `afterRegisterShare` hook restores the provider. Registered once per instance.
+ */
+function generateKeepProvidersOverStubsCode(runtimeVar: string) {
+  return `if (!${runtimeVar}.__mfKeepAdoptedProviders) {
+      ${runtimeVar}.__mfKeepAdoptedProviders = true;
+      ${runtimeVar}.sharedHandler?.hooks?.lifecycle?.afterRegisterShare?.on?.((args) => {
+        const { shared, previousShared, registeredShared } = args || {};
+        if (
+          shared?.shareConfig?.import !== false ||
+          registeredShared !== shared ||
+          !previousShared ||
+          previousShared.shareConfig?.import === false
+        ) return;
+        const versions = ${runtimeVar}.shareScopeMap?.[args.scope]?.[args.pkgName];
+        if (versions && versions[shared.version] === shared) versions[shared.version] = previousShared;
+      });
+    }`;
+}
+
 function generateRuntimeSharedCacheSeedCode(
   shareStrategy: string,
   options?: NormalizedModuleFederationOptions,
@@ -931,7 +959,7 @@ function generateRuntimeSharedCacheSeedCode(
     // import and set materialize. An import:false share has no local fallback
     // though, so on a cold request (materialize not set yet) it must still be
     // attempted here, or it is never seeded and its consumer reads it undefined.
-    const __mfSeedKeys = __mfSeedOrder.filter((pkg) => usedShared[pkg] && (usedShared[pkg].materialize !== false || usedShared[pkg].shareConfig?.import === false));
+    const __mfSeedKeys = __mfSeedOrder.filter((pkg) => usedShared[pkg] && (usedShared[pkg].materialize !== false || (usedShared[pkg].shareConfig?.import === false && !usedShared[pkg].lazy)));
     __mfModuleCache.providerInit ||= new Map();
     const __mfInitializeProviderOnce = (key, initialize) => {
       const existing = __mfModuleCache.providerInit.get(key);
@@ -1721,6 +1749,11 @@ export function generateRemoteEntry(
       };
     }
     const runtimeResolveShareHook = initRes.sharedHandler.hooks.lifecycle.resolveShare;
+    // Registering this container's shares lets its consume-only stub displace the parent's
+    // unloaded same-version provider whenever this container's name sorts after the parent's
+    // (the Runtime keeps the higher name). Nothing can be loaded from a stub, so put the
+    // provider back; a share bridged later, e.g. from a lazy import(), still finds it.
+    ${generateKeepProvidersOverStubsCode('initRes')}
     const __mfRuntimeProviderOrigins = new WeakMap();
     runtimeResolveShareHook.on((args) => {
       const loadId = args.shareInfo?.[__mfRuntimeShareLoadIdKey];
@@ -2330,6 +2363,33 @@ export function generateRemoteEntry(
       (pkg) => !__mfBlockedSeedKeys.has(__mfSeedIndex.get(pkg))
     ));
     await __mfSeedLocalShared(__mfReadyDeferredSeedKeys);
+    ${
+      command === 'build'
+        ? `// A consume-only share reached only through import() is bridged when that import runs
+    // (see pluginLazyConsumeOnlyShares), through the same provider selection init() uses.
+    const __mfLazyShareLoads = new Map();
+    __mfResolveState.loadLazyShares = async (names) => {
+      const requested = new Set(names);
+      for (const batch of __mfMaterializedShareBatches) await Promise.all(batch.filter((pkg) => requested.has(pkg)).map((pkg) => {
+        const share = usedShared[pkg];
+        if (!share || !share.lazy || !__mfIsRuntimeOnlySharePending(pkg)) return;
+        let load = __mfLazyShareLoads.get(pkg);
+        if (!load) {
+          load = __mfBridgeExternalSharedProvider(
+            pkg,
+            share,
+            ${hasMultipleShareScopes ? 'getShareVersions(pkg, share)' : 'shared[pkg]'},
+            initialShared[pkg],
+            undefined
+          ).then(() => __mfIsRuntimeOnlySharePending(pkg) ? __mfResolveImportFalseShared(pkg, share) : undefined);
+          load.catch(() => __mfLazyShareLoads.delete(pkg));
+          __mfLazyShareLoads.set(pkg, load);
+        }
+        return load;
+      }));
+    };`
+        : ''
+    }
     initResolve(initRes)
     return initRes
   }
@@ -2457,7 +2517,8 @@ export function generateHostAutoInitCode(
           for (const __mfHostInitShareBatch of __mfHostInitShareBatches) {
             await Promise.all(__mfHostInitShareBatch.map(async (pkg) => {
               const share = usedShared[pkg];
-              if (!share || share.materialize === false) return;
+              // A standalone container has no dynamic-import boundary to load a lazy share behind.
+              if (!share || (share.materialize === false && !share.lazy)) return;
               // remoteEntry.init resolves tree-enabled shares into the
               // coverage-aware cache. Never republish that selected partial under
               // a generic full-module key here.
@@ -2496,20 +2557,7 @@ export function generateHostAutoInitCode(
                   // container's own stub and lets it displace an unloaded adopted
                   // provider whenever this container's name sorts after the provider's
                   // (#1311). Put the provider back: a stub never outranks a provider.
-                  if (!runtime.__mfKeepAdoptedProviders) {
-                    runtime.__mfKeepAdoptedProviders = true;
-                    runtime.sharedHandler?.hooks?.lifecycle?.afterRegisterShare?.on?.((args) => {
-                      const { shared, previousShared, registeredShared } = args || {};
-                      if (
-                        shared?.shareConfig?.import !== false ||
-                        registeredShared !== shared ||
-                        !previousShared ||
-                        previousShared.shareConfig?.import === false
-                      ) return;
-                      const versions = runtime.shareScopeMap?.[args.scope]?.[args.pkgName];
-                      if (versions && versions[shared.version] === shared) versions[shared.version] = previousShared;
-                    });
-                  }
+                  ${generateKeepProvidersOverStubsCode('runtime')}
                   for (const instance of globalThis.__FEDERATION__?.__INSTANCES__ || []) {
                     for (const scopeName of __mfScopeNames) {
                       const versions = instance?.shareScopeMap?.[scopeName]?.[pkg];

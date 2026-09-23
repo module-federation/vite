@@ -2916,6 +2916,11 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       'export { __mf_default as default, exportModule as __moduleExports }'
     );
+    // A share init() left to its dynamic import is bridged here when reached another way
+    expect(generatedCode).toContain(
+      'return __mfPromiseState.loadLazyShares(["mock-package-with-reserved"]).then(() => {'
+    );
+    expect(generatedCode).toContain('was imported before federation bootstrap finished');
   });
 
   it('emits only analyzed named exports for a finalized import:false consumer', () => {

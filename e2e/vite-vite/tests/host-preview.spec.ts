@@ -51,9 +51,7 @@ test.describe('vite-vite host preview', () => {
     const scriptResponses: Promise<{ url: string; body: string }>[] = [];
     page.on('response', (response) => {
       if (response.request().resourceType() === 'script') {
-        scriptResponses.push(
-          response.text().then((body) => ({ url: response.url(), body }))
-        );
+        scriptResponses.push(response.text().then((body) => ({ url: response.url(), body })));
       }
     });
 
@@ -73,8 +71,7 @@ test.describe('vite-vite host preview', () => {
       'http://localhost:5176/testbase/mf-manifest.json',
       'styled-components'
     );
-    const secondaryManifestUrl =
-      'http://localhost:5177/testbase/secondary-mf-manifest.json';
+    const secondaryManifestUrl = 'http://localhost:5177/testbase/secondary-mf-manifest.json';
     const secondaryProviders = await getSharedProviderUrls(
       request,
       secondaryManifestUrl,
@@ -96,6 +93,58 @@ test.describe('vite-vite host preview', () => {
     await expect(page.getByText('Secondary remote preloaded')).toBeVisible();
     await expect.poll(() => requested.has(secondaryManifestUrl)).toBe(true);
     expect(secondaryProviders.filter((url) => requested.has(url))).toEqual([]);
+  });
+
+  test('bridges a consume-only share reached only through import() when that import runs', async ({
+    page,
+  }) => {
+    // The remote consumes `@vite-vite/shared-lazy` with `import: false` from a panel it
+    // only reaches through import(). This host exposes a module, so it seeds its own
+    // providers at startup; the remote's side is observed through the runtime instead.
+    const remoteName = '@namespace/viteViteRemote';
+    const readShare = () =>
+      page.evaluate((name) => {
+        const federation = (
+          globalThis as typeof globalThis & {
+            __FEDERATION__?: {
+              __INSTANCES__: Array<{
+                name: string;
+                options: {
+                  shared: Record<string, Array<{ lazy?: boolean; materialize?: boolean }>>;
+                };
+                shareScopeMap: Record<string, Record<string, Record<string, { from: string }>>>;
+              }>;
+            };
+          }
+        ).__FEDERATION__;
+        const instance = federation?.__INSTANCES__.find((candidate) => candidate.name === name);
+        const share = instance?.options.shared['@vite-vite/shared-lazy']?.[0];
+        const provider = instance?.shareScopeMap.default['@vite-vite/shared-lazy']?.['0.0.1'];
+        return {
+          lazy: share?.lazy,
+          materialize: share?.materialize,
+          providerFrom: provider?.from,
+        };
+      }, remoteName);
+
+    await page.goto('/');
+    const showPanel = page.getByRole('button', { name: 'Show lazy shared panel' });
+    await expect(showPanel).toBeVisible();
+    await expect(page.getByTestId('shared-counter-[shared-lib] Remote')).toBeVisible();
+    // init() left the share to its dynamic import: the remote's entry marks it lazy and
+    // did not materialize it, and the host's provider still owns the registration.
+    expect(await readShare()).toEqual({
+      lazy: true,
+      materialize: false,
+      providerFrom: 'viteViteHost',
+    });
+
+    await showPanel.click();
+    // The panel calls the share at module top level, so it only renders when the
+    // wrapped import() bridged the host provider before the chunk evaluated.
+    await expect(page.getByTestId('lazy-shared-panel')).toHaveText(
+      '[shared-lazy] provided by host'
+    );
   });
 
   test('renders Emotion styled component from remote', async ({ page }) => {
@@ -160,9 +209,7 @@ test.describe('vite-vite host preview', () => {
     expect(consoleLogs).toHaveLength(1);
   });
 
-  test('keeps a user codeSplitting.groups chunk alongside federation chunks', async ({
-    page,
-  }) => {
+  test('keeps a user codeSplitting.groups chunk alongside federation chunks', async ({ page }) => {
     // The host runs Vite 8 (Rolldown). Its user `codeSplitting.groups` entry
     // isolates PrimaryFederationMarker into a stable-named chunk. The plugin's
     // federation groups keep the highest priority, so this only proves user
@@ -181,9 +228,7 @@ test.describe('vite-vite host preview', () => {
     );
 
     // The user chunk is emitted and loaded on startup.
-    await expect
-      .poll(() => scriptUrls.some((url) => /user-host-chunk/.test(url)))
-      .toBe(true);
+    await expect.poll(() => scriptUrls.some((url) => /user-host-chunk/.test(url))).toBe(true);
   });
 
   test('isolates identical remote ids across two federation configs', async ({ page }) => {
@@ -194,9 +239,13 @@ test.describe('vite-vite host preview', () => {
     );
     await page.waitForFunction(() => {
       const cache = (globalThis as any).__mf_module_cache__?.remote ?? {};
-      return Object.keys(cache).filter(
-        (key) => !key.startsWith('__mf_pending__') && key.endsWith('::@namespace/viteViteRemote/InstanceMarker')
-      ).length === 2;
+      return (
+        Object.keys(cache).filter(
+          (key) =>
+            !key.startsWith('__mf_pending__') &&
+            key.endsWith('::@namespace/viteViteRemote/InstanceMarker')
+        ).length === 2
+      );
     });
     const cachedMarkers = await page.evaluate(() => {
       const cache = (globalThis as any).__mf_module_cache__.remote;
