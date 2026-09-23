@@ -15,6 +15,7 @@ import addEntry, { getBuildInput } from './plugins/pluginAddEntry';
 import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
 import pluginExternalRuntimeCore from './plugins/pluginExternalRuntimeCore';
+import pluginLazyConsumeOnlyShares from './plugins/pluginLazyConsumeOnlyShares';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd, { createModuleParseController } from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
@@ -1498,6 +1499,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       federationOptions: options,
       getParsePromise: () => moduleParseController.parsePromise,
     }),
+    pluginLazyConsumeOnlyShares(options),
     {
       name: 'module-federation-esm-shims',
       enforce: 'pre',

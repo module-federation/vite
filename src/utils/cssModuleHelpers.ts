@@ -42,6 +42,14 @@ export const ASSET_TYPES = ['js', 'css'] as const;
 export const LOAD_TIMINGS = ['sync', 'async'] as const;
 export const JS_EXTENSIONS = ['.ts', '.tsx', '.jsx', '.mjs', '.cjs'] as const;
 
+/** A module path without its JS extension, so `./src/App` matches `/root/src/App.tsx`. */
+export const stripKnownJsExtension = (file: string) => {
+  const ext = path.extname(file);
+  return JS_EXTENSIONS.includes(ext as (typeof JS_EXTENSIONS)[number])
+    ? path.join(path.dirname(file), path.basename(file, ext))
+    : file;
+};
+
 export type AssetType = (typeof ASSET_TYPES)[number];
 export type AssetMap = {
   sync: string[];
@@ -223,12 +231,8 @@ export const processModuleAssets = (
         : modulePath;
       const comparableModulePaths = [comparableModulePath];
       if (options.stripKnownJsExtensions) {
-        const ext = path.extname(comparableModulePath);
-        if (JS_EXTENSIONS.includes(ext as any)) {
-          comparableModulePaths.push(
-            path.join(path.dirname(comparableModulePath), path.basename(comparableModulePath, ext))
-          );
-        }
+        const stripped = stripKnownJsExtension(comparableModulePath);
+        if (stripped !== comparableModulePath) comparableModulePaths.push(stripped);
       }
 
       const matchKey = comparableModulePaths.map(moduleMatcher).find(Boolean);

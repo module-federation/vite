@@ -948,6 +948,100 @@ describe('virtualRemoteEntry', () => {
     await expect(share.get()).rejects.toThrow("Shared module 'host-only' must be provided by host");
   });
 
+  it('marks a consume-only entry lazy only once the lazy share list replaces its placeholder', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('host-only');
+
+    const code = mod.generateLocalSharedImportMap();
+    expect(code).toContain(`const __mfLazyShares = "${mod.LAZY_CONSUME_ONLY_SHARES_PLACEHOLDER}";`);
+
+    const evaluate = (source: string) =>
+      new Function(
+        source
+          .replace(
+            'import {loadShare} from "@module-federation/runtime";',
+            'const loadShare = () => {};'
+          )
+          .replace(
+            /export \{\s*usedShared,\s*usedRemotes\s*\}/,
+            'return { usedShared, usedRemotes }'
+          )
+      )();
+
+    // An unreplaced placeholder (dev, host builds, no dynamic-only consumer) keeps today's shape
+    const untouched = evaluate(code).usedShared['host-only'];
+    expect(untouched.lazy).toBe(false);
+    expect(untouched.materialize).toBe(true);
+
+    const lazy = evaluate(
+      code.replace(`"${mod.LAZY_CONSUME_ONLY_SHARES_PLACEHOLDER}"`, '["host-only"]')
+    ).usedShared['host-only'];
+    expect(lazy.lazy).toBe(true);
+    expect(lazy.materialize).toBe(false);
+  });
+
+  it('bridges lazy consume-only shares on demand instead of during init()', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const options = {
+      internalName: '__mfe_internal__remote',
+      name: 'remote',
+      filename: 'remoteEntry.js',
+      remotes: {},
+      runtimePlugins: [],
+      shareScope: 'default',
+      shareStrategy: 'version-first',
+    } as any;
+
+    const code = mod.generateRemoteEntry(options, 'virtual:exposes', 'build');
+
+    // init() seeds a consume-only share unless it is lazy
+    expect(code).toContain(
+      '(usedShared[pkg].shareConfig?.import === false && !usedShared[pkg].lazy)'
+    );
+    // the dynamic import that needs it calls this before evaluating its chunk
+    expect(code).toContain('__mfResolveState.loadLazyShares = async (names) => {');
+    expect(code).toContain(
+      'if (!share || !share.lazy || !__mfIsRuntimeOnlySharePending(pkg)) return;'
+    );
+    expect(code.indexOf('__mfResolveState.loadLazyShares')).toBeLessThan(
+      code.indexOf('initResolve(initRes)')
+    );
+    // a standalone container still seeds it at hostInit: there is no import() to bridge behind
+    expect(mod.generateHostAutoInitCode(options, 'build')).toContain(
+      'if (!share || (share.materialize === false && !share.lazy)) return;'
+    );
+
+    expect(mod.generateRemoteEntry(options, 'virtual:exposes', 'serve')).not.toContain(
+      'loadLazyShares'
+    );
+  });
+
+  it("keeps a parent provider over this container's consume-only stub while registering shares", async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const options = {
+      internalName: '__mfe_internal__remote',
+      name: 'remote',
+      filename: 'remoteEntry.js',
+      remotes: {},
+      runtimePlugins: [],
+      shareScope: 'default',
+      shareStrategy: 'version-first',
+    } as any;
+
+    const code = mod.generateRemoteEntry(options, 'virtual:exposes', 'build');
+
+    const hook = code.indexOf('if (!initRes.__mfKeepAdoptedProviders) {');
+    expect(hook).toBeGreaterThan(-1);
+    expect(hook).toBeLessThan(code.indexOf('initRes.initializeSharing('));
+    expect(code).toContain('const versions = initRes.shareScopeMap?.[args.scope]?.[args.pkgName];');
+    // hostInit reuses the same hook on the same instance
+    expect(mod.generateHostAutoInitCode(options, 'build')).toContain(
+      'if (!runtime.__mfKeepAdoptedProviders) {'
+    );
+  });
+
   it('omits the consume-only helpers when no share is consume-only', async () => {
     const mod = await import('../virtualRemoteEntry');
 

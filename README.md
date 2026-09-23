@@ -154,6 +154,8 @@ shared: {
 
 `suppressMissingImportWarning` defaults to `false`. Enable it only when the host is guaranteed to provide the dependency and local named-export detection is unnecessary.
 
+In a production build, a host-only dependency that the exposed modules reach only through a dynamic `import()` is not fetched while the remote initializes. It is loaded from the host's provider when that `import()` runs, before the imported chunk evaluates. A dependency imported statically by an exposed module, or configured with `eager: true`, is still loaded during initialization.
+
 ### Shared dependencies installed in several places
 
 An absolute import that resolves inside a different `node_modules` directory than the one the share itself resolves to, for example a workspace package with its own nested copy, is not treated as the shared module by default. Set `allowNodeModulesSuffixMatch: true` on the share to match it by the path after `node_modules/`, as webpack and rspack do with the same option:

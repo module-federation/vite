@@ -1969,6 +1969,14 @@ function generateDeferredHostProvidedExports(
     if (exportModule === undefined) {
       __mfTrackPendingShareLoad(initPromise.then(() => {
         exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
+        // A share init() left to its dynamic import is normally bridged before that import runs;
+        // bridge it here when this wrapper is reached another way.
+        if (exportModule === undefined && typeof __mfPromiseState.loadLazyShares === "function") {
+          return __mfPromiseState.loadLazyShares([${escapeGeneratedStringLiteral(pkg)}]).then(() => {
+            exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
+          });
+        }
+      }).then(() => {
         if (exportModule === undefined) {
           throw new Error("[Module Federation] Shared module ${pkg} was imported before federation bootstrap finished.");
         }

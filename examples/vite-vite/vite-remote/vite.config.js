@@ -80,6 +80,7 @@ export default defineConfig({
         './StyledDemo': './src/StyledDemo.jsx',
         './EmotionDemo': './src/EmotionDemo.jsx',
         './InstanceMarker': './src/InstanceMarkerPrimary.js',
+        './LazySharedDemo': './src/LazySharedDemo.jsx',
         '.': './src/App.jsx',
       },
       dts: false,
@@ -95,7 +96,11 @@ export default defineConfig({
           };
         },
       },
-      shared,
+      shared: {
+        ...shared,
+        // Consumed only from a chunk behind import(); the host provides it.
+        '@vite-vite/shared-lazy': { singleton: true, import: false, requiredVersion: false },
+      },
     }),
     federation({
       name: '@namespace/viteViteRemoteSecondary',
