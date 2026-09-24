@@ -1,4 +1,4 @@
-import { parseAst } from 'vite';
+import { getImportAnalysis } from './importAnalysis';
 import type {
   NormalizedModuleFederationOptions,
   NormalizedShared,
@@ -35,7 +35,11 @@ export function shouldAnalyzeSharedExports(shareItem?: ShareItem) {
   );
 }
 
-type RecordTreeShakingExports = (sharedKey: string, exports: string[], request?: string) => void;
+type RecordTreeShakingExports = (
+  sharedKey: string,
+  exports: readonly string[],
+  request?: string
+) => void;
 type MarkTreeShakingPackageUnsafe = (sharedKey: string, request?: string) => void;
 
 /**
@@ -98,7 +102,7 @@ function getOrCreateExportRecord(
 
 export function recordTreeShakingExports(
   sharedKey: string,
-  exports: string[],
+  exports: readonly string[],
   request = sharedKey,
   options?: NormalizedModuleFederationOptions
 ) {
@@ -185,169 +189,10 @@ export function getTreeShakingExportUsage(
   return getSharedExportUsage(request, shareItem, sharedKey, options);
 }
 
-type AstNode = {
-  type?: string;
-  [key: string]: unknown;
-};
-
-function getModuleSource(node: unknown): string | undefined {
-  if (!node || typeof node !== 'object') return undefined;
-  const source = node as AstNode;
-  if (source.type === 'Literal' && typeof source.value === 'string') return source.value;
-  if (source.type === 'StringLiteral' && typeof source.value === 'string') return source.value;
-  if (source.type !== 'TemplateLiteral') return undefined;
-
-  const expressions = Array.isArray(source.expressions) ? source.expressions : [];
-  const quasis = Array.isArray(source.quasis) ? source.quasis : [];
-  if (expressions.length > 0 || quasis.length !== 1) return undefined;
-  const quasi = quasis[0] as AstNode | undefined;
-  const value = quasi?.value as { cooked?: unknown; raw?: unknown } | undefined;
-  return typeof value?.cooked === 'string'
-    ? value.cooked
-    : typeof value?.raw === 'string'
-      ? value.raw
-      : undefined;
-}
-
-function getExportedName(node: unknown): string | undefined {
-  if (!node || typeof node !== 'object') return undefined;
-  const exported = node as AstNode;
-  if (exported.type === 'Identifier' && typeof exported.name === 'string') return exported.name;
-  if (
-    (exported.type === 'Literal' || exported.type === 'StringLiteral') &&
-    typeof exported.value === 'string'
-  ) {
-    return exported.value;
-  }
-  return undefined;
-}
-
-function isTypeOnly(node: AstNode) {
-  return node.importKind === 'type' || node.exportKind === 'type';
-}
-
-function forEachAstNode(root: AstNode, visit: (node: AstNode) => void) {
-  const stack: unknown[] = [root];
-  const seen = new Set<object>();
-
-  while (stack.length > 0) {
-    const value = stack.pop();
-    if (!value || typeof value !== 'object') continue;
-    if (seen.has(value)) continue;
-    seen.add(value);
-
-    if (Array.isArray(value)) {
-      for (let index = value.length - 1; index >= 0; index--) stack.push(value[index]);
-      continue;
-    }
-
-    const node = value as AstNode;
-    if (typeof node.type === 'string') visit(node);
-    Object.entries(node).forEach(([key, child]) => {
-      if (key !== 'parent' && key !== 'loc') stack.push(child);
-    });
-  }
-}
-
-function collectImportDeclaration(
-  node: AstNode,
-  source: string,
-  record: (names: string[], source: string) => void,
-  markUnsafe: (source: string) => void
-) {
-  if (isTypeOnly(node)) return;
-  const specifiers = Array.isArray(node.specifiers) ? (node.specifiers as AstNode[]) : [];
-  if (specifiers.length === 0) {
-    markUnsafe(source);
-    return;
-  }
-
-  const names: string[] = [];
-  for (const specifier of specifiers) {
-    if (isTypeOnly(specifier)) continue;
-    if (specifier.type === 'ImportNamespaceSpecifier') {
-      markUnsafe(source);
-      return;
-    }
-    if (specifier.type === 'ImportDefaultSpecifier') {
-      names.push('default');
-      continue;
-    }
-    if (specifier.type === 'ImportSpecifier') {
-      const imported = specifier.imported as AstNode | undefined;
-      if (imported?.type === 'Literal' || imported?.type === 'StringLiteral') {
-        // String-named exports are valid ESM, but generated shared wrappers
-        // cannot currently re-export them without special quoting.
-        markUnsafe(source);
-        return;
-      }
-      const name = getExportedName(specifier.imported);
-      if (!name) {
-        markUnsafe(source);
-        return;
-      }
-      names.push(name);
-      continue;
-    }
-
-    // Future/proposal syntax must not accidentally produce an incomplete bundle.
-    markUnsafe(source);
-    return;
-  }
-  record(names, source);
-}
-
-function collectReExport(
-  node: AstNode,
-  source: string,
-  record: (names: string[], source: string) => void,
-  markUnsafe: (source: string) => void
-) {
-  if (isTypeOnly(node)) return;
-  if (node.type === 'ExportAllDeclaration') {
-    markUnsafe(source);
-    return;
-  }
-
-  const specifiers = Array.isArray(node.specifiers) ? (node.specifiers as AstNode[]) : [];
-  if (specifiers.length === 0) {
-    // `export {} from 'pkg'` still evaluates pkg for side effects.
-    markUnsafe(source);
-    return;
-  }
-
-  const names: string[] = [];
-  for (const specifier of specifiers) {
-    if (isTypeOnly(specifier)) continue;
-    if (specifier.type !== 'ExportSpecifier') {
-      markUnsafe(source);
-      return;
-    }
-    const local = specifier.local as AstNode | undefined;
-    if (local?.type === 'Literal' || local?.type === 'StringLiteral') {
-      markUnsafe(source);
-      return;
-    }
-    const name = getExportedName(specifier.local);
-    if (!name) {
-      markUnsafe(source);
-      return;
-    }
-    names.push(name);
-  }
-  record(names, source);
-}
-
 /**
- * Collect the exports required by a consumer's ESM graph.
- *
- * Parsing the module avoids treating import-looking text in comments, strings,
- * templates, or regular expressions as real dependencies. If parsing fails,
- * every configured share whose exports are analyzed is conservatively marked
- * as requiring its full export surface instead of guessing from source text.
- *
- * Generated federation wrappers are excluded because their imports describe
- * the wrapper implementation, not the consumer's requirements.
+ * Record consumer imports against this instance's sharing configuration.
+ * Generated wrappers do not contribute consumer usage. If parsing fails,
+ * every share enabled for analysis requires all of its exports.
  */
 export async function collectTreeShakingImports(
   code: string,
@@ -355,7 +200,8 @@ export async function collectTreeShakingImports(
   shared: NormalizedShared,
   findSharedKey: SharedSourceMatcher,
   record: RecordTreeShakingExports,
-  markUnsafe: MarkTreeShakingPackageUnsafe
+  markUnsafe: MarkTreeShakingPackageUnsafe,
+  analysis = getImportAnalysis(shared)
 ): Promise<void> {
   const normalizedId = normalizePathForImport(id);
   if (
@@ -366,10 +212,8 @@ export async function collectTreeShakingImports(
     return;
   }
 
-  let ast: AstNode;
-  try {
-    ast = parseAst(code) as unknown as AstNode;
-  } catch {
+  const imports = analysis.analyze(code);
+  if (imports === null) {
     Object.entries(shared).forEach(([sharedKey, shareItem]) => {
       if (shouldAnalyzeSharedExports(shareItem)) markUnsafe(sharedKey, '*');
     });
@@ -385,45 +229,11 @@ export async function collectTreeShakingImports(
     if (key instanceof Promise) pending.push(key.then(apply));
     else apply(key);
   };
-  const recordSource = (names: string[], source: string) => {
-    withSharedSource(source, (key) => record(key, names, source));
-  };
-  const markSourceUnsafe = (source: string) => {
-    withSharedSource(source, (key) => markUnsafe(key, source));
-  };
-
-  forEachAstNode(ast, (node) => {
-    if (node.type === 'ImportDeclaration') {
-      const source = getModuleSource(node.source);
-      if (source) collectImportDeclaration(node, source, recordSource, markSourceUnsafe);
-      return;
-    }
-
-    if (
-      (node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') &&
-      node.source
-    ) {
-      const source = getModuleSource(node.source);
-      if (source) collectReExport(node, source, recordSource, markSourceUnsafe);
-      return;
-    }
-
-    if (node.type === 'ImportExpression') {
-      const source = getModuleSource(node.source);
-      if (source) markSourceUnsafe(source);
-      return;
-    }
-
-    // CommonJS is not ESM-tree-shakeable. It can still occur in transformed
-    // application code, so recognize literal require calls conservatively.
-    if (node.type === 'CallExpression') {
-      const callee = node.callee as AstNode | undefined;
-      const args = Array.isArray(node.arguments) ? node.arguments : [];
-      if (callee?.type === 'Identifier' && callee.name === 'require' && args.length > 0) {
-        const source = getModuleSource(args[0]);
-        if (source) markSourceUnsafe(source);
-      }
-    }
-  });
+  for (const { source, names } of imports) {
+    withSharedSource(source, (key) => {
+      if (names === null) markUnsafe(key, source);
+      else record(key, names, source);
+    });
+  }
   await Promise.all(pending);
 }
