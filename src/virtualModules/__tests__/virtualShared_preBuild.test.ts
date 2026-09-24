@@ -1,4 +1,6 @@
 import { readFileSync } from 'fs';
+import { createRequire } from 'module';
+import { pathToFileURL } from 'url';
 import { parseAst } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../../utils/buildPaths';
@@ -210,6 +212,9 @@ vi.mock('../../utils/packageUtils', () => ({
         )
       : [],
   resolveImportPath: vi.fn(() => '/repo/node_modules/@module-federation/runtime/dist/index.js'),
+  // Resolution is stubbed by the `module` mock below.
+  resolveModulePath: (specifier: string, from: string) =>
+    createRequire(pathToFileURL(from)).resolve(specifier),
   getInstalledPackageEntry: vi.fn((pkg: string, opts?: { cwd?: string; conditions?: string[] }) => {
     if (pkg === 'react/jsx-runtime') {
       return '/repo/apps/remote/node_modules/react/jsx-runtime.js';
@@ -1055,7 +1060,9 @@ vi.mock('module', async (importOriginal) => {
     createRequire: (from: string | URL) => {
       createRequireSpy(from);
       const fromPath = String(from);
-      const req = ((pkg: string) => {
+      const req = ((request: string) => {
+        // Callers require the path that `req.resolve` below returned.
+        const pkg = request.replace(/^\/resolved\//, '');
         if (pkg === 'mock-package-side-effect') {
           // Opens a real loop-keeping handle at require time, the way
           // react-dom/server.browser does, so containment is exercised rather

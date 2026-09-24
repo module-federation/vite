@@ -12,7 +12,7 @@ import {
   type UserConfig,
   type ViteBuilder,
 } from 'vite';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { callHook } from '../utils/__tests__/viteHookHelpers';
 import type {
   ModuleFederationOptions,
@@ -3111,13 +3111,26 @@ describe('vite:module-federation-early-init', () => {
     expect(optimizeDeps).toContain('zustand/shallow');
   });
 
+  function createReactProjectRoot() {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-react-optimize-deps-'));
+    onTestFinished(() => rmSync(root, { recursive: true, force: true }));
+    mkdirSync(path.join(root, 'node_modules/react'), { recursive: true });
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(root, 'node_modules/react/package.json'),
+      JSON.stringify({ name: 'react', main: 'index.js' })
+    );
+    writeFileSync(path.join(root, 'node_modules/react/index.js'), 'module.exports = {};');
+    return root;
+  }
+
   it('includes shared react in dev optimizeDeps when react-redux is installed', () => {
     hasPackageDependencyMock.mockImplementation(
       (dependency: string): boolean => dependency === 'react-redux'
     );
     const plugin = getEarlyInitPluginWithReactShared();
     const config: any = {
-      root: process.cwd(),
+      root: createReactProjectRoot(),
       optimizeDeps: {
         include: [],
         exclude: [],
@@ -3137,7 +3150,7 @@ describe('vite:module-federation-early-init', () => {
     hasPackageDependencyMock.mockReturnValue(false);
     const plugin = getEarlyInitPluginWithReactShared();
     const config: any = {
-      root: process.cwd(),
+      root: createReactProjectRoot(),
       optimizeDeps: {
         include: [],
         exclude: [],

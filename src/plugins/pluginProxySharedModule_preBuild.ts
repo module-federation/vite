@@ -1,8 +1,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'fs';
 import type { Dirent } from 'fs';
-import { createRequire, isBuiltin } from 'module';
+import { isBuiltin } from 'module';
 import * as path from 'node:path';
-import { pathToFileURL } from 'url';
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { normalizePathForImport } from '../utils/buildPaths';
 import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
@@ -30,6 +29,7 @@ import {
   getPackageName,
   getPackageNameFromNodeModulePath,
   hasPackageDependency,
+  resolveModulePath,
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
 import { createSharedSourceResolver } from '../utils/sharedSource';
@@ -82,10 +82,7 @@ function tryResolveFromProjectRoot(source: string): string | undefined {
   const browserEntry = getInstalledPackageEntry(source, { cwd: getPackageDetectionCwd() });
   if (browserEntry) return browserEntry;
   try {
-    const projectRequire = createRequire(
-      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
-    );
-    return projectRequire.resolve(source);
+    return resolveModulePath(source, path.join(getPackageDetectionCwd(), 'package.json'));
   } catch {
     return undefined;
   }

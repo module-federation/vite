@@ -1,9 +1,11 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { pathToFileURL } from 'url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../buildPaths';
+import { withNodePath } from './helpers';
 import {
   getInstalledPackageEntry,
   getInstalledPackageJson,
@@ -15,6 +17,7 @@ import {
   packageNameDecode,
   packageNameEncode,
   resolveImportPath,
+  resolveModulePath,
   sharedCacheHelperCode,
 } from '../packageUtils';
 
@@ -647,6 +650,57 @@ describe('resolveImportPath', () => {
   it('throws for exported paths that do not exist on disk', () => {
     const missing = path.join(tmpdir(), `mf-vite-missing-${Date.now()}.js`);
     expect(() => resolveImportPath(pathToFileURL(missing).href)).toThrow(/Cannot find module/);
+  });
+});
+
+describe('resolveModulePath', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  function createProject() {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-resolve-module-')));
+    tempDirs.push(root);
+    const writePackage = (dir: string, name: string) => {
+      mkdirSync(path.join(root, dir), { recursive: true });
+      writeFileSync(
+        path.join(root, dir, 'package.json'),
+        JSON.stringify({ name, exports: { '.': './index.js', './sub': './index.js' } })
+      );
+      writeFileSync(path.join(root, dir, 'index.js'), '');
+    };
+    writePackage('apps/host', 'host');
+    writePackage('node_modules/@mf-test/hoisted', '@mf-test/hoisted');
+    writePackage('global/mf-test-global', 'mf-test-global');
+    return { root, from: path.join(root, 'apps/host/package.json') };
+  }
+
+  it('resolves what the node_modules lookup reaches, plus relative paths and core modules', () => {
+    const { root, from } = createProject();
+    const hoistedEntry = path.join(root, 'node_modules/@mf-test/hoisted/index.js');
+
+    expect(resolveModulePath('@mf-test/hoisted', from)).toBe(hoistedEntry);
+    expect(resolveModulePath('@mf-test/hoisted/sub', from)).toBe(hoistedEntry);
+    expect(resolveModulePath('./index.js', from)).toBe(path.join(root, 'apps/host/index.js'));
+    expect(resolveModulePath('node:fs', from)).toBe('node:fs');
+  });
+
+  it('rejects a package that only NODE_PATH reaches', async () => {
+    const { root, from } = createProject();
+
+    await withNodePath(path.join(root, 'global'), () => {
+      // Node itself finds the package through NODE_PATH.
+      expect(createRequire(from).resolve('mf-test-global')).toBe(
+        path.join(root, 'global/mf-test-global/index.js')
+      );
+      expect(() => resolveModulePath('mf-test-global', from)).toThrow(
+        expect.objectContaining({ code: 'MODULE_NOT_FOUND' })
+      );
+    });
   });
 });
 

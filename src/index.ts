@@ -73,6 +73,7 @@ import {
   getPackageNameFromNodeModulePath,
   hasPackageDependency,
   resolveImportPath,
+  resolveModulePath,
   setPackageDetectionCwd,
 } from './utils/packageUtils';
 import {
@@ -353,8 +354,9 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
 // drop them with a "Cannot optimize dependency" warning every dev start.
 function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean {
   try {
-    const req = createRequire(pathToFileURL(path.join(projectRoot, 'package.json')));
-    return isViteOptimizableEntry(req.resolve(subpath));
+    return isViteOptimizableEntry(
+      resolveModulePath(subpath, path.join(projectRoot, 'package.json'))
+    );
   } catch (error) {
     // An ESM-only package (an `exports` map with no CommonJS `require`/`default`
     // condition) makes Node's require.resolve throw ERR_PACKAGE_PATH_NOT_EXPORTED even
