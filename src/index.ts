@@ -753,11 +753,25 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             rolldownOptions?: { plugins?: unknown[] };
             esbuildOptions?: { plugins?: unknown[] };
           };
+          // Many imports resolve to the same wrapper during one optimization pass.
+          // Start fresh on the next pass; load hooks still refresh environment-specific code.
+          const preparedShares = new Map<string, ShareItem>();
+          const writeSharedModules = (source: string, shareItem: ShareItem) => {
+            if (preparedShares.get(source) === shareItem) return;
+            writeLoadShareModule(source, shareItem, _command, isRolldown, options);
+            if (shareItem.shareConfig?.import !== false) {
+              writePreBuildLibPath(source, shareItem, options);
+            }
+            preparedShares.set(source, shareItem);
+          };
           if (isRolldown) {
             optimizeDeps.rolldownOptions ??= {};
             optimizeDeps.rolldownOptions.plugins ??= [];
             optimizeDeps.rolldownOptions.plugins.push({
               name: 'module-federation:optimize-shared-resolver',
+              buildStart() {
+                preparedShares.clear();
+              },
               load(id: string) {
                 const optimizedRequirePrefix = 'module-federation:optimized-require-';
                 if (!id.startsWith(optimizedRequirePrefix)) return;
@@ -816,17 +830,11 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 if (isCommonJsImporter(importer) && !isReactSingleton && !isReactDomRequire) return;
                 if (resolveOptions?.kind !== 'entry-point') addUsedShares(source, options);
                 if (isReactRequire || isReactDomRequire) {
-                  writeLoadShareModule(source, shareItem, _command, isRolldown, options);
-                  if (shareItem.shareConfig?.import !== false) {
-                    writePreBuildLibPath(source, shareItem, options);
-                  }
+                  writeSharedModules(source, shareItem);
                   return { id: `module-federation:optimized-require-${source}` };
                 }
                 const loadSharePath = getLoadShareModulePath(source, isRolldown, options);
-                writeLoadShareModule(source, shareItem, _command, isRolldown, options);
-                if (shareItem.shareConfig?.import !== false) {
-                  writePreBuildLibPath(source, shareItem, options);
-                }
+                writeSharedModules(source, shareItem);
                 return { id: loadSharePath, external: true };
               },
             });
@@ -836,6 +844,9 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
             optimizeDeps.esbuildOptions.plugins.push({
               name: 'module-federation:optimize-shared-proxy',
               setup(build: any) {
+                build.onStart(() => {
+                  preparedShares.clear();
+                });
                 build.onResolve(
                   { filter: createViteEncodedIdPrefixRegExp('virtual:mf:') },
                   (args: any) => ({
@@ -860,10 +871,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (args.kind === 'import-statement' || args.kind === 'dynamic-import') {
                     const shareItem = shared[key];
                     const loadSharePath = getLoadShareModulePath(args.path, isRolldown, options);
-                    writeLoadShareModule(args.path, shareItem, _command, isRolldown, options);
-                    if (shareItem.shareConfig?.import !== false) {
-                      writePreBuildLibPath(args.path, shareItem, options);
-                    }
+                    writeSharedModules(args.path, shareItem);
                     return { path: loadSharePath, external: true };
                   }
                   return { path: args.path, namespace: 'mf-shared' };
@@ -873,10 +881,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (!key) return;
                   const shareItem = shared[key];
                   const loadSharePath = getLoadShareModulePath(args.path, isRolldown, options);
-                  writeLoadShareModule(args.path, shareItem, _command, isRolldown, options);
-                  if (shareItem.shareConfig?.import !== false) {
-                    writePreBuildLibPath(args.path, shareItem, options);
-                  }
+                  writeSharedModules(args.path, shareItem);
                   return {
                     loader: 'js',
                     resolveDir: root,
