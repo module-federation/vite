@@ -474,6 +474,126 @@ describe('getInstalledPackageJson', () => {
   });
 });
 
+describe('getInstalledPackageJson through dependents', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  // Nested installs keep `mf-test-shared` out of the project's own node_modules,
+  // so only the dependents lookup can find it.
+  function createProject(manifest: Record<string, unknown>) {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-dependents-'));
+    tempDirs.push(root);
+    const writePackage = (dir: string, packageJson: Record<string, unknown>) => {
+      mkdirSync(path.join(root, dir), { recursive: true });
+      writeFileSync(path.join(root, dir, 'package.json'), JSON.stringify(packageJson));
+    };
+    const installShared = (parentDir: string, version: string) =>
+      writePackage(`${parentDir}/node_modules/mf-test-shared`, { name: 'mf-test-shared', version });
+    writePackage('.', { name: 'host', ...manifest });
+    return { root, writePackage, installShared };
+  }
+
+  function createProjectWithTwoDependents(versionA: string, versionB: string) {
+    const project = createProject({ dependencies: { 'mf-test-a': '1.0.0', 'mf-test-b': '1.0.0' } });
+    for (const [parent, version] of [
+      ['mf-test-a', versionA],
+      ['mf-test-b', versionB],
+    ]) {
+      project.writePackage(`node_modules/${parent}`, {
+        name: parent,
+        dependencies: { 'mf-test-shared': version },
+      });
+      project.installShared(`node_modules/${parent}`, version);
+    }
+    return project.root;
+  }
+
+  it('finds the copy under a dependent it cannot require, instead of a stale store copy', () => {
+    const { root, writePackage, installShared } = createProject({
+      dependencies: { 'mf-test-esm-parent': '1.0.0' },
+    });
+    writePackage('node_modules/mf-test-esm-parent', {
+      name: 'mf-test-esm-parent',
+      exports: { '.': { import: './index.js' } },
+      dependencies: { 'mf-test-shared': '2.0.0' },
+    });
+    installShared('node_modules/mf-test-esm-parent', '2.0.0');
+    // The store scan that runs when the walk finds nothing lists this copy.
+    installShared('node_modules/.pnpm/mf-test-shared@1.0.0', '1.0.0');
+
+    expect(getInstalledPackageJson('mf-test-shared', { cwd: root })?.packageJson.version).toBe(
+      '2.0.0'
+    );
+  });
+
+  it('prefers a runtime dependency path over a closer devDependency', () => {
+    const { root, writePackage, installShared } = createProject({
+      dependencies: { 'mf-test-wrapper': '1.0.0' },
+      devDependencies: { 'mf-test-tool': '1.0.0' },
+    });
+    writePackage('node_modules/mf-test-wrapper', {
+      name: 'mf-test-wrapper',
+      dependencies: { 'mf-test-parent': '1.0.0' },
+    });
+    writePackage('node_modules/mf-test-parent', {
+      name: 'mf-test-parent',
+      dependencies: { 'mf-test-shared': '2.0.0' },
+    });
+    installShared('node_modules/mf-test-parent', '2.0.0');
+    writePackage('node_modules/mf-test-tool', {
+      name: 'mf-test-tool',
+      dependencies: { 'mf-test-shared': '1.0.0' },
+    });
+    installShared('node_modules/mf-test-tool', '1.0.0');
+
+    expect(getInstalledPackageJson('mf-test-shared', { cwd: root })?.packageJson.version).toBe(
+      '2.0.0'
+    );
+  });
+
+  it('terminates on a dependency cycle', () => {
+    const { root, writePackage } = createProject({ dependencies: { 'mf-test-a': '1.0.0' } });
+    writePackage('node_modules/mf-test-a', {
+      name: 'mf-test-a',
+      dependencies: { 'mf-test-b': '1.0.0' },
+    });
+    writePackage('node_modules/mf-test-b', {
+      name: 'mf-test-b',
+      peerDependencies: { 'mf-test-a': '1.0.0' },
+    });
+
+    expect(getInstalledPackageJson('mf-test-shared', { cwd: root })).toBeUndefined();
+  });
+
+  it('warns once when the closest dependents install different versions', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const root = createProjectWithTwoDependents('1.0.0', '2.0.0');
+
+    expect(getInstalledPackageJson('mf-test-shared', { cwd: root })?.packageJson.version).toBe(
+      '1.0.0'
+    );
+    getInstalledPackageJson('mf-test-shared/subpath', { cwd: root });
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0].join(' ')).toContain('1.0.0 (via mf-test-a), 2.0.0 (via mf-test-b)');
+  });
+
+  it('does not warn when the closest dependents install the same version', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const root = createProjectWithTwoDependents('1.0.0', '1.0.0');
+
+    expect(getInstalledPackageJson('mf-test-shared', { cwd: root })?.packageJson.version).toBe(
+      '1.0.0'
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
 describe('isPackageExportAvailable', () => {
   const tempDirs: string[] = [];
 
