@@ -3,7 +3,7 @@ import { parseAst } from 'vite';
 type ImportUsage = {
   readonly source: string;
   // null requires all exports; an empty list does not.
-  readonly names: readonly string[] | null;
+  readonly usedExports: readonly string[] | null;
 };
 
 type ImportAnalysisResult = readonly ImportUsage[] | null;
@@ -14,7 +14,7 @@ export interface ImportAnalysis {
   clear(): void;
 }
 
-const analyses = new WeakMap<object, ImportAnalysis>();
+const analysisByBuild = new WeakMap<object, ImportAnalysis>();
 
 /**
  * Share source analysis within one build environment. Callers still resolve
@@ -22,22 +22,22 @@ const analyses = new WeakMap<object, ImportAnalysis>();
  * buildEnd so watch rebuilds start fresh and completed builds release source.
  */
 export function getImportAnalysis(build: object): ImportAnalysis {
-  let analysis = analyses.get(build);
+  let analysis = analysisByBuild.get(build);
   if (!analysis) {
-    const importsBySource = new Map<string, ImportAnalysisResult>();
+    const importsByCode = new Map<string, ImportAnalysisResult>();
     analysis = {
       analyze(code) {
-        const cached = importsBySource.get(code);
+        const cached = importsByCode.get(code);
         if (cached !== undefined) return cached;
         const imports = analyzeImports(code);
-        importsBySource.set(code, imports);
+        importsByCode.set(code, imports);
         return imports;
       },
       clear() {
-        importsBySource.clear();
+        importsByCode.clear();
       },
     };
-    analyses.set(build, analysis);
+    analysisByBuild.set(build, analysis);
   }
   return analysis;
 }
@@ -112,24 +112,24 @@ function collectImportDeclaration(
   node: AstNode,
   source: string,
   record: (names: string[], source: string) => void,
-  markUnsafe: (source: string) => void
+  requireAllExports: (source: string) => void
 ) {
   if (isTypeOnly(node)) return;
   const specifiers: unknown[] = Array.isArray(node.specifiers) ? node.specifiers : [];
   if (specifiers.length === 0) {
-    markUnsafe(source);
+    requireAllExports(source);
     return;
   }
 
   const names: string[] = [];
   for (const specifier of specifiers) {
     if (!isRecord(specifier)) {
-      markUnsafe(source);
+      requireAllExports(source);
       return;
     }
     if (isTypeOnly(specifier)) continue;
     if (specifier.type === 'ImportNamespaceSpecifier') {
-      markUnsafe(source);
+      requireAllExports(source);
       return;
     }
     if (specifier.type === 'ImportDefaultSpecifier') {
@@ -144,12 +144,12 @@ function collectImportDeclaration(
       ) {
         // String-named exports are valid ESM, but generated shared wrappers
         // cannot currently re-export them without special quoting.
-        markUnsafe(source);
+        requireAllExports(source);
         return;
       }
       const name = getExportedName(specifier.imported);
       if (!name) {
-        markUnsafe(source);
+        requireAllExports(source);
         return;
       }
       names.push(name);
@@ -157,7 +157,7 @@ function collectImportDeclaration(
     }
 
     // Future/proposal syntax must not accidentally produce an incomplete bundle.
-    markUnsafe(source);
+    requireAllExports(source);
     return;
   }
   record(names, source);
@@ -167,40 +167,40 @@ function collectReExport(
   node: AstNode,
   source: string,
   record: (names: string[], source: string) => void,
-  markUnsafe: (source: string) => void
+  requireAllExports: (source: string) => void
 ) {
   if (isTypeOnly(node)) return;
   if (node.type === 'ExportAllDeclaration') {
-    markUnsafe(source);
+    requireAllExports(source);
     return;
   }
 
   const specifiers: unknown[] = Array.isArray(node.specifiers) ? node.specifiers : [];
   if (specifiers.length === 0) {
     // `export {} from 'pkg'` still evaluates pkg for side effects.
-    markUnsafe(source);
+    requireAllExports(source);
     return;
   }
 
   const names: string[] = [];
   for (const specifier of specifiers) {
     if (!isRecord(specifier)) {
-      markUnsafe(source);
+      requireAllExports(source);
       return;
     }
     if (isTypeOnly(specifier)) continue;
     if (specifier.type !== 'ExportSpecifier') {
-      markUnsafe(source);
+      requireAllExports(source);
       return;
     }
     const local = specifier.local;
     if (isRecord(local) && (local.type === 'Literal' || local.type === 'StringLiteral')) {
-      markUnsafe(source);
+      requireAllExports(source);
       return;
     }
     const name = getExportedName(specifier.local);
     if (!name) {
-      markUnsafe(source);
+      requireAllExports(source);
       return;
     }
     names.push(name);
@@ -217,12 +217,13 @@ function analyzeImports(code: string): ImportAnalysisResult {
   }
 
   const imports: ImportUsage[] = [];
-  const recordSource = (names: string[], source: string) => imports.push({ source, names });
-  const markSourceUnsafe = (source: string) => imports.push({ source, names: null });
+  const recordSource = (names: string[], source: string) =>
+    imports.push({ source, usedExports: names });
+  const requireAllExports = (source: string) => imports.push({ source, usedExports: null });
   forEachAstNode(ast, (node) => {
     if (node.type === 'ImportDeclaration') {
       const source = getModuleSource(node.source);
-      if (source) collectImportDeclaration(node, source, recordSource, markSourceUnsafe);
+      if (source) collectImportDeclaration(node, source, recordSource, requireAllExports);
       return;
     }
 
@@ -231,13 +232,13 @@ function analyzeImports(code: string): ImportAnalysisResult {
       node.source
     ) {
       const source = getModuleSource(node.source);
-      if (source) collectReExport(node, source, recordSource, markSourceUnsafe);
+      if (source) collectReExport(node, source, recordSource, requireAllExports);
       return;
     }
 
     if (node.type === 'ImportExpression') {
       const source = getModuleSource(node.source);
-      if (source) markSourceUnsafe(source);
+      if (source) requireAllExports(source);
       return;
     }
 
@@ -253,7 +254,7 @@ function analyzeImports(code: string): ImportAnalysisResult {
         args.length > 0
       ) {
         const source = getModuleSource(args[0]);
-        if (source) markSourceUnsafe(source);
+        if (source) requireAllExports(source);
       }
     }
   });

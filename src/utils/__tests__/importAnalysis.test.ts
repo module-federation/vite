@@ -17,10 +17,10 @@ describe('import analysis', () => {
   it('parses the same source once for callers in the same build', () => {
     const build = {};
     expect(getImportAnalysis(build).analyze(code)).toEqual([
-      { source: 'library', names: ['value'] },
+      { source: 'library', usedExports: ['value'] },
     ]);
     expect(getImportAnalysis(build).analyze(code)).toEqual([
-      { source: 'library', names: ['value'] },
+      { source: 'library', usedExports: ['value'] },
     ]);
     expect(parseAst).toHaveBeenCalledTimes(1);
   });
@@ -41,10 +41,10 @@ describe('import analysis', () => {
     const analysis = getImportAnalysis({});
     analysis.analyze(code);
     const changed = 'import { updated } from "library";';
-    expect(analysis.analyze(changed)).toEqual([{ source: 'library', names: ['updated'] }]);
+    expect(analysis.analyze(changed)).toEqual([{ source: 'library', usedExports: ['updated'] }]);
     expect(parseAst).toHaveBeenCalledTimes(2);
     analysis.clear();
-    expect(analysis.analyze(changed)).toEqual([{ source: 'library', names: ['updated'] }]);
+    expect(analysis.analyze(changed)).toEqual([{ source: 'library', usedExports: ['updated'] }]);
     expect(parseAst).toHaveBeenCalledTimes(3);
   });
 
@@ -67,9 +67,9 @@ describe('import analysis', () => {
       }
     `)
     ).toEqual([
-      { source: 'side-effects', names: null },
-      { source: 'dynamic', names: null },
-      { source: 'commonjs', names: null },
+      { source: 'side-effects', usedExports: null },
+      { source: 'dynamic', usedExports: null },
+      { source: 'commonjs', usedExports: null },
     ]);
   });
 

@@ -221,19 +221,15 @@ export async function collectTreeShakingImports(
   }
 
   const pending: Promise<void>[] = [];
-  const withSharedSource = (source: string, use: (key: string) => void) => {
+  for (const { source, usedExports } of imports) {
     const apply = (key: string | undefined) => {
-      if (key && shouldAnalyzeSharedExports(shared[key])) use(key);
+      if (!key || !shouldAnalyzeSharedExports(shared[key])) return;
+      if (usedExports === null) markUnsafe(key, source);
+      else record(key, usedExports, source);
     };
     const key = findSharedKey(source, shared);
     if (key instanceof Promise) pending.push(key.then(apply));
     else apply(key);
-  };
-  for (const { source, names } of imports) {
-    withSharedSource(source, (key) => {
-      if (names === null) markUnsafe(key, source);
-      else record(key, names, source);
-    });
   }
   await Promise.all(pending);
 }
