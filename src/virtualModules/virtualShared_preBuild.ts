@@ -34,6 +34,7 @@ import {
   getSharedCacheDescriptor,
   packageNameDecode,
   packageNameEncode,
+  resolveModulePath,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
 import { normalizeNodeModulePath } from '../utils/pathNormalization';
@@ -91,10 +92,7 @@ const JS_IDENTIFIER_PATTERN = `${JS_IDENTIFIER_START}${JS_IDENTIFIER_CONTINUE}*`
 
 function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
   try {
-    const projectRequire = createRequire(
-      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
-    );
-    return projectRequire.resolve(pkg);
+    return resolveModulePath(pkg, path.join(getPackageDetectionCwd(), 'package.json'));
   } catch {
     return undefined;
   }
@@ -340,8 +338,7 @@ function resolveConfiguredImportPath(
   if (esmEntry) return esmEntry;
 
   try {
-    const projectRequire = createRequire(pathToFileURL(path.join(projectRoot, 'package.json')));
-    return projectRequire.resolve(importSource);
+    return resolveModulePath(importSource, path.join(projectRoot, 'package.json'));
   } catch {
     return undefined;
   }
@@ -402,7 +399,7 @@ function resolveReExportModule(
   if (esmEntry) return esmEntry;
 
   try {
-    return resolveFileLikeModule(createRequire(pathToFileURL(filePath)).resolve(specifier));
+    return resolveFileLikeModule(resolveModulePath(specifier, filePath));
   } catch {
     return undefined;
   }
@@ -889,10 +886,10 @@ function getRequiredNamedExports(specifier: string): string[] | undefined {
   const handlesBeforeRequire =
     typeof getActiveHandles === 'function' ? new Set(getActiveHandles.call(process)) : undefined;
   try {
-    const projectRequire = createRequire(
-      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
+    const projectPackageJson = path.join(getPackageDetectionCwd(), 'package.json');
+    const mod = createRequire(pathToFileURL(projectPackageJson))(
+      resolveModulePath(specifier, projectPackageJson)
     );
-    const mod = projectRequire(specifier);
     const runtimeNamedKeys = Object.keys(mod).filter(
       (key) => key !== 'default' && key !== '__esModule'
     );
@@ -975,10 +972,10 @@ export function getSharedNamedExports(
 
 export function getLocalProviderImportPath(pkg: string): string | undefined {
   try {
-    const projectRequire = createRequire(
-      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
+    const resolved = resolveWorkspaceEsmEntry(
+      pkg,
+      resolveModulePath(pkg, path.join(getPackageDetectionCwd(), 'package.json'))
     );
-    const resolved = resolveWorkspaceEsmEntry(pkg, projectRequire.resolve(pkg));
     return isWorkspaceFilePath(resolved) ? resolved : undefined;
   } catch {
     const resolved = getInstalledPackageEntry(pkg, {
@@ -996,10 +993,10 @@ export function getProjectResolvedImportPath(pkg: string): string | undefined {
   }
 
   try {
-    const projectRequire = createRequire(
-      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
+    return resolveWorkspaceEsmEntry(
+      pkg,
+      resolveModulePath(pkg, path.join(getPackageDetectionCwd(), 'package.json'))
     );
-    return resolveWorkspaceEsmEntry(pkg, projectRequire.resolve(pkg));
   } catch {
     return undefined;
   }
@@ -1061,10 +1058,10 @@ function getSharedDependencyGraphPackageJson(pkg: string) {
   })?.packageJson;
   if (installedPackageJson) return installedPackageJson;
   try {
-    const projectRequire = createRequire(
-      pathToFileURL(path.join(getPackageDetectionCwd(), 'package.json'))
+    const packageJsonPath = resolveModulePath(
+      `${getPackageName(pkg)}/package.json`,
+      path.join(getPackageDetectionCwd(), 'package.json')
     );
-    const packageJsonPath = projectRequire.resolve(`${getPackageName(pkg)}/package.json`);
     return JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
   } catch {
     // Fall back to workspace detection below.
@@ -1141,8 +1138,11 @@ function isSharedSingletonConsumedByPeer(
 
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
   try {
-    const projectRequire = createRequire(pathToFileURL(path.join(root, 'package.json')));
-    return resolveWorkspaceEsmEntry(pkg, projectRequire.resolve(pkg), root);
+    return resolveWorkspaceEsmEntry(
+      pkg,
+      resolveModulePath(pkg, path.join(root, 'package.json')),
+      root
+    );
   } catch {
     return undefined;
   }

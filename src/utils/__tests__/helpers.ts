@@ -1,3 +1,4 @@
+import Module from 'node:module';
 import type { NormalizedModuleFederationOptions } from '../normalizeModuleFederationOptions';
 
 export function getDefaultMockOptions(
@@ -28,4 +29,21 @@ export function getDefaultMockOptions(
     },
     ...overrides,
   };
+}
+
+// Node reads NODE_PATH into its global lookup paths once, at startup.
+function applyNodePath(nodePath: string | undefined) {
+  if (nodePath === undefined) delete process.env.NODE_PATH;
+  else process.env.NODE_PATH = nodePath;
+  (Module as unknown as { _initPaths(): void })._initPaths();
+}
+
+export async function withNodePath<T>(nodePath: string, run: () => T | Promise<T>): Promise<T> {
+  const previous = process.env.NODE_PATH;
+  applyNodePath(nodePath);
+  try {
+    return await run();
+  } finally {
+    applyNodePath(previous);
+  }
 }

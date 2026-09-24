@@ -560,37 +560,31 @@ function resolveInstalledPackageJson(
   opts?: PackageEntryConditions
 ): InstalledPackageJson | undefined {
   const findPackageInPnpmStore = (startDir: string): InstalledPackageJson | undefined => {
-    let currentDir = startDir;
-
-    while (true) {
-      const pnpmStoreDir = path.join(currentDir, 'node_modules', '.pnpm');
-      if (existsSync(pnpmStoreDir)) {
-        try {
-          for (const entry of readdirSync(pnpmStoreDir, { withFileTypes: true })) {
-            if (!entry.isDirectory()) continue;
-            const candidate = tryReadPackageJson(
-              path.join(pnpmStoreDir, entry.name, 'node_modules', packageName, 'package.json')
-            );
-            if (candidate?.packageJson.name === packageName) return candidate;
-          }
-        } catch {}
-      }
-      const parentDir = path.dirname(currentDir);
-      if (parentDir === currentDir) break;
-      currentDir = parentDir;
+    for (const dir of ancestorDirs(startDir)) {
+      const pnpmStoreDir = path.join(dir, 'node_modules', '.pnpm');
+      if (!existsSync(pnpmStoreDir)) continue;
+      try {
+        for (const entry of readdirSync(pnpmStoreDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const candidate = tryReadPackageJson(
+            path.join(pnpmStoreDir, entry.name, 'node_modules', packageName, 'package.json')
+          );
+          if (candidate?.packageJson.name === packageName) return candidate;
+        }
+      } catch {}
     }
   };
 
   let resolvedPath: string | undefined;
   try {
-    const projectRequire = createRequire(pathToFileURL(path.join(cwd, 'package.json')));
+    const rootPackageJson = path.join(cwd, 'package.json');
     if (opts?.fromResolvedEntry) {
       resolvedPath = opts.fromResolvedEntry;
     } else {
       try {
-        resolvedPath = projectRequire.resolve(pkg);
+        resolvedPath = resolveModulePath(pkg, rootPackageJson);
       } catch {
-        resolvedPath = projectRequire.resolve(packageName);
+        resolvedPath = resolveModulePath(packageName, rootPackageJson);
       }
     }
   } catch {
@@ -607,14 +601,12 @@ function resolveInstalledPackageJson(
     if (owner) return owner;
   }
 
-  let currentDir = cwd;
-  while (true) {
-    const packageJsonPath = path.join(currentDir, 'node_modules', packageName, 'package.json');
-    const directCandidate = tryReadPackageJson(packageJsonPath);
-    if (directCandidate?.packageJson.name === packageName) return directCandidate;
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) break;
-    currentDir = parentDir;
+  for (const dir of ancestorDirs(cwd)) {
+    const directCandidate = tryReadPackageJson(
+      path.join(dir, 'node_modules', packageName, 'package.json'),
+      packageName
+    );
+    if (directCandidate) return directCandidate;
   }
 
   return findPackageInDependents(packageName, cwd) ?? findPackageInPnpmStore(cwd);
@@ -670,7 +662,7 @@ function findPackageInDependents(
 function resolvePackageFrom(packageName: string, from: string): InstalledPackageJson | undefined {
   let resolved: string;
   try {
-    resolved = createRequire(pathToFileURL(from)).resolve(packageName);
+    resolved = resolveModulePath(packageName, from);
   } catch {
     return undefined;
   }
@@ -688,18 +680,55 @@ function findOwningPackageJson(
   startDir: string,
   packageName: string
 ): InstalledPackageJson | undefined {
-  let currentDir = startDir;
   let matchingPackage: InstalledPackageJson | undefined;
-  while (true) {
-    const candidate = tryReadPackageJson(path.join(currentDir, 'package.json'), packageName);
-    if (candidate) {
-      if (currentDir.endsWith(path.join('node_modules', packageName))) return candidate;
-      matchingPackage ??= candidate;
-    }
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) return matchingPackage;
-    currentDir = parentDir;
+  for (const dir of ancestorDirs(startDir)) {
+    const candidate = tryReadPackageJson(path.join(dir, 'package.json'), packageName);
+    if (!candidate) continue;
+    if (dir.endsWith(path.join('node_modules', packageName))) return candidate;
+    matchingPackage ??= candidate;
   }
+  return matchingPackage;
+}
+
+function* ancestorDirs(startDir: string) {
+  let dir = startDir;
+  while (true) {
+    yield dir;
+    const parentDir = path.dirname(dir);
+    if (parentDir === dir) return;
+    dir = parentDir;
+  }
+}
+
+/** The first `node_modules/<packageName>` that Node's lookup reaches from `fromDir`. */
+function findNodeModulesEntry(packageName: string, fromDir: string): string | undefined {
+  for (const dir of ancestorDirs(fromDir)) {
+    const entry = path.join(dir, 'node_modules', packageName);
+    if (existsSync(entry)) return entry;
+  }
+}
+
+/**
+ * `require.resolve(specifier)` from the file `from`, limited to the `node_modules` lookup
+ * bundlers perform. Node also searches NODE_PATH, which pnpm's bin shims point at the
+ * store's hoisted `node_modules`, so it can find packages the bundler cannot.
+ */
+export function resolveModulePath(specifier: string, from: string): string {
+  const resolved = createRequire(pathToFileURL(from)).resolve(specifier);
+  if (
+    !path.isAbsolute(resolved) ||
+    specifier.startsWith('.') ||
+    path.isAbsolute(specifier) ||
+    process.versions.pnp
+  ) {
+    return resolved;
+  }
+  if (findNodeModulesEntry(getPackageName(specifier), path.dirname(from))) return resolved;
+  const error = new Error(
+    `Cannot find module '${specifier}' from '${from}'`
+  ) as NodeJS.ErrnoException;
+  error.code = 'MODULE_NOT_FOUND';
+  throw error;
 }
 
 export function getDependencyNames(
@@ -732,8 +761,7 @@ export function getInstalledPackageEntry(
     (opts?.resolveSubpathWithRequire !== false || packageJson.exports === undefined)
   ) {
     try {
-      const projectRequire = createRequire(pathToFileURL(path.join(cwd, 'package.json')));
-      return projectRequire.resolve(pkg);
+      return resolveModulePath(pkg, path.join(cwd, 'package.json'));
     } catch {
       // Fall back to root package entry resolution below.
     }

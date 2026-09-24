@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createServer } from 'vite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { federation } from '../src/index';
+import { withNodePath } from '../src/utils/__tests__/helpers';
 import { getPackageDetectionCwd, setPackageDetectionCwd } from '../src/utils/packageUtils';
 import { buildFixture } from './helpers/build';
 import { getAllChunkCode, parseManifest } from './helpers/matchers';
@@ -135,6 +136,30 @@ describe('shared transitive provider', () => {
 
     expect(getAllChunkCode(output)).toContain('nested-marker');
     expect(getAllChunkCode(output)).not.toContain('stale-1.0.0');
+    expect(parseManifest(output)).toMatchObject({
+      shared: [expect.objectContaining({ name: 'mf-nested-lib', version: '2.1.0' })],
+    });
+  });
+
+  // pnpm's bin shims export NODE_PATH with the store's hoisted node_modules, so
+  // `pnpm build` runs Vite with a lookup path that Node searches and Vite does not.
+  it('ignores the hoisted store that pnpm puts on NODE_PATH', async () => {
+    installPnpmPackage('mf-nested-lib', '1.0.0', {});
+    write(
+      'node_modules/.pnpm/mf-nested-lib@1.0.0/node_modules/mf-nested-lib/index.js',
+      "export const nested = 'hoisted-1.0.0';"
+    );
+    link(
+      'node_modules/.pnpm/node_modules/mf-nested-lib',
+      '../mf-nested-lib@1.0.0/node_modules/mf-nested-lib'
+    );
+
+    const output = await withNodePath(path.join(root, 'node_modules/.pnpm/node_modules'), () =>
+      buildApp({})
+    );
+
+    expect(getAllChunkCode(output)).toContain('nested-marker');
+    expect(getAllChunkCode(output)).not.toContain('hoisted-1.0.0');
     expect(parseManifest(output)).toMatchObject({
       shared: [expect.objectContaining({ name: 'mf-nested-lib', version: '2.1.0' })],
     });
