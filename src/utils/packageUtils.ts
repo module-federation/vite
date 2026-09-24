@@ -1,9 +1,9 @@
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'fs';
 import { createRequire } from 'module';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { createModuleFederationError } from './logger';
+import { createModuleFederationError, mfWarn } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 import { getNodeModulesSuffix } from './pathNormalization';
 import { REACT_INTERNALS_KEYS } from './reactShares';
@@ -29,6 +29,8 @@ function getDependencyCacheKey(cwd: string, dependencyName: string) {
 // hooks during dev serving, so cache results for the process lifetime the
 // same way hasPackageDependency already does above.
 const installedPackageJsonCache = new Map<string, InstalledPackageJson | undefined>();
+// Keyed by project and package name, so subpath lookups share one walk and one warning.
+const dependentsLookupCache = new Map<string, InstalledPackageJson | undefined>();
 
 export function setPackageDetectionCwd(cwd: string) {
   packageDetectionCwd = cwd;
@@ -622,53 +624,89 @@ function findPackageInDependents(
   packageName: string,
   cwd: string
 ): InstalledPackageJson | undefined {
-  const rootPackageJson = path.join(cwd, 'package.json');
-  const root = tryReadPackageJson(rootPackageJson);
+  const cacheKey = `${cwd}\0${packageName}`;
+  if (!dependentsLookupCache.has(cacheKey)) {
+    dependentsLookupCache.set(cacheKey, walkDependents(packageName, cwd));
+  }
+  return dependentsLookupCache.get(cacheKey);
+}
+
+function walkDependents(packageName: string, cwd: string): InstalledPackageJson | undefined {
+  const root = tryReadPackageJson(path.join(cwd, 'package.json'));
   if (!root) return undefined;
 
-  // Keyed by the resolved package.json, not the name: two branches can carry
+  // Keyed by the real package directory, not the name: two branches can carry
   // two versions of the same package, and only one of them may declare the target.
   const visited = new Set<string>();
-  // The app's devDependencies are installed as well, and a Vite app commonly keeps
-  // its libraries there. Deeper packages have only their runtime dependencies.
-  const queue = getDependencyNames(root.packageJson, { includeDev: true }).map((name) => ({
-    name,
-    from: rootPackageJson,
-  }));
-
-  while (queue.length) {
-    const { name, from } = queue.shift()!;
-    if (name === packageName) continue;
-    const dependent = resolvePackageFrom(name, from);
-    if (!dependent || visited.has(dependent.path)) continue;
-    visited.add(dependent.path);
-    const dependencies = getDependencyNames(dependent.packageJson);
-    // Only a declared edge is followed. Node resolution from a package that
-    // merely sits near the target walks up into a hoisted copy, which is the
-    // arbitrary pick this walk exists to avoid.
-    if (dependencies.includes(packageName)) {
-      const candidate = resolvePackageFrom(packageName, dependent.path);
-      if (candidate) return candidate;
-    }
-    for (const dependency of dependencies) {
-      queue.push({ name: dependency, from: dependent.path });
+  // A Vite app commonly keeps its libraries in devDependencies, but tooling there
+  // often carries its own copy of a runtime library, so runtime dependencies go first.
+  // Deeper packages have only their runtime dependencies.
+  const rootDependencyGroups = [
+    getDependencyNames(root.packageJson),
+    getDependencyNames(root.packageJson, ['devDependencies']),
+  ];
+  for (const rootDependencies of rootDependencyGroups) {
+    let level = rootDependencies.map((name) => ({ name, fromDir: cwd }));
+    while (level.length) {
+      const candidates: { copy: InstalledPackageJson; via: string }[] = [];
+      const nextLevel: typeof level = [];
+      for (const { name, fromDir } of level) {
+        if (name === packageName) continue;
+        const dependent = findPackageFrom(name, fromDir);
+        if (!dependent || visited.has(dependent.dir)) continue;
+        visited.add(dependent.dir);
+        const dependencies = getDependencyNames(dependent.packageJson);
+        // Only a declared edge is followed. Node resolution from a package that
+        // merely sits near the target walks up into a hoisted copy, which is the
+        // arbitrary pick this walk exists to avoid.
+        if (dependencies.includes(packageName)) {
+          const copy = findPackageFrom(packageName, dependent.dir);
+          if (copy) candidates.push({ copy, via: name });
+        }
+        for (const dependency of dependencies) {
+          nextLevel.push({ name: dependency, fromDir: dependent.dir });
+        }
+      }
+      if (candidates.length) {
+        warnOnAmbiguousDependents(packageName, candidates);
+        return candidates[0].copy;
+      }
+      level = nextLevel;
     }
   }
 
   return undefined;
 }
 
-/** Node resolution from `from`, then the walk up to the package.json that owns the result. */
-function resolvePackageFrom(packageName: string, from: string): InstalledPackageJson | undefined {
-  let resolved: string;
+function warnOnAmbiguousDependents(
+  packageName: string,
+  candidates: { copy: InstalledPackageJson; via: string }[]
+) {
+  const viaByVersion = new Map<unknown, string>();
+  for (const { copy, via } of candidates) {
+    if (!viaByVersion.has(copy.packageJson.version)) {
+      viaByVersion.set(copy.packageJson.version, via);
+    }
+  }
+  if (viaByVersion.size < 2) return;
+  const versions = [...viaByVersion].map(([version, via]) => `${version} (via ${via})`);
+  mfWarn(
+    `Shared package "${packageName}" is not a dependency of the project, and its closest ` +
+      `dependents install different versions: ${versions.join(', ')}. The fallback uses ` +
+      `${versions[0]}. Add "${packageName}" to the project's dependencies or set its shared ` +
+      '"import" to choose the version.'
+  );
+}
+
+/** The package Node's `node_modules` lookup finds from `fromDir`, read at its real path. */
+function findPackageFrom(packageName: string, fromDir: string): InstalledPackageJson | undefined {
+  const entry = findNodeModulesEntry(packageName, fromDir);
+  if (!entry) return undefined;
   try {
-    resolved = resolveModulePath(packageName, from);
+    return tryReadPackageJson(path.join(realpathSync(entry), 'package.json'), packageName);
   } catch {
     return undefined;
   }
-  // A core module resolves to its bare specifier: there is nothing to walk up from.
-  if (!path.isAbsolute(resolved)) return undefined;
-  return findOwningPackageJson(path.dirname(resolved), packageName);
 }
 
 /**
@@ -733,12 +771,10 @@ export function resolveModulePath(specifier: string, from: string): string {
 
 export function getDependencyNames(
   packageJson: Record<string, unknown> | undefined,
-  { includeDev = false }: { includeDev?: boolean } = {}
+  fields = ['dependencies', 'peerDependencies', 'optionalDependencies']
 ): string[] {
   if (!packageJson) return [];
   const names = new Set<string>();
-  const fields = ['dependencies', 'peerDependencies', 'optionalDependencies'];
-  if (includeDev) fields.push('devDependencies');
   for (const field of fields) {
     const deps = packageJson[field];
     if (!deps || typeof deps !== 'object') continue;
