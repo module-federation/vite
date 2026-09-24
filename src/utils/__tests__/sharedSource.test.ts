@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NormalizedShared } from '../normalizeModuleFederationOptions';
-import { createSharedSourceResolver } from '../sharedSource';
+import { createSharedSourceResolver, isSharedEntryLookup } from '../sharedSource';
 
 function makeShared(keys: string[], shareConfig: Record<string, unknown> = {}): NormalizedShared {
   return Object.fromEntries(
@@ -53,6 +53,41 @@ describe('createSharedSourceResolver', () => {
       path.join(root, 'package.json'),
       expect.anything()
     );
+  });
+
+  // rolldown <= 1.2.10 can drop `custom` when this.resolve() calls overlap.
+  it('recognizes an entry lookup until the last overlapping lookup for it settles', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
+    tempDirs.push(root);
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+
+    const entry = '/vendor/node_modules/mf-test-lookup/index.js';
+    const importer = path.join(root, 'package.json');
+    const resolved = { id: entry, external: false };
+    const settle: Array<() => void> = [];
+    const resolve = vi.fn((id: string) =>
+      id === entry
+        ? new Promise((done) => settle.push(() => done(resolved)))
+        : Promise.resolve(resolved)
+    );
+    const shared = makeShared(['mf-test-lookup']);
+    const getConfig = () => ({ root, conditions: [] });
+    // Two federation instances looking up the same entry.
+    const results = Promise.all(
+      [
+        createSharedSourceResolver(shared, getConfig),
+        createSharedSourceResolver(shared, getConfig),
+      ].map((resolver) => resolver.resolve({ resolve } as any, entry, {}))
+    );
+
+    await vi.waitFor(() => expect(settle).toHaveLength(2));
+    expect(isSharedEntryLookup(entry, importer, {})).toBe(true);
+    settle[0]();
+    await new Promise(setImmediate);
+    expect(isSharedEntryLookup(entry, importer, {})).toBe(true);
+    settle[1]();
+    await expect(results).resolves.toEqual(['mf-test-lookup', 'mf-test-lookup']);
+    expect(isSharedEntryLookup(entry, importer, {})).toBe(false);
   });
 
   it('matches an aliased share by its request, not its property name', async () => {
