@@ -2090,6 +2090,64 @@ describe('vite:module-federation-early-init', () => {
     );
   });
 
+  it('generates shared wrappers once per optimization pass and refreshes the next pass', () => {
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
+    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+    const optimizer = config.optimizeDeps.rolldownOptions.plugins.find(
+      (entry: { name: string }) => entry.name === 'module-federation:optimize-shared-resolver'
+    );
+    const module = VirtualModule.findById(getLoadShareModulePath('react', true));
+    if (!module) throw new Error('shared React module not found');
+    const writes = vi.spyOn(VirtualModule.prototype, 'writeSync');
+    onTestFinished(() => writes.mockRestore());
+    optimizer.buildStart();
+    const first = optimizer.resolveId('react', '/repo/src/first.ts', { kind: 'import-statement' });
+    const second = optimizer.resolveId('react', '/repo/src/second.ts', {
+      kind: 'import-statement',
+    });
+    expect(second).toEqual(first);
+    expect(writes.mock.contexts.filter((context) => context === module)).toHaveLength(1);
+    optimizer.buildStart();
+    optimizer.resolveId('react', '/repo/src/third.ts', { kind: 'import-statement' });
+    expect(writes.mock.contexts.filter((context) => context === module)).toHaveLength(2);
+  });
+
+  it('refreshes shared wrappers when an esbuild optimization pass restarts', () => {
+    const plugin = getEarlyInitPluginWithReactShared();
+    const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+    const optimizer = config.optimizeDeps.esbuildOptions.plugins.find(
+      (entry: { name: string }) => entry.name === 'module-federation:optimize-shared-proxy'
+    );
+    const starts: Array<() => void> = [];
+    const resolves: Array<(request: { path: string; importer: string; kind: string }) => unknown> =
+      [];
+    optimizer.setup({
+      onStart: (handler: () => void) => starts.push(handler),
+      onResolve: (_options: unknown, handler: (typeof resolves)[number]) => resolves.push(handler),
+      onLoad: () => undefined,
+    });
+    const module = VirtualModule.findById(getLoadShareModulePath('react', false));
+    if (!module) throw new Error('shared React module not found');
+    const writes = vi.spyOn(VirtualModule.prototype, 'writeSync');
+    onTestFinished(() => writes.mockRestore());
+    const request = { path: 'react', importer: '/repo/src/entry.ts', kind: 'import-statement' };
+    starts[0]();
+    const first = resolves[1](request);
+    expect(resolves[1](request)).toEqual(first);
+    expect(writes.mock.contexts.filter((context) => context === module)).toHaveLength(1);
+    starts[0]();
+    resolves[1](request);
+    expect(writes.mock.contexts.filter((context) => context === module)).toHaveLength(2);
+  });
+
   it('guards React DEV runtimes for Rolldown dev hosts with remotes', () => {
     const plugins = federation({
       name: 'host',
@@ -2259,6 +2317,7 @@ describe('vite:module-federation-early-init', () => {
     const onResolveHandlers: any[] = [];
     const onLoadHandlers: any[] = [];
     optimizeSharedProxy.setup({
+      onStart: () => undefined,
       onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
       onLoad: (_options: unknown, handler: unknown) => onLoadHandlers.push(handler),
     });
@@ -2318,6 +2377,7 @@ describe('vite:module-federation-early-init', () => {
     );
     const onResolveHandlers: any[] = [];
     optimizeSharedProxy.setup({
+      onStart: () => undefined,
       onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
       onLoad: () => undefined,
     });
@@ -2351,6 +2411,7 @@ describe('vite:module-federation-early-init', () => {
     );
     const onResolveHandlers: any[] = [];
     optimizeSharedProxy.setup({
+      onStart: () => undefined,
       onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
       onLoad: () => undefined,
     });
@@ -2380,6 +2441,7 @@ describe('vite:module-federation-early-init', () => {
     );
     const onResolveHandlers: any[] = [];
     optimizeSharedProxy.setup({
+      onStart: () => undefined,
       onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
       onLoad: () => undefined,
     });
@@ -2422,6 +2484,7 @@ describe('vite:module-federation-early-init', () => {
     );
     const onResolveHandlers: any[] = [];
     optimizeSharedProxy.setup({
+      onStart: () => undefined,
       onResolve: (_options: unknown, handler: unknown) => onResolveHandlers.push(handler),
       onLoad: () => undefined,
     });
