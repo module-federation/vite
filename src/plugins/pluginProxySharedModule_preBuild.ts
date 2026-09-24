@@ -32,7 +32,7 @@ import {
   resolveModulePath,
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
-import { createSharedSourceResolver } from '../utils/sharedSource';
+import { createSharedSourceResolver, isSharedEntryLookup } from '../utils/sharedSource';
 import { PromiseStore } from '../utils/PromiseStore';
 import { getSharedExportConditions } from '../utils/sharedExportConditions';
 import { isServerEnvironment } from '../utils/ssrCapabilities';
@@ -803,7 +803,7 @@ export function proxySharedModule(options: {
       enforce: 'pre',
       apply: 'build',
       async resolveId(source, importer, resolveOptions) {
-        if (resolveOptions.custom?.__mfSharedEntryLookup) return;
+        if (isSharedEntryLookup(source, importer, resolveOptions)) return;
         const sourceToken = getTreeShakingGraphToken(source);
         const importerToken = getTreeShakingGraphToken(importer);
         const token = sourceToken || importerToken;
@@ -861,7 +861,7 @@ export function proxySharedModule(options: {
       enforce: 'pre',
       async resolveId(source, importer, resolveOptions) {
         if (
-          resolveOptions.custom?.__mfSharedEntryLookup ||
+          isSharedEntryLookup(source, importer, resolveOptions) ||
           (resolveOptions.custom as Record<string, unknown> | undefined)?.__mfTreeShakingGraph
         ) {
           return;

@@ -24,6 +24,25 @@ type ResolveOptions = Partial<Parameters<ResolveIdHook>[2]> & {
   attributes?: Record<string, string>;
 };
 
+// Workaround: rolldown <= 1.2.10 can drop `custom` from overlapping this.resolve() calls,
+// so entry lookups are also recognized by their in-flight source and importer.
+const pendingEntryLookups = new Map<string, number>();
+
+const getEntryLookupKey = (source: string, importer: string | undefined) =>
+  `${source}\0${importer}`;
+
+/** Whether a resolveId call is one of the shared source resolver's own entry lookups. */
+export function isSharedEntryLookup(
+  source: string,
+  importer: string | undefined,
+  options: { custom?: Record<string, unknown> }
+): boolean {
+  return (
+    options.custom?.__mfSharedEntryLookup === true ||
+    pendingEntryLookups.has(getEntryLookupKey(source, importer))
+  );
+}
+
 /** Identify shared entries through Vite, with a cache scoped to this federation instance. */
 export function createSharedSourceResolver(
   shared: NormalizedShared,
@@ -121,8 +140,11 @@ export function createSharedSourceResolver(
           !isPackageExportAvailable(request, { cwd: root, conditions })
         )
           return undefined;
+        const importer = path.join(root, 'package.json');
+        const lookupKey = getEntryLookupKey(request, importer);
+        pendingEntryLookups.set(lookupKey, (pendingEntryLookups.get(lookupKey) ?? 0) + 1);
         try {
-          const resolved = await context.resolve(request, path.join(root, 'package.json'), {
+          const resolved = await context.resolve(request, importer, {
             ...options,
             skipSelf: true,
             custom: { ...options.custom, __mfSharedEntryLookup: true },
@@ -131,6 +153,10 @@ export function createSharedSourceResolver(
         } catch {
           // A prefix can suggest a private or missing export. It is not a shared entry.
           return undefined;
+        } finally {
+          const remaining = pendingEntryLookups.get(lookupKey)! - 1;
+          if (remaining) pendingEntryLookups.set(lookupKey, remaining);
+          else pendingEntryLookups.delete(lookupKey);
         }
       });
       // Vite can re-enter resolution while an earlier lookup is pending. Sharing
