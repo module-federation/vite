@@ -1,4 +1,4 @@
-import { parseAst } from 'vite';
+import * as vite from 'vite';
 
 type ImportUsage = {
   readonly source: string;
@@ -209,9 +209,9 @@ function collectReExport(
 }
 
 function analyzeImports(code: string): ImportAnalysisResult {
-  let ast: ReturnType<typeof parseAst>;
+  let ast: ReturnType<typeof vite.parseAst>;
   try {
-    ast = parseAst(code);
+    ast = vite.parseAst(code);
   } catch {
     return null;
   }
@@ -220,7 +220,7 @@ function analyzeImports(code: string): ImportAnalysisResult {
   const recordSource = (names: string[], source: string) =>
     imports.push({ source, usedExports: names });
   const requireAllExports = (source: string) => imports.push({ source, usedExports: null });
-  forEachAstNode(ast, (node) => {
+  const collectImport = (node: AstNode) => {
     if (node.type === 'ImportDeclaration') {
       const source = getModuleSource(node.source);
       if (source) collectImportDeclaration(node, source, recordSource, requireAllExports);
@@ -257,6 +257,29 @@ function analyzeImports(code: string): ImportAnalysisResult {
         if (source) requireAllExports(source);
       }
     }
-  });
+  };
+
+  // Vite 8 exposes a visitor for its parser. Older versions keep the same walk.
+  if ('Visitor' in vite && typeof vite.Visitor === 'function') {
+    const visit = (node: unknown) => {
+      if (isRecord(node)) collectImport(node);
+    };
+    try {
+      new vite.Visitor({
+        ImportDeclaration: visit,
+        ExportNamedDeclaration: visit,
+        ExportAllDeclaration: visit,
+        ImportExpression: visit,
+        CallExpression: visit,
+      }).visit(ast);
+      return imports;
+    } catch {
+      // The recursive visitor can overflow on deeply nested expressions.
+      // Discard partial results before retrying with the iterative walker.
+      imports.length = 0;
+    }
+  }
+
+  forEachAstNode(ast, collectImport);
   return imports;
 }
