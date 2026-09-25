@@ -55,7 +55,7 @@ function findSharedKey(source: string, shared: NormalizedShared) {
   return Object.keys(shared).find((key) => key.endsWith('/') && source.startsWith(key));
 }
 
-type RecordedUsage = { key: string; names: string[]; request?: string };
+type RecordedUsage = { key: string; names: readonly string[]; request?: string };
 type UnsafeUsage = { key: string; request?: string };
 
 function analyze(code: string, id = '/repo/src/App.js') {

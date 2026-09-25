@@ -1,13 +1,16 @@
 import type {
   ConfigEnv,
+  InlineConfig,
   ConfigPluginContext,
   MinimalPluginContextWithoutEnvironment,
   ResolvedConfig,
   UserConfig,
 } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveConfig } from 'vite';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizePathForImport } from '../../utils/buildPaths';
+import { getImportAnalysis } from '../../utils/importAnalysis';
 
 const {
   hasPackageDependencyMock,
@@ -2383,6 +2386,58 @@ describe('pluginProxySharedModule_preBuild', () => {
 
       expect(preBuildShareItemMap.has('react-dom/client')).toBe(true);
       expect(preBuildShareItemMap.has('react-dom')).toBe(false);
+    }
+  );
+
+  it.each(['environment', 'config'])(
+    'shares import analysis by %s and releases it between builds',
+    async (scope) => {
+      const options = normalizeModuleFederationOptions({
+        name: 'import-analysis',
+        shared: { library: { import: false } },
+      });
+      const plugins = [0, 1].map(() =>
+        getProxyPlugin(proxySharedModule({ shared: options.shared, federationOptions: options }))
+      );
+      const input: InlineConfig = { configFile: false, root: '/repo', resolve: { alias: [] } };
+      const config = await resolveConfig(input, 'build');
+      const environment = scope === 'environment' ? { name: 'client' } : undefined;
+      const context = {
+        meta: createPluginMeta(),
+        environment,
+        resolve: async (id: string) => ({ id }),
+      } as any;
+      for (const plugin of plugins) {
+        callHook(plugin.config, context, input, { command: 'build', mode: 'production' });
+        callHook(plugin.configResolved, context, config);
+      }
+
+      const analysis = getImportAnalysis(environment ?? config);
+      const otherBuild = getImportAnalysis({});
+      const code = 'import { value } from "library";';
+      const previousBuild = analysis.analyze(code);
+      const independentResult = otherBuild.analyze(code);
+      for (const plugin of plugins) await callHook(plugin.buildStart, context, {} as any);
+      const currentBuild = analysis.analyze(code);
+      expect(currentBuild).not.toBe(previousBuild);
+      const analyze = vi.spyOn(analysis, 'analyze');
+      try {
+        for (const plugin of plugins) {
+          await callHook(plugin.transform, context, code, '/entry.js');
+        }
+        expect(analyze).toHaveBeenCalledTimes(2);
+        expect(analyze.mock.results.every((result) => result.value === currentBuild)).toBe(true);
+      } finally {
+        analyze.mockRestore();
+      }
+      for (const plugin of plugins) await callHook(plugin.buildEnd, context);
+      const nextBuild = analysis.analyze(code);
+      expect(nextBuild).not.toBe(currentBuild);
+      expect(otherBuild.analyze(code)).toBe(independentResult);
+
+      // Failed builds release their source too.
+      await callHook(plugins[0].buildEnd, context, new Error('Build failed'));
+      expect(analysis.analyze(code)).not.toBe(nextBuild);
     }
   );
 
