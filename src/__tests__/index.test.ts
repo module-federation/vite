@@ -1169,6 +1169,33 @@ describe('module-federation-esm-shims', () => {
     expect(groupsAfterRerun.filter((g: any) => g.name === 'resource-bindings')).toHaveLength(1);
   });
 
+  it('labels the federation name() group when Rolldown supports debugName', () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = { build: { rolldownOptions: { output: {} } } };
+
+    runConfig(plugin, { meta: { rolldownVersion: '1.2.10' } } as ConfigPluginContext, config, {
+      command: 'build',
+      mode: 'test',
+    });
+
+    const groups = config.build.rolldownOptions.output.codeSplitting.groups;
+    const federationGroup = groups.find((g: any) => typeof g?.name === 'function');
+    expect(federationGroup.debugName).toBe('module-federation');
+  });
+
+  it('omits debugName on Rolldown versions that reject it', () => {
+    const plugin = getEsmShimsPlugin();
+    const config: any = { build: { rolldownOptions: { output: {} } } };
+
+    runConfig(plugin, { meta: { rolldownVersion: '1.2.9' } } as ConfigPluginContext, config, {
+      command: 'build',
+      mode: 'test',
+    });
+
+    const groups = config.build.rolldownOptions.output.codeSplitting.groups;
+    expect(groups.some((g: any) => 'debugName' in g)).toBe(false);
+  });
+
   it('clamps user group priority below the federation groups and warns once', () => {
     const plugin = getEsmShimsPlugin();
     const config: any = {
