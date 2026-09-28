@@ -2426,8 +2426,13 @@ export function generateRemoteEntry(
       ? `let __mfInitPromise;
   function __mfGuardedInit(shared, initScope, remoteEntryInitOptions) {
     if (shared === undefined && __mfInitPromise) return __mfInitPromise;
-    __mfInitPromise = init(shared, initScope, remoteEntryInitOptions);
-    return __mfInitPromise;
+    // A call skipped by the circular-init guard resolves to undefined and must not
+    // replace the cached result of the call that actually initialized the container.
+    const prev = __mfInitPromise;
+    const next = init(shared, initScope, remoteEntryInitOptions);
+    __mfInitPromise = prev ? next.then((res) => (res === undefined ? prev : res)) : next;
+    if (prev) __mfInitPromise.catch(() => {});
+    return next;
   }
   export { __mfGuardedInit as init, getExposes as get }`
       : `export { init, getExposes as get }`
