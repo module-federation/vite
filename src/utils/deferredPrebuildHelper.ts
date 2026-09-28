@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { parseAst } from 'vite';
+import { LOAD_SHARE_TAG, PREBUILD_TAG } from '../virtualModules/shareTags';
+import { forEachAstNode, getModuleSource } from './importAnalysis';
 
 type Chunk = {
   type: 'chunk';
@@ -9,29 +11,6 @@ type Chunk = {
   modules?: Record<string, unknown>;
 };
 type Bundle = Record<string, Chunk | { type: 'asset'; fileName: string }>;
-
-function dynamicImportSources(node: unknown, sources = new Set<string>()): Set<string> {
-  if (!node || typeof node !== 'object') return sources;
-  if (Array.isArray(node)) {
-    for (const child of node) dynamicImportSources(child, sources);
-    return sources;
-  }
-  const record = node as Record<string, unknown>;
-  if (record.type === 'ImportExpression') {
-    const imported = record.source as Record<string, unknown> | undefined;
-    if (typeof imported?.value === 'string') sources.add(imported.value);
-    if (imported?.type === 'TemplateLiteral' && Array.isArray(imported.quasis)) {
-      const expressions = imported.expressions as unknown[] | undefined;
-      const quasi = imported.quasis[0] as Record<string, unknown> | undefined;
-      const value = quasi?.value as Record<string, unknown> | undefined;
-      if (expressions?.length === 0 && typeof value?.cooked === 'string') {
-        sources.add(value.cooked);
-      }
-    }
-  }
-  for (const child of Object.values(record)) dynamicImportSources(child, sources);
-  return sources;
-}
 
 function isExportAllHelper(code: string, exportName: string): boolean {
   try {
@@ -75,7 +54,7 @@ function isExportAllHelper(code: string, exportName: string): boolean {
  */
 export function inlineDeferredPrebuildNamespaceHelper(bundle: Bundle): void {
   for (const chunk of Object.values(bundle)) {
-    if (chunk.type !== 'chunk' || !chunk.fileName.includes('__loadShare__')) continue;
+    if (chunk.type !== 'chunk' || !chunk.fileName.includes(LOAD_SHARE_TAG)) continue;
     let ast: ReturnType<typeof parseAst>;
     try {
       ast = parseAst(chunk.code);
@@ -83,12 +62,18 @@ export function inlineDeferredPrebuildNamespaceHelper(bundle: Bundle): void {
       continue;
     }
     const edits: { start: number; end: number; replacement: string }[] = [];
-    const deferredSources = dynamicImportSources(ast);
+    const deferredSources = new Set<string>();
+    forEachAstNode(ast, (node) => {
+      if (node.type !== 'ImportExpression') return;
+      const source = getModuleSource(node.source);
+      if (source) deferredSources.add(source);
+    });
     const retainedImports = new Set<string>();
     const removedImports = new Set<string>();
     for (const node of ast.body) {
-      if (node.type !== 'ImportDeclaration' || typeof node.source.value !== 'string') continue;
-      const source = node.source.value;
+      if (node.type !== 'ImportDeclaration') continue;
+      const source = getModuleSource(node.source);
+      if (!source) continue;
       const targetName = path.posix.normalize(
         path.posix.join(path.posix.dirname(chunk.fileName), source)
       );
@@ -96,7 +81,7 @@ export function inlineDeferredPrebuildNamespaceHelper(bundle: Bundle): void {
       const exported = specifier?.type === 'ImportSpecifier' && specifier.imported;
       const target = bundle[targetName];
       if (
-        !source.includes('__prebuild__') ||
+        !source.includes(PREBUILD_TAG) ||
         node.specifiers.length !== 1 ||
         !exported ||
         exported.type !== 'Identifier' ||

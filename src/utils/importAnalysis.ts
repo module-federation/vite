@@ -48,7 +48,7 @@ function isRecord(value: unknown): value is AstNode {
   return value !== null && typeof value === 'object';
 }
 
-function getModuleSource(node: unknown): string | undefined {
+export function getModuleSource(node: unknown): string | undefined {
   if (!isRecord(node)) return undefined;
   const source = node;
   if (source.type === 'Literal' && typeof source.value === 'string') return source.value;
@@ -85,7 +85,7 @@ function isTypeOnly(node: AstNode) {
   return node.importKind === 'type' || node.exportKind === 'type';
 }
 
-function forEachAstNode(root: unknown, visit: (node: AstNode) => void) {
+export function forEachAstNode(root: unknown, visit: (node: AstNode) => void) {
   const stack: unknown[] = [root];
   const seen = new Set<object>();
 
