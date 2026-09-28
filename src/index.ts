@@ -76,6 +76,7 @@ import {
   resolveImportPath,
   resolveModulePath,
   setPackageDetectionCwd,
+  supportsCodeSplittingGroupDebugName,
 } from './utils/packageUtils';
 import {
   applyRuntimeCapabilityDefines,
@@ -170,6 +171,7 @@ const PRELOAD_HELPER_TEST = /\0?vite\/preload-helper/;
 
 type CodeSplittingGroup = {
   name: string | ((id: string) => string | null);
+  debugName?: string;
   test?: RegExp;
   priority?: number;
 };
@@ -1619,6 +1621,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           return { ...candidate, priority: USER_GROUP_MAX_PRIORITY };
         };
 
+        // Gives the federation `name()` group a label in Rolldown's timing report.
+        const federationGroupDebugName = supportsCodeSplittingGroupDebugName(this)
+          ? { debugName: 'module-federation' }
+          : {};
+
         let warnedAboutManualChunks = false;
         let warnedAboutObjectManualChunks = false;
         // `useCodeSplitting` selects the bundler-appropriate isolation mechanism:
@@ -1726,7 +1733,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             test: PRELOAD_HELPER_TEST,
             priority: MF_GROUP_PRIORITY + 1,
           };
-          const mfNameGroup = { name: mfChunkName, priority: MF_GROUP_PRIORITY };
+          const mfNameGroup = {
+            name: mfChunkName,
+            priority: MF_GROUP_PRIORITY,
+            ...federationGroupDebugName,
+          };
           federationGroups.add(mfPreloadGroup);
           federationGroups.add(mfNameGroup);
           const groups = [mfPreloadGroup, mfNameGroup, ...userGroups];

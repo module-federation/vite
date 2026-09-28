@@ -19,6 +19,7 @@ import {
   resolveImportPath,
   resolveModulePath,
   sharedCacheHelperCode,
+  supportsCodeSplittingGroupDebugName,
 } from '../packageUtils';
 
 describe('packageNameEncode / packageNameDecode', () => {
@@ -1440,5 +1441,29 @@ describe('getSharedCacheKey', () => {
     runtime.writeFull(cache, descriptor, full);
     expect(runtime.read(cache, descriptor, 'host')).toBe(full);
     expect(runtime.read(cache, descriptor, 'remote')).toBe(full);
+  });
+});
+
+describe('supportsCodeSplittingGroupDebugName', () => {
+  const ctx = (rolldownVersion?: string) => ({ meta: { rolldownVersion } });
+
+  it.each(['1.2.10', '1.2.11', '1.3.0', '2.0.0', '1.2.10-beta.1'])(
+    'returns true for Rolldown %s',
+    (version) => {
+      expect(supportsCodeSplittingGroupDebugName(ctx(version))).toBe(true);
+    }
+  );
+
+  it.each(['1.2.9', '1.2.0', '1.1.5', '1.0.0-rc.7', '0.15.0'])(
+    'returns false for Rolldown %s',
+    (version) => {
+      expect(supportsCodeSplittingGroupDebugName(ctx(version))).toBe(false);
+    }
+  );
+
+  it('returns false without Rolldown metadata', () => {
+    expect(supportsCodeSplittingGroupDebugName(ctx())).toBe(false);
+    expect(supportsCodeSplittingGroupDebugName({})).toBe(false);
+    expect(supportsCodeSplittingGroupDebugName(undefined)).toBe(false);
   });
 });

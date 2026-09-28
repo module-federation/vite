@@ -837,6 +837,21 @@ export function getIsRolldown(ctx: unknown): boolean {
   return (Number.isFinite(viteMajor) && viteMajor >= 8) || !!(ctx as any)?.meta?.rolldownVersion;
 }
 
+/**
+ * Rolldown 1.2.10 added `codeSplitting.groups[].debugName` and warns when a group's
+ * `name` is a function without one. Older versions reject it as an unknown option.
+ */
+export function supportsCodeSplittingGroupDebugName(ctx: unknown): boolean {
+  const rolldownVersion = (ctx as any)?.meta?.rolldownVersion;
+  if (typeof rolldownVersion !== 'string') return false;
+  const [major = 0, minor = 0, patch = 0] = rolldownVersion
+    .split(/[.+-]/, 3)
+    .map((part) => parseInt(part, 10) || 0);
+  if (major !== 1) return major > 1;
+  if (minor !== 2) return minor > 2;
+  return patch >= 10;
+}
+
 /** Walk up from Vite `config.root` (Nuxt may point at `.nuxt` cache dirs). */
 export function isNuxtProjectRoot(root: string): boolean {
   let dir = root;
