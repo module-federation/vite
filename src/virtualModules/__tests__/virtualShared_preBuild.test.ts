@@ -459,34 +459,16 @@ vi.mock('../../utils/packageUtils', () => ({
         },
       };
     }
-    if (pkg === 'static-entry-consumer') {
+    const entryDependencies: Record<string, Record<string, string>> = {
+      'static-entry-consumer': { '@module-federation/runtime': '^2.9.1', vue: '^3.5.0' },
+      'transitive-entry-consumer': { 'runtime-bridge': '1.0.0' },
+      'runtime-bridge': { '@module-federation/runtime': '^2.9.1', vue: '^3.5.0' },
+    };
+    if (entryDependencies[pkg]) {
       return {
-        path: '/repo/apps/remote/node_modules/static-entry-consumer/package.json',
-        dir: '/repo/apps/remote/node_modules/static-entry-consumer',
-        packageJson: {
-          name: 'static-entry-consumer',
-          dependencies: { '@module-federation/runtime': '^2.9.1', vue: '^3.5.0' },
-        },
-      };
-    }
-    if (pkg === 'transitive-entry-consumer') {
-      return {
-        path: '/repo/apps/remote/node_modules/transitive-entry-consumer/package.json',
-        dir: '/repo/apps/remote/node_modules/transitive-entry-consumer',
-        packageJson: {
-          name: 'transitive-entry-consumer',
-          dependencies: { 'runtime-bridge': '1.0.0' },
-        },
-      };
-    }
-    if (pkg === 'runtime-bridge') {
-      return {
-        path: '/repo/apps/remote/node_modules/runtime-bridge/package.json',
-        dir: '/repo/apps/remote/node_modules/runtime-bridge',
-        packageJson: {
-          name: 'runtime-bridge',
-          dependencies: { '@module-federation/runtime': '^2.9.1', vue: '^3.5.0' },
-        },
+        path: `/repo/apps/remote/node_modules/${pkg}/package.json`,
+        dir: `/repo/apps/remote/node_modules/${pkg}`,
+        packageJson: { name: pkg, dependencies: entryDependencies[pkg] },
       };
     }
   }),
@@ -4417,28 +4399,41 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('&& false');
   });
 
+  function entryInjectedCode(
+    pkg: string,
+    shared: Record<string, { singleton: boolean; eager?: boolean }> = {
+      [pkg]: { singleton: true },
+    }
+  ) {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      hostInitInjectLocation: 'entry',
+      exposes: { './App': './src/App.jsx' },
+      shared,
+    });
+    writeLoadShareModule(
+      pkg,
+      {
+        name: pkg,
+        from: '',
+        version: '1.0.0',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: '*',
+          ...(shared[pkg]?.eager && { eager: true }),
+        },
+        scope: 'default',
+      },
+      'build',
+      false
+    );
+    return writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+  }
+
   it.each(['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react/compiler-runtime'])(
     'keeps entry-injected React core share %s synchronous',
     (pkg) => {
-      normalizeModuleFederationOptions({
-        name: 'remote',
-        hostInitInjectLocation: 'entry',
-        exposes: { './App': './src/App.jsx' },
-        shared: { [pkg]: { singleton: true } },
-      });
-      writeLoadShareModule(
-        pkg,
-        {
-          name: pkg,
-          from: '',
-          version: '19.2.8',
-          shareConfig: { singleton: true, requiredVersion: '^19.2.4' },
-          scope: 'default',
-        },
-        'build',
-        false
-      );
-      const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      const code = entryInjectedCode(pkg);
       expect(code).toContain('import * as __mfLocalShare from');
       expect(code).not.toContain('Promise.race([');
       expect(code).not.toContain('await ');
@@ -4448,25 +4443,7 @@ describe('writeLoadShareModule', () => {
   it.each(['react-router', 'vue', 'vue-router', 'lit'])(
     'defers entry-injected singleton %s until the host cache or init wins',
     (pkg) => {
-      normalizeModuleFederationOptions({
-        name: 'remote',
-        hostInitInjectLocation: 'entry',
-        exposes: { './App': './src/App.jsx' },
-        shared: { [pkg]: { singleton: true } },
-      });
-      writeLoadShareModule(
-        pkg,
-        {
-          name: pkg,
-          from: '',
-          version: '1.0.0',
-          shareConfig: { singleton: true, requiredVersion: '*' },
-          scope: 'default',
-        },
-        'build',
-        false
-      );
-      const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      const code = entryInjectedCode(pkg);
       expect(code).not.toContain('import * as __mfLocalShare');
       expect(code).toContain('Promise.race([');
       expect(code).toContain(
@@ -4478,73 +4455,25 @@ describe('writeLoadShareModule', () => {
   );
 
   it('keeps a singleton on the remote entry static graph synchronous', () => {
-    normalizeModuleFederationOptions({
-      name: 'remote',
-      hostInitInjectLocation: 'entry',
-      exposes: { './App': './src/App.jsx' },
-      shared: { vue: { singleton: true }, 'static-entry-consumer': { singleton: true } },
+    const code = entryInjectedCode('vue', {
+      vue: { singleton: true },
+      'static-entry-consumer': { singleton: true },
     });
-    writeLoadShareModule(
-      'vue',
-      {
-        name: 'vue',
-        from: '',
-        version: '3.5.13',
-        shareConfig: { singleton: true, requiredVersion: '^3.5.0' },
-        scope: 'default',
-      },
-      'build',
-      false
-    );
-    const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(code).toContain('import * as __mfLocalShare from "/resolved/vue";');
     expect(code).not.toContain('Promise.race([');
   });
 
   it('keeps an entry dependency synchronous when an unshared runtime bridge reads it', () => {
-    normalizeModuleFederationOptions({
-      name: 'remote',
-      hostInitInjectLocation: 'entry',
-      exposes: { './App': './src/App.jsx' },
-      shared: { vue: { singleton: true }, 'transitive-entry-consumer': { singleton: true } },
+    const code = entryInjectedCode('vue', {
+      vue: { singleton: true },
+      'transitive-entry-consumer': { singleton: true },
     });
-    writeLoadShareModule(
-      'vue',
-      {
-        name: 'vue',
-        from: '',
-        version: '3.5.13',
-        shareConfig: { singleton: true, requiredVersion: '^3.5.0' },
-        scope: 'default',
-      },
-      'build',
-      false
-    );
-    const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(code).toContain('import * as __mfLocalShare from "/resolved/vue";');
     expect(code).not.toContain('Promise.race([');
   });
 
   it('respects an explicitly eager entry-injected singleton', () => {
-    normalizeModuleFederationOptions({
-      name: 'remote',
-      hostInitInjectLocation: 'entry',
-      exposes: { './App': './src/App.jsx' },
-      shared: { vue: { singleton: true, eager: true } },
-    });
-    writeLoadShareModule(
-      'vue',
-      {
-        name: 'vue',
-        from: '',
-        version: '3.5.13',
-        shareConfig: { singleton: true, eager: true, requiredVersion: '^3.5.0' },
-        scope: 'default',
-      },
-      'build',
-      false
-    );
-    const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const code = entryInjectedCode('vue', { vue: { singleton: true, eager: true } });
     expect(code).toContain('import * as __mfLocalShare from "/resolved/vue";');
     expect(code).not.toContain('Promise.race([');
   });
