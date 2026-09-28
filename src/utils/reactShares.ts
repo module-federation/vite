@@ -21,3 +21,8 @@ export const REACT_INTERNALS_KEYS = [
  * renderer already owns the root, so its wrapper waits for the cache or init.
  */
 export const REACT_DOM_CLIENT_SHARE = 'react-dom/client';
+
+/** React and its subpath exports must bind synchronously for CJS consumers. */
+export function isReactCoreShare(pkg: string): boolean {
+  return pkg === 'react' || pkg.startsWith('react/');
+}

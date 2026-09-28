@@ -459,6 +459,36 @@ vi.mock('../../utils/packageUtils', () => ({
         },
       };
     }
+    if (pkg === 'static-entry-consumer') {
+      return {
+        path: '/repo/apps/remote/node_modules/static-entry-consumer/package.json',
+        dir: '/repo/apps/remote/node_modules/static-entry-consumer',
+        packageJson: {
+          name: 'static-entry-consumer',
+          dependencies: { '@module-federation/runtime': '^2.9.1', vue: '^3.5.0' },
+        },
+      };
+    }
+    if (pkg === 'transitive-entry-consumer') {
+      return {
+        path: '/repo/apps/remote/node_modules/transitive-entry-consumer/package.json',
+        dir: '/repo/apps/remote/node_modules/transitive-entry-consumer',
+        packageJson: {
+          name: 'transitive-entry-consumer',
+          dependencies: { 'runtime-bridge': '1.0.0' },
+        },
+      };
+    }
+    if (pkg === 'runtime-bridge') {
+      return {
+        path: '/repo/apps/remote/node_modules/runtime-bridge/package.json',
+        dir: '/repo/apps/remote/node_modules/runtime-bridge',
+        packageJson: {
+          name: 'runtime-bridge',
+          dependencies: { '@module-federation/runtime': '^2.9.1', vue: '^3.5.0' },
+        },
+      };
+    }
   }),
   getPackageName: (packageString: string) => {
     const match = packageString.match(/^(?:@[^/]+\/)?[^/]+/);
@@ -4387,13 +4417,139 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('&& false');
   });
 
-  it('keeps entry-injected singleton fallbacks eager in remote builds that also consume remotes', () => {
-    // Regression for #1284 follow-up: a remote that also consumes remotes
-    // (a calendar shipped standalone that shares react and the CJS
-    // `use-sync-external-store/shim/with-selector`) must load its singleton
-    // fallbacks through the entry, in dependency order. Deferring them to
-    // concurrent `import()`s let the shim evaluate before react resolved and
-    // crashed standalone with `TypeError: o is not a function`.
+  it.each(['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react/compiler-runtime'])(
+    'keeps entry-injected React core share %s synchronous',
+    (pkg) => {
+      normalizeModuleFederationOptions({
+        name: 'remote',
+        hostInitInjectLocation: 'entry',
+        exposes: { './App': './src/App.jsx' },
+        shared: { [pkg]: { singleton: true } },
+      });
+      writeLoadShareModule(
+        pkg,
+        {
+          name: pkg,
+          from: '',
+          version: '19.2.8',
+          shareConfig: { singleton: true, requiredVersion: '^19.2.4' },
+          scope: 'default',
+        },
+        'build',
+        false
+      );
+      const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      expect(code).toContain('import * as __mfLocalShare from');
+      expect(code).not.toContain('Promise.race([');
+      expect(code).not.toContain('await ');
+    }
+  );
+
+  it.each(['react-router', 'vue', 'vue-router', 'lit'])(
+    'defers entry-injected singleton %s until the host cache or init wins',
+    (pkg) => {
+      normalizeModuleFederationOptions({
+        name: 'remote',
+        hostInitInjectLocation: 'entry',
+        exposes: { './App': './src/App.jsx' },
+        shared: { [pkg]: { singleton: true } },
+      });
+      writeLoadShareModule(
+        pkg,
+        {
+          name: pkg,
+          from: '',
+          version: '1.0.0',
+          shareConfig: { singleton: true, requiredVersion: '*' },
+          scope: 'default',
+        },
+        'build',
+        false
+      );
+      const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      expect(code).not.toContain('import * as __mfLocalShare');
+      expect(code).toContain('Promise.race([');
+      expect(code).toContain(
+        `import("${pkg === 'lit' ? 'mock-import-id' : `/resolved/${pkg}`}").then((mod) => {`
+      );
+      expect(code).not.toContain('import.meta.env.SSR');
+      expect(code).not.toContain('await ');
+    }
+  );
+
+  it('keeps a singleton on the remote entry static graph synchronous', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      hostInitInjectLocation: 'entry',
+      exposes: { './App': './src/App.jsx' },
+      shared: { vue: { singleton: true }, 'static-entry-consumer': { singleton: true } },
+    });
+    writeLoadShareModule(
+      'vue',
+      {
+        name: 'vue',
+        from: '',
+        version: '3.5.13',
+        shareConfig: { singleton: true, requiredVersion: '^3.5.0' },
+        scope: 'default',
+      },
+      'build',
+      false
+    );
+    const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(code).toContain('import * as __mfLocalShare from "/resolved/vue";');
+    expect(code).not.toContain('Promise.race([');
+  });
+
+  it('keeps an entry dependency synchronous when an unshared runtime bridge reads it', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      hostInitInjectLocation: 'entry',
+      exposes: { './App': './src/App.jsx' },
+      shared: { vue: { singleton: true }, 'transitive-entry-consumer': { singleton: true } },
+    });
+    writeLoadShareModule(
+      'vue',
+      {
+        name: 'vue',
+        from: '',
+        version: '3.5.13',
+        shareConfig: { singleton: true, requiredVersion: '^3.5.0' },
+        scope: 'default',
+      },
+      'build',
+      false
+    );
+    const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(code).toContain('import * as __mfLocalShare from "/resolved/vue";');
+    expect(code).not.toContain('Promise.race([');
+  });
+
+  it('respects an explicitly eager entry-injected singleton', () => {
+    normalizeModuleFederationOptions({
+      name: 'remote',
+      hostInitInjectLocation: 'entry',
+      exposes: { './App': './src/App.jsx' },
+      shared: { vue: { singleton: true, eager: true } },
+    });
+    writeLoadShareModule(
+      'vue',
+      {
+        name: 'vue',
+        from: '',
+        version: '3.5.13',
+        shareConfig: { singleton: true, eager: true, requiredVersion: '^3.5.0' },
+        scope: 'default',
+      },
+      'build',
+      false
+    );
+    const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(code).toContain('import * as __mfLocalShare from "/resolved/vue";');
+    expect(code).not.toContain('Promise.race([');
+  });
+
+  it('defers a non-React CJS shim while keeping its React core dependency synchronous', () => {
     normalizeModuleFederationOptions({
       name: 'calendar',
       hostInitInjectLocation: 'entry',
@@ -4420,12 +4576,10 @@ describe('writeLoadShareModule', () => {
     writeLoadShareModule(pkg, mockShareItem, 'build', false);
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
-    expect(generatedCode).toContain(
-      'import * as __mfLocalShare from "/resolved/use-sync-external-store/shim/with-selector";'
-    );
+    expect(generatedCode).not.toContain('import * as __mfLocalShare');
     expect(generatedCode).toContain('useSyncExternalStoreWithSelector');
-    expect(generatedCode).not.toContain('initPromise.then');
-    expect(generatedCode).not.toContain(
+    expect(generatedCode).toContain('Promise.race([');
+    expect(generatedCode).toContain(
       'import("/resolved/use-sync-external-store/shim/with-selector").then'
     );
     expect(generatedCode).not.toContain('import("mock-import-id").then');

@@ -48,7 +48,11 @@ import {
   getRuntimeModuleCacheBootstrapCode,
 } from './virtualRuntimeInitStatus';
 import { getFederationScopeKey } from './virtualModuleScope';
-import { REACT_CLIENT_INTERNALS_KEY, REACT_DOM_CLIENT_SHARE } from '../utils/reactShares';
+import {
+  isReactCoreShare,
+  REACT_CLIENT_INTERNALS_KEY,
+  REACT_DOM_CLIENT_SHARE,
+} from '../utils/reactShares';
 import { getSharedCacheHelpersImportCode } from './loadShareSharedChunk';
 import { LOAD_SHARE_TAG, PREBUILD_TAG } from './shareTags';
 
@@ -1098,6 +1102,31 @@ function isSharedSingletonConsumedByPeer(
       }
     });
 
+  // A shared consumer can reach the federation runtime through an unshared
+  // package. Rolldown may then place that consumer on the remote entry's static
+  // graph, where its top-level reads happen before hostInit publishes shares.
+  const runtimeDependencyCache = new Map<string, boolean>();
+  const reachesFederationRuntime = (current: string, seen: Set<string>): boolean => {
+    if (runtimeDependencyCache.has(current)) return runtimeDependencyCache.get(current)!;
+    const dependencies = getDependencyNames(getSharedDependencyGraphPackageJson(current));
+    const result = dependencies.some((dependency) => {
+      if (
+        dependency === '@module-federation/enhanced' ||
+        dependency === '@module-federation/runtime' ||
+        dependency === '@module-federation/runtime-core'
+      ) {
+        return true;
+      }
+      if (seen.has(dependency)) return false;
+      seen.add(dependency);
+      const reachable = reachesFederationRuntime(dependency, seen);
+      seen.delete(dependency);
+      return reachable;
+    });
+    runtimeDependencyCache.set(current, result);
+    return result;
+  };
+
   // A workspace singleton must assign its exports synchronously (eager) when a
   // peer shared singleton can read them at module-evaluation time. That happens
   // whenever another shared singleton depends on `pkg`: the bundler may evaluate
@@ -1105,34 +1134,28 @@ function isSharedSingletonConsumedByPeer(
   // cache, leaving the consumer's top-level read of `pkg`'s bindings undefined.
   // This covers both cyclic graphs and acyclic ones where a package is shared
   // together with one of its subpath exports (see issue #823).
-  const reachesPkg = (
-    current: string,
-    seen: Set<string>,
-    hasFederationRuntimeDependency = false
-  ): boolean => {
+  const reachesPkg = (current: string, seen: Set<string>): boolean => {
     const packageJson = getSharedDependencyGraphPackageJson(current);
     const dependencies = getDependencyNames(packageJson);
-    const usesFederationRuntime = dependencies.some(
-      (dependency) =>
-        dependency === '@module-federation/enhanced' ||
-        dependency === '@module-federation/runtime' ||
-        dependency === '@module-federation/runtime-core'
-    );
-    const runtimeIsReachable = hasFederationRuntimeDependency || usesFederationRuntime;
     for (const dependency of dependencies) {
       const sharedDependency = sharedKeyByPackageName.get(dependency);
-      if (!sharedDependency) continue;
-      if (sharedDependency === pkg)
-        return !requireFederationRuntimeDependency || runtimeIsReachable;
-      if (seen.has(sharedDependency)) continue;
-      seen.add(sharedDependency);
-      if (reachesPkg(sharedDependency, seen, runtimeIsReachable)) return true;
+      if (sharedDependency === pkg) return true;
+      if (!sharedDependency && !requireFederationRuntimeDependency) continue;
+      const next = sharedDependency || dependency;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      if (reachesPkg(next, seen)) return true;
+      seen.delete(next);
     }
     return false;
   };
 
   return Array.from(sharedKeyByPackageName.values()).some(
-    (sharedPkg) => sharedPkg !== pkg && reachesPkg(sharedPkg, new Set([sharedPkg]))
+    (sharedPkg) =>
+      sharedPkg !== pkg &&
+      (!requireFederationRuntimeDependency ||
+        reachesFederationRuntime(sharedPkg, new Set([sharedPkg]))) &&
+      reachesPkg(sharedPkg, new Set([sharedPkg]))
   );
 }
 
@@ -1806,7 +1829,7 @@ function generateLazyWorkspaceSingletonExports(
   treeShakingConsumer?: string,
   serveLocalFallback = false,
   mutableExports: string[] = [],
-  deferredRendererFallback = false
+  deferredEntryFallback = false
 ) {
   const copiedExports = namedExports.filter((name) => !mutableExports.includes(name));
   const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
@@ -1838,11 +1861,11 @@ function generateLazyWorkspaceSingletonExports(
   // bootstrap, so its initPromise stays pending. Waiting only on that promise
   // pins the shared pendingShareLoads barrier and the entry never runs. A
   // sibling container publishes into the same cache; that write has to unblock
-  // the local fallback too. The local client import still happens only when
-  // neither init nor the cache produced a renderer. The cache subscription is
+  // the local fallback too. The local import still happens only when
+  // neither init nor the cache produced a provider. The cache subscription is
   // never removed (listener sets have no unsubscribe); a settled promise
   // ignores later notifications.
-  const deferredClientLoad = `Promise.race([
+  const deferredEntryLoad = `Promise.race([
           initPromise.then(() => ${readDeferredShare}),
           new Promise((resolve) => {
             const current = ${readDeferredShare};
@@ -1872,18 +1895,18 @@ function generateLazyWorkspaceSingletonExports(
           });
         })`;
 
-  // Where the local fallback may be applied synchronously. A deferred renderer
-  // fallback never is, not even on the server: it emits no
+  // Where the local fallback may be applied synchronously. An entry-injected
+  // deferred fallback never is, not even on the server: it emits no
   // `if (import.meta.env.SSR)` branch, so `prependWorkspaceSingletonSsrImport`
   // leaves the wrapper alone and both builds resolve it through the cache or
   // init, then the dynamic import.
   const synchronousFallbackConditions = [
-    ...(deferredRendererFallback ? [] : ['import.meta.env.SSR']),
+    ...(deferredEntryFallback ? [] : ['import.meta.env.SSR']),
     ...(serveLocalFallback
       ? ["(import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')"]
       : []),
   ];
-  const trackPendingLoad = `__mfTrackPendingShareLoad(${deferredRendererFallback ? deferredClientLoad : deferredInitLoad});`;
+  const trackPendingLoad = `__mfTrackPendingShareLoad(${deferredEntryFallback ? deferredEntryLoad : deferredInitLoad});`;
   const resolveMissingShare =
     synchronousFallbackConditions.length > 0
       ? `if (${synchronousFallbackConditions.join(' || ')}) {
@@ -2246,14 +2269,21 @@ export function writeLoadShareModule(
     shareItem.shareConfig.singleton === true &&
     resolvedOptions.hostInitInjectLocation === 'entry' &&
     (command === 'build' || isConsumedByPeerSingleton);
-  // Importing an entry-injected leaf's eager renderer fallback has a side
-  // effect even when the shared cache already contains the host's renderer.
-  // Keep React's synchronous fallback, but defer this one import until the
-  // cache has had a chance to provide the coherent React pair. This prevents
-  // an unused same-version renderer from registering on the page and taking
-  // ownership away from the renderer that owns the root.
-  const usesDeferredEntryInjectedReactDomFallback =
-    usesEntryInjectedRemoteFallback && pkg === REACT_DOM_CLIENT_SHARE;
+  // Entry injection evaluates the remote entry before hostInit registers shares.
+  // Keep React core and its subpaths synchronous for CJS identity. A peer
+  // singleton with a federation-runtime dependency can also pull its dependency
+  // into the remote entry's static graph (#1196), so keep that dependency
+  // synchronous. Other singletons can wait for a host cache write or init before
+  // loading their local fallback. Respect an explicit eager share choice.
+  // react-dom/client must always take this path:
+  // evaluating an unused local renderer registers it and splits React identity
+  // (#1335).
+  const usesDeferredEntryInjectedSingletonFallback =
+    usesEntryInjectedRemoteFallback &&
+    !isReactCoreShare(pkg) &&
+    (pkg === REACT_DOM_CLIENT_SHARE ||
+      (shareItem.shareConfig.eager !== true &&
+        !isSharedSingletonConsumedByPeer(pkg, resolvedOptions, true)));
   const usesEagerWorkspaceFallback =
     hasCompleteExportCoverage &&
     isWorkspaceSingleton &&
@@ -2277,7 +2307,7 @@ export function writeLoadShareModule(
         (isWorkspaceSingleton || isWorkspacePackage),
       liveNamedExports
     );
-  } else if (usesDeferredEntryInjectedReactDomFallback) {
+  } else if (usesDeferredEntryInjectedSingletonFallback) {
     importLine = `${getRuntimeInitPromiseBootstrapCode(false, runtimeInitOwnerImportId)}\n    ${importLine}`;
     exportLine = generateLazyWorkspaceSingletonExports(
       edges,
@@ -2421,7 +2451,7 @@ export function writeLoadShareModule(
     ? ''
     : usesDeferredSingletonFallback ||
         usesDeferredTreeShakingFallback ||
-        usesDeferredEntryInjectedReactDomFallback
+        usesDeferredEntryInjectedSingletonFallback
       ? ''
       : command !== 'build' && !skipServePrebuildWarmup
         ? `;() => import(${escapeGeneratedStringLiteral(devImportSource)}).catch(() => {});`
@@ -2442,12 +2472,12 @@ export function writeLoadShareModule(
   const exportLineDeclaresModule =
     usesDeferredSingletonFallback ||
     usesDeferredTreeShakingFallback ||
-    usesDeferredEntryInjectedReactDomFallback ||
+    usesDeferredEntryInjectedSingletonFallback ||
     usesEagerWorkspaceFallback ||
     usesEntryInjectedRemoteFallback;
   const moduleBody = exportLineDeclaresModule
     ? `
-    ${usesDeferredEntryInjectedReactDomFallback ? '' : prebuildImportLine}
+    ${usesDeferredEntryInjectedSingletonFallback ? '' : prebuildImportLine}
     ${devDynamicImportLine}
     ${importLine}
     ${cacheHelpers}
