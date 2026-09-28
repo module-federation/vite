@@ -40,6 +40,7 @@ import {
   rewriteSystemProxyConsumers,
 } from './utils/bundleHelpers';
 import { normalizePathForImport } from './utils/buildPaths';
+import { inlineDeferredPrebuildNamespaceHelper } from './utils/deferredPrebuildHelper';
 import {
   isFederationControlChunk,
   sanitizeFederationControlChunk,
@@ -1931,6 +1932,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         bundle: BundleLike,
         _isWrite: boolean
       ) {
+        inlineDeferredPrebuildNamespaceHelper(bundle);
         for (const [fileName, fallbacks] of findEagerFallbacksInSharedChunk(bundle)) {
           mfWarn(
             `A shared-dependency fallback was merged into the loadShare chunk ${fileName}: ` +
