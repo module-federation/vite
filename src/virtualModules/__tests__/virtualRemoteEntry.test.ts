@@ -2601,6 +2601,45 @@ describe('virtualRemoteEntry', () => {
     }
   );
 
+  it('keeps the cached build init when a circular re-entrant init is skipped', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remoteA',
+        name: 'remoteA',
+        filename: 'index.js',
+        exposes: { './x': './x.js' },
+        remotes: {
+          remoteB: {
+            name: 'remoteB',
+            entry: 'http://localhost:5102/index.js',
+            type: 'module',
+          },
+        },
+        shared: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    const guardStart = code.indexOf('let __mfInitPromise;');
+    const guardEnd = code.indexOf('export { __mfGuardedInit', guardStart);
+    const guardCode = code.slice(guardStart, guardEnd);
+    const initRes = { shareScopeMap: { default: {} } };
+    // second call re-enters through a remote cycle and is skipped by init's circular guard
+    const init = vi.fn().mockResolvedValueOnce(initRes).mockResolvedValueOnce(undefined);
+    const guardedInit = new Function('init', `${guardCode}; return __mfGuardedInit;`)(init);
+    const shared = { react: {} };
+
+    await expect(guardedInit(shared, [], {})).resolves.toBe(initRes);
+    await expect(guardedInit(shared, ['remoteA'], {})).resolves.toBeUndefined();
+    await expect(guardedInit()).resolves.toBe(initRes);
+    expect(init).toHaveBeenCalledTimes(2);
+  });
+
   it('does not preload generated subpath shares from a root shared package', async () => {
     const mod = await import('../virtualRemoteEntry');
 
