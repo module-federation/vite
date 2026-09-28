@@ -197,18 +197,23 @@ describe('entry-injected singleton fallback browser loading', () => {
         `
         import { createSSRApp, h } from 'vue';
         import { createMemoryHistory, createRouter } from 'vue-router';
-        const router = createRouter({ history: createMemoryHistory(), routes: [] });
+        const router = createRouter({
+          history: createMemoryHistory(),
+          routes: [{ path: '/', component: { render: () => h('span', 'server content') } }],
+        });
         const serverNode = document.querySelector('#app span');
-        createSSRApp({
+        const app = createSSRApp({
           mounted() {
             window.__hydrationProbe = {
               reused: serverNode === document.querySelector('#app span'),
               text: document.querySelector('#app span')?.textContent,
-              routerReady: typeof router.resolve === 'function',
+              routePath: router.currentRoute.value.fullPath,
             };
           },
           render() { return h('span', 'server content'); },
-        }).mount('#app');
+        });
+        app.use(router);
+        router.push('/').then(() => router.isReady()).then(() => app.mount('#app'));
       `
       );
       await writeFile(
@@ -322,7 +327,7 @@ describe('entry-injected singleton fallback browser loading', () => {
       expect(await page.evaluate(() => (window as any).__hydrationProbe)).toEqual({
         reused: true,
         text: 'server content',
-        routerReady: true,
+        routePath: '/',
       });
       expect(
         standaloneRequests.filter((request) => remoteVueChunks.includes(request)).sort()
