@@ -1028,8 +1028,9 @@ function generateRuntimeSharedCacheSeedCode(
               __mfNormalizeRuntimeShare(externalResolved),
               externalProvider.from
             );
+            return;
           }
-          return;
+          if (typeof isWebpackProvider === 'function' && isWebpackProvider(externalProvider)) return;
         }
         const providerKey = cacheDescriptor.canonical;
         const resolved = await __mfInitializeProviderOnce(providerKey, async () => {
