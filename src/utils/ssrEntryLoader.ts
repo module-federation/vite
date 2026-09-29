@@ -35,6 +35,7 @@ import {
 import { EXTERNAL_URL_RE } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
+import { mfWarn } from './logger';
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
@@ -942,9 +943,9 @@ function getTempFileImportUrl(filePath: string, versionKey: string): string {
 }
 
 /**
- * Fetch an HTTP ESM module, transform it, write it to a temp .js file and
+ * Fetch an HTTP ESM module, transform it, write it to a temp file and
  * return the file path. Recursively does the same for HTTP transitive imports
- * so that `import('file:///...temp.js')` can resolve them.
+ * so that `import('file:///...temp.mjs')` can resolve them.
  *
  * `versionKey` participates in both the cache key and the temp file name, so
  * a remote redeploy (new manifest → new key) produces new files and bypasses
@@ -959,9 +960,17 @@ async function fetchEsmToTempFile(
   versionKey: string = UNVERSIONED,
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
   contextKey = 'default',
-  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES
+  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES,
+  extension = '.mjs'
 ): Promise<string> {
-  const cacheKey = JSON.stringify([fetchTimeoutMs, fetchMaxBytes, versionKey, url, contextKey]);
+  const cacheKey = JSON.stringify([
+    fetchTimeoutMs,
+    fetchMaxBytes,
+    versionKey,
+    url,
+    contextKey,
+    extension,
+  ]);
   if (visited.has(url)) return visited.get(url)!;
   const cached = tempFileCache.get(cacheKey);
   if (cached) {
@@ -979,7 +988,7 @@ async function fetchEsmToTempFile(
     const { createHash } = await _crypto();
     const { join } = await _path();
     const hash = createHash('sha1').update(cacheKey).digest('hex').slice(0, 12);
-    return join(tmpDir, `${hash}.js`);
+    return join(tmpDir, `${hash}${extension}`);
   })();
   tempFilePathCache.set(cacheKey, tmpFilePromise);
 
@@ -1023,7 +1032,8 @@ async function fetchEsmToTempFile(
             versionKey,
             fetchTimeoutMs,
             contextKey,
-            fetchMaxBytes
+            fetchMaxBytes,
+            extension
           );
           // Keep every generated edge on the same versioned ESM URL as the
           // root import. Without this query, a cycle back to the root resolves
@@ -1064,7 +1074,8 @@ async function fetchEsmGraphToTempFile(
   versionKey: string = UNVERSIONED,
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
   contextKey = 'default',
-  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES
+  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES,
+  extension = '.mjs'
 ): Promise<string> {
   const pending = new Set<Promise<string>>();
   const rootFile = await fetchEsmToTempFile(
@@ -1076,7 +1087,8 @@ async function fetchEsmGraphToTempFile(
     versionKey,
     fetchTimeoutMs,
     contextKey,
-    fetchMaxBytes
+    fetchMaxBytes,
+    extension
   );
   // Circular edges return their reserved path immediately. Wait for every
   // discovered writer before importing the root so all referenced files exist.
@@ -1098,6 +1110,23 @@ async function importTempModule(
 
 let warnedVmUnavailable = false;
 
+/**
+ * Non-HTTP failures keep falling back (to temp-file after vm, to the federation
+ * runtime's own Node loader after temp-file), but whatever the fallback throws
+ * then hides the real cause, so report it first.
+ */
+function warnStrategyFallback(
+  strategy: 'vm' | 'temp-file',
+  url: string,
+  fallback: string,
+  error: unknown
+): void {
+  mfWarn(
+    `SSR entry loader: strategy "${strategy}" failed to load ${url}; falling back to ${fallback}.`,
+    error
+  );
+}
+
 async function tryVmStrategy(
   ssrEntry: SsrEntryCandidate,
   options: ResolvedLoaderOptions
@@ -1107,8 +1136,8 @@ async function tryVmStrategy(
   if (!(await isVmStrategyAvailable())) {
     if (!warnedVmUnavailable) {
       warnedVmUnavailable = true;
-      console.warn(
-        '[mf-vite:ssr-entry-loader] strategy "vm" requires vm.SourceTextModule ' +
+      mfWarn(
+        'SSR entry loader: strategy "vm" requires vm.SourceTextModule ' +
           '(run Node with --experimental-vm-modules); falling back to the temp-file strategy.'
       );
     }
@@ -1195,7 +1224,7 @@ async function loadSSRRemoteEntry(
         if (fromVm) return fromVm;
       } catch (error) {
         if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
-        // fall through to the temp-file strategy
+        warnStrategyFallback('vm', url, 'the temp-file strategy', error);
       }
     }
 
@@ -1213,6 +1242,12 @@ async function loadSSRRemoteEntry(
     // walk-up needed.
     const sharedPkgMap = new Map(Object.entries(resolvedShared));
 
+    // `.mjs` tells Node the module format up front; a typeless `.js` has Node
+    // check each file's syntax first. CommonJS entries reach this path only
+    // when createRequire cannot load their http URL, and keep `.js` so Node
+    // still detects them as CommonJS.
+    const extension = type === 'commonjs-module' || type === 'commonjs' ? '.js' : '.mjs';
+
     try {
       const tmpFile = await fetchEsmGraphToTempFile(
         url,
@@ -1221,11 +1256,13 @@ async function loadSSRRemoteEntry(
         versionKey,
         options.fetchTimeoutMs,
         getSsrTransformContextKey(resolvedShared, options.shareScopeName),
-        options.fetchMaxBytes
+        options.fetchMaxBytes,
+        extension
       );
       return await importTempModule(tmpFile, versionKey);
     } catch (error) {
       if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
+      warnStrategyFallback('temp-file', url, "the federation runtime's loader", error);
       return null;
     }
   }
