@@ -150,9 +150,10 @@ export function pluginLazyConsumeOnlyShares(options: NormalizedModuleFederationO
       const rewriter = new CodeRewriter(code);
       let edited = false;
       const importMapId = normalizeVirtualModuleId(getLocalSharedImportMapPath(options));
-      if (
-        chunkModuleIds(renderedChunk).some((id) => normalizeVirtualModuleId(id) === importMapId)
-      ) {
+      const isImportMapChunk = chunkModuleIds(renderedChunk).some(
+        (id) => normalizeVirtualModuleId(id) === importMapId
+      );
+      if (isImportMapChunk) {
         for (const quote of QUOTES) {
           const literal = `${quote}${LAZY_CONSUME_ONLY_SHARES_PLACEHOLDER}${quote}`;
           const start = code.indexOf(literal);
@@ -170,7 +171,11 @@ export function pluginLazyConsumeOnlyShares(options: NormalizedModuleFederationO
       const chunkDir = path.posix.dirname(renderedChunk.fileName);
       const codePositions = createCodePositionMap(code);
       let usesHelper = false;
-      for (const match of code.matchAll(DYNAMIC_IMPORT_REGEX)) {
+      // The import map's get() importers run inside init() while it seeds this
+      // container's own copies, before initPromise can resolve: waiting on it there
+      // deadlocks the seed. Consume-only wrappers in those chunks bridge themselves
+      // after init through the pendingShareLoads barrier instead.
+      for (const match of isImportMapChunk ? [] : code.matchAll(DYNAMIC_IMPORT_REGEX)) {
         const [expression, , specifier] = match;
         const start = match.index!;
         if (!codePositions[start]) continue;

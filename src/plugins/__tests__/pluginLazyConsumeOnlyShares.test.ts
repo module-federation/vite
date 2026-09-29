@@ -144,6 +144,20 @@ describe('pluginLazyConsumeOnlyShares', () => {
     expect(result?.code).not.toContain('__mfLoadLazyShares_remote');
   });
 
+  it('leaves the local shared import map importers unwrapped (#1367)', () => {
+    const chunks = createChunks();
+    // init() seeds the local copy through this importer before initPromise resolves.
+    chunks['assets/importMap-!~{001}~.js'].dynamicImports = ['assets/GridPanel-!~{003}~.js'];
+    const code = `const __mfLazyShares = "__MF_LAZY_CONSUME_ONLY_SHARES__";\nconst get = () => import("./GridPanel-!~{003}~.js");\n`;
+
+    const result = renderChunk(chunks, 'assets/importMap-!~{001}~.js', code);
+
+    expect(result?.code).toBe(
+      `const __mfLazyShares = ["lodash-es"];\nconst get = () => import("./GridPanel-!~{003}~.js");\n`
+    );
+    expect(result?.code).not.toContain('__mfLoadLazyShares_remote');
+  });
+
   it('keeps shares that an entry or an expose reaches statically out of the lazy list', () => {
     const chunks = createChunks();
     // The expose now imports the grid panel statically, so lodash-es is a startup share.
