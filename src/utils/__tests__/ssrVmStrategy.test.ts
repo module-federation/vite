@@ -558,6 +558,40 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(namespace.url).toBe('http://localhost:5001/remoteEntry.ssr.js');
   });
 
+  it('gives imports and createRequire the same resolvedShared module', async () => {
+    const { mkdirSync, mkdtempSync, realpathSync, writeFileSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    // A name Node cannot resolve from the app root, so only the pin can find it.
+    // Under node_modules so vitest externalizes it: an inlined file would give
+    // `import` and `require` different module wrappers regardless of the pin.
+    const dir = join(realpathSync(mkdtempSync(join(tmpdir(), 'mf-vm-pinned-'))), 'node_modules');
+    mkdirSync(dir);
+    const pinned = join(dir, 'shared.cjs');
+    writeFileSync(pinned, 'module.exports = { marker: "pinned" };', 'utf8');
+
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text:
+          'import shared from "mf-vm-pinned-shared";' +
+          'import { createRequire } from "node:module";' +
+          'var __require = createRequire(import.meta.url);' +
+          'export const sameInstance = __require("mf-vm-pinned-shared") === shared;' +
+          'export const resolved = __require.resolve("mf-vm-pinned-shared");',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions, resolvedShared: { 'mf-vm-pinned-shared': pinned } }
+    )) as { sameInstance: boolean; resolved: string };
+
+    expect(namespace.sameInstance).toBe(true);
+    expect(namespace.resolved).toBe(pinned);
+  });
+
   it('neutralizes Vite preload-helper imports before evaluation', async () => {
     global.fetch = makeFetchMock({
       'http://localhost:5001/remoteEntry.ssr.js': {
