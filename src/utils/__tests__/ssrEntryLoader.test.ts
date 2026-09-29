@@ -1388,6 +1388,47 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).toContain('const hint = "call import(\'./assets/in-string.js\') to load it";');
   });
 
+  it('rewrites nested imports without changing matching URLs in strings', async () => {
+    let written = '';
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (_p: unknown, code: unknown) => {
+        written += `${code as string}\n`;
+      }
+    );
+    const helperUrl = 'http://localhost:5001/assets/helper.js';
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: [
+          `const helperUrl = ${JSON.stringify(helperUrl)};`,
+          'import { t } from "./assets/helper.js";',
+          'export const marker = helperUrl + t;',
+          'export async function init() {}',
+        ].join('\n'),
+      },
+      [helperUrl]: {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export const t = 1;',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+
+    expect(written).toContain(`const helperUrl = ${JSON.stringify(helperUrl)};`);
+    expect(written).not.toContain(`const helperUrl = "file://`);
+    expect(written).toContain('import { t } from "file:///');
+    expect(written).not.toContain(`from "${helperUrl}"`);
+  });
+
   it('fetches dynamic imports with a comment before the specifier', async () => {
     let written = '';
     const fsMock = await import('fs');
