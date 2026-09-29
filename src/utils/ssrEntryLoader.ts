@@ -739,6 +739,57 @@ export function revalidate(remoteEntryUrl?: string): void {
 
 const tempFileCache = new Map<string, Promise<string>>();
 const tempFilePathCache = new Map<string, Promise<string>>();
+// Temp dir + transform context → `node:module` shim file URL (see getRequireShimUrl).
+const requireShimCache = new Map<string, Promise<string>>();
+
+/**
+ * `resolvedShared` rewrites import/export specifiers only. Bundled CommonJS in a
+ * remote requires shared packages through `createRequire(import.meta.url)` —
+ * Rolldown's `__require("react")` — and Node resolves those from the temp dir,
+ * which can reach another copy than the pinned one. Remote modules importing
+ * `node:module` get this shim instead: its `createRequire` resolves pinned
+ * specifiers to the same files the rewritten imports load.
+ */
+function createRequireShimSource(sharedPkgMap: Map<string, string>): string {
+  return [
+    "import * as nodeModule from 'node:module';",
+    "export * from 'node:module';",
+    'export default nodeModule.default;',
+    `const pinned = new Map(${JSON.stringify([...sharedPkgMap])});`,
+    "const pin = (id) => (typeof id === 'string' && pinned.get(id)) || id;",
+    'export function createRequire(filename) {',
+    '  const require = nodeModule.createRequire(filename);',
+    '  const resolve = (id, options) => require.resolve(pin(id), options);',
+    '  resolve.paths = require.resolve.paths;',
+    '  return Object.assign((id) => require(pin(id)), require, { resolve });',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function getRequireShimUrl(
+  tmpDir: string,
+  sharedPkgMap: Map<string, string>,
+  contextKey: string
+): Promise<string> {
+  const cacheKey = JSON.stringify([tmpDir, contextKey]);
+  const cached = requireShimCache.get(cacheKey);
+  if (cached) return cached;
+  const promise = (async () => {
+    const { createHash } = await _crypto();
+    const { join } = await _path();
+    const { writeFileSync } = await _fs();
+    const hash = createHash('sha1').update(contextKey).digest('hex').slice(0, 12);
+    const file = join(tmpDir, `node-module-${hash}.mjs`);
+    writeFileSync(file, createRequireShimSource(sharedPkgMap), 'utf8');
+    return `file://${file}`;
+  })();
+  requireShimCache.set(cacheKey, promise);
+  void promise.catch(() => {
+    if (requireShimCache.get(cacheKey) === promise) requireShimCache.delete(cacheKey);
+  });
+  return promise;
+}
 
 function getSsrTransformContextKey(
   resolvedShared: Record<string, string>,
@@ -851,14 +902,23 @@ function findSsrModuleSpecifiers(code: string): SsrModuleSpecifier[] {
   return specifiers;
 }
 
+function isNodeModuleSpecifier(specifier: string): boolean {
+  return specifier === 'node:module' || specifier === 'module';
+}
+
 function transformSsrCode(
   code: string,
   base: string,
   specifiers: SsrModuleSpecifier[],
-  sharedPkgMap?: Map<string, string>
+  sharedPkgMap?: Map<string, string>,
+  requireShimUrl?: string
 ): string {
   const rewriter = new CodeRewriter(code);
   for (const { start, end, value } of specifiers) {
+    if (requireShimUrl && isNodeModuleSpecifier(value)) {
+      rewriter.overwrite(start, end, `"${requireShimUrl}"`);
+      continue;
+    }
     // Relative specifiers become absolute HTTP URLs. Bare shared package
     // specifiers become absolute file:// paths so all temp-file modules use
     // the same physical module instance as the host app. Without this, Node
@@ -974,7 +1034,11 @@ async function fetchEsmToTempFile(
 
     // Transform code: absolute HTTP URLs → file:// paths for temp files,
     // and bare shared package specifiers → absolute file:// paths.
-    code = transformSsrCode(code, base, specifiers, sharedPkgMap);
+    const requireShimUrl =
+      sharedPkgMap?.size && specifiers.some(({ value }) => isNodeModuleSpecifier(value))
+        ? await getRequireShimUrl(tmpDir, sharedPkgMap, contextKey)
+        : undefined;
+    code = transformSsrCode(code, base, specifiers, sharedPkgMap, requireShimUrl);
     for (const [httpUrl, fileUrl] of subMap) {
       code = code.split(httpUrl).join(fileUrl);
     }

@@ -1364,6 +1364,65 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).not.toMatch(/from\s*["']react["']/);
   });
 
+  it('routes createRequire through a node:module shim that honors resolvedShared', async () => {
+    const files = new Map<string, string>();
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (path: unknown, code: unknown) => {
+        files.set(String(path), String(code));
+      }
+    );
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        // Rolldown's runtime helper for bundled CommonJS that requires an external.
+        text: 'import { createRequire } from "node:module"; var __require = createRequire(import.meta.url); export const React = __require("react");',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory({ resolvedShared: { react: '/abs/node_modules/react/index.js' } }).loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+
+    const shimPath = [...files.keys()].find((path) => /\/node-module-[^/]+\.mjs$/.test(path));
+    expect(shimPath).toBeDefined();
+    expect(files.get(shimPath!)).toContain('"/abs/node_modules/react/index.js"');
+    const remoteCode = [...files].find(([path]) => path !== shimPath)![1];
+    expect(remoteCode).toContain(`from "file://${shimPath}"`);
+    expect(remoteCode).not.toContain('"node:module"');
+  });
+
+  it('leaves node:module untouched without resolvedShared', async () => {
+    const files = new Map<string, string>();
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (path: unknown, code: unknown) => {
+        files.set(String(path), String(code));
+      }
+    );
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'import { createRequire } from "node:module"; export const r = createRequire(import.meta.url);',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+
+    expect(files.size).toBe(1);
+    expect([...files.values()][0]).toContain('from "node:module"');
+  });
+
   it('partitions transformed temp-file cache entries by host shares and scope', async () => {
     const written: string[] = [];
     const fsMock = await import('fs');
