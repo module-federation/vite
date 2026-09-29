@@ -654,6 +654,9 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
   } catch {
     return;
   }
+  const staleRecords = [...tempFileRecords.values()].filter(
+    (record) => record.remoteOrigin === origin
+  );
   for (const [key] of tempFileCache) {
     const parts = JSON.parse(key) as unknown[];
     const url = parts.find(
@@ -664,6 +667,7 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
       tempFilePathCache.delete(key);
     }
   }
+  scheduleTempFileCleanup(staleRecords);
 }
 
 async function clearRunnerCaches(remoteEntryUrl?: string): Promise<void> {
@@ -714,8 +718,10 @@ export function revalidate(remoteEntryUrl?: string): void {
     unversionedGlobalGeneration += 1;
     ssrEntryCache.clear();
     manifestFetchCache.clear();
+    const staleRecords = [...tempFileRecords.values()];
     tempFileCache.clear();
     tempFilePathCache.clear();
+    scheduleTempFileCleanup(staleRecords);
   }
 
   void clearRunnerCaches(remoteEntryUrl);
@@ -740,6 +746,57 @@ export function revalidate(remoteEntryUrl?: string): void {
 
 const tempFileCache = new Map<string, Promise<string>>();
 const tempFilePathCache = new Map<string, Promise<string>>();
+const TEMP_FILE_CLEANUP_DELAY_MS = 30_000;
+
+type TempFileRecord = {
+  cacheKey: string;
+  filePathPromise: Promise<string>;
+  promise: Promise<string>;
+  remoteOrigin?: string;
+};
+
+// Keep generated files independent from the in-memory cache so invalidation can
+// retire the files that belonged to an old remote generation as well.
+const tempFileRecords = new Map<string, TempFileRecord>();
+const scheduledTempFileCleanup = new Set<string>();
+
+function scheduleTempFileCleanup(records: TempFileRecord[]): void {
+  for (const record of records) {
+    if (scheduledTempFileCleanup.has(record.cacheKey)) continue;
+    scheduledTempFileCleanup.add(record.cacheKey);
+
+    const timer = setTimeout(() => {
+      void cleanupTempFileRecord(record);
+    }, TEMP_FILE_CLEANUP_DELAY_MS);
+    if (typeof timer === 'object' && timer && 'unref' in timer) {
+      (timer as { unref?: () => void }).unref?.();
+    }
+  }
+}
+
+async function cleanupTempFileRecord(record: TempFileRecord): Promise<void> {
+  try {
+    // A revalidation can race an in-flight graph fetch. Wait for the writer so
+    // it cannot recreate an orphaned file after cleanup has already run.
+    await record.promise.catch(() => undefined);
+    // An explicit revalidate can resolve to the same manifest version and
+    // therefore reuse the same cache key/path. Do not let an older cleanup
+    // task remove the newer record's file.
+    if (tempFileRecords.get(record.cacheKey) !== record) return;
+    const filePath = await record.filePathPromise;
+    const { rmSync } = await _fs();
+    rmSync(filePath, { force: true });
+  } catch {
+    // Cleanup is best-effort; the next process-exit cleanup remains the final
+    // backstop for files that cannot be removed here.
+  } finally {
+    if (tempFileRecords.get(record.cacheKey) === record) {
+      tempFileRecords.delete(record.cacheKey);
+    }
+    scheduledTempFileCleanup.delete(record.cacheKey);
+  }
+}
+
 // Temp dir + transform context → `node:module` shim file URL (see getRequireShimUrl).
 const requireShimCache = new Map<string, Promise<string>>();
 
@@ -1060,11 +1117,27 @@ async function fetchEsmToTempFile(
     return tmpFile;
   })();
 
+  const record: TempFileRecord = {
+    cacheKey,
+    filePathPromise: tmpFilePromise,
+    promise,
+    remoteOrigin: (() => {
+      try {
+        return new URL(url).origin;
+      } catch {
+        return undefined;
+      }
+    })(),
+  };
+  tempFileRecords.set(cacheKey, record);
   tempFileCache.set(cacheKey, promise);
   pending.add(promise);
   void promise.catch(() => {
     if (tempFileCache.get(cacheKey) === promise) tempFileCache.delete(cacheKey);
     if (tempFilePathCache.get(cacheKey) === tmpFilePromise) tempFilePathCache.delete(cacheKey);
+    if (tempFileRecords.get(cacheKey) === record && !scheduledTempFileCleanup.has(cacheKey)) {
+      tempFileRecords.delete(cacheKey);
+    }
   });
   return promise;
 }
