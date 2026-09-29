@@ -35,6 +35,7 @@ import {
 import { EXTERNAL_URL_RE } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
+import { mfWarn } from './logger';
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
@@ -1045,8 +1046,8 @@ function warnStrategyFallback(
   fallback: string,
   error: unknown
 ): void {
-  console.warn(
-    `[mf-vite:ssr-entry-loader] strategy "${strategy}" failed to load ${url}; falling back to ${fallback}.`,
+  mfWarn(
+    `SSR entry loader: strategy "${strategy}" failed to load ${url}; falling back to ${fallback}.`,
     error
   );
 }
@@ -1060,8 +1061,8 @@ async function tryVmStrategy(
   if (!(await isVmStrategyAvailable())) {
     if (!warnedVmUnavailable) {
       warnedVmUnavailable = true;
-      console.warn(
-        '[mf-vite:ssr-entry-loader] strategy "vm" requires vm.SourceTextModule ' +
+      mfWarn(
+        'SSR entry loader: strategy "vm" requires vm.SourceTextModule ' +
           '(run Node with --experimental-vm-modules); falling back to the temp-file strategy.'
       );
     }
