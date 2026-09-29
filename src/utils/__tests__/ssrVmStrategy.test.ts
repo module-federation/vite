@@ -531,6 +531,33 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(namespace.val).toBe('from-file');
   });
 
+  it('lets remote modules call createRequire(import.meta.url)', async () => {
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        // Rolldown's runtime helper in Node-targeted ESM output that bundles CommonJS.
+        text:
+          'import { createRequire } from "node:module";' +
+          'var __require = /* #__PURE__ */ (() => createRequire(import.meta.url))();' +
+          'export const sep = __require("node:path").sep;' +
+          'export const resolved = __require.resolve("typescript");' +
+          'export const url = import.meta.url;',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions }
+    )) as { sep: string; resolved: string; url: string };
+
+    const { join, sep } = await import('path');
+    expect(namespace.sep).toBe(sep);
+    // Resolved from the app root, like the temp-file strategy's temp files.
+    expect(namespace.resolved.startsWith(join(process.cwd(), 'node_modules'))).toBe(true);
+    expect(namespace.url).toBe('http://localhost:5001/remoteEntry.ssr.js');
+  });
+
   it('neutralizes Vite preload-helper imports before evaluation', async () => {
     global.fetch = makeFetchMock({
       'http://localhost:5001/remoteEntry.ssr.js': {
