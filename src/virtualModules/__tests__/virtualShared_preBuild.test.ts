@@ -18,9 +18,9 @@ import {
   getTreeShakingGraphToken,
   getTreeShakingSharedProviderImportId,
   hasTreeShakingSharedProvider,
+  invalidateSharedExportInspectionCache,
   isCoalescableLoadShareWrapper,
   markLoadShareWrapperNotCoalescable,
-  invalidateSharedExportInspectionCache,
   refreshTreeShakingModules,
   resetConcreteSharedImportSourceCache,
   stripTreeShakingGraphQuery,
@@ -453,16 +453,16 @@ vi.mock('../../utils/packageUtils', () => ({
         packageJson: {
           name: 'runtime-consumer',
           dependencies: {
-            '@module-federation/enhanced': '^2.9.1',
+            '@module-federation/enhanced': '^2.9.2',
             react: '^19.0.0',
           },
         },
       };
     }
     const entryDependencies: Record<string, Record<string, string>> = {
-      'static-entry-consumer': { '@module-federation/runtime': '^2.9.1', vue: '^3.5.0' },
+      'static-entry-consumer': { '@module-federation/runtime': '^2.9.2', vue: '^3.5.0' },
       'transitive-entry-consumer': { 'runtime-bridge': '1.0.0' },
-      'runtime-bridge': { '@module-federation/runtime': '^2.9.1', vue: '^3.5.0' },
+      'runtime-bridge': { '@module-federation/runtime': '^2.9.2', vue: '^3.5.0' },
     };
     if (entryDependencies[pkg]) {
       return {
