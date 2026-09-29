@@ -153,7 +153,28 @@ async function loadBareModule(specifier: string, options: VmStrategyOptions): Pr
     return import(/* @vite-ignore */ `file://${resolvedPath}`);
   }
 
-  return import(/* @vite-ignore */ specifier);
+  const namespace = await import(/* @vite-ignore */ specifier);
+  return specifier === 'module' || specifier === 'node:module'
+    ? withRemoteCreateRequire(namespace as typeof import('module'))
+    : namespace;
+}
+
+/**
+ * Remote modules keep their http(s) URL as `import.meta.url`, which Node's
+ * `createRequire` rejects. Rolldown's runtime for Node-targeted output calls
+ * `createRequire(import.meta.url)` as soon as a bundled CommonJS module
+ * requires an external, so hand remote modules a `createRequire` that resolves
+ * those URLs from the app root — the base the temp-file strategy's temp files
+ * resolve from.
+ */
+async function withRemoteCreateRequire(nodeModule: typeof import('module')): Promise<unknown> {
+  const { pathToFileURL } = (await import(/* @vite-ignore */ 'url')) as typeof import('url');
+  const appRoot = pathToFileURL(`${process.cwd()}/`);
+  return {
+    ...nodeModule,
+    createRequire: (filename: string | URL) =>
+      nodeModule.createRequire(isHttpUrl(String(filename)) ? appRoot : filename),
+  };
 }
 
 function createSyntheticModule(vm: VmApi, specifier: string, namespace: unknown): VmModule {
