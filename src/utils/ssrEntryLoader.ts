@@ -967,7 +967,8 @@ function transformSsrCode(
   base: string,
   specifiers: SsrModuleSpecifier[],
   sharedPkgMap?: Map<string, string>,
-  requireShimUrl?: string
+  requireShimUrl?: string,
+  tempFileUrlMap?: Map<string, string>
 ): string {
   const rewriter = new CodeRewriter(code);
   for (const { start, end, value } of specifiers) {
@@ -981,9 +982,15 @@ function transformSsrCode(
     // resolves bare "react" from the workspace root which may be a different
     // version than the one bundled into the host's server.
     const resolvedShared = sharedPkgMap?.get(value);
-    const replacement = isRelativeSpecifier(value)
-      ? new URL(value, base).href
-      : resolvedShared && `file://${resolvedShared}`;
+    const relativeUrl = isRelativeSpecifier(value) ? new URL(value, base).href : undefined;
+    // Apply the temp-file map to both normalized relative imports and absolute
+    // HTTP imports, while keeping the rewrite scoped to actual specifiers.
+    const absoluteHttpUrl =
+      value.startsWith('http://') || value.startsWith('https://') ? value : undefined;
+    const httpUrl = relativeUrl ?? absoluteHttpUrl;
+    const tempFileUrl = httpUrl ? tempFileUrlMap?.get(httpUrl) : undefined;
+    const replacement =
+      tempFileUrl ?? relativeUrl ?? (resolvedShared && `file://${resolvedShared}`);
     if (replacement) rewriter.overwrite(start, end, `"${replacement}"`);
   }
   return neutralizeBrowserPreloadHelpers(rewriter.toString());
@@ -1103,10 +1110,7 @@ async function fetchEsmToTempFile(
       sharedPkgMap?.size && specifiers.some(({ value }) => isNodeModuleSpecifier(value))
         ? await getRequireShimUrl(tmpDir, sharedPkgMap, contextKey)
         : undefined;
-    code = transformSsrCode(code, base, specifiers, sharedPkgMap, requireShimUrl);
-    for (const [httpUrl, fileUrl] of subMap) {
-      code = code.split(httpUrl).join(fileUrl);
-    }
+    code = transformSsrCode(code, base, specifiers, sharedPkgMap, requireShimUrl, subMap);
 
     const { writeFileSync } = await _fs();
     writeFileSync(tmpFile, code, 'utf8');
