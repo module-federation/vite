@@ -3678,6 +3678,77 @@ describe('virtualRemoteEntry', () => {
     expect(cached).toBe(hostRenderer);
   });
 
+  it('seeds the local copy when the external provider has not loaded (#1367)', async () => {
+    const shared = {
+      name: 'dep',
+      from: 'remote',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { singleton: false, requiredVersion: '^1.0.0' },
+    };
+    normalizedSharedMock.mockReturnValue({ dep: shared });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('dep');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+    const localDep = { marker: 'local-dep' };
+    // A Vite host registered dep@1.1.0 but never loaded it: no lib, loading or loaded.
+    const externalProvider = { from: 'host', version: '1.1.0', get: async () => () => ({}) };
+    const state = { localLoads: 0 };
+    const usedShared = {
+      dep: {
+        ...shared,
+        scope: ['default'],
+        get: async () => {
+          state.localLoads++;
+          return () => localDep;
+        },
+      },
+    };
+
+    const cached = await new Function(
+      'usedShared',
+      'state',
+      'externalProvider',
+      `return (async () => {
+        const __mfModuleCache = { share: {} };
+        const mfName = 'remote';
+        const initialShared = { dep: { '1.1.0': externalProvider } };
+        const __mfGetSharedCacheDescriptor = (pkg) => ({ canonical: 'default:' + pkg });
+        const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+        const __mfReadSharedCacheOwner = () => undefined;
+        const __mfWriteSharedCache = (cache, descriptor, value) => {
+          cache[descriptor.canonical] = value;
+        };
+        const __mfReadTreeShakingSharedSelection = () => undefined;
+        const __mfSelectExternalSharedProvider = () => externalProvider;
+        const __mfGetExternalSharedProvider = () => externalProvider;
+        const isWebpackProvider = () => false;
+        ${getRuntimeSeedCode(code)}
+        await __mfSeedLocalShared(['dep']);
+        return __mfModuleCache.share['default:dep'];
+      })();`
+    )(usedShared, state, externalProvider);
+
+    expect(state.localLoads).toBe(1);
+    expect(cached.marker).toBe('local-dep');
+  });
+
   it('seeds a root host singleton before version-first remote initialization', async () => {
     const hostReactShare = {
       name: 'react',
