@@ -155,7 +155,7 @@ async function loadBareModule(specifier: string, options: VmStrategyOptions): Pr
 
   const namespace = await import(/* @vite-ignore */ specifier);
   return specifier === 'module' || specifier === 'node:module'
-    ? withRemoteCreateRequire(namespace as typeof import('module'))
+    ? withRemoteCreateRequire(namespace as typeof import('module'), options.resolvedShared)
     : namespace;
 }
 
@@ -165,15 +165,26 @@ async function loadBareModule(specifier: string, options: VmStrategyOptions): Pr
  * `createRequire(import.meta.url)` as soon as a bundled CommonJS module
  * requires an external, so hand remote modules a `createRequire` that resolves
  * those URLs from the app root — the base the temp-file strategy's temp files
- * resolve from.
+ * resolve from. Its `require` also pins `resolvedShared` specifiers to the
+ * same files the linker loads for the matching imports, so a bundled
+ * `__require("react")` cannot reach a second copy of a shared package.
  */
-async function withRemoteCreateRequire(nodeModule: typeof import('module')): Promise<unknown> {
+async function withRemoteCreateRequire(
+  nodeModule: typeof import('module'),
+  resolvedShared: Record<string, string>
+): Promise<unknown> {
   const { pathToFileURL } = (await import(/* @vite-ignore */ 'url')) as typeof import('url');
   const appRoot = pathToFileURL(`${process.cwd()}/`);
+  const pin = (id: string) => resolvedShared[id] ?? id;
   return {
     ...nodeModule,
-    createRequire: (filename: string | URL) =>
-      nodeModule.createRequire(isHttpUrl(String(filename)) ? appRoot : filename),
+    createRequire: (filename: string | URL) => {
+      const require = nodeModule.createRequire(isHttpUrl(String(filename)) ? appRoot : filename);
+      const resolve = ((id, options) =>
+        require.resolve(pin(id), options)) as NodeRequire['resolve'];
+      resolve.paths = require.resolve.paths;
+      return Object.assign((id: string) => require(pin(id)), require, { resolve });
+    },
   };
 }
 
