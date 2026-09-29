@@ -1034,6 +1034,23 @@ async function importTempModule(
 
 let warnedVmUnavailable = false;
 
+/**
+ * Non-HTTP failures keep falling back (to temp-file after vm, to the federation
+ * runtime's own Node loader after temp-file), but whatever the fallback throws
+ * then hides the real cause, so report it first.
+ */
+function warnStrategyFallback(
+  strategy: 'vm' | 'temp-file',
+  url: string,
+  fallback: string,
+  error: unknown
+): void {
+  console.warn(
+    `[mf-vite:ssr-entry-loader] strategy "${strategy}" failed to load ${url}; falling back to ${fallback}.`,
+    error
+  );
+}
+
 async function tryVmStrategy(
   ssrEntry: SsrEntryCandidate,
   options: ResolvedLoaderOptions
@@ -1131,7 +1148,7 @@ async function loadSSRRemoteEntry(
         if (fromVm) return fromVm;
       } catch (error) {
         if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
-        // fall through to the temp-file strategy
+        warnStrategyFallback('vm', url, 'the temp-file strategy', error);
       }
     }
 
@@ -1162,6 +1179,7 @@ async function loadSSRRemoteEntry(
       return await importTempModule(tmpFile, versionKey);
     } catch (error) {
       if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
+      warnStrategyFallback('temp-file', url, "the federation runtime's loader", error);
       return null;
     }
   }
