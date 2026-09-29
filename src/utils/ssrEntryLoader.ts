@@ -35,6 +35,7 @@ import {
 import { EXTERNAL_URL_RE } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
+import { mfWarn } from './logger';
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
@@ -1034,6 +1035,23 @@ async function importTempModule(
 
 let warnedVmUnavailable = false;
 
+/**
+ * Non-HTTP failures keep falling back (to temp-file after vm, to the federation
+ * runtime's own Node loader after temp-file), but whatever the fallback throws
+ * then hides the real cause, so report it first.
+ */
+function warnStrategyFallback(
+  strategy: 'vm' | 'temp-file',
+  url: string,
+  fallback: string,
+  error: unknown
+): void {
+  mfWarn(
+    `SSR entry loader: strategy "${strategy}" failed to load ${url}; falling back to ${fallback}.`,
+    error
+  );
+}
+
 async function tryVmStrategy(
   ssrEntry: SsrEntryCandidate,
   options: ResolvedLoaderOptions
@@ -1043,8 +1061,8 @@ async function tryVmStrategy(
   if (!(await isVmStrategyAvailable())) {
     if (!warnedVmUnavailable) {
       warnedVmUnavailable = true;
-      console.warn(
-        '[mf-vite:ssr-entry-loader] strategy "vm" requires vm.SourceTextModule ' +
+      mfWarn(
+        'SSR entry loader: strategy "vm" requires vm.SourceTextModule ' +
           '(run Node with --experimental-vm-modules); falling back to the temp-file strategy.'
       );
     }
@@ -1131,7 +1149,7 @@ async function loadSSRRemoteEntry(
         if (fromVm) return fromVm;
       } catch (error) {
         if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
-        // fall through to the temp-file strategy
+        warnStrategyFallback('vm', url, 'the temp-file strategy', error);
       }
     }
 
@@ -1162,6 +1180,7 @@ async function loadSSRRemoteEntry(
       return await importTempModule(tmpFile, versionKey);
     } catch (error) {
       if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
+      warnStrategyFallback('temp-file', url, "the federation runtime's loader", error);
       return null;
     }
   }

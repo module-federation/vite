@@ -138,8 +138,48 @@ describe('ssrEntryLoaderPlugin — vm fallback', () => {
       expect(first).toBeUndefined();
       expect(second).toBeUndefined();
       expect(fsMock.writeFileSync).toHaveBeenCalled();
-      expect(warn).toHaveBeenCalledTimes(1);
+      // fs is mocked, so the temp-file import fails too and reports its own fallback.
+      const unavailable = warn.mock.calls.filter(([message]) =>
+        String(message).includes('requires vm.SourceTextModule')
+      );
+      expect(unavailable).toHaveLength(1);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('falling back'));
+    } finally {
+      warn.mockRestore();
+      vi.doUnmock('../ssrVmStrategy');
+    }
+  });
+
+  it('reports the vm failure before falling back to temp-file', async () => {
+    const vmFailure = new TypeError('vm evaluation failed');
+    vi.doMock('../ssrVmStrategy', () => ({
+      isVmStrategyAvailable: vi.fn(async () => true),
+      loadViaVmStrategy: vi.fn(async () => {
+        throw vmFailure;
+      }),
+    }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const { default: factory } = await freshLoaderModule();
+      global.fetch = makeFetchMock({
+        'http://localhost:5001/remoteEntry.ssr.js': {
+          ok: true,
+          headers: { 'content-type': 'application/javascript' },
+          text: 'export async function init() {} export async function get() {}',
+        },
+      }) as unknown as typeof globalThis.fetch;
+
+      await factory({ strategy: 'vm' }).loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.ssr.js' },
+      });
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'strategy "vm" failed to load http://localhost:5001/remoteEntry.ssr.js; falling back to the temp-file strategy'
+        ),
+        vmFailure
+      );
     } finally {
       warn.mockRestore();
       vi.doUnmock('../ssrVmStrategy');
@@ -987,6 +1027,42 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
       'Failed to fetch SSR module "http://localhost:5001/assets/missing.js": 500 Internal Server Error'
     );
     expect(fsMock.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it('reports the original error when a non-HTTP failure falls back to the runtime loader', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const dropped = new TypeError('fetch failed');
+    global.fetch = vi.fn(async (url: string) => {
+      if (url === 'http://127.0.0.1:5001/assets/chunk.js') throw dropped;
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => 'import "./assets/chunk.js"; export async function init() {}',
+        headers: { get: () => 'application/javascript' },
+      };
+    }) as unknown as typeof globalThis.fetch;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const factory = await freshLoader();
+      const result = await factory().loadEntry!({
+        remoteInfo: { name: 'r', entry: 'http://127.0.0.1:5001/remoteEntry.ssr.js' },
+      });
+
+      // Non-HTTP failures still fall back to the runtime instead of throwing.
+      expect(result).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'strategy "temp-file" failed to load http://127.0.0.1:5001/remoteEntry.ssr.js'
+        ),
+        dropped
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('fetches transitive relative imports', async () => {
