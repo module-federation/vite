@@ -34,6 +34,7 @@ import {
 } from './fetchWithTimeout';
 import { EXTERNAL_URL_RE } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
+import { CodeRewriter } from './codeRewriter';
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
@@ -856,8 +857,7 @@ function transformSsrCode(
   specifiers: SsrModuleSpecifier[],
   sharedPkgMap?: Map<string, string>
 ): string {
-  let transformed = '';
-  let copiedUntil = 0;
+  const rewriter = new CodeRewriter(code);
   for (const { start, end, value } of specifiers) {
     // Relative specifiers become absolute HTTP URLs. Bare shared package
     // specifiers become absolute file:// paths so all temp-file modules use
@@ -868,11 +868,9 @@ function transformSsrCode(
     const replacement = isRelativeSpecifier(value)
       ? new URL(value, base).href
       : resolvedShared && `file://${resolvedShared}`;
-    if (!replacement) continue;
-    transformed += `${code.slice(copiedUntil, start)}"${replacement}"`;
-    copiedUntil = end;
+    if (replacement) rewriter.overwrite(start, end, `"${replacement}"`);
   }
-  return neutralizeBrowserPreloadHelpers(transformed + code.slice(copiedUntil));
+  return neutralizeBrowserPreloadHelpers(rewriter.toString());
 }
 
 function isVitePreloadHelperSpecifier(specifier: string): boolean {
