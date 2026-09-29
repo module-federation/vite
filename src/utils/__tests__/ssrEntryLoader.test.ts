@@ -1207,6 +1207,84 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).not.toContain('import(`http://localhost:5001/assets/exposes.js`)');
   });
 
+  it('ignores import-like text inside comments and strings', async () => {
+    let written = '';
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (_p: unknown, code: unknown) => {
+        written += `${code as string}\n`;
+      }
+    );
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        // Bundled CommonJS dependencies keep their JSDoc, e.g. `has-symbols`
+        // annotates with `/** @type {import('./shams')} */`.
+        text: [
+          "/** @type {import('./assets/type-only.js')} */",
+          '// copied from "./assets/line-comment.js"',
+          'const hint = "call import(\'./assets/in-string.js\') to load it";',
+          'import { t } from "./assets/helper.js";',
+          'export async function init() {}',
+        ].join('\n'),
+      },
+      'http://localhost:5001/assets/helper.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export const t = 1;',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+
+    expectFetchCalled(fetch, 'http://localhost:5001/assets/helper.js');
+    expectFetchNotCalled(fetch, 'http://localhost:5001/assets/type-only.js');
+    expectFetchNotCalled(fetch, 'http://localhost:5001/assets/line-comment.js');
+    expectFetchNotCalled(fetch, 'http://localhost:5001/assets/in-string.js');
+    expect(written).toContain('const hint = "call import(\'./assets/in-string.js\') to load it";');
+  });
+
+  it('fetches dynamic imports with a comment before the specifier', async () => {
+    let written = '';
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (_p: unknown, code: unknown) => {
+        written += `${code as string}\n`;
+      }
+    );
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        // Magic comments from pre-bundled libraries survive into Vite/Rolldown output.
+        text: 'const load = () => import(/* webpackChunkName: "chunk" */ "./assets/chunk.js");export async function init() {}',
+      },
+      'http://localhost:5001/assets/chunk.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export const chunk = 1;',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+
+    expectFetchCalled(fetch, 'http://localhost:5001/assets/chunk.js');
+    expect(written).not.toContain('"./assets/chunk.js"');
+  });
+
   it('replaces Vite preload-helper import with server no-op', async () => {
     let written = '';
     const fsMock = await import('fs');
