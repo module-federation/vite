@@ -1429,6 +1429,46 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).not.toContain(`from "${helperUrl}"`);
   });
 
+  it('rewrites absolute HTTP import specifiers from the temp-file URL map', async () => {
+    let written = '';
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (_p: unknown, code: unknown) => {
+        written += `${code as string}\n`;
+      }
+    );
+    const helperUrl = 'http://localhost:5001/assets/helper.js';
+    const fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: [
+          'import { t as relativeT } from "./assets/helper.js";',
+          `export { t as absoluteT } from ${JSON.stringify(helperUrl)};`,
+          'export const marker = relativeT + absoluteT;',
+          'export async function init() {}',
+        ].join('\n'),
+      },
+      [helperUrl]: {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export const t = 1;',
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+
+    expect(written).not.toContain(`from "${helperUrl}"`);
+    expect(written).toContain('import { t as relativeT } from "file:///');
+    expect(written).toContain('export { t as absoluteT } from "file:///');
+  });
+
   it('fetches dynamic imports with a comment before the specifier', async () => {
     let written = '';
     const fsMock = await import('fs');

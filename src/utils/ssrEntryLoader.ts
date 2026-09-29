@@ -926,9 +926,14 @@ function transformSsrCode(
     // version than the one bundled into the host's server.
     const resolvedShared = sharedPkgMap?.get(value);
     const relativeUrl = isRelativeSpecifier(value) ? new URL(value, base).href : undefined;
-    const replacement = relativeUrl
-      ? (tempFileUrlMap?.get(relativeUrl) ?? relativeUrl)
-      : resolvedShared && `file://${resolvedShared}`;
+    // Apply the temp-file map to both normalized relative imports and absolute
+    // HTTP imports, while keeping the rewrite scoped to actual specifiers.
+    const absoluteHttpUrl =
+      value.startsWith('http://') || value.startsWith('https://') ? value : undefined;
+    const httpUrl = relativeUrl ?? absoluteHttpUrl;
+    const tempFileUrl = httpUrl ? tempFileUrlMap?.get(httpUrl) : undefined;
+    const replacement =
+      tempFileUrl ?? relativeUrl ?? (resolvedShared && `file://${resolvedShared}`);
     if (replacement) rewriter.overwrite(start, end, `"${replacement}"`);
   }
   return neutralizeBrowserPreloadHelpers(rewriter.toString());
