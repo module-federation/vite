@@ -882,9 +882,9 @@ function getTempFileImportUrl(filePath: string, versionKey: string): string {
 }
 
 /**
- * Fetch an HTTP ESM module, transform it, write it to a temp .js file and
+ * Fetch an HTTP ESM module, transform it, write it to a temp file and
  * return the file path. Recursively does the same for HTTP transitive imports
- * so that `import('file:///...temp.js')` can resolve them.
+ * so that `import('file:///...temp.mjs')` can resolve them.
  *
  * `versionKey` participates in both the cache key and the temp file name, so
  * a remote redeploy (new manifest → new key) produces new files and bypasses
@@ -899,9 +899,17 @@ async function fetchEsmToTempFile(
   versionKey: string = UNVERSIONED,
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
   contextKey = 'default',
-  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES
+  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES,
+  extension = '.mjs'
 ): Promise<string> {
-  const cacheKey = JSON.stringify([fetchTimeoutMs, fetchMaxBytes, versionKey, url, contextKey]);
+  const cacheKey = JSON.stringify([
+    fetchTimeoutMs,
+    fetchMaxBytes,
+    versionKey,
+    url,
+    contextKey,
+    extension,
+  ]);
   if (visited.has(url)) return visited.get(url)!;
   const cached = tempFileCache.get(cacheKey);
   if (cached) {
@@ -919,7 +927,7 @@ async function fetchEsmToTempFile(
     const { createHash } = await _crypto();
     const { join } = await _path();
     const hash = createHash('sha1').update(cacheKey).digest('hex').slice(0, 12);
-    return join(tmpDir, `${hash}.js`);
+    return join(tmpDir, `${hash}${extension}`);
   })();
   tempFilePathCache.set(cacheKey, tmpFilePromise);
 
@@ -963,7 +971,8 @@ async function fetchEsmToTempFile(
             versionKey,
             fetchTimeoutMs,
             contextKey,
-            fetchMaxBytes
+            fetchMaxBytes,
+            extension
           );
           // Keep every generated edge on the same versioned ESM URL as the
           // root import. Without this query, a cycle back to the root resolves
@@ -1000,7 +1009,8 @@ async function fetchEsmGraphToTempFile(
   versionKey: string = UNVERSIONED,
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
   contextKey = 'default',
-  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES
+  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES,
+  extension = '.mjs'
 ): Promise<string> {
   const pending = new Set<Promise<string>>();
   const rootFile = await fetchEsmToTempFile(
@@ -1012,7 +1022,8 @@ async function fetchEsmGraphToTempFile(
     versionKey,
     fetchTimeoutMs,
     contextKey,
-    fetchMaxBytes
+    fetchMaxBytes,
+    extension
   );
   // Circular edges return their reserved path immediately. Wait for every
   // discovered writer before importing the root so all referenced files exist.
@@ -1149,6 +1160,12 @@ async function loadSSRRemoteEntry(
     // walk-up needed.
     const sharedPkgMap = new Map(Object.entries(resolvedShared));
 
+    // `.mjs` tells Node the module format up front; a typeless `.js` has Node
+    // check each file's syntax first. CommonJS entries reach this path only
+    // when createRequire cannot load their http URL, and keep `.js` so Node
+    // still detects them as CommonJS.
+    const extension = type === 'commonjs-module' || type === 'commonjs' ? '.js' : '.mjs';
+
     try {
       const tmpFile = await fetchEsmGraphToTempFile(
         url,
@@ -1157,7 +1174,8 @@ async function loadSSRRemoteEntry(
         versionKey,
         options.fetchTimeoutMs,
         getSsrTransformContextKey(resolvedShared, options.shareScopeName),
-        options.fetchMaxBytes
+        options.fetchMaxBytes,
+        extension
       );
       return await importTempModule(tmpFile, versionKey);
     } catch (error) {
