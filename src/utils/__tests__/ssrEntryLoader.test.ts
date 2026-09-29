@@ -1168,6 +1168,67 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).not.toContain('import"http://localhost:5001/assets/chunk.js"');
   });
 
+  it('writes ESM temp files as .mjs so Node skips module syntax detection', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const written: string[] = [];
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation((path: unknown) => {
+      written.push(String(path));
+    });
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'import "./assets/chunk.js"; export async function init() {}',
+      },
+      'http://localhost:5001/assets/chunk.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'export const chunk = 1;',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.ssr.js' },
+    });
+
+    expect(written).toHaveLength(2);
+    expect(written.every((path) => path.endsWith('.mjs'))).toBe(true);
+  });
+
+  it('keeps .js temp files for CommonJS entries so Node still detects them', async () => {
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    const written: string[] = [];
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation((path: unknown) => {
+      written.push(String(path));
+    });
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'commonjs-module' },
+          },
+        },
+      },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'exports.init = async function init() {};',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory().loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/mf-manifest.json' },
+    });
+
+    expect(written).toHaveLength(1);
+    expect(written[0].endsWith('.js')).toBe(true);
+  });
+
   it('rejects oversized SSR module bodies before writing temp files', async () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
