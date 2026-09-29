@@ -738,6 +738,9 @@ const normalizeRuntimeShareCode = `const __mfNormalizeRuntimeShare = (mod) => {
             for (let i = 0; i < 5; i++) {
               const defaultExport = current?.default;
               if (!defaultExport || typeof defaultExport !== "object" || Object.keys(defaultExport).length === 0) break;
+              // Only unwrap plain CJS namespaces; spreading a class instance would drop its prototype.
+              const proto = Object.getPrototypeOf(defaultExport);
+              if (proto !== null && proto !== Object.prototype) break;
               const namedValues = Object.keys(current).filter((key) => key !== "default").map((key) => current[key]);
               if (namedValues.length > 0 && namedValues.some((value) => value !== undefined)) break;
               current = defaultExport;

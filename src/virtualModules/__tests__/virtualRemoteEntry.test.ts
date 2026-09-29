@@ -790,6 +790,33 @@ describe('virtualRemoteEntry', () => {
     );
   });
 
+  it('keeps a default-only class instance wrapped so its prototype survives (#1362)', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('cls-pkg');
+
+    class Greeter {
+      name = 'greeter';
+      hello() {
+        return `hello from ${this.name}`;
+      }
+    }
+    const greeter = new Greeter();
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:cls-pkg")', 'Promise.resolve({ default: greeter })')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+    const generated = new Function('greeter', code)(greeter);
+    const factory = await generated.usedShared['cls-pkg'].get();
+
+    expect(factory().default).toBe(greeter);
+    expect({ ...factory() }.default.hello()).toBe('hello from greeter');
+  });
+
   it('reuses a cached singleton family before importing its local fallback', async () => {
     const mod = await import('../virtualRemoteEntry');
     mod.getUsedShares().clear();
