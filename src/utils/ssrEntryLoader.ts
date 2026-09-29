@@ -777,11 +777,9 @@ function getRequireShimUrl(
   const cached = requireShimCache.get(cacheKey);
   if (cached) return cached;
   const promise = (async () => {
-    const { createHash } = await _crypto();
     const { join } = await _path();
     const { writeFileSync } = await _fs();
-    const hash = createHash('sha1').update(contextKey).digest('hex').slice(0, 12);
-    const file = join(tmpDir, `node-module-${hash}.mjs`);
+    const file = join(tmpDir, `node-module-${hashString(contextKey)}.mjs`);
     writeFileSync(file, createRequireShimSource(sharedPkgMap), 'utf8');
     return `file://${file}`;
   })();
