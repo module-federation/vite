@@ -26,6 +26,7 @@ import {
   readResponseTextBounded,
 } from './fetchWithTimeout';
 import { findSharedKey, type SharedKeyLookup } from './sharedKeyMatcher';
+import { getUrlOrigin } from './url';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
@@ -262,14 +263,6 @@ function addVmCacheOwner(
   const owners = ownersByCacheKey.get(cacheKey) ?? new Set<string>();
   owners.add(rootEntryUrl);
   ownersByCacheKey.set(cacheKey, owners);
-}
-
-function getUrlOrigin(value: string): string | undefined {
-  try {
-    return new URL(value).origin;
-  } catch {
-    return undefined;
-  }
 }
 
 function clearOwnedVmCache<T>(

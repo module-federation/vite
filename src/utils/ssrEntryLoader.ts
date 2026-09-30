@@ -36,6 +36,7 @@ import { EXTERNAL_URL_RE } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
 import { mfWarn } from './logger';
+import { getUrlOrigin } from './url';
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
@@ -647,12 +648,8 @@ async function getSSREntry(
  * browser entry URL), so scope the invalidation by origin.
  */
 function dropRemoteTempFileCaches(remoteEntryUrl: string): void {
-  let origin: string;
-  try {
-    origin = new URL(remoteEntryUrl).origin;
-  } catch {
-    return;
-  }
+  const origin = getUrlOrigin(remoteEntryUrl);
+  if (!origin) return;
   const staleRecords = [...tempFileRecords.values()].filter(
     (record) => record.remoteOrigin === origin
   );
@@ -693,11 +690,8 @@ function scheduleVmCacheCleanup(remoteEntryUrl?: string): void {
 async function clearRunnerCaches(remoteEntryUrl?: string): Promise<void> {
   let remoteOrigin: string | undefined;
   if (remoteEntryUrl) {
-    try {
-      remoteOrigin = new URL(remoteEntryUrl).origin;
-    } catch {
-      return;
-    }
+    remoteOrigin = getUrlOrigin(remoteEntryUrl);
+    if (!remoteOrigin) return;
   }
 
   await Promise.all(
@@ -1146,13 +1140,7 @@ async function fetchEsmToTempFile(
     cacheKey,
     filePathPromise: tmpFilePromise,
     promise,
-    remoteOrigin: (() => {
-      try {
-        return new URL(url).origin;
-      } catch {
-        return undefined;
-      }
-    })(),
+    remoteOrigin: getUrlOrigin(url),
   };
   tempFileRecords.set(cacheKey, record);
   tempFileCache.set(cacheKey, promise);
