@@ -112,7 +112,15 @@ export default function ({
         continue;
       }
 
-      const resolved = await (ctx as any).resolve(source, id);
+      // Value-style type imports (`import { JsonValue } from 'type-fest'`) never reach the bundler,
+      // and Vite throws for packages without a runtime entry or a missing `exports` subpath. An
+      // import that cannot be resolved cannot be a remote.
+      let resolved: { id?: string } | null | undefined;
+      try {
+        resolved = await (ctx as any).resolve(source, id);
+      } catch {
+        continue;
+      }
       if (!resolved?.id || !shouldScanResolvedImport(resolved.id)) continue;
       for (const dependency of await collectRemoteDependencies(ctx, resolved.id, seen)) {
         dependencies.add(dependency);
