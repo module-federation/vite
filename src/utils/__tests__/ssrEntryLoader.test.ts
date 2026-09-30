@@ -2343,6 +2343,32 @@ describe('ssrEntryLoaderPlugin — revalidation', () => {
     expect(String(writes[writes.length - 1][1])).toContain('v2');
   });
 
+  it('revalidate() also schedules scoped VM cache cleanup', async () => {
+    vi.doMock('../ssrVmStrategy', () => ({
+      isVmStrategyAvailable: vi.fn(async () => true),
+      loadViaVmStrategy: vi.fn(async () => ({ init: vi.fn(), get: vi.fn() })),
+      clearVmStrategyCaches: vi.fn(),
+    }));
+
+    try {
+      global.fetch = makeFetchMock(
+        makeResponses('1.0.0', 'export const marker = "v1";')
+      ) as unknown as typeof globalThis.fetch;
+      const loader = await freshMockedLoaderModule();
+      const vmStrategy = await import('../ssrVmStrategy');
+      const plugin = loader.default({ strategy: 'vm' });
+
+      await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+      loader.revalidate(entryUrl);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+      expect(vmStrategy.clearVmStrategyCaches).toHaveBeenCalledWith(entryUrl);
+    } finally {
+      vi.doUnmock('../ssrVmStrategy');
+    }
+  });
+
   it('revalidate() without arguments clears everything and resets runtime module caches', async () => {
     const responses = makeResponses('1.0.0', 'export const marker = "v1";');
     const fetch = makeFetchMock(responses);
