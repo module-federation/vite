@@ -194,6 +194,47 @@ describe('pluginProxyRemoteEntry', () => {
     expect(resolvedSources).not.toContain('@graphql-typed-document-node/core');
   });
 
+  it('skips imports the resolver throws on while collecting remote dependencies', async () => {
+    const expose = resolve(
+      'integration/fixtures/nested-remote-transitive/value-style-type-only-import.ts'
+    );
+    const plugin = pluginProxyRemoteEntry({
+      options: getDefaultMockOptions({
+        exposes: { './document': { import: expose } as any },
+        remotes: {
+          remoteA: {
+            name: 'remoteA',
+            entry: 'http://localhost:3001/remoteEntry.js',
+            type: 'module',
+          },
+        },
+      }),
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+    const context = {
+      resolve: async (source: string) => {
+        if (source === expose) return { id: expose };
+        if (source === '@graphql-typed-document-node/core') {
+          throw new Error(
+            'Failed to resolve entry for package "@graphql-typed-document-node/core"'
+          );
+        }
+        return undefined;
+      },
+    } as any;
+
+    callHook(
+      plugin.config,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    const generated = await callHook(plugin.load, context, 'virtual:mf-exposes');
+
+    expect(generated).toContain('__loadRemote__remoteA_mf_1_shared_mf_1_helpers');
+  });
+
   it.each(['component.vue', 'component.svelte'])(
     'only scans script blocks of %s for remote dependencies',
     async (component) => {
