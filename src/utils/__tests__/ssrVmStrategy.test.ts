@@ -667,6 +667,57 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(next.marker).toBe('v2');
   });
 
+  it('clears only the revalidated remote graph from the module caches', async () => {
+    const responses: Record<string, FetchEntry> = {
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'export const marker = "remote-a-v1";',
+      },
+      'http://localhost:5002/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'export const marker = "remote-b-v1";',
+      },
+    };
+    const fetch = makeFetchMock(responses);
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+    const firstOptions = { ...baseOptions, versionKey: 'v1' };
+
+    const firstA = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      firstOptions
+    )) as { marker: string };
+    const firstB = (await strategy.loadViaVmStrategy(
+      'http://localhost:5002/remoteEntry.ssr.js',
+      firstOptions
+    )) as { marker: string };
+
+    responses['http://localhost:5001/remoteEntry.ssr.js'] = {
+      ok: true,
+      text: 'export const marker = "remote-a-v2";',
+    };
+    responses['http://localhost:5002/remoteEntry.ssr.js'] = {
+      ok: true,
+      text: 'export const marker = "remote-b-v2";',
+    };
+    strategy.clearVmStrategyCaches('http://localhost:5001/remoteEntry.js');
+
+    const nextA = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      firstOptions
+    )) as { marker: string };
+    const cachedB = (await strategy.loadViaVmStrategy(
+      'http://localhost:5002/remoteEntry.ssr.js',
+      firstOptions
+    )) as { marker: string };
+
+    expect(firstA.marker).toBe('remote-a-v1');
+    expect(firstB.marker).toBe('remote-b-v1');
+    expect(nextA.marker).toBe('remote-a-v2');
+    expect(cachedB.marker).toBe('remote-b-v1');
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
   it('partitions module and namespace caches by resolved shares and scope', async () => {
     const { mkdtempSync, writeFileSync } = await import('fs');
     const { tmpdir } = await import('os');

@@ -36,6 +36,7 @@ import { EXTERNAL_URL_RE } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
 import { mfWarn } from './logger';
+import { getUrlOrigin } from './url';
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
@@ -636,24 +637,19 @@ async function getSSREntry(
   const next = await record.promise.catch(() => null);
 
   if (previous && next && previous.versionKey !== next.versionKey) {
-    dropRemoteCaches(remoteEntryUrl);
-    await clearRunnerCaches(remoteEntryUrl);
+    await invalidateRemoteCaches(remoteEntryUrl);
   }
   return record.promise;
 }
 
 /**
- * Drop per-remote caches after a version change so old artifacts stop being
- * reused. Temp-file cache keys hold SSR entry/chunk URLs (not the browser
- * entry URL), so scope the invalidation by origin.
+ * Drop per-remote temp-file caches after a version change so old artifacts stop
+ * being reused. Temp-file cache keys hold SSR entry/chunk URLs (not the
+ * browser entry URL), so scope the invalidation by origin.
  */
-function dropRemoteCaches(remoteEntryUrl: string): void {
-  let origin: string;
-  try {
-    origin = new URL(remoteEntryUrl).origin;
-  } catch {
-    return;
-  }
+function dropRemoteTempFileCaches(remoteEntryUrl: string): void {
+  const origin = getUrlOrigin(remoteEntryUrl);
+  if (!origin) return;
   const staleRecords = [...tempFileRecords.values()].filter(
     (record) => record.remoteOrigin === origin
   );
@@ -670,14 +666,32 @@ function dropRemoteCaches(remoteEntryUrl: string): void {
   scheduleTempFileCleanup(staleRecords);
 }
 
+/** Invalidate all SSR loader caches owned by a remote. */
+async function invalidateRemoteCaches(remoteEntryUrl: string): Promise<void> {
+  dropRemoteTempFileCaches(remoteEntryUrl);
+  scheduleVmCacheCleanup(remoteEntryUrl);
+  await clearRunnerCaches(remoteEntryUrl);
+}
+
+/**
+ * The VM strategy owns separate in-memory module-graph caches. Keep their
+ * invalidation aligned with the temp-file and ModuleRunner caches without a
+ * static import cycle between the two SSR strategies.
+ */
+function scheduleVmCacheCleanup(remoteEntryUrl?: string): void {
+  if (!vmStrategyModulePromise) return;
+  void vmStrategyModulePromise
+    .then(({ clearVmStrategyCaches }) => clearVmStrategyCaches(remoteEntryUrl))
+    .catch(() => {
+      // VM cache cleanup is best-effort, like temp-file cleanup.
+    });
+}
+
 async function clearRunnerCaches(remoteEntryUrl?: string): Promise<void> {
   let remoteOrigin: string | undefined;
   if (remoteEntryUrl) {
-    try {
-      remoteOrigin = new URL(remoteEntryUrl).origin;
-    } catch {
-      return;
-    }
+    remoteOrigin = getUrlOrigin(remoteEntryUrl);
+    if (!remoteOrigin) return;
   }
 
   await Promise.all(
@@ -691,6 +705,16 @@ async function clearRunnerCaches(remoteEntryUrl?: string): Promise<void> {
         }
       })
   );
+}
+
+/** Invalidate all SSR loader caches across every remote. */
+function invalidateAllRemoteCaches(): void {
+  const staleRecords = [...tempFileRecords.values()];
+  tempFileCache.clear();
+  tempFilePathCache.clear();
+  scheduleTempFileCleanup(staleRecords);
+  scheduleVmCacheCleanup();
+  void clearRunnerCaches();
 }
 
 /**
@@ -713,18 +737,13 @@ export function revalidate(remoteEntryUrl?: string): void {
     for (const key of manifestFetchCache.keys()) {
       if (key.endsWith(`::${manifestUrl}`)) manifestFetchCache.delete(key);
     }
-    dropRemoteCaches(remoteEntryUrl);
+    void invalidateRemoteCaches(remoteEntryUrl);
   } else {
     unversionedGlobalGeneration += 1;
     ssrEntryCache.clear();
     manifestFetchCache.clear();
-    const staleRecords = [...tempFileRecords.values()];
-    tempFileCache.clear();
-    tempFilePathCache.clear();
-    scheduleTempFileCleanup(staleRecords);
+    invalidateAllRemoteCaches();
   }
-
-  void clearRunnerCaches(remoteEntryUrl);
 
   const federation = (
     globalThis as {
@@ -1121,13 +1140,7 @@ async function fetchEsmToTempFile(
     cacheKey,
     filePathPromise: tmpFilePromise,
     promise,
-    remoteOrigin: (() => {
-      try {
-        return new URL(url).origin;
-      } catch {
-        return undefined;
-      }
-    })(),
+    remoteOrigin: getUrlOrigin(url),
   };
   tempFileRecords.set(cacheKey, record);
   tempFileCache.set(cacheKey, promise);
@@ -1184,6 +1197,14 @@ async function importTempModule(
 }
 
 let warnedVmUnavailable = false;
+let vmStrategyModulePromise: Promise<typeof import('./ssrVmStrategy')> | undefined;
+
+function getVmStrategyModule(): Promise<typeof import('./ssrVmStrategy')> {
+  if (!vmStrategyModulePromise) {
+    vmStrategyModulePromise = import('./ssrVmStrategy');
+  }
+  return vmStrategyModulePromise;
+}
 
 /**
  * Non-HTTP failures keep falling back (to temp-file after vm, to the federation
@@ -1206,7 +1227,7 @@ async function tryVmStrategy(
   ssrEntry: SsrEntryCandidate,
   options: ResolvedLoaderOptions
 ): Promise<{ init: unknown; get: unknown } | null> {
-  const { loadViaVmStrategy, isVmStrategyAvailable } = await import('./ssrVmStrategy');
+  const { loadViaVmStrategy, isVmStrategyAvailable } = await getVmStrategyModule();
 
   if (!(await isVmStrategyAvailable())) {
     if (!warnedVmUnavailable) {

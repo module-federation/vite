@@ -26,6 +26,7 @@ import {
   readResponseTextBounded,
 } from './fetchWithTimeout';
 import { findSharedKey, type SharedKeyLookup } from './sharedKeyMatcher';
+import { getUrlOrigin } from './url';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
@@ -35,6 +36,8 @@ interface VmStrategyOptions {
   fetchMaxBytes?: number;
   cacheContext: object;
   federationInstance?: object;
+  /** Root entry URL used to scope cache invalidation to a remote graph. */
+  rootEntryUrl?: string;
 }
 
 // Minimal structural typings for the experimental vm module APIs so this file
@@ -224,6 +227,11 @@ function createSyntheticModule(vm: VmApi, specifier: string, namespace: unknown)
 const httpModuleCache = new Map<string, Promise<VmModule>>();
 // Evaluated entry namespaces, same keying.
 const namespaceCache = new Map<string, Promise<unknown>>();
+// A module URL can be shared by more than one remote graph. Track graph owners
+// separately so scoped invalidation can retire only the owners belonging to a
+// revalidated remote while preserving a module still used by another graph.
+const httpModuleCacheOwners = new Map<string, Set<string>>();
+const namespaceCacheOwners = new Map<string, Set<string>>();
 const linkQueues = new WeakMap<object, Promise<void>>();
 
 const contextIds = new WeakMap<object, number>();
@@ -244,6 +252,52 @@ function getVmCacheContextKey(options: VmStrategyOptions): string {
     options.shareScopeName,
     Object.entries(options.resolvedShared).sort(([left], [right]) => left.localeCompare(right)),
   ]);
+}
+
+function addVmCacheOwner(
+  ownersByCacheKey: Map<string, Set<string>>,
+  cacheKey: string,
+  rootEntryUrl: string | undefined
+): void {
+  if (!rootEntryUrl) return;
+  const owners = ownersByCacheKey.get(cacheKey) ?? new Set<string>();
+  owners.add(rootEntryUrl);
+  ownersByCacheKey.set(cacheKey, owners);
+}
+
+function clearOwnedVmCache<T>(
+  cache: Map<string, T>,
+  ownersByCacheKey: Map<string, Set<string>>,
+  remoteOrigin: string | undefined
+): void {
+  for (const [cacheKey, owners] of ownersByCacheKey) {
+    if (!remoteOrigin) {
+      cache.delete(cacheKey);
+      ownersByCacheKey.delete(cacheKey);
+      continue;
+    }
+
+    for (const owner of owners) {
+      if (getUrlOrigin(owner) === remoteOrigin) owners.delete(owner);
+    }
+    if (owners.size === 0) {
+      cache.delete(cacheKey);
+      ownersByCacheKey.delete(cacheKey);
+    }
+  }
+}
+
+/**
+ * Drop cached VM module graphs after a remote revalidation. A module graph can
+ * contain URLs from another origin, so ownership is tracked by the root entry
+ * rather than inferred from each module URL.
+ */
+export function clearVmStrategyCaches(remoteEntryUrl?: string): void {
+  const remoteOrigin = remoteEntryUrl === undefined ? undefined : getUrlOrigin(remoteEntryUrl);
+  if (remoteEntryUrl !== undefined && !remoteOrigin) return;
+
+  clearOwnedVmCache(httpModuleCache, httpModuleCacheOwners, remoteOrigin);
+  clearOwnedVmCache(namespaceCache, namespaceCacheOwners, remoteOrigin);
 }
 
 function getBodyPreview(body: string): string {
@@ -288,6 +342,7 @@ function getHttpModule(vm: VmApi, url: string, options: VmStrategyOptions): Prom
     options.versionKey,
     url,
   ]);
+  addVmCacheOwner(httpModuleCacheOwners, cacheKey, options.rootEntryUrl);
   if (!httpModuleCache.has(cacheKey)) {
     httpModuleCache.set(
       cacheKey,
@@ -303,6 +358,7 @@ function getHttpModule(vm: VmApi, url: string, options: VmStrategyOptions): Prom
         });
       })().catch((error) => {
         httpModuleCache.delete(cacheKey);
+        httpModuleCacheOwners.delete(cacheKey);
         throw error;
       })
     );
@@ -365,19 +421,22 @@ export async function loadViaVmStrategy(
   const vm = await getVmApi();
   if (!vm) return null;
 
+  const graphOptions = { ...options, rootEntryUrl: entryUrl };
   const cacheKey = `${getVmCacheContextKey(options)}::${options.versionKey}::${entryUrl}`;
+  addVmCacheOwner(namespaceCacheOwners, cacheKey, entryUrl);
   if (!namespaceCache.has(cacheKey)) {
     namespaceCache.set(
       cacheKey,
       (async () => {
-        const entryModule = await getHttpModule(vm, entryUrl, options);
+        const entryModule = await getHttpModule(vm, entryUrl, graphOptions);
         const linker: Linker = (specifier, referencingModule) =>
-          linkModule(vm, specifier, referencingModule, options);
+          linkModule(vm, specifier, referencingModule, graphOptions);
         await linkModuleGraph(entryModule, linker, options.cacheContext);
         if (entryModule.status === 'linked') await entryModule.evaluate();
         return entryModule.namespace;
       })().catch((error) => {
         namespaceCache.delete(cacheKey);
+        namespaceCacheOwners.delete(cacheKey);
         throw error;
       })
     );
