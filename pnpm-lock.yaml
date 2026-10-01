@@ -185,6 +185,44 @@ importers:
         specifier: 8.2.0
         version: 8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.6.1)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.3)
 
+  examples/vite-vite-importmap/vite-host:
+    dependencies:
+      '@module-federation/vite':
+        specifier: workspace:*
+        version: link:../../..
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: 19.2.4
+        version: 19.2.4(react@19.2.4)
+    devDependencies:
+      '@vitejs/plugin-react':
+        specifier: 5.1.2
+        version: 5.1.2(vite@7.3.6(@types/node@26.1.2)(jiti@2.6.1)(lightningcss@1.33.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.3))
+      vite:
+        specifier: 7.3.6
+        version: 7.3.6(@types/node@26.1.2)(jiti@2.6.1)(lightningcss@1.33.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.3)
+
+  examples/vite-vite-importmap/vite-remote:
+    dependencies:
+      '@module-federation/vite':
+        specifier: workspace:*
+        version: link:../../..
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: 19.2.4
+        version: 19.2.4(react@19.2.4)
+    devDependencies:
+      '@vitejs/plugin-react':
+        specifier: 5.1.2
+        version: 5.1.2(vite@7.3.6(@types/node@26.1.2)(jiti@2.6.1)(lightningcss@1.33.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.3))
+      vite:
+        specifier: 7.3.6
+        version: 7.3.6(@types/node@26.1.2)(jiti@2.6.1)(lightningcss@1.33.0)(sass-embedded@1.77.8)(terser@5.31.6)(yaml@2.8.3)
+
   examples/vite-vite/shared-consumer:
     dependencies:
       '@vite-vite/shared-lib':
@@ -664,6 +702,14 @@ importers:
       webpack-dev-server:
         specifier: 5.2.6
         version: 5.2.6(webpack-cli@7.2.2)(webpack@5.109.2)
+
+  integration/fixtures/importmap-browser-host/vendor/shared-base: {}
+
+  integration/fixtures/importmap-host/vendor/cjs-dep: {}
+
+  integration/fixtures/importmap-host/vendor/esm-default-dep: {}
+
+  integration/fixtures/importmap-host/vendor/esm-dep: {}
 
   integration/fixtures/shared-remote/vendor/mock-shared-dep: {}
 
