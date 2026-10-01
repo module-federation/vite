@@ -130,6 +130,7 @@ import {
   markStaticRemote,
 } from './virtualModules/virtualRemotes';
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
+import { pluginImportMapHost } from './plugins/pluginImportMapHost';
 import {
   findEagerFallbacksInSharedChunk,
   getSharedChunkName,
@@ -1158,6 +1159,8 @@ function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOpti
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
+  // Import-map mode bypasses the MF runtime pipeline below entirely.
+  if (options.experiments.importMap) return [pluginImportMapHost(options)];
   applyExternalRuntimeExperiments(options);
 
   const isVinext = hasPackageDependency('vinext');

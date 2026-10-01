@@ -26,6 +26,7 @@ export function getDefaultMockOptions(
       externalRuntime: false,
       provideExternalRuntime: false,
       ssrMode: undefined,
+      importMap: false,
     },
     ...overrides,
   };

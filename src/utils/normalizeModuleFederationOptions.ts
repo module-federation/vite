@@ -610,6 +610,7 @@ function normalizeExperiments(
     externalRuntime: experiments?.externalRuntime === true,
     provideExternalRuntime: experiments?.provideExternalRuntime === true,
     ssrMode: experiments?.ssrMode === 'ISLAND' ? 'ISLAND' : undefined,
+    importMap: experiments?.importMap === true,
   };
 }
 
@@ -769,6 +770,20 @@ export interface PluginExperimentsOptions {
   provideExternalRuntime?: boolean;
   /** Generate the React SSR/hydration island capability for eligible exposes. */
   ssrMode?: 'ISLAND';
+  /**
+   * Resolve shared dependencies through a native browser import map instead of
+   * the Module Federation runtime. The host emits one entry chunk per shared key
+   * and injects `<script type="importmap">`; remotes keep shared imports as bare
+   * specifiers. No `loadShare` / prebuild glue is generated and `eager` is not
+   * needed, because shared modules are ordinary static ES imports.
+   *
+   * For topologies where the host provides every shared dependency. There is no
+   * version negotiation (`requiredVersion` / `strictVersion` / `shareStrategy`
+   * are ignored) and the runtime API (`loadRemote`, runtime plugins) is not used.
+   *
+   * @see https://github.com/module-federation/vite/issues/1381
+   */
+  importMap?: boolean;
 }
 
 export type SsrEntryLoaderStrategy = 'temp-file' | 'vm';
@@ -791,6 +806,7 @@ export interface NormalizedExperimentsOptions {
   externalRuntime: boolean;
   provideExternalRuntime: boolean;
   ssrMode: 'ISLAND' | undefined;
+  importMap: boolean;
 }
 
 export interface NormalizedModuleFederationOptions extends Omit<

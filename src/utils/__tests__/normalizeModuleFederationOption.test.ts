@@ -68,6 +68,7 @@ describe('normalizeModuleFederationOption', () => {
         externalRuntime: false,
         provideExternalRuntime: false,
         ssrMode: undefined,
+        importMap: false,
       },
     });
   });
@@ -159,6 +160,7 @@ describe('normalizeModuleFederationOption', () => {
     ).toEqual({
       externalRuntime: true,
       provideExternalRuntime: true,
+      importMap: false,
     });
   });
 
@@ -166,7 +168,15 @@ describe('normalizeModuleFederationOption', () => {
     expect(normalizeModuleFederationOptions(minimalOptions).experiments).toEqual({
       externalRuntime: false,
       provideExternalRuntime: false,
+      importMap: false,
     });
+  });
+
+  it('normalizes experiments.importMap', () => {
+    expect(
+      normalizeModuleFederationOptions({ ...minimalOptions, experiments: { importMap: true } })
+        .experiments.importMap
+    ).toBe(true);
   });
 
   it('accepts dts generateTypes afterGenerate callbacks', () => {
