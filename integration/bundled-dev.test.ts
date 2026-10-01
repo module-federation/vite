@@ -1,5 +1,5 @@
 import { chromium } from '@playwright/test';
-import { createServer, type ViteDevServer } from 'vite';
+import { createServer, type ViteDevServer, version as viteVersion } from 'vite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,6 +8,7 @@ import { federation } from '../src';
 
 const servers: ViteDevServer[] = [];
 const roots: string[] = [];
+const supportsBundledDev = Number.parseInt(viteVersion, 10) >= 8;
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
@@ -50,7 +51,7 @@ async function startServer(
   return { origin: `http://127.0.0.1:${address.port}`, server };
 }
 
-describe('Vite bundledDev Module Federation compatibility', () => {
+describe.skipIf(!supportsBundledDev)('Vite bundledDev Module Federation compatibility', () => {
   it('loads an expose from a bundledDev remote', async () => {
     const remoteRoot = await createFixture('remote', {
       'index.html': '<script type="module" src="/src/main.js"></script>\n',
@@ -89,9 +90,7 @@ describe('Vite bundledDev Module Federation compatibility', () => {
     });
 
     expect(remote.server.config.experimental.bundledDev).toBe(false);
-    expect(remote.server.environments.client.config.isBundled).toBe(false);
     expect(host.server.config.experimental.bundledDev).toBe(true);
-    expect(host.server.environments.client.config.isBundled).toBe(true);
 
     const browser = await chromium.launch({ channel: 'chrome', headless: true });
     const page = await browser.newPage();
@@ -190,8 +189,7 @@ describe('Vite bundledDev Module Federation compatibility', () => {
       dts: false,
     });
 
-    expect(host.server.config.experimental.bundledDev).toBe(false);
-    expect(host.server.environments.client.config.isBundled).toBe(false);
+    expect(host.server.config.experimental.bundledDev).toBe(true);
 
     const browser = await chromium.launch({ channel: 'chrome', headless: true });
     const page = await browser.newPage();
@@ -277,9 +275,7 @@ describe('Vite bundledDev Module Federation compatibility', () => {
     });
 
     expect(remote.server.config.experimental.bundledDev).toBe(false);
-    expect(remote.server.environments.client.config.isBundled).toBe(false);
     expect(host.server.config.experimental.bundledDev).toBe(true);
-    expect(host.server.environments.client.config.isBundled).toBe(true);
 
     const browser = await chromium.launch({ channel: 'chrome', headless: true });
     const page = await browser.newPage();

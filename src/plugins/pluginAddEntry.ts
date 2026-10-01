@@ -23,6 +23,7 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  isRemoteContainer,
   isRemoteOnlyContainer,
 } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
@@ -37,7 +38,6 @@ import {
   getPreloadRemotes,
   getRemoteRegistration,
   getRuntimeRemoteId,
-  getStaticRemotes,
   getUsedRemotesMap,
   isDynamicOnlyRemote,
   LOAD_REMOTE_TAG,
@@ -794,28 +794,20 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
       config(_config, { command }) {
         _command = command;
         // Vite bundledDev evaluates a bundled entry before its lazy virtual
-        // dependencies are guaranteed to have run. Keep static remote imports
-        // on the standard dev path so host initialization remains ordered.
-        const isRemoteContainer =
-          entryName === 'remoteEntry' && Object.keys(federationOptions?.exposes ?? {}).length > 0;
-        const hasStaticRemote =
-          entryName === 'hostInit' &&
+        // dependencies are guaranteed to have run. Keep remote containers on
+        // the standard dev path so their remoteEntry keeps the init/get contract.
+        const isRemoteEntry =
+          entryName === 'remoteEntry' &&
           federationOptions !== undefined &&
-          getStaticRemotes(federationOptions).size > 0;
-        if (
-          command === 'serve' &&
-          _config.experimental?.bundledDev &&
-          (isRemoteContainer || hasStaticRemote)
-        ) {
+          isRemoteContainer(federationOptions);
+        if (command === 'serve' && _config.experimental?.bundledDev && isRemoteEntry) {
           _config.experimental = { ..._config.experimental, bundledDev: false };
           _config.environments ??= {};
           _config.environments.client ??= {};
           if (_config.environments.client.isBundled !== false) {
             _config.environments.client.isBundled = false;
             mfWarn(
-              isRemoteContainer
-                ? 'Vite bundledDev is disabled for the client environment of a Module Federation remote container so its remoteEntry keeps the standard init/get contract.'
-                : 'Vite bundledDev is disabled for a Module Federation host with static remote imports because the bundled entry cannot guarantee host initialization ordering.'
+              'Vite bundledDev is disabled for the client environment of a Module Federation remote container so its remoteEntry keeps the standard init/get contract.'
             );
           }
         }
