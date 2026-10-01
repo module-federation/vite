@@ -2097,6 +2097,23 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           config.build.target ??= 'esnext';
         }
 
+        // Under `experimental.bundledDev` the host bootstrap reaches the app entry
+        // through a dynamic import, so Rolldown lazy-compiles it. Lazy compilation
+        // registers every module as a synchronous factory, which turns any
+        // top-level await in the entry graph into a SyntaxError (#1386). Bundle the
+        // dev graph eagerly instead, as pure Vite does for the entry.
+        const isBundledDev = Boolean(
+          (config.experimental as { bundledDev?: boolean } | undefined)?.bundledDev
+        );
+        if (isRolldown && _command === 'serve' && isBundledDev) {
+          config.build.rolldownOptions ??= {};
+          config.build.rolldownOptions.experimental ??= {};
+          const devMode = config.build.rolldownOptions.experimental.devMode;
+          if (typeof devMode === 'object') devMode.lazy ??= false;
+          else if (devMode === undefined)
+            config.build.rolldownOptions.experimental.devMode = { lazy: false };
+        }
+
         const isAstro = hasPackageDependency('astro');
         // Resolve target: explicit option > SSR detection > 'web'
         // (Environment API server/ssr targets are set in configEnvironment.)
