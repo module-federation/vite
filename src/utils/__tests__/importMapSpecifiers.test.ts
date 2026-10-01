@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  exposeEntryName,
-  remoteSpecifier,
-  sharedChunkName,
-  sharedKeyOwning,
-} from '../importMapSpecifiers';
+import { exposeEntryName, remoteSpecifier, sharedKeyOwning } from '../importMapSpecifiers';
 
 describe('importMap specifiers', () => {
   it('maps expose keys to fixed entry names', () => {
@@ -26,11 +21,5 @@ describe('importMap specifiers', () => {
     expect(sharedKeyOwning('@scope/lib/sub/deep', keys)).toBe('@scope/lib/sub');
     expect(sharedKeyOwning('lodash', keys)).toBeUndefined();
     expect(sharedKeyOwning('lodash-esx', keys)).toBeUndefined();
-  });
-
-  it('derives filesystem-safe chunk names from shared keys', () => {
-    expect(sharedChunkName('react')).toBe('react');
-    expect(sharedChunkName('@scope/lib/sub')).toBe('scope-lib-sub');
-    expect(sharedChunkName('react-dom/client')).toBe('react-dom-client');
   });
 });

@@ -439,9 +439,7 @@ document.body.textContent = window.__issueBuildInputResult;
       }
 
       expect(pageErrors).toEqual([]);
-    },
-    60_000
-  );
+    }, 60_000);
 
   it('serves an optimized ESM React provider', async () => {
     const { origin } = await createDevServer('issue-913-provider', {

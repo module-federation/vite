@@ -130,10 +130,7 @@ describe('shared transitive provider', () => {
       'node_modules/.pnpm/mf-nested-lib@1.0.0/node_modules/mf-nested-lib/index.js',
       "export const nested = 'stale-1.0.0';"
     );
-    link(
-      'node_modules/.pnpm/node_modules/mf-nested-lib',
-      '../mf-nested-lib@1.0.0/node_modules/mf-nested-lib'
-    );
+    link('node_modules/.pnpm/node_modules/mf-nested-lib', '../mf-nested-lib@1.0.0/node_modules/mf-nested-lib');
 
     const output = await buildApp({});
 
@@ -222,9 +219,7 @@ describe('shared transitive provider', () => {
       ['mf-first-lib', '1.0.0'],
       ['mf-second-lib', '2.0.0'],
     ]) {
-      const dir = installPnpmPackage(lib, '1.0.0', {
-        dependencies: { 'mf-util-lib': utilVersion },
-      });
+      const dir = installPnpmPackage(lib, '1.0.0', { dependencies: { 'mf-util-lib': utilVersion } });
       write(`${dir}/index.js`, `export * from 'mf-util-lib';`);
       link(`node_modules/${lib}`, `.pnpm/${lib}@1.0.0/node_modules/${lib}`);
       link(

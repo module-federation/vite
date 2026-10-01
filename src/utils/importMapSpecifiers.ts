@@ -11,20 +11,9 @@ export interface ImportMapManifest {
   exposes: Record<string, string>;
 }
 
-/**
- * Pure naming helpers shared by the import-map host and remote plugins.
- *
- * The contract between a host and a remote in import-map mode is just names:
- * - a remote expose `./Button` is emitted as the fixed-name entry `Button.js`;
- * - the host maps the bare specifier `<remoteName>/Button` to that file's URL;
- * - every shared key (e.g. `react`, `@scope/lib/sub`) is left as a bare import
- *   by remotes and resolved by the host's import map.
- */
-
 /** `./a/b` → `a/b`, `.` → `index` (an expose key mapped to its fixed entry name, without `.js`). */
 export function exposeEntryName(exposeKey: string): string {
-  if (exposeKey === '.' || exposeKey === './') return 'index';
-  return exposeKey.replace(/^\.\//, '');
+  return exposeKey === '.' ? 'index' : exposeKey.replace(/^\.\//, '');
 }
 
 /** Bare specifier the host uses for a remote expose: `remote` for `.`, `remote/sub` otherwise. */
@@ -45,9 +34,4 @@ export function sharedKeyOwning(id: string, sharedKeys: readonly string[]): stri
     if (!owner || key.length > owner.length) owner = key;
   }
   return owner;
-}
-
-/** Filesystem-safe chunk name for a shared key: `@scope/lib/sub` → `scope-lib-sub`. */
-export function sharedChunkName(sharedKey: string): string {
-  return sharedKey.replace(/^@/, '').replace(/[^\w-]+/g, '-');
 }

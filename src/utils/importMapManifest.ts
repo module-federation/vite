@@ -24,23 +24,14 @@ export async function readImportMapManifest(
   return manifest as ImportMapManifest;
 }
 
-/**
- * URL the browser loads an expose's entry from. The remote's `publicPath` wins; when it
- * is relative and the manifest came from a URL, it is resolved against that URL.
- */
+/** URL of an expose's entry: the remote's `publicPath`, resolved against a manifest URL. */
 export function remoteEntryUrl(
   manifest: ImportMapManifest,
   file: string,
   location: string
 ): string {
-  const base = manifest.publicPath.endsWith('/') ? manifest.publicPath : `${manifest.publicPath}/`;
-  if (isUrl(location) && !isUrl(base) && !base.startsWith('/')) {
-    return new URL(`${base}${file}`, location).href;
-  }
-  if (isUrl(location) && base.startsWith('/')) {
-    return new URL(`${base}${file}`, new URL(location).origin).href;
-  }
-  return `${base}${file}`;
+  const base = manifest.publicPath.replace(/\/?$/, '/');
+  return isUrl(location) ? new URL(file, new URL(base, location)).href : base + file;
 }
 
 /** Import-map entries for every expose of every configured remote. */

@@ -3,7 +3,6 @@ import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import type { HtmlTagDescriptor, IndexHtmlTransformContext, Plugin } from 'vite';
 import { collectRemoteImports } from '../utils/importMapManifest';
-import { sharedChunkName } from '../utils/importMapSpecifiers';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 /** Virtual-module prefix for the per-share re-export entries (`\0` keeps other plugins away). */
@@ -30,23 +29,6 @@ function cjsExportNames(target: string, root: string): string[] {
   } catch {
     return [];
   }
-}
-
-/**
- * Generated body of the re-export entry for one shared key. `export *` never re-exports
- * `default`, and re-exports nothing named from a CommonJS module, so both cases are explicit:
- * `export { default }` only when an ESM module has one, and one named binding per CommonJS key
- * (e.g. `react/jsx-runtime` → `jsx`, `jsxs`, `Fragment`) so remotes can `import { jsx }`.
- */
-export function shareEntryCode(key: string, shape: ShareShape): string {
-  const spec = JSON.stringify(key);
-  if (shape.kind === 'cjs') {
-    const named = shape.names.length
-      ? `export const { ${shape.names.join(', ')} } = __mf_cjs;\n`
-      : '';
-    return `import __mf_cjs from ${spec};\nexport default __mf_cjs;\n${named}`;
-  }
-  return `export * from ${spec};\n${shape.hasDefault ? `export { default } from ${spec};\n` : ''}`;
 }
 
 /** BUILD: shared key → URL of its emitted entry chunk, read from the final bundle. */
@@ -105,23 +87,29 @@ async function awaitPrebundle(context: unknown, file: string): Promise<Optimized
 }
 
 /**
- * Shape of the module the bundler resolved for `key`. A pre-bundle (dev) is CommonJS when the
- * optimizer says it needs interop; a plain file is CommonJS when it has no ESM syntax.
+ * Body of the re-export entry for one shared key, based on the file the bundler resolved.
+ * `export *` never re-exports `default` and re-exports nothing named from CommonJS, so:
+ * an ESM module forwards `default` only when it has one; a CommonJS module (dev: the
+ * optimizer's `needsInterop`; build: no ESM syntax) re-exports each key explicitly, e.g.
+ * `react/jsx-runtime` → `jsx`, `jsxs`, so remotes can `import { jsxs }`.
  */
-async function resolveShareShape(
+async function shareEntryCode(
   context: unknown,
   key: string,
-  file: string,
+  file: string | undefined,
   { isBuild, root }: { isBuild: boolean; root: string }
-): Promise<ShareShape> {
-  const dep = isBuild ? undefined : await awaitPrebundle(context, file);
-  const source = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-  const cjsSource = !isEsmSource(source);
-  if (dep?.needsInterop || (!dep && cjsSource)) {
+): Promise<string> {
+  const spec = JSON.stringify(key);
+  const dep = file && !isBuild ? await awaitPrebundle(context, file) : undefined;
+  const source = file && fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  if (file && (dep?.needsInterop || (!dep && !isEsmSource(source)))) {
     // A CommonJS source file is loaded directly; a pre-bundle is loaded by package name.
-    return { kind: 'cjs', names: cjsExportNames(dep ? key : file, root) };
+    const names = cjsExportNames(dep ? key : file, root);
+    const named = names.length ? `export const { ${names.join(', ')} } = __mf_cjs;\n` : '';
+    return `import __mf_cjs from ${spec};\nexport default __mf_cjs;\n${named}`;
   }
-  return { kind: 'esm', hasDefault: hasDefaultExport(source) };
+  const forwardDefault = hasDefaultExport(source) ? `export { default } from ${spec};\n` : '';
+  return `export * from ${spec};\n${forwardDefault}`;
 }
 
 /** `<script type="importmap">` injected at the top of `<head>`, before any module script. */
@@ -169,7 +157,7 @@ export function pluginImportMapHost(options: NormalizedModuleFederationOptions):
         this.emitFile({
           type: 'chunk',
           id: `${SHARE_PREFIX}${key}`,
-          name: `shared/${sharedChunkName(key)}`,
+          name: `shared/${key.replace(/^@/, '').replace(/[^\w-]+/g, '-')}`,
           preserveSignature: 'strict',
         });
       }
@@ -185,11 +173,10 @@ export function pluginImportMapHost(options: NormalizedModuleFederationOptions):
       if (!id.startsWith(SHARE_PREFIX)) return null;
       const key = id.slice(SHARE_PREFIX.length);
       const resolved = await this.resolve(key, undefined, { skipSelf: true });
-      const file = resolved?.id.split('?')[0];
-      const shape: ShareShape = file
-        ? await resolveShareShape(this, key, file, { isBuild, root })
-        : { kind: 'esm', hasDefault: false };
-      return shareEntryCode(key, shape);
+      return shareEntryCode(this, key, resolved?.id.split('?')[0], {
+        isBuild,
+        root,
+      });
     },
     transformIndexHtml: {
       order: 'post',

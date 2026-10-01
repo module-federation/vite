@@ -23,7 +23,7 @@ export function pluginImportMapRemote(options: NormalizedModuleFederationOptions
   const isExternal = (id: string) =>
     sharedKeys.includes(id) || remoteKeys.some((key) => id === key || id.startsWith(`${key}/`));
   const unsharedSubpaths = new Map<string, string>();
-  let publicPath = options.publicPath ?? '/';
+  let publicPath = '/';
 
   return {
     name: 'module-federation:importmap-remote',
@@ -44,7 +44,6 @@ export function pluginImportMapRemote(options: NormalizedModuleFederationOptions
             external: isExternal,
             preserveEntrySignatures: 'strict',
             output: {
-              format: 'es',
               entryFileNames: '[name].js',
               chunkFileNames: 'assets/[name]-[hash].js',
             },
