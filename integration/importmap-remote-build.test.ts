@@ -31,7 +31,7 @@ function entry(output: Rollup.RollupOutput, fileName: string): Rollup.OutputChun
 describe('experiments.importMap — remote build', () => {
   it('emits one fixed-name entry per expose with its exports intact', async () => {
     const output = await buildImportMapRemote();
-    expect(entry(output, 'Widget.js')?.exports).toEqual(['Widget']);
+    expect(entry(output, 'Widget.js')?.exports).toEqual(['Widget', 'sharedInstance']);
     expect(entry(output, 'utils/helper.js')?.exports).toEqual(['helper']);
   });
 

@@ -1,4 +1,4 @@
-import { Base } from 'shared-base';
+import { Base, instance } from 'shared-base';
 
 // Top-level extends of a shared class: needs `eager` in MF mode, plain static import here.
 export class Widget extends Base {
@@ -6,3 +6,5 @@ export class Widget extends Base {
     return `widget:${this.kind}`;
   }
 }
+
+export const sharedInstance = instance;

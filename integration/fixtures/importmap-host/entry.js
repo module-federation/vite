@@ -4,4 +4,9 @@ import cjs from 'cjs-dep';
 
 const { Widget } = await import('importMapRemote/Widget');
 
-document.getElementById('app').textContent = [named, esmDefault, cjs.cjs, new Widget().render()].join(',');
+document.getElementById('app').textContent = [
+  named,
+  esmDefault,
+  cjs.cjs,
+  new Widget().render(),
+].join(',');
