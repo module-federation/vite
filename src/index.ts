@@ -132,6 +132,7 @@ import {
 import { getRuntimeInitStatusImportId } from './virtualModules/virtualRuntimeInitStatus';
 import { pluginImportMapHost } from './plugins/pluginImportMapHost';
 import { pluginImportMapRemote } from './plugins/pluginImportMapRemote';
+import { getImportMapIgnoredOptionWarnings } from './utils/importMapOptionWarnings';
 import {
   findEagerFallbacksInSharedChunk,
   getSharedChunkName,
@@ -1163,6 +1164,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   // Import-map mode bypasses the MF runtime pipeline below entirely.
   // A container with exposes is built as a remote; otherwise as the host that owns the map.
   if (options.experiments.importMap) {
+    for (const warning of getImportMapIgnoredOptionWarnings(mfUserOptions)) mfWarn(warning);
     return Object.keys(options.exposes).length > 0
       ? [pluginImportMapRemote(options)]
       : [pluginImportMapHost(options)];

@@ -402,6 +402,43 @@ federation({
 `provideExternalRuntime` injects a local runtime plugin that publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`. `externalRuntime` rewrites imports of `@module-federation/runtime-core` to read that global. A container that also `exposes` (e.g. a host consumed by its own remotes) may provide the runtime too, as long as exactly one container on the page does and it is loaded before any `externalRuntime` remote evaluates (a second provider is ignored with a `Detect multiple module federation runtime!` warning; a remote evaluated before the provider throws `_FEDERATION_RUNTIME_CORE is missing`).
 The `externalRuntime` rewrite applies to the browser remote graph; SSR remote entries continue to resolve `@module-federation/runtime-core` from Node so they do not depend on the browser global.
 
+## Import-map mode (`experiments.importMap`)
+
+For setups where **the host provides every shared dependency** and remotes only consume them, shared dependencies can be resolved by a native browser [import map](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap) instead of the Module Federation runtime. No `loadShare` / prebuild modules are generated, and `eager` is not needed: shared modules are ordinary static ES imports, so code that reads them at module-evaluation time (`class X extends SharedBase`, decorator metadata) just works.
+
+**Remote** (a container with `exposes`):
+
+```ts
+federation({
+  name: "remote",
+  exposes: { "./Button": "./src/Button.tsx" },
+  shared: { react: {}, "react-dom": {}, "react/jsx-runtime": {} },
+  experiments: { importMap: true },
+});
+```
+
+The remote emits one fixed-name file per expose (`Button.js`), keeps every shared key as a bare import (`import ... from "react"`), and writes `importmap-manifest.json`. Set Vite's `base` (or `publicPath`) to the URL the remote is served from.
+
+**Host:**
+
+```ts
+federation({
+  name: "host",
+  remotes: { remote: "https://remote.example.com/importmap-manifest.json" },
+  shared: { react: {}, "react-dom": {}, "react/jsx-runtime": {} },
+  experiments: { importMap: true },
+});
+```
+
+The host emits one entry module per shared key and injects a single `<script type="importmap">` at the top of `<head>`, mapping each shared key to that module and each `remote/<expose>` to the remote's file. Remote entries can be a URL or a path to the manifest file. Host code imports remotes as plain specifiers: `import("remote/Button")`. Works in `vite build` and `vite dev`. See [`examples/vite-vite-importmap`](./examples/vite-vite-importmap).
+
+**Trade-offs** — use this mode only when they fit:
+
+- **No version negotiation.** One version of each shared dependency exists on the page: the host's. `requiredVersion`, `strictVersion`, `singleton` and `shareStrategy` are ignored.
+- **The host must provide every shared key** the remotes import. A remote's own copy is never used as a fallback.
+- **No MF runtime API**: `loadRemote`, `runtimePlugins`, manifests (`mf-manifest.json`) and SSR entries are not generated.
+- **One import map per page**, applied before any module loads, so remotes must be known when the host is built (or served).
+
 ## ⚠️ `codeSplitting` is managed by the plugin
 
 Do not set `build.rollupOptions.output.codeSplitting` or
@@ -419,10 +456,10 @@ User groups are now **preserved**. The plugin installs its own federation groups
 
 ## ⚠️ `manualChunks` behavior depends on your Vite version
 
-| Setting | Vite 5–7 (Rollup) | Vite 8+ (Rolldown) |
-| --- | --- | --- |
+| Setting                   | Vite 5–7 (Rollup)                                                                                                 | Vite 8+ (Rolldown)                                            |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | `manualChunks` (function) | **Composed as a fallback** — federation modules are claimed first, everything else falls through to your function | **Ignored** (warns) — move grouping to `codeSplitting.groups` |
-| `manualChunks` (object) | **Ignored** (warns) — use the function form to compose | **Ignored** (warns) — move grouping to `codeSplitting.groups` |
+| `manualChunks` (object)   | **Ignored** (warns) — use the function form to compose                                                            | **Ignored** (warns) — move grouping to `codeSplitting.groups` |
 
 On Vite 5–7, Rollup doesn't support `codeSplitting`, so the plugin isolates `runtimeInitStatus`, `loadShare`, and the preload helper via `manualChunks`. A user-provided **function** is called for any module the plugin doesn't claim; the **object** form isn't composed by the plugin and is ignored.
 
