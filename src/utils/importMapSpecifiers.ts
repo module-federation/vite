@@ -1,3 +1,16 @@
+/** File a remote emits next to its entries, read by the host to build its import map. */
+export const IMPORT_MAP_MANIFEST_FILE = 'importmap-manifest.json';
+
+/** Contract between an import-map remote and its host. */
+export interface ImportMapManifest {
+  name: string;
+  mode: 'importmap';
+  /** Public URL prefix the remote's files are served from. */
+  publicPath: string;
+  /** Expose key → emitted entry file, e.g. `{ "./Button": "Button.js" }`. */
+  exposes: Record<string, string>;
+}
+
 /**
  * Pure naming helpers shared by the import-map host and remote plugins.
  *
