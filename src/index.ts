@@ -644,13 +644,25 @@ function registerEntryImports(
         markStaticRemote(request, options);
         markPreloadRemote(request, options);
       } else if (sharedKey && recordShared) {
-        addUsedShares(request, options);
+        materializeSharedRequest(options, request);
       } else if (request && !typeOnly) {
         enqueue(request, file, preloadRemotes && isStatic);
       }
     }
   }
   return hasJsxSource;
+}
+
+// A shared subpath (react-dom/client, react/jsx-runtime) is served by its root
+// package and requires it synchronously while evaluating, so the root must be
+// seeded with it. The optimizer discovers that edge while scanning, but skips
+// the scan once node_modules/.vite is warm (#1220, #1384).
+function materializeSharedRequest(options: NormalizedModuleFederationOptions, request: string) {
+  addUsedShares(request, options);
+  const packageName = getPackageName(request);
+  if (packageName !== request && findSharedKey(packageName, options.shared)) {
+    addUsedShares(packageName, options);
+  }
 }
 
 // The compiler injects this import after the textual entry scan. Materialize
@@ -660,11 +672,7 @@ function materializeAutomaticJsxRuntime(
   runtime: string
 ): boolean {
   if (!findSharedKey(runtime, options.shared)) return false;
-  addUsedShares(runtime, options);
-  const packageName = getPackageName(runtime);
-  if (packageName !== runtime && findSharedKey(packageName, options.shared)) {
-    addUsedShares(packageName, options);
-  }
+  materializeSharedRequest(options, runtime);
   return true;
 }
 
