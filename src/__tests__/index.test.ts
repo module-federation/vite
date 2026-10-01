@@ -3443,6 +3443,37 @@ describe('vite:module-federation-early-init', () => {
     });
   });
 
+  it('disables Rolldown lazy compilation under experimental.bundledDev in serve', () => {
+    const plugin = getModuleFederationVitePluginWithOptions({});
+    const run = (config: any, command: 'serve' | 'build') =>
+      runConfig(plugin, { meta: { rolldownVersion: '1.2.9' } } as ConfigPluginContext, config, {
+        command,
+        mode: 'test',
+      });
+    const base = () => ({ root: process.cwd(), resolve: { alias: [] }, build: {} });
+
+    const bundledDev: any = { ...base(), experimental: { bundledDev: true } };
+    run(bundledDev, 'serve');
+    expect(bundledDev.build.rolldownOptions.experimental.devMode).toEqual({ lazy: false });
+
+    // An explicit user choice wins.
+    const userLazy: any = {
+      ...base(),
+      experimental: { bundledDev: true },
+      build: { rolldownOptions: { experimental: { devMode: { lazy: true } } } },
+    };
+    run(userLazy, 'serve');
+    expect(userLazy.build.rolldownOptions.experimental.devMode).toEqual({ lazy: true });
+
+    const unbundled: any = base();
+    run(unbundled, 'serve');
+    expect(unbundled.build.rolldownOptions?.experimental?.devMode).toBeUndefined();
+
+    const build: any = { ...base(), experimental: { bundledDev: true } };
+    run(build, 'build');
+    expect(build.build.rolldownOptions?.experimental?.devMode).toBeUndefined();
+  });
+
   it('warns once when disabled capabilities are configured for use', () => {
     const plugin = getModuleFederationVitePluginWithOptions({
       disableRemote: true,
