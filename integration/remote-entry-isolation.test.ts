@@ -38,9 +38,7 @@ describe('remote entry isolation', () => {
     expect(localSharedImportMap).toBeDefined();
     // The exposes map lives inside the remote entry, not in a chunk of its own.
     expect(findChunk(output, 'virtualExposes')).toBeUndefined();
-    expect(
-      remoteEntryImpl!.moduleIds.some((id) => id.includes('virtual:mf-exposes:'))
-    ).toBe(true);
+    expect(remoteEntryImpl!.moduleIds.some((id) => id.includes('virtual:mf-exposes:'))).toBe(true);
 
     const chunkNames = getChunkNames(output);
     expect(chunkNames.some((name) => name.includes('__loadShare__'))).toBe(true);

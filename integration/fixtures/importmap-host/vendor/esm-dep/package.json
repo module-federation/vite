@@ -1,1 +1,8 @@
-{ "name": "esm-dep", "version": "1.0.0", "type": "module", "exports": { ".": "./index.js" } }
+{
+  "name": "esm-dep",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  }
+}

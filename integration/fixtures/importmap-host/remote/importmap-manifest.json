@@ -1,0 +1,6 @@
+{
+  "name": "importMapRemote",
+  "mode": "importmap",
+  "publicPath": "https://remote.example.com/",
+  "exposes": { "./Widget": "Widget.js" }
+}

@@ -73,8 +73,6 @@ describe('runtime capability code elimination', () => {
     });
 
     expect(getAllChunkCode(defaultOutput)).toContain('generatePreloadAssetsPlugin');
-    expect(getAllChunkCode(optimizedOutput)).not.toContain(
-      'generatePreloadAssetsPlugin'
-    );
+    expect(getAllChunkCode(optimizedOutput)).not.toContain('generatePreloadAssetsPlugin');
   });
 });

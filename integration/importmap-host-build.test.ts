@@ -13,6 +13,7 @@ async function buildImportMapHost(): Promise<Rollup.RollupOutput> {
     mfOptions: {
       name: 'importMapHost',
       shared: { 'esm-dep': {}, 'esm-default-dep': {}, 'cjs-dep': {} },
+      remotes: { importMapRemote: resolve(FIXTURES, FIXTURE, 'remote', 'importmap-manifest.json') },
       experiments: { importMap: true },
     },
     viteConfig: {
@@ -74,5 +75,17 @@ describe('experiments.importMap — host build', () => {
     expect(fileNames).not.toMatch(/__loadShare__|__prebuild__|remoteEntry|hostInit/);
     expect(code).not.toContain('loadShare');
     expect(code).not.toContain('@module-federation/runtime');
+  });
+});
+
+describe('experiments.importMap — host remotes', () => {
+  it('maps remote exposes from the remote manifest', async () => {
+    const imports = readImportMap(await buildImportMapHost());
+    expect(imports['importMapRemote/Widget']).toBe('https://remote.example.com/Widget.js');
+  });
+
+  it('leaves remote specifiers as bare imports for the browser to resolve', async () => {
+    const code = getAllChunkCode(await buildImportMapHost());
+    expect(code).toMatch(/import\(\s*["']importMapRemote\/Widget["']\s*\)/);
   });
 });

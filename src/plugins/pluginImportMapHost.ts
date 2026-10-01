@@ -1,7 +1,8 @@
 import * as fs from 'node:fs';
 import type { HtmlTagDescriptor, IndexHtmlTransformContext, Plugin } from 'vite';
-import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { collectRemoteImports } from '../utils/importMapManifest';
 import { sharedChunkName } from '../utils/importMapSpecifiers';
+import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 
 /** Virtual-module prefix for the per-share re-export entries (`\0` keeps other plugins away). */
 export const SHARE_PREFIX = '\0mf-importmap-share:';
@@ -59,7 +60,12 @@ function importMapTag(imports: Record<string, string>): HtmlTagDescriptor {
  */
 export function pluginImportMapHost(options: NormalizedModuleFederationOptions): Plugin {
   const sharedKeys = Object.keys(options.shared);
+  const remoteKeys = Object.keys(options.remotes);
+  const isRemoteSpecifier = (id: string) =>
+    remoteKeys.some((key) => id === key || id.startsWith(`${key}/`));
   let base = '/';
+  let root = process.cwd();
+  let remoteImports: Record<string, string> = {};
 
   return {
     name: 'module-federation:importmap-host',
@@ -67,8 +73,10 @@ export function pluginImportMapHost(options: NormalizedModuleFederationOptions):
     apply: 'build',
     configResolved(config) {
       base = config.base.endsWith('/') ? config.base : `${config.base}/`;
+      root = config.root;
     },
-    buildStart() {
+    async buildStart() {
+      remoteImports = await collectRemoteImports(options.remotes, root);
       for (const key of sharedKeys) {
         this.emitFile({
           type: 'chunk',
@@ -79,7 +87,9 @@ export function pluginImportMapHost(options: NormalizedModuleFederationOptions):
       }
     },
     resolveId(id) {
-      return id.startsWith(SHARE_PREFIX) ? id : null;
+      if (id.startsWith(SHARE_PREFIX)) return id;
+      // Remote modules are resolved by the browser through the import map.
+      return isRemoteSpecifier(id) ? { id, external: true } : null;
     },
     async load(id) {
       if (!id.startsWith(SHARE_PREFIX)) return null;
@@ -96,10 +106,11 @@ export function pluginImportMapHost(options: NormalizedModuleFederationOptions):
       order: 'post',
       handler(html, ctx) {
         if (!ctx.bundle) return html;
-        return {
-          html,
-          tags: [importMapTag(collectShareImports(ctx.bundle, base))],
+        const imports = {
+          ...remoteImports,
+          ...collectShareImports(ctx.bundle, base),
         };
+        return { html, tags: [importMapTag(imports)] };
       },
     },
   };

@@ -63,7 +63,10 @@ export default {
     child.stderr?.on('data', (chunk) => output.push(String(chunk)));
 
     const timeout = setTimeout(() => child.kill('SIGKILL'), 10_000);
-    const [exitCode, signal] = (await once(child, 'exit')) as [number | null, NodeJS.Signals | null];
+    const [exitCode, signal] = (await once(child, 'exit')) as [
+      number | null,
+      NodeJS.Signals | null,
+    ];
     clearTimeout(timeout);
 
     expect(signal, `build did not exit; output:\n${output.join('')}`).toBeNull();
