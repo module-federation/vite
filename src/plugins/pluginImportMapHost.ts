@@ -39,6 +39,46 @@ function collectShareImports(
   return imports;
 }
 
+/**
+ * DEV: shared key → the dev server URL of its virtual re-export module. Vite serves
+ * `\0`-prefixed ids at `/@id/__x00__<id>`, and import analysis rewrites the module's own
+ * `export * from '<key>'` to the same pre-bundled URL host code gets, so remotes share
+ * the host's instance.
+ */
+function devShareImports(sharedKeys: string[], base: string): Record<string, string> {
+  const prefix = `${base}@id/__x00__${SHARE_PREFIX.slice(1)}`;
+  return Object.fromEntries(sharedKeys.map((key) => [key, `${prefix}${key}`]));
+}
+
+interface OptimizedDep {
+  file: string;
+  processing?: Promise<void>;
+}
+interface DepsOptimizerLike {
+  metadata: {
+    optimized: Record<string, OptimizedDep>;
+    discovered: Record<string, OptimizedDep>;
+  };
+}
+
+/**
+ * DEV: a shared key resolves to Vite's pre-bundle (`…/deps/<key>.js?v=…`), which may still
+ * be written when first requested. The pre-bundle is exactly what the browser gets, and it
+ * spells out `export default` iff one exists (CommonJS interop included), so wait for it
+ * and probe it rather than the package's own entry. Best effort on Vite versions without
+ * the environment API.
+ */
+async function awaitPrebundle(context: unknown, file: string): Promise<void> {
+  const optimizer = (context as { environment?: { depsOptimizer?: DepsOptimizerLike } }).environment
+    ?.depsOptimizer;
+  if (!optimizer) return;
+  const { optimized, discovered } = optimizer.metadata;
+  const dep = [...Object.values(optimized), ...Object.values(discovered)].find(
+    (info) => info.file === file
+  );
+  await dep?.processing;
+}
+
 /** `<script type="importmap">` injected at the top of `<head>`, before any module script. */
 function importMapTag(imports: Record<string, string>): HtmlTagDescriptor {
   return {
@@ -52,17 +92,19 @@ function importMapTag(imports: Record<string, string>): HtmlTagDescriptor {
 /**
  * Host side of import-map mode. The host provides every shared dependency:
  *
- * 1. One re-export entry chunk per shared key (`export * from '<key>'`, plus `default`
- *    when present), emitted with `preserveSignature: 'strict'` so its exports stay intact.
- *    The bundler dedupes it with the host's own imports of the same package, so the host
- *    and every remote end up on one module instance.
- * 2. An import map in `index.html` that points each shared key at its entry chunk.
+ * 1. One re-export module per shared key (`export * from '<key>'`, plus `default` when
+ *    present). In a build it is emitted as a `preserveSignature: 'strict'` entry chunk that
+ *    the bundler dedupes with the host's own imports; in dev it is a virtual module served
+ *    at `/@id/…`. Either way host and remotes end up on one module instance.
+ * 2. An import map in `index.html` pointing each shared key at that module, and each
+ *    remote expose at the entry listed in the remote's `importmap-manifest.json`.
  */
 export function pluginImportMapHost(options: NormalizedModuleFederationOptions): Plugin {
   const sharedKeys = Object.keys(options.shared);
   const remoteKeys = Object.keys(options.remotes);
   const isRemoteSpecifier = (id: string) =>
     remoteKeys.some((key) => id === key || id.startsWith(`${key}/`));
+  let isBuild = true;
   let base = '/';
   let root = process.cwd();
   let remoteImports: Record<string, string> = {};
@@ -70,13 +112,14 @@ export function pluginImportMapHost(options: NormalizedModuleFederationOptions):
   return {
     name: 'module-federation:importmap-host',
     enforce: 'pre',
-    apply: 'build',
     configResolved(config) {
+      isBuild = config.command === 'build';
       base = config.base.endsWith('/') ? config.base : `${config.base}/`;
       root = config.root;
     },
     async buildStart() {
       remoteImports = await collectRemoteImports(options.remotes, root);
+      if (!isBuild) return;
       for (const key of sharedKeys) {
         this.emitFile({
           type: 'chunk',
@@ -88,14 +131,17 @@ export function pluginImportMapHost(options: NormalizedModuleFederationOptions):
     },
     resolveId(id) {
       if (id.startsWith(SHARE_PREFIX)) return id;
-      // Remote modules are resolved by the browser through the import map.
-      return isRemoteSpecifier(id) ? { id, external: true } : null;
+      if (!isRemoteSpecifier(id)) return null;
+      // Build: keep the bare specifier for the browser's import map. Dev: import analysis
+      // turns resolved ids into URLs, so resolve straight to the URL the map points at.
+      return { id: isBuild ? id : (remoteImports[id] ?? id), external: true };
     },
     async load(id) {
       if (!id.startsWith(SHARE_PREFIX)) return null;
       const key = id.slice(SHARE_PREFIX.length);
       const resolved = await this.resolve(key, undefined, { skipSelf: true });
       const file = resolved?.id.split('?')[0];
+      if (file && !isBuild) await awaitPrebundle(this, file);
       const forwardDefault =
         file !== undefined &&
         fs.existsSync(file) &&
@@ -105,12 +151,10 @@ export function pluginImportMapHost(options: NormalizedModuleFederationOptions):
     transformIndexHtml: {
       order: 'post',
       handler(html, ctx) {
-        if (!ctx.bundle) return html;
-        const imports = {
-          ...remoteImports,
-          ...collectShareImports(ctx.bundle, base),
-        };
-        return { html, tags: [importMapTag(imports)] };
+        const shares = ctx.bundle
+          ? collectShareImports(ctx.bundle, base)
+          : devShareImports(sharedKeys, base);
+        return { html, tags: [importMapTag({ ...remoteImports, ...shares })] };
       },
     },
   };
