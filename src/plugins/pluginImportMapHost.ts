@@ -1,4 +1,6 @@
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
+import * as path from 'node:path';
 import type { HtmlTagDescriptor, IndexHtmlTransformContext, Plugin } from 'vite';
 import { collectRemoteImports } from '../utils/importMapManifest';
 import { sharedChunkName } from '../utils/importMapSpecifiers';
@@ -7,22 +9,44 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 /** Virtual-module prefix for the per-share re-export entries (`\0` keeps other plugins away). */
 export const SHARE_PREFIX = '\0mf-importmap-share:';
 
+/** How a shared module must be re-exported: ESM (`export *` ± default) or CommonJS (named keys). */
+export type ShareShape = { kind: 'esm'; hasDefault: boolean } | { kind: 'cjs'; names: string[] };
+
+const isEsmSource = (source: string) => /(^|[\s;])(export|import)[\s{*]/m.test(source);
+const hasDefaultExport = (source: string) =>
+  /export\s+default\b|export\s*\{[^}]*\bas\s+default\b/.test(source);
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+
 /**
- * Whether the module the bundler resolved for a shared key has a `default` export.
- * `export *` never re-exports `default`, so the generated re-export module must forward
- * it explicitly when present, and must not when absent (`export { default } from` a
- * module without one is a hard error). A file with no ESM syntax is CommonJS, which the
- * bundler interops to a default export.
+ * Export names of a CommonJS module, read by loading it in Node (what the bundler's interop
+ * exposes as named imports). Empty when it can't be loaded in Node (e.g. touches `window`).
  */
-export function hasDefaultExport(source: string): boolean {
-  const isEsm = /(^|[\s;])(export|import)[\s{*]/m.test(source);
-  return !isEsm || /export\s+default\b|export\s*\{[^}]*\bas\s+default\b/.test(source);
+function cjsExportNames(target: string, root: string): string[] {
+  try {
+    const mod = createRequire(path.join(root, 'package.json'))(target);
+    return Object.keys(mod ?? {}).filter(
+      (name) => name !== 'default' && name !== '__esModule' && IDENTIFIER.test(name)
+    );
+  } catch {
+    return [];
+  }
 }
 
-/** Generated body of the re-export entry for one shared key. */
-export function shareEntryCode(key: string, forwardDefault: boolean): string {
+/**
+ * Generated body of the re-export entry for one shared key. `export *` never re-exports
+ * `default`, and re-exports nothing named from a CommonJS module, so both cases are explicit:
+ * `export { default }` only when an ESM module has one, and one named binding per CommonJS key
+ * (e.g. `react/jsx-runtime` → `jsx`, `jsxs`, `Fragment`) so remotes can `import { jsx }`.
+ */
+export function shareEntryCode(key: string, shape: ShareShape): string {
   const spec = JSON.stringify(key);
-  return `export * from ${spec};\n${forwardDefault ? `export { default } from ${spec};\n` : ''}`;
+  if (shape.kind === 'cjs') {
+    const named = shape.names.length
+      ? `export const { ${shape.names.join(', ')} } = __mf_cjs;\n`
+      : '';
+    return `import __mf_cjs from ${spec};\nexport default __mf_cjs;\n${named}`;
+  }
+  return `export * from ${spec};\n${shape.hasDefault ? `export { default } from ${spec};\n` : ''}`;
 }
 
 /** BUILD: shared key → URL of its emitted entry chunk, read from the final bundle. */
@@ -52,6 +76,7 @@ function devShareImports(sharedKeys: string[], base: string): Record<string, str
 
 interface OptimizedDep {
   file: string;
+  needsInterop?: boolean;
   processing?: Promise<void>;
 }
 interface DepsOptimizerLike {
@@ -63,20 +88,40 @@ interface DepsOptimizerLike {
 
 /**
  * DEV: a shared key resolves to Vite's pre-bundle (`…/deps/<key>.js?v=…`), which may still
- * be written when first requested. The pre-bundle is exactly what the browser gets, and it
- * spells out `export default` iff one exists (CommonJS interop included), so wait for it
- * and probe it rather than the package's own entry. Best effort on Vite versions without
- * the environment API.
+ * be written when first requested. Wait for it and return its optimizer info, whose
+ * `needsInterop` says whether the package is CommonJS (the pre-bundle itself is always ESM).
+ * Best effort on Vite versions without the environment API.
  */
-async function awaitPrebundle(context: unknown, file: string): Promise<void> {
+async function awaitPrebundle(context: unknown, file: string): Promise<OptimizedDep | undefined> {
   const optimizer = (context as { environment?: { depsOptimizer?: DepsOptimizerLike } }).environment
     ?.depsOptimizer;
-  if (!optimizer) return;
+  if (!optimizer) return undefined;
   const { optimized, discovered } = optimizer.metadata;
   const dep = [...Object.values(optimized), ...Object.values(discovered)].find(
     (info) => info.file === file
   );
   await dep?.processing;
+  return dep;
+}
+
+/**
+ * Shape of the module the bundler resolved for `key`. A pre-bundle (dev) is CommonJS when the
+ * optimizer says it needs interop; a plain file is CommonJS when it has no ESM syntax.
+ */
+async function resolveShareShape(
+  context: unknown,
+  key: string,
+  file: string,
+  { isBuild, root }: { isBuild: boolean; root: string }
+): Promise<ShareShape> {
+  const dep = isBuild ? undefined : await awaitPrebundle(context, file);
+  const source = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const cjsSource = !isEsmSource(source);
+  if (dep?.needsInterop || (!dep && cjsSource)) {
+    // A CommonJS source file is loaded directly; a pre-bundle is loaded by package name.
+    return { kind: 'cjs', names: cjsExportNames(dep ? key : file, root) };
+  }
+  return { kind: 'esm', hasDefault: hasDefaultExport(source) };
 }
 
 /** `<script type="importmap">` injected at the top of `<head>`, before any module script. */
@@ -141,12 +186,10 @@ export function pluginImportMapHost(options: NormalizedModuleFederationOptions):
       const key = id.slice(SHARE_PREFIX.length);
       const resolved = await this.resolve(key, undefined, { skipSelf: true });
       const file = resolved?.id.split('?')[0];
-      if (file && !isBuild) await awaitPrebundle(this, file);
-      const forwardDefault =
-        file !== undefined &&
-        fs.existsSync(file) &&
-        hasDefaultExport(fs.readFileSync(file, 'utf8'));
-      return shareEntryCode(key, forwardDefault);
+      const shape: ShareShape = file
+        ? await resolveShareShape(this, key, file, { isBuild, root })
+        : { kind: 'esm', hasDefault: false };
+      return shareEntryCode(key, shape);
     },
     transformIndexHtml: {
       order: 'post',

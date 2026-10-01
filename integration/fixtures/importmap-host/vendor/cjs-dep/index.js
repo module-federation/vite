@@ -1,1 +1,1 @@
-module.exports = { cjs: 'cjs-value' };
+module.exports = { cjs: 'cjs-value', other: 'other-value' };

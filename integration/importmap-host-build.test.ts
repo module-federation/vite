@@ -64,7 +64,9 @@ describe('experiments.importMap — host build', () => {
     const output = await buildImportMapHost();
     expect(shareChunk(output, 'esm-dep')!.exports).toEqual(['named']);
     expect(shareChunk(output, 'esm-default-dep')!.exports.sort()).toEqual(['default', 'named']);
-    expect(shareChunk(output, 'cjs-dep')!.exports).toContain('default');
+    // CommonJS: `export *` re-exports nothing named, so each key is re-exported explicitly
+    // (e.g. react/jsx-runtime's `jsxs`), alongside the interop default.
+    expect(shareChunk(output, 'cjs-dep')!.exports.sort()).toEqual(['cjs', 'default', 'other']);
   });
 
   it('emits no Module Federation runtime glue', async () => {
