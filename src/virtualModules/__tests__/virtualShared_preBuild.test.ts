@@ -586,6 +586,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/export-property-key.ts') ||
       filePath.endsWith('/repo/packages/export-property-key-comments.ts') ||
       filePath.endsWith('/repo/packages/custom-shared-source/index.ts') ||
+      filePath.endsWith('/repo/packages/nodenext-shared-source/index.ts') ||
+      filePath.endsWith('/repo/packages/nodenext-shared-source/context.ts') ||
       filePath.endsWith('/repo/packages/cached-shared-source/index.ts') ||
       filePath.endsWith('/repo/packages/cached-shared-source/leaf.ts')
     );
@@ -1026,6 +1028,12 @@ export const [firstItem, ...restItems] = tuple;`;
               export function useSharedFeature() {
                 return sharedValue;
               }`;
+    }
+    if (filePath.endsWith('/repo/packages/nodenext-shared-source/index.ts')) {
+      return "export * from './context.js';";
+    }
+    if (filePath.endsWith('/repo/packages/nodenext-shared-source/context.ts')) {
+      return 'export const ValueContext = {}; export function useValue() { return ValueContext; }';
     }
     if (filePath.endsWith('/repo/packages/cached-shared-source/index.ts')) {
       return "export * from './leaf';";
@@ -1563,6 +1571,29 @@ describe('writeLoadShareModule', () => {
       'export { __mf_0 as sharedValue, __mf_1 as useSharedFeature };'
     );
     expect(generatedCode).not.toContain('export * from "/repo/packages/custom-shared-source"');
+  });
+
+  it('resolves NodeNext star re-exports (./context.js -> context.ts) in shareConfig.import', () => {
+    const pkg = '@repo/nodenext-shared-source';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: '/repo/packages/nodenext-shared-source',
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writePreBuildLibPath(pkg, mockShareItem);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(generatedCode).toContain('const __mf_0 = __mfPrebuildExports["ValueContext"];');
+    expect(generatedCode).toContain('const __mf_1 = __mfPrebuildExports["useValue"];');
+    expect(generatedCode).not.toContain('export * from "/repo/packages/nodenext-shared-source"');
   });
 
   it('inspects a configured shared source once', () => {

@@ -370,6 +370,20 @@ function resolveRelativeModule(filePath: string, specifier: string): string | un
   // Try the specifier as-is first (handles explicit extensions like './runtime.js')
   const exact = path.resolve(dir, specifier);
   if (existsSync(exact) && !statSync(exact).isDirectory()) return exact;
+  // TypeScript NodeNext sources import the emitted extension ('./context.js')
+  // while the file on disk is 'context.ts'; map it back so `export *` targets
+  // resolve and the share is not downgraded to a non-live-rebinding copy.
+  const sourceExtensions = specifier.endsWith('.mjs')
+    ? ['.mts']
+    : specifier.endsWith('.cjs')
+      ? ['.cts']
+      : /\.jsx?$/.test(specifier)
+        ? ['.ts', '.tsx']
+        : [];
+  for (const ext of sourceExtensions) {
+    const candidate = exact.replace(/\.[cm]?jsx?$/, ext);
+    if (existsSync(candidate) && !statSync(candidate).isDirectory()) return candidate;
+  }
   const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.mts'];
   for (const ext of extensions) {
     const candidate = path.resolve(dir, specifier + ext);
