@@ -196,16 +196,22 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
     const __mfGetCachedReactFamily = (keys, reactKeys, localVersion, requiredExport) => {
       const cache = globalThis.__mf_module_cache__?.share;
       const react = reactKeys.map((key) => cache?.[key]).find((value) => value !== undefined);
-      const reactVersion = react?.version ?? react?.default?.version;
-      const actual = String(reactVersion || '').split(/[^0-9]+/).map(Number);
-      const expected = String(localVersion || '').split(/[^0-9]+/).map(Number);
-      for (let index = 0; index < Math.max(actual.length, expected.length); index++) {
-        if ((actual[index] || 0) < (expected[index] || 0)) return undefined;
-        if ((actual[index] || 0) > (expected[index] || 0)) break;
-      }
+      const isOlder = (version) => {
+        const actual = String(version || '').split(/[^0-9]+/).map(Number);
+        const expected = String(localVersion || '').split(/[^0-9]+/).map(Number);
+        for (let index = 0; index < Math.max(actual.length, expected.length); index++) {
+          if ((actual[index] || 0) < (expected[index] || 0)) return true;
+          if ((actual[index] || 0) > (expected[index] || 0)) return false;
+        }
+        return false;
+      };
+      if (isOlder(react?.version ?? react?.default?.version)) return undefined;
       for (const key of keys) {
         const cached = cache?.[key];
         if (cached === undefined) continue;
+        // A host seed from an older React family is not coherent with the newer cached react
+        const cachedVersion = cached?.version ?? cached?.default?.version;
+        if (cachedVersion !== undefined && isOlder(cachedVersion)) continue;
         if (!requiredExport || typeof cached?.[requiredExport] === 'function' || typeof cached?.default?.[requiredExport] === 'function') return cached;
       }
       return undefined;
@@ -2633,6 +2639,22 @@ export function generateHostAutoInitCode(
           }
           `
               : ''
+          }
+          // The seed called this container's get() directly, so the Runtime's
+          // provider never learned it is in use and a remote could load its own
+          // copy (#1396). Mark it once the host is bound to the local copy.
+          for (const [pkg, share] of Object.entries(usedShared)) {
+            if (!share.lib || share.treeShaking || share.shareConfig?.import === false) continue;
+            const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+            if (__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== ${cacheOwner}) continue;
+            for (const scopeName of Array.isArray(share.scope) ? share.scope : [share.scope || "default"]) {
+              const versions = runtime.shareScopeMap?.[scopeName]?.[pkg];
+              const provider = versions?.[share.version];
+              if (!provider || provider.get !== share.get || provider.lib) continue;
+              if (Object.values(versions).some((other) => other !== provider && (other?.lib || other?.loaded))) continue;
+              provider.lib = share.lib;
+              provider.loaded = true;
+            }
           }
           return runtime;
         })();
