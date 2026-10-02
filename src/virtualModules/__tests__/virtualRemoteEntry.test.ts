@@ -856,6 +856,46 @@ describe('virtualRemoteEntry', () => {
     }
   });
 
+  it('does not reuse a cached React DOM family from an older React than the local one', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react-dom/client');
+
+    // A host seeds its react-dom/client before version-first negotiation upgrades
+    // react to this remote's newer copy; that renderer binds the older React.
+    const previousCache = (globalThis as any).__mf_module_cache__;
+    (globalThis as any).__mf_module_cache__ = {
+      share: {
+        'default:react': { version: '99.0.0' },
+        'default:react-dom/client': { version: '0.0.1', createRoot: () => undefined },
+      },
+      remote: {},
+    };
+    let localLoads = 0;
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:react-dom/client")', 'loadLocal()')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+
+    try {
+      const generated = new Function('loadLocal', code)(async () => {
+        localLoads++;
+        return { marker: 'local-react-dom-client' };
+      });
+      const factory = await generated.usedShared['react-dom/client'].get();
+
+      expect(factory()).toEqual({ marker: 'local-react-dom-client' });
+      expect(localLoads).toBe(1);
+    } finally {
+      if (previousCache === undefined) delete (globalThis as any).__mf_module_cache__;
+      else (globalThis as any).__mf_module_cache__ = previousCache;
+    }
+  });
+
   it('does not use cached react-dom as react-dom/client', async () => {
     const mod = await import('../virtualRemoteEntry');
     mod.getUsedShares().clear();
@@ -3990,7 +4030,37 @@ describe('virtualRemoteEntry', () => {
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
     expect(code).not.toContain('runtime.loadShare(pkg');
-    expect(code).not.toContain('for (const [pkg, share] of Object.entries(usedShared))');
+    expect(code).not.toContain('__mfHostInitShareBatches');
+  });
+
+  it('marks seeded host providers loaded in hostAutoInit after negotiation (#1396)', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    for (const strategy of ['version-first', 'loaded-first'] as const) {
+      optionsMock.shareStrategy = strategy;
+      for (const command of ['serve', 'build'] as const) {
+        const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', command);
+        const markLoaded = code.indexOf('provider.loaded = true;');
+        expect(markLoaded).toBeGreaterThan(-1);
+        // The seed only populates usedShared; the Runtime's registered provider is marked
+        // once the host is bound to its local copy, after any version-first loadShare().
+        if (strategy === 'version-first') {
+          expect(markLoaded).toBeGreaterThan(code.lastIndexOf('runtime.loadShare(pkg'));
+        }
+        expect(code).toContain(
+          'if (__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== "host") continue;'
+        );
+        expect(code).toContain(
+          'if (!provider || provider.get !== share.get || provider.lib) continue;'
+        );
+        expect(code).toContain(
+          'if (Object.values(versions).some((other) => other !== provider && (other?.lib || other?.loaded))) continue;'
+        );
+      }
+    }
   });
 
   it('does not register remotes during remoteEntry init with loaded-first', async () => {
