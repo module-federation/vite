@@ -23,6 +23,7 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  isRemoteContainer,
   isRemoteOnlyContainer,
 } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
@@ -792,6 +793,24 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
       apply: 'serve',
       config(_config, { command }) {
         _command = command;
+        // Vite bundledDev evaluates a bundled entry before its lazy virtual
+        // dependencies are guaranteed to have run. Keep remote containers on
+        // the standard dev path so their remoteEntry keeps the init/get contract.
+        const isRemoteEntry =
+          entryName === 'remoteEntry' &&
+          federationOptions !== undefined &&
+          isRemoteContainer(federationOptions);
+        if (command === 'serve' && _config.experimental?.bundledDev && isRemoteEntry) {
+          _config.experimental = { ..._config.experimental, bundledDev: false };
+          _config.environments ??= {};
+          _config.environments.client ??= {};
+          if (_config.environments.client.isBundled !== false) {
+            _config.environments.client.isBundled = false;
+            mfWarn(
+              'Vite bundledDev is disabled for the client environment of a Module Federation remote container so its remoteEntry keeps the standard init/get contract.'
+            );
+          }
+        }
       },
       configResolved(config) {
         viteConfig = config;
