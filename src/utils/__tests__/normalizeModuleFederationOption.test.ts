@@ -200,6 +200,49 @@ describe('normalizeModuleFederationOption', () => {
     });
   });
 
+  it('falls back to the plugin-level shareScope for remotes and shared items', () => {
+    const normalized = normalizeModuleFederationOptions({
+      ...minimalOptions,
+      shareScope: 'custom',
+      remotes: {
+        stringRemote: 'stringRemote@http://localhost:3001/remoteEntry.js',
+        objectRemote: {
+          type: 'module',
+          name: 'objectRemote',
+          entry: 'http://localhost:3002/remoteEntry.js',
+        },
+        scopedRemote: {
+          type: 'module',
+          name: 'scopedRemote',
+          entry: 'http://localhost:3003/remoteEntry.js',
+          shareScope: 'own',
+        },
+      },
+      shared: {
+        react: { singleton: true },
+        vue: { singleton: true, shareScope: 'own' },
+      },
+    });
+
+    expect(normalized.remotes.stringRemote.shareScope).toBe('custom');
+    expect(normalized.remotes.objectRemote.shareScope).toBe('custom');
+    expect(normalized.remotes.scopedRemote.shareScope).toBe('own');
+    expect(normalized.shared.react.scope).toBe('custom');
+    expect(normalized.shared.vue.scope).toBe('own');
+  });
+
+  it('keeps the default scope for remotes and shared items with multiple share scopes', () => {
+    const normalized = normalizeModuleFederationOptions({
+      ...minimalOptions,
+      shareScope: ['default', 'scope1'],
+      remotes: { remote: 'remote@http://localhost:3001/remoteEntry.js' },
+      shared: { react: { singleton: true } },
+    });
+
+    expect(normalized.remotes.remote.shareScope).toBe('default');
+    expect(normalized.shared.react.scope).toBe('default');
+  });
+
   it('preserves multiple provider share scopes', () => {
     expect(
       normalizeModuleFederationOptions({
