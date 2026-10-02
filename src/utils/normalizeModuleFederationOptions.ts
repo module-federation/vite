@@ -89,13 +89,14 @@ function normalizeExposes(
 }
 
 export function normalizeRemotes(
-  remotes: Record<string, string | RemoteObjectConfig> | undefined
+  remotes: Record<string, string | RemoteObjectConfig> | undefined,
+  defaultShareScope = 'default'
 ): Record<string, RemoteObjectConfig> {
   if (!remotes) return {};
   const result: Record<string, RemoteObjectConfig> = {};
   if (typeof remotes === 'object') {
     Object.keys(remotes).forEach((key) => {
-      result[key] = normalizeRemoteItem(key, remotes[key]);
+      result[key] = normalizeRemoteItem(key, remotes[key], defaultShareScope);
     });
   }
   return result;
@@ -108,7 +109,11 @@ function warnOmittedObjectRemoteType(remoteKey: string): void {
   );
 }
 
-function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): RemoteObjectConfig {
+function normalizeRemoteItem(
+  key: string,
+  remote: string | RemoteObjectConfig,
+  defaultShareScope: string
+): RemoteObjectConfig {
   warnOnReservedInternalNamePrefix(key, 'remoteAlias');
   if (typeof remote === 'string') {
     // Scoped packages start with '@', so the name/entry separator is the
@@ -129,7 +134,7 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
       internalName: toInternalModuleFederationName(key),
       entry,
       entryGlobalName,
-      shareScope: 'default',
+      shareScope: defaultShareScope,
     };
   }
 
@@ -143,7 +148,7 @@ function normalizeRemoteItem(key: string, remote: string | RemoteObjectConfig): 
       type: 'var',
       name: key,
       internalName: toInternalModuleFederationName(key),
-      shareScope: 'default',
+      shareScope: defaultShareScope,
       entryGlobalName: key,
     },
     {
@@ -399,7 +404,8 @@ function normalizeShareItem(
         allowNodeModulesSuffixMatch?: boolean;
         suppressMissingImportWarning?: boolean;
         treeShaking?: TreeShakingConfig;
-      }
+      },
+  defaultShareScope: string
 ): ShareItem {
   const treeShaking = typeof shareItem === 'object' ? shareItem.treeShaking : undefined;
   if (treeShaking && treeShaking.mode !== 'server-calc' && treeShaking.mode !== 'runtime-infer') {
@@ -440,7 +446,7 @@ function normalizeShareItem(
     const result: ShareItem = {
       name: shareItem,
       version,
-      scope: 'default',
+      scope: defaultShareScope,
       from: '',
       shareConfig: {
         import: undefined,
@@ -456,7 +462,7 @@ function normalizeShareItem(
     name: key,
     from: '',
     version,
-    scope: shareItem.shareScope || 'default',
+    scope: shareItem.shareScope || defaultShareScope,
     shareConfig: {
       import: shareItem.import,
       singleton: shareItem.singleton || false,
@@ -522,7 +528,8 @@ function normalizeShared(
             treeShaking?: TreeShakingConfig;
           }
       >
-    | undefined
+    | undefined,
+  defaultShareScope = 'default'
 ): NormalizedShared {
   explicitSharedKeys = new Set();
   if (!shared) return {};
@@ -534,7 +541,7 @@ function normalizeShared(
       const normalizedKey = normalizeSharedKey(key);
       const hadConfiguredPackageSubpath =
         (result[normalizedKey]?.shareConfig as any)?.__mfConfiguredPackageSubpath === true;
-      result[normalizedKey] = normalizeShareItem(normalizedKey, normalizedKey);
+      result[normalizedKey] = normalizeShareItem(normalizedKey, normalizedKey, defaultShareScope);
       if (key.endsWith('/') || hadConfiguredPackageSubpath) {
         (result[normalizedKey].shareConfig as any).__mfConfiguredPackageSubpath = true;
       }
@@ -548,7 +555,7 @@ function normalizeShared(
       const value = shared[key] as any;
       const hadConfiguredPackageSubpath =
         (result[normalizedKey]?.shareConfig as any)?.__mfConfiguredPackageSubpath === true;
-      result[normalizedKey] = normalizeShareItem(normalizedKey, value);
+      result[normalizedKey] = normalizeShareItem(normalizedKey, value, defaultShareScope);
       const requestIsPrefix = typeof value?.request === 'string' && value.request.endsWith('/');
       if (key.endsWith('/') || requestIsPrefix || hadConfiguredPackageSubpath) {
         (result[normalizedKey].shareConfig as any).__mfConfiguredPackageSubpath = true;
@@ -561,7 +568,7 @@ function normalizeShared(
   sourceEntries.forEach(([key, value]) => {
     for (const subpathShare of getLitExportSubpathShares(key)) {
       if (result[subpathShare]) continue;
-      result[subpathShare] = normalizeShareItem(subpathShare, value as any);
+      result[subpathShare] = normalizeShareItem(subpathShare, value as any, defaultShareScope);
     }
   });
 
@@ -1017,6 +1024,9 @@ export function normalizeModuleFederationOptions(
     );
   }
 
+  // Match webpack: items without their own shareScope inherit the plugin-level
+  // one. Multi-scope arrays keep the 'default' fallback the runtime unions.
+  const defaultShareScope = typeof options.shareScope === 'string' ? options.shareScope : 'default';
   const normalized: NormalizedModuleFederationOptions = {
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
@@ -1025,10 +1035,10 @@ export function normalizeModuleFederationOptions(
     library: normalizeLibrary(options.library),
     name: options.name,
     // remoteType: options.remoteType,
-    remotes: normalizeRemotes(options.remotes),
+    remotes: normalizeRemotes(options.remotes, defaultShareScope),
     runtime: options.runtime,
     shareScope: options.shareScope || 'default',
-    shared: normalizeShared(options.shared),
+    shared: normalizeShared(options.shared, defaultShareScope),
     runtimePlugins: options.runtimePlugins || [],
     implementation: normalizePathForImport(
       options.implementation || resolveRuntimeImplementation()
