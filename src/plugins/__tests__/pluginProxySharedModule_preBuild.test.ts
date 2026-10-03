@@ -357,6 +357,14 @@ function makeShared(): NormalizedShared {
   };
 }
 
+const hostRemotes = {
+  remote: {
+    name: 'remote',
+    entry: 'https://example.com/remoteEntry.js',
+    type: 'module',
+  },
+};
+
 describe('pluginProxySharedModule_preBuild', () => {
   describe('findSharedKey', () => {
     it('matches exact keys, wildcard keys, Vue aliases, and common subpaths', () => {
@@ -1173,46 +1181,81 @@ describe('pluginProxySharedModule_preBuild', () => {
   });
 
   it.each([
-    '/repo/apps/remote/node_modules/react-dom/client.js',
-    'virtual:mf:host__prebuild__react-dom__prebuild__.js?commonjs-proxy',
-  ])('keeps react-dom imports of react local for %s', async (importer) => {
-    hasPackageDependencyMock.mockReturnValue(false);
-    existsSyncMock.mockImplementation(
-      (file: string) =>
-        file === '/repo/apps/remote/node_modules/react-dom/package.json' ||
-        file === '/repo/apps/remote/node_modules/react/package.json'
-    );
-    readFileSyncMock.mockImplementation((file: string) =>
-      file.endsWith('/react-dom/package.json')
-        ? JSON.stringify({ name: 'react-dom', peerDependencies: { react: '^19.2.4' } })
-        : JSON.stringify({ name: 'react' })
-    );
-    getInstalledPackageEntryMock.mockImplementation((pkg) =>
-      pkg === 'react' ? '/repo/apps/remote/node_modules/react/index.js' : undefined
-    );
+    {
+      importer: '/repo/apps/remote/node_modules/react-dom/client.js',
+      remotes: hostRemotes,
+      expected: 'loadShare',
+    },
+    {
+      importer: 'virtual:mf:host__prebuild__react-dom__prebuild__.js?commonjs-proxy',
+      remotes: hostRemotes,
+      expected: 'loadShare',
+    },
+    {
+      importer: '/repo/apps/remote/node_modules/react-dom/client.js',
+      remotes: {},
+      expected: 'local',
+    },
+    {
+      importer: 'virtual:mf:host__prebuild__react-dom__prebuild__.js?commonjs-proxy',
+      remotes: {},
+      expected: 'local',
+    },
+  ])(
+    '$expected react-dom imports of react for $importer',
+    async ({ importer, remotes, expected }) => {
+      hasPackageDependencyMock.mockReturnValue(false);
+      existsSyncMock.mockImplementation(
+        (file: string) =>
+          file === '/repo/apps/remote/node_modules/react-dom/package.json' ||
+          file === '/repo/apps/remote/node_modules/react/package.json'
+      );
+      readFileSyncMock.mockImplementation((file: string) =>
+        file.endsWith('/react-dom/package.json')
+          ? JSON.stringify({ name: 'react-dom', peerDependencies: { react: '^19.2.4' } })
+          : JSON.stringify({ name: 'react' })
+      );
+      getInstalledPackageEntryMock.mockImplementation((pkg) =>
+        pkg === 'react' ? '/repo/apps/remote/node_modules/react/index.js' : undefined
+      );
 
-    const plugins = proxySharedModule({ shared: makeShared() });
-    const proxyPlugin = getProxyPlugin(plugins);
-    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
-    callHook(
-      proxyPlugin.config,
-      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
-      { resolve: { alias: [] } },
-      { command: 'build', mode: 'production' } as ConfigEnv
-    );
+      const federationOptions = normalizeModuleFederationOptions({
+        name: 'host',
+        remotes,
+        shared: makeShared(),
+      });
+      const plugins = proxySharedModule({
+        shared: federationOptions.shared,
+        federationOptions,
+      });
+      const proxyPlugin = getProxyPlugin(plugins);
+      const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+      callHook(
+        proxyPlugin.config,
+        { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+        { resolve: { alias: [] } },
+        { command: 'build', mode: 'production' } as ConfigEnv
+      );
 
-    writeLoadShareModuleMock.mockClear();
-    const resolution = await callHook(
-      sharedResolvePlugin.resolveId,
-      { resolve: vi.fn() } as any,
-      'react',
-      importer,
-      { isEntry: false }
-    );
+      writeLoadShareModuleMock.mockClear();
+      const resolve = vi.fn(async (id: string) => ({ id: `/resolved/${id}` }));
+      const resolution = await callHook(
+        sharedResolvePlugin.resolveId,
+        { resolve } as any,
+        'react',
+        importer,
+        { isEntry: false }
+      );
 
-    expect(resolution).toBe('/repo/apps/remote/node_modules/react/index.js');
-    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
-  });
+      if (expected === 'loadShare') {
+        expect(resolution).toEqual({ id: '/resolved/mock-import-id' });
+        expect(writeLoadShareModuleMock).toHaveBeenCalled();
+      } else {
+        expect(resolution).toBe('/repo/apps/remote/node_modules/react/index.js');
+        expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
+      }
+    }
+  );
 
   it('keeps workspace shared package imports of react/jsx-runtime on loadShare', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
