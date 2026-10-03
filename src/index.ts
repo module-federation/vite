@@ -46,6 +46,9 @@ import {
   sanitizeFederationControlChunk,
 } from './utils/controlChunkSanitizer';
 import { isTestEnv } from './utils/isTestEnv';
+import { pluginHostProvidesAllSharedHost } from './plugins/pluginHostProvidesAllSharedHost';
+import { pluginHostProvidesAllSharedRemote } from './plugins/pluginHostProvidesAllSharedRemote';
+import { getIgnoredOptionWarning } from './utils/hostProvidesAllShared';
 import { createModuleFederationError, mfWarn } from './utils/logger';
 import { getSharedExportConditions } from './utils/sharedExportConditions';
 import { getSharedRequest, getSharedRuntimeKey } from './utils/sharedKeyMatcher';
@@ -1108,6 +1111,15 @@ function applyBuildTimeRuntimeDefines(
   }
 }
 
+/** Dynamic remote type hints are a runtime plugin; hostProvidesAllShared has no runtime. */
+function withoutDynamicRemoteTypeHints(
+  options: NormalizedModuleFederationOptions
+): NormalizedModuleFederationOptions {
+  if (options.dev === false) return options;
+  const dev = options.dev === true || options.dev === undefined ? {} : options.dev;
+  return { ...options, dev: { ...dev, disableDynamicRemoteTypeHints: true } };
+}
+
 function loadPluginDts(options: NormalizedModuleFederationOptions): any[] {
   if (options.dts === false) {
     return [];
@@ -1166,14 +1178,25 @@ function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOpti
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (isTestEnv()) return [];
   const options = normalizeModuleFederationOptions(mfUserOptions);
+  if (!options.name) throw createModuleFederationError('name is required');
+  // hostProvidesAllShared never touches the runtime pipeline below: a container with
+  // exposes is built as a remote, any other container as the host that owns the import map.
+  if (options.experiments.hostProvidesAllShared) {
+    const ignored = getIgnoredOptionWarning(mfUserOptions);
+    if (ignored) mfWarn(ignored);
+    const container =
+      Object.keys(options.exposes).length > 0
+        ? pluginHostProvidesAllSharedRemote(options)
+        : pluginHostProvidesAllSharedHost(options);
+    return [container, ...loadPluginDts(withoutDynamicRemoteTypeHints(options))];
+  }
   applyExternalRuntimeExperiments(options);
 
   const isVinext = hasPackageDependency('vinext');
-  const { name, shared, filename, hostInitInjectLocation } = options;
+  const { shared, filename, hostInitInjectLocation } = options;
   const hasTreeShakingShared = Object.values(shared).some(
     (share) => !!share.shareConfig.treeShaking
   );
-  if (!name) throw createModuleFederationError('name is required');
 
   const remoteEntryId = getRemoteEntryId(options);
   const virtualExposesId = getVirtualExposesId(options);
