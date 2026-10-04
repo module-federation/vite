@@ -241,6 +241,20 @@ describe('virtualRemoteEntrySSR', () => {
     expect(dynamicImport).not.toHaveBeenCalled();
   });
 
+  it('skips a re-entrant init that receives the same initScope', async () => {
+    const initializeSharing = vi.fn(async () => []);
+    const entry = createEntry(createRuntime(initializeSharing));
+    const initScope: unknown[] = [];
+
+    await expect(entry.init({}, initScope)).resolves.toBeDefined();
+    await expect(entry.init({}, initScope)).resolves.toBeUndefined();
+    expect(initializeSharing).toHaveBeenCalledOnce();
+    expect(initScope).toHaveLength(1);
+
+    await expect(entry.init({}, [])).resolves.toBeDefined();
+    expect(initializeSharing).toHaveBeenCalledTimes(2);
+  });
+
   it('allows the SSR local fallback when a singleton is absent from the host share scope', async () => {
     const loadShare = vi.fn();
     const runtimeInit = createRuntime(undefined, loadShare);
