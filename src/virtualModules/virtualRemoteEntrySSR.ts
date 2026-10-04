@@ -87,6 +87,8 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
   const sharedSingletons = ${JSON.stringify(sharedSingletons)};
   const moduleCacheKey = Symbol.for(${JSON.stringify(MODULE_CACHE_SHARE_SCOPE_KEY)});
   let exposesMapPromise;
+  // One identity per container, so a re-entrant init with the same initScope finds it.
+  const initToken = { from: ${JSON.stringify(options.name)} };
 
   function createShareInitError(errors) {
     const details = errors.map(({ scopeName, pkg, error }) => {
@@ -115,7 +117,6 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
       remotes: [],
       shared: {},
     });
-    const initToken = { from: ${JSON.stringify(options.name)} };
     if (initScope.indexOf(initToken) >= 0) return;
     initScope.push(initToken);
     const shareScopeNames = Array.isArray(${JSON.stringify(options.shareScope)})
