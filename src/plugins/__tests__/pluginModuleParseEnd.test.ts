@@ -171,6 +171,38 @@ describe('pluginModuleParseEnd', () => {
     });
   });
 
+  it('tracks imported ids that have no ModuleInfo yet when resolution metadata is unavailable', async () => {
+    // Rolldown reports neither importedIdResolutions nor a ModuleInfo for a child it has
+    // resolved but not loaded yet. The child's own load may never reach parseStart either:
+    // an earlier plugin can answer it first.
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = {
+      getModuleInfo: () => null,
+      resolve: async () => ({ id: '/src/late-child.ts', external: false }),
+    } as any;
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/main.ts',
+      importedIds: ['/src/late-child.ts'],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
+
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/late-child.ts',
+      importedIds: [],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(await controller.parsePromise).toEqual({
+      complete: true,
+      reason: 'graph-complete',
+    });
+  });
+
   it('does not wait for external dependencies discovered during parsing', async () => {
     const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
     const ctx = {} as any;
@@ -456,6 +488,66 @@ describe('pluginModuleParseEnd', () => {
           },
           transform(_code, id) {
             if (id === '\0virtual:parse-child') childTransformed = true;
+          },
+        },
+      ],
+      build: {
+        write: false,
+        minify: false,
+        rollupOptions: { input: 'virtual:parse-entry' },
+      },
+    });
+    await Promise.resolve();
+
+    expect(childTransformed).toBe(true);
+    expect(resolvedBeforeChild).toBe(false);
+  });
+
+  it('waits for a child whose load an earlier plugin answers late in a real Vite module graph', async () => {
+    const controller = createModuleParseController();
+    const parsePlugins = pluginModuleParseEnd(
+      () => false,
+      {
+        moduleParseTimeout: 0,
+      },
+      controller
+    );
+    let childTransformed = false;
+    let resolvedBeforeChild = false;
+
+    await viteBuild({
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [
+        {
+          // Ordered before parseStart, so the tracker never sees the child's load.
+          name: 'parse-barrier-late-loader',
+          enforce: 'pre',
+          resolveId(id) {
+            if (id === 'virtual:parse-entry' || id === 'virtual:parse-child') return `\0${id}`;
+          },
+          async load(id) {
+            if (id === '\0virtual:parse-entry') {
+              return 'import "virtual:parse-child"; export const entry = true;';
+            }
+            if (id === '\0virtual:parse-child') {
+              // Longer than the tracker's settle delay.
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              return 'export const child = true;';
+            }
+          },
+          transform(_code, id) {
+            if (id === '\0virtual:parse-child') childTransformed = true;
+          },
+        },
+        ...parsePlugins,
+        {
+          // After parseStart, whose buildStart replaces parsePromise.
+          name: 'parse-barrier-observer',
+          buildStart() {
+            void controller.parsePromise.then(() => {
+              resolvedBeforeChild = !childTransformed;
+            });
           },
         },
       ],

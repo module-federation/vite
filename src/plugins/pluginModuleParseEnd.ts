@@ -267,8 +267,11 @@ export default function (
         };
         const addPendingIds = (ids: string[] | undefined) => {
           for (const pendingId of ids || []) {
+            // No ModuleInfo check here: Rolldown has none for an import it has
+            // resolved but not loaded yet, and that child's load may never reach
+            // parseStart (an earlier plugin can answer it). Externals are dropped
+            // below or by probeExternal.
             if (
-              !this.getModuleInfo(pendingId) ||
               controller.externalSet.has(pendingId) ||
               matchesExternal(configuredExternal, pendingId, id) ||
               excludeFn(pendingId)
