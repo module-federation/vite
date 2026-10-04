@@ -643,34 +643,32 @@ async function getSSREntry(
 }
 
 /**
- * Drop per-remote temp-file caches after a version change so old artifacts stop
- * being reused. Temp-file cache keys hold SSR entry/chunk URLs (not the
- * browser entry URL), so scope the invalidation by origin.
+ * Drop a remote graph's temp-file caches after a version change so old
+ * artifacts stop being reused. A generated module can be shared by multiple
+ * remote graphs, so cleanup is scoped by graph owner rather than URL origin.
  */
 function dropRemoteTempFileCaches(remoteEntryUrl: string): void {
-  const origin = getUrlOrigin(remoteEntryUrl);
-  if (!origin) return;
-  const staleRecords = [...tempFileRecords.values()].filter(
-    (record) => record.remoteOrigin === origin
-  );
-  for (const [key] of tempFileCache) {
-    const parts = JSON.parse(key) as unknown[];
-    const url = parts.find(
-      (part): part is string => typeof part === 'string' && /^https?:\/\//.test(part)
-    );
-    if (url?.startsWith(origin)) {
-      tempFileCache.delete(key);
-      tempFilePathCache.delete(key);
-    }
+  const staleRecords: TempFileRecord[] = [];
+  for (const [key, record] of tempFileRecords) {
+    if (!record.owners.delete(remoteEntryUrl) || record.owners.size > 0) continue;
+
+    tempFileCache.delete(key);
+    tempFilePathCache.delete(key);
+    staleRecords.push(record);
   }
   scheduleTempFileCleanup(staleRecords);
 }
 
-/** Invalidate all SSR loader caches owned by a remote. */
-async function invalidateRemoteCaches(remoteEntryUrl: string): Promise<void> {
+/**
+ * Invalidate all SSR loader caches owned by a remote. The runtime loading map
+ * is cleared synchronously so `revalidate()` can safely clear module caches
+ * immediately after invoking this function.
+ */
+function invalidateRemoteCaches(remoteEntryUrl: string): Promise<void> {
+  invalidateRuntimeRemoteEntry(remoteEntryUrl);
   dropRemoteTempFileCaches(remoteEntryUrl);
   scheduleVmCacheCleanup(remoteEntryUrl);
-  await clearRunnerCaches(remoteEntryUrl);
+  return clearRunnerCaches(remoteEntryUrl);
 }
 
 /**
@@ -709,12 +707,38 @@ async function clearRunnerCaches(remoteEntryUrl?: string): Promise<void> {
 
 /** Invalidate all SSR loader caches across every remote. */
 function invalidateAllRemoteCaches(): void {
+  invalidateRuntimeRemoteEntry();
   const staleRecords = [...tempFileRecords.values()];
+  for (const record of staleRecords) record.owners.clear();
   tempFileCache.clear();
   tempFilePathCache.clear();
   scheduleTempFileCleanup(staleRecords);
   scheduleVmCacheCleanup();
   void clearRunnerCaches();
+}
+
+/**
+ * runtime-core deduplicates remote entry loads in a process-global map. The
+ * SSR loader's module cache invalidation must evict the matching runtime entry
+ * too, otherwise the next loadRemote() returns the pre-revalidation container
+ * without invoking this loader again.
+ */
+function invalidateRuntimeRemoteEntry(remoteEntryUrl?: string): void {
+  const global = globalThis as typeof globalThis & {
+    __GLOBAL_LOADING_REMOTE_ENTRY__?: Record<string, unknown>;
+  };
+  const globalLoading = global.__GLOBAL_LOADING_REMOTE_ENTRY__;
+  if (!globalLoading) return;
+
+  for (const key of Object.keys(globalLoading)) {
+    if (
+      remoteEntryUrl === undefined ||
+      key === remoteEntryUrl ||
+      key.endsWith(`:${remoteEntryUrl}`)
+    ) {
+      delete globalLoading[key];
+    }
+  }
 }
 
 /**
@@ -771,7 +795,7 @@ type TempFileRecord = {
   cacheKey: string;
   filePathPromise: Promise<string>;
   promise: Promise<string>;
-  remoteOrigin?: string;
+  owners: Set<string>;
 };
 
 // Keep generated files independent from the in-memory cache so invalidation can
@@ -798,6 +822,10 @@ async function cleanupTempFileRecord(record: TempFileRecord): Promise<void> {
     // A revalidation can race an in-flight graph fetch. Wait for the writer so
     // it cannot recreate an orphaned file after cleanup has already run.
     await record.promise.catch(() => undefined);
+    // A shared transitive module can belong to more than one remote graph. A
+    // scoped revalidation retires only one owner; keep the file while another
+    // remote can still resolve it from its active generation.
+    if (record.owners.size > 0) return;
     // An explicit revalidate can resolve to the same manifest version and
     // therefore reuse the same cache key/path. Do not let an older cleanup
     // task remove the newer record's file.
@@ -1042,7 +1070,8 @@ async function fetchEsmToTempFile(
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
   contextKey = 'default',
   fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES,
-  extension = '.mjs'
+  extension = '.mjs',
+  owner?: string
 ): Promise<string> {
   const cacheKey = JSON.stringify([
     fetchTimeoutMs,
@@ -1055,6 +1084,7 @@ async function fetchEsmToTempFile(
   if (visited.has(url)) return visited.get(url)!;
   const cached = tempFileCache.get(cacheKey);
   if (cached) {
+    if (owner) tempFileRecords.get(cacheKey)?.owners.add(owner);
     pending.add(cached);
     // Prefer the reserved destination so cyclic/concurrent walkers can continue
     // without awaiting the writer. If the reservation is missing, fall back to
@@ -1114,7 +1144,8 @@ async function fetchEsmToTempFile(
             fetchTimeoutMs,
             contextKey,
             fetchMaxBytes,
-            extension
+            extension,
+            owner
           );
           // Keep every generated edge on the same versioned ESM URL as the
           // root import. Without this query, a cycle back to the root resolves
@@ -1140,7 +1171,7 @@ async function fetchEsmToTempFile(
     cacheKey,
     filePathPromise: tmpFilePromise,
     promise,
-    remoteOrigin: getUrlOrigin(url),
+    owners: owner ? new Set([owner]) : new Set(),
   };
   tempFileRecords.set(cacheKey, record);
   tempFileCache.set(cacheKey, promise);
@@ -1163,7 +1194,8 @@ async function fetchEsmGraphToTempFile(
   fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
   contextKey = 'default',
   fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES,
-  extension = '.mjs'
+  extension = '.mjs',
+  owner?: string
 ): Promise<string> {
   const pending = new Set<Promise<string>>();
   const rootFile = await fetchEsmToTempFile(
@@ -1176,7 +1208,8 @@ async function fetchEsmGraphToTempFile(
     fetchTimeoutMs,
     contextKey,
     fetchMaxBytes,
-    extension
+    extension,
+    owner
   );
   // Circular edges return their reserved path immediately. Wait for every
   // discovered writer before importing the root so all referenced files exist.
@@ -1253,7 +1286,8 @@ async function tryVmStrategy(
 
 async function loadSSRRemoteEntry(
   ssrEntry: SsrEntryCandidate,
-  options: ResolvedLoaderOptions
+  options: ResolvedLoaderOptions,
+  rootEntryUrl: string
 ): Promise<{ init: unknown; get: unknown } | null> {
   const { url, type, versionKey } = ssrEntry;
   const { resolvedShared } = options;
@@ -1353,7 +1387,8 @@ async function loadSSRRemoteEntry(
         options.fetchTimeoutMs,
         getSsrTransformContextKey(resolvedShared, options.shareScopeName),
         options.fetchMaxBytes,
-        extension
+        extension,
+        rootEntryUrl
       );
       return await importTempModule(tmpFile, versionKey);
     } catch (error) {
@@ -1470,7 +1505,7 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
       );
       if (!ssrEntry) return;
 
-      const mod = await loadSSRRemoteEntry(ssrEntry, loadOptions);
+      const mod = await loadSSRRemoteEntry(ssrEntry, loadOptions, remoteInfo.entry);
       if (!mod) return;
 
       return mod;
