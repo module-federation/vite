@@ -3592,6 +3592,31 @@ describe('vite:module-federation-early-init', () => {
     expect(sharedDefine).toEqual({ __APP__: 'true' });
   });
 
+  it('replaces ENV_TARGET inherited from the root define in Vite Environment API ssr builds', () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    const plugin = getModuleFederationVitePlugin();
+    const rootConfig: any = {};
+    runConfig(plugin, { meta: {} } as ConfigPluginContext, rootConfig, {
+      command: 'build',
+      mode: 'test',
+    });
+    expect(rootConfig.define.ENV_TARGET).toBe('"web"');
+
+    // Vite merges the root define into every environment before configEnvironment (#1401).
+    const ssrConfig: any = { define: { ...rootConfig.define }, consumer: 'server' };
+    const env = { command: 'build', mode: 'test' } as ConfigEnv;
+    const hook = plugin.configEnvironment;
+    if (!hook) throw new Error('configEnvironment hook not found');
+    if (typeof hook === 'function') {
+      hook.call({} as ConfigPluginContext, 'ssr', ssrConfig, env);
+    } else {
+      hook.handler.call({} as ConfigPluginContext, 'ssr', ssrConfig, env);
+    }
+
+    expect(ssrConfig.define.ENV_TARGET).toBe('"node"');
+    expect(rootConfig.define.ENV_TARGET).toBe('"web"');
+  });
+
   it('preserves env-level ENV_TARGET in Vite Environment API ssr builds', () => {
     hasPackageDependencyMock.mockReturnValue(false);
     const plugin = getModuleFederationVitePlugin();
