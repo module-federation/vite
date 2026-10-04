@@ -9,6 +9,7 @@ import { mfWarn } from '../utils/logger';
 import { getImportAnalysis } from '../utils/importAnalysis';
 import {
   getNormalizeModuleFederationOptions,
+  hasRemotes,
   type NormalizedModuleFederationOptions,
   type NormalizedShared,
   type ShareItem,
@@ -309,9 +310,14 @@ function shouldKeepSharedImportLocal(
   importer: string | undefined,
   sharedKey: string,
   shared: NormalizedShared,
-  importerPackage?: string
+  importerPackage?: string,
+  federationOptions?: NormalizedModuleFederationOptions
 ): boolean {
   if (!importer || shared[sharedKey]?.shareConfig.import === false) return false;
+  // A container that consumes remotes must let React dependencies participate
+  // in the shared runtime. A container without remotes can keep the local
+  // fallback, which keeps its prebuilt wrapper coalescable.
+  if (hasRemotes(federationOptions)) return false;
 
   const prebuildImporter = importer.includes(PREBUILD_TAG)
     ? VirtualModule.findModule(PREBUILD_TAG, importer)
@@ -945,7 +951,16 @@ export function proxySharedModule(options: {
         if (shouldSkipTaggedImporterProxy(key, PREBUILD_TAG)) return;
         const shareSource =
           key === 'vue' && sharedSource.startsWith('vue/dist/') ? key : sharedSource;
-        if (shouldKeepSharedImportLocal(sharedSource, importer, key, shared, importerPackage)) {
+        if (
+          shouldKeepSharedImportLocal(
+            shareSource,
+            importer,
+            key,
+            shared,
+            importerPackage,
+            federationOptions
+          )
+        ) {
           const localSource = getPrebuildResolutionSource(shareSource, shared[key]);
           // A sibling prebuild would re-enter Vite's CommonJS proxy on Vite 5–7.
           return tryResolveFromProjectRoot(localSource) || localSource;

@@ -402,6 +402,42 @@ federation({
 `provideExternalRuntime` injects a local runtime plugin that publishes `runtime-core` on `globalThis._FEDERATION_RUNTIME_CORE`. `externalRuntime` rewrites imports of `@module-federation/runtime-core` to read that global. A container that also `exposes` (e.g. a host consumed by its own remotes) may provide the runtime too, as long as exactly one container on the page does and it is loaded before any `externalRuntime` remote evaluates (a second provider is ignored with a `Detect multiple module federation runtime!` warning; a remote evaluated before the provider throws `_FEDERATION_RUNTIME_CORE is missing`).
 The `externalRuntime` rewrite applies to the browser remote graph; SSR remote entries continue to resolve `@module-federation/runtime-core` from Node so they do not depend on the browser global.
 
+## Host provides all shared (`experiments.hostProvidesAllShared`)
+
+For topologies where **one host provides every shared dependency** and remotes only consume them, shared dependencies can be resolved by a native browser [import map](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap) instead of the Module Federation runtime. No `loadShare` / prebuild glue is generated and `eager` is not needed: shared modules are ordinary static ES imports, so code that reads a shared value at module-evaluation time (`class X extends SharedBase`, decorator metadata) just works.
+
+**Remote** (a container with `exposes`):
+
+```ts
+federation({
+  name: "remote",
+  exposes: { "./Button": "./src/Button.tsx" },
+  shared: { react: {}, "react-dom": {}, "react/jsx-runtime": {} },
+  experiments: { hostProvidesAllShared: true },
+});
+```
+
+The remote build emits one fixed-name entry per expose (`./Button` → `Button.js`), keeps every shared key as a bare external import and writes a standard `mf-manifest.json` next to the entries, with no `remoteEntry` since there is no runtime container. `metaData.publicPath` comes from Vite's `base` (or `publicPath`); `auto` is inferred from the manifest URL by the host.
+
+**Host** (no `exposes`):
+
+```ts
+federation({
+  name: "host",
+  remotes: { remote: "https://cdn.example.com/remote/mf-manifest.json" },
+  shared: { react: {}, "react-dom": {}, "react/jsx-runtime": {} },
+  experiments: { hostProvidesAllShared: true },
+});
+```
+
+The host emits one re-export chunk per shared key, which the bundler dedupes with the host's own imports, and injects a `<script type="importmap">` into `index.html` mapping each shared key to that chunk and each remote expose (`remote/Button`) to the entry listed in the manifest. A manifest may also be a path relative to the host root (for example `../remote/dist/mf-manifest.json`). A manifest that has a `remoteEntry` belongs to a Module Federation runtime remote and is rejected. The dev server serves the same map, pointing shared keys at virtual modules that resolve to the host's pre-bundled dependencies, so host and remotes share one instance in dev too.
+
+A remote that imports an unshared subpath of a shared package (`rxjs/operators` with only `rxjs` shared) bundles a private copy of that package's internals; the remote build warns and names the key to add to `shared`.
+
+`dts` keeps working through the manifest's `metaData.types`: a remote emits its types archive next to `mf-manifest.json` and a host referencing the manifest by URL consumes it from there.
+
+Not supported in this mode, since the Module Federation runtime is not loaded: version negotiation and fallbacks, share aliasing (`request` / `shareKey`), `import: false`, runtime plugins, SSR, tree-shaking artifacts, `loadRemote` / runtime-registered remotes, and interop with webpack / rspack containers. Options that only the runtime or `remoteEntry.js` pipeline reads (for example `filename`, `shareStrategy`, `runtimePlugins`, `eager`, `requiredVersion`) are ignored; one warning names them. `singleton` needs no setting: every shared key has exactly one instance. The import map is fixed when the host is built, so a remote must keep its expose entry names stable across deploys. The inline import map changes with every host build; a strict CSP needs a nonce or hash for it.
+
 ## ⚠️ `codeSplitting` is managed by the plugin
 
 Do not set `build.rollupOptions.output.codeSplitting` or
