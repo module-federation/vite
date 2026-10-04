@@ -681,15 +681,24 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     const fetch = makeFetchMock(responses);
     global.fetch = fetch as unknown as typeof globalThis.fetch;
     const strategy = await freshStrategy();
-    const firstOptions = { ...baseOptions, versionKey: 'v1' };
+    const optionsA = {
+      ...baseOptions,
+      versionKey: 'v1',
+      rootEntryUrl: 'http://localhost:5001/remoteEntry.js',
+    };
+    const optionsB = {
+      ...baseOptions,
+      versionKey: 'v1',
+      rootEntryUrl: 'http://localhost:5002/remoteEntry.js',
+    };
 
     const firstA = (await strategy.loadViaVmStrategy(
       'http://localhost:5001/remoteEntry.ssr.js',
-      firstOptions
+      optionsA
     )) as { marker: string };
     const firstB = (await strategy.loadViaVmStrategy(
       'http://localhost:5002/remoteEntry.ssr.js',
-      firstOptions
+      optionsB
     )) as { marker: string };
 
     responses['http://localhost:5001/remoteEntry.ssr.js'] = {
@@ -704,11 +713,11 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
 
     const nextA = (await strategy.loadViaVmStrategy(
       'http://localhost:5001/remoteEntry.ssr.js',
-      firstOptions
+      optionsA
     )) as { marker: string };
     const cachedB = (await strategy.loadViaVmStrategy(
       'http://localhost:5002/remoteEntry.ssr.js',
-      firstOptions
+      optionsB
     )) as { marker: string };
 
     expect(firstA.marker).toBe('remote-a-v1');
@@ -716,6 +725,76 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(nextA.marker).toBe('remote-a-v2');
     expect(cachedB.marker).toBe('remote-b-v1');
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps a same-origin remote and its shared modules cached when another remote is revalidated', async () => {
+    const responses: Record<string, FetchEntry> = {
+      'http://localhost:5001/a/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'export { marker } from "../shared.js"; export const name = "a";',
+      },
+      'http://localhost:5001/b/remoteEntry.ssr.js': {
+        ok: true,
+        text: 'export { marker } from "../shared.js"; export const name = "b";',
+      },
+      'http://localhost:5001/shared.js': { ok: true, text: 'export const marker = "shared-v1";' },
+    };
+    const fetch = makeFetchMock(responses);
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+    const optionsA = {
+      ...baseOptions,
+      versionKey: 'v1',
+      rootEntryUrl: 'http://localhost:5001/a/remoteEntry.js',
+    };
+    const optionsB = {
+      ...baseOptions,
+      versionKey: 'v1',
+      rootEntryUrl: 'http://localhost:5001/b/remoteEntry.js',
+    };
+
+    const firstA = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/a/remoteEntry.ssr.js',
+      optionsA
+    )) as { marker: string };
+    const firstB = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/b/remoteEntry.ssr.js',
+      optionsB
+    )) as { marker: string };
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    responses['http://localhost:5001/a/remoteEntry.ssr.js'] = {
+      ok: true,
+      text: 'export const marker = "a-v2";',
+    };
+    responses['http://localhost:5001/shared.js'] = {
+      ok: true,
+      text: 'export const marker = "shared-v2";',
+    };
+    strategy.clearVmStrategyCaches('http://localhost:5001/a/remoteEntry.js');
+
+    const nextA = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/a/remoteEntry.ssr.js',
+      optionsA
+    )) as { marker: string };
+    const cachedB = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/b/remoteEntry.ssr.js',
+      optionsB
+    )) as { marker: string };
+
+    expect(firstA.marker).toBe('shared-v1');
+    expect(firstB.marker).toBe('shared-v1');
+    expect(nextA.marker).toBe('a-v2');
+    // Remote B still owns the shared module and its own entry: no re-fetch.
+    expect(cachedB).toBe(firstB);
+    expect(fetch).toHaveBeenCalledTimes(4);
+
+    strategy.clearVmStrategyCaches('http://localhost:5001/b/remoteEntry.js');
+    const nextB = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/b/remoteEntry.ssr.js',
+      optionsB
+    )) as { marker: string };
+    expect(nextB.marker).toBe('shared-v2');
   });
 
   it('partitions module and namespace caches by resolved shares and scope', async () => {
