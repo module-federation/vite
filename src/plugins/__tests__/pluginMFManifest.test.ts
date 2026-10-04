@@ -135,6 +135,16 @@ const makeBundle = (): OutputBundle => ({
   } satisfies OutputAsset,
 });
 
+const withSsrEntry = (bundle: OutputBundle, fileName = 'remoteEntry.ssr.js'): OutputBundle => ({
+  ...bundle,
+  [fileName]: {
+    ...(makeBundle()['remoteEntry.js'] as OutputChunk),
+    fileName,
+    name: 'remoteEntry.ssr',
+    preliminaryFileName: fileName,
+  },
+});
+
 type TestPluginContext = Pick<PluginContext, 'emitFile' | 'resolve'>;
 type GenerateBundleHook = (
   this: PluginContext,
@@ -565,7 +575,9 @@ describe('pluginMFManifest', () => {
   });
 
   it('points ssrRemoteEntry at the dedicated SSR entry filename', async () => {
-    const emitted = await runGenerateBundleWithManifest(true);
+    const emitted = await runGenerateBundleWithManifest(true, {
+      bundle: withSsrEntry(makeBundle()),
+    });
 
     const manifest = JSON.parse(emitted['mf-manifest.json']);
 
@@ -577,6 +589,21 @@ describe('pluginMFManifest', () => {
       name: 'remoteEntry.ssr.js',
       type: 'module',
     });
+  });
+
+  // A plain `vite build` emits no SSR entry. Advertising `remoteEntry.ssr.js`
+  // anyway makes Node consumers fetch a 404 (#1403).
+  it('omits ssrRemoteEntry when the build emitted no SSR entry', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      exposePaths: { './exposed': { import: './src/exposed.js' } },
+    });
+
+    const manifest = JSON.parse(emitted['mf-manifest.json']);
+    const stats = JSON.parse(emitted['mf-stats.json']);
+
+    expect(manifest.metaData.remoteEntry.name).toBe('remoteEntry.js');
+    expect(manifest.metaData).not.toHaveProperty('ssrRemoteEntry');
+    expect(stats.metaData).not.toHaveProperty('ssrRemoteEntry');
   });
 
   it('identifies the production var remote entry as a var container', async () => {
@@ -814,7 +841,7 @@ describe('pluginMFManifest', () => {
     remoteEntry.fileName = 'remoteEntry-a1b2c3d4.js';
     const emitted = await runGenerateBundleWithManifest(true, {
       filename: 'remoteEntry-[hash]',
-      bundle,
+      bundle: withSsrEntry(bundle),
     });
 
     const manifest = JSON.parse(emitted['mf-manifest.json']);
@@ -1360,6 +1387,17 @@ describe('pluginMFManifest', () => {
     // SSR entry not emitted yet: leave the manifest alone.
     runWriteBundle(makePlugin('remoteEntry.server.js'), 'ssr');
     expect(read('mf-manifest.json')).toBe('remoteEntry.ssr.js');
+
+    // The client build omits the entry; a later SSR build adds it (#1403).
+    fs.writeFileSync(path.join(outDir, 'mf-manifest.json'), JSON.stringify({ metaData: {} }));
+    fs.writeFileSync(path.join(outDir, 'remoteEntry.ssr.js'), '');
+    runWriteBundle(makePlugin('remoteEntry.js'), 'ssr');
+    expect(
+      JSON.parse(fs.readFileSync(path.join(outDir, 'mf-manifest.json'), 'utf8')).metaData
+        .ssrRemoteEntry
+    ).toEqual({ name: 'remoteEntry.ssr.js', path: '', type: 'module' });
+    fs.rmSync(path.join(outDir, 'remoteEntry.ssr.js'));
+    write('mf-manifest.json', 'remoteEntry.ssr.js');
 
     fs.writeFileSync(path.join(outDir, 'remoteEntry.server.ssr.js'), '');
     // Client environment never touches it.
