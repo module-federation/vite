@@ -51,7 +51,7 @@ import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntryS
  * This mirrors the behavior of the webpack/rspack plugins via
  * `getBuildVersion()` from `@module-federation/managers`.
  */
-function getBuildVersion(): string {
+export function getBuildVersion(): string {
   return process.env['MF_BUILD_VERSION'] ?? '1.0.0';
 }
 
@@ -65,7 +65,9 @@ function getBuildVersion(): string {
  * Advertising the relative paths here (resolved against `publicPath` by the
  * consumer) mirrors the webpack/rspack (`@module-federation/enhanced`) plugins.
  */
-function resolveTypesMeta(dts: ReturnType<typeof getNormalizeModuleFederationOptions>['dts']): {
+export function resolveTypesMeta(
+  dts: ReturnType<typeof getNormalizeModuleFederationOptions>['dts']
+): {
   path: string;
   name: string;
   zip?: string;
