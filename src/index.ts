@@ -1230,6 +1230,10 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   let rootResolveConditions: string[] | undefined;
   let ssrResolveConditions: string[] | undefined;
   let ssrTarget: 'node' | 'webworker' = 'node';
+  // ENV_TARGET written by config() when the user did not set one. Vite merges the
+  // root define into every environment before configEnvironment runs, so server
+  // environments inherit it and must not mistake it for a user value (#1401).
+  let inheritedEnvTarget: string | undefined;
   const emittedRuntimeCapabilityWarnings = new Set<string>();
 
   type LoadHookOptions = { ssr?: boolean };
@@ -2143,11 +2147,13 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         const resolvedTarget = options.target ?? (config.build?.ssr ? 'node' : 'web');
 
         if (!config.define) config.define = {};
+        const userSetEnvTarget = 'ENV_TARGET' in config.define;
         applyBuildTimeRuntimeDefines(config.define, options, {
           target: resolvedTarget,
           isAstro,
           defaultDisableSnapshot: resolvedTarget === 'node' ? true : undefined,
         });
+        inheritedEnvTarget = userSetEnvTarget ? undefined : config.define.ENV_TARGET;
 
         for (const warning of getRuntimeCapabilityConfigurationWarnings(options)) {
           if (emittedRuntimeCapabilityWarnings.has(warning)) continue;
@@ -2177,6 +2183,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         const isAstro = hasPackageDependency('astro');
         // Copy define per environment — Vite may reuse the same object across envs.
         config.define = { ...(config.define ?? {}) };
+        if (inheritedEnvTarget !== undefined && config.define.ENV_TARGET === inheritedEnvTarget) {
+          delete config.define.ENV_TARGET;
+        }
         applyBuildTimeRuntimeDefines(config.define, options, {
           target: options.target ?? 'node',
           isAstro,
