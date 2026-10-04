@@ -313,7 +313,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
 
   let root: string;
   let remoteEntryFile: string;
-  let ssrRemoteEntryFile: string;
+  let ssrRemoteEntryFile: string | undefined;
   let publicPath: string;
   let _command: string;
   let _originalConfigBase: string | undefined;
@@ -439,7 +439,8 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
        * A standalone `vite build --ssr` may run with its own `filename`, e.g.
        * `defineConfig(({ isSsrBuild }) => ...)`. The manifest written by the
        * earlier client build then advertises an SSR entry derived from the
-       * browser filename, which is not the file this build emitted. Point the
+       * browser filename, which is not the file this build emitted, or omits
+       * the entry because the client build did not emit one. Point the
        * manifest and stats on disk at the emitted SSR entry.
        */
       writeBundle(outputOptions) {
@@ -471,8 +472,12 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             try {
               const data = JSON.parse(fs.readFileSync(file, 'utf8'));
               const entry = data?.metaData?.ssrRemoteEntry;
-              if (!entry || typeof entry !== 'object' || entry.name === ssrEntryName) continue;
-              entry.name = ssrEntryName;
+              if (!data?.metaData || entry?.name === ssrEntryName) continue;
+              data.metaData.ssrRemoteEntry = Object.assign(
+                { name: ssrEntryName, path: '', type: 'module' },
+                typeof entry === 'object' ? entry : null,
+                { name: ssrEntryName }
+              );
               fs.writeFileSync(file, JSON.stringify(data));
             } catch {
               // Leave an unreadable manifest untouched.
@@ -506,6 +511,9 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         if (foundRemoteEntryFile) {
           remoteEntryFile = foundRemoteEntryFile;
         }
+        // A plain client build emits no SSR entry; advertising the expected
+        // filename anyway sends Node consumers to a 404. A standalone SSR
+        // build adds the entry in writeBundle once the file exists.
         ssrRemoteEntryFile =
           foundSsrRemoteEntryFile ||
           (_command === 'serve'
@@ -513,7 +521,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
                 mfOptions,
                 resolveHashPlaceholderFileName(mfOptions.filename)
               )
-            : expectedSsrRemoteEntryFile);
+            : undefined);
 
         // Second pass: Collect all CSS assets
         const allCssAssets =
@@ -656,16 +664,18 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
       path: '',
       type: 'module',
     };
-    const ssrRemoteEntry = {
-      name:
-        ssrRemoteEntryFile ||
-        getSsrRemoteEntryFileName(
-          mfOptions,
-          _command === 'serve' ? resolveHashPlaceholderFileName(filename) : filename
-        ),
-      path: _command === 'serve' ? '/__mf_ssr__/' : '',
-      type: 'module',
-    };
+    const resolvedSsrRemoteEntryFile =
+      _command === 'serve'
+        ? ssrRemoteEntryFile ||
+          getSsrRemoteEntryFileName(mfOptions, resolveHashPlaceholderFileName(filename))
+        : ssrRemoteEntryFile;
+    const ssrRemoteEntry = resolvedSsrRemoteEntryFile
+      ? {
+          name: resolvedSsrRemoteEntryFile,
+          path: _command === 'serve' ? '/__mf_ssr__/' : '',
+          type: 'module',
+        }
+      : undefined;
 
     const varRemoteEntry = varFilename
       ? {
