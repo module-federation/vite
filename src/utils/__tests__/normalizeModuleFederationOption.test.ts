@@ -68,6 +68,7 @@ describe('normalizeModuleFederationOption', () => {
         externalRuntime: false,
         provideExternalRuntime: false,
         ssrMode: undefined,
+        hostProvidesAllShared: false,
       },
     });
   });
@@ -159,6 +160,7 @@ describe('normalizeModuleFederationOption', () => {
     ).toEqual({
       externalRuntime: true,
       provideExternalRuntime: true,
+      hostProvidesAllShared: false,
     });
   });
 
@@ -166,7 +168,17 @@ describe('normalizeModuleFederationOption', () => {
     expect(normalizeModuleFederationOptions(minimalOptions).experiments).toEqual({
       externalRuntime: false,
       provideExternalRuntime: false,
+      hostProvidesAllShared: false,
     });
+  });
+
+  it('normalizes experiments.hostProvidesAllShared as an explicit opt-in', () => {
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        experiments: { hostProvidesAllShared: true },
+      }).experiments.hostProvidesAllShared
+    ).toBe(true);
   });
 
   it('accepts dts generateTypes afterGenerate callbacks', () => {
