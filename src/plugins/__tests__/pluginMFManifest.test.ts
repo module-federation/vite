@@ -1400,19 +1400,23 @@ describe('pluginMFManifest', () => {
     write('mf-manifest.json', 'remoteEntry.ssr.js');
 
     fs.writeFileSync(path.join(outDir, 'remoteEntry.server.ssr.js'), '');
-    // Client environment never touches it.
-    runWriteBundle(makePlugin('remoteEntry.server.js'), 'client');
+    // A client build whose own SSR name is not on disk leaves it alone.
+    runWriteBundle(makePlugin('remoteEntry.js'), 'client');
     expect(read('mf-manifest.json')).toBe('remoteEntry.ssr.js');
 
     runWriteBundle(makePlugin('remoteEntry.server.js'), 'ssr');
     expect(read('mf-manifest.json')).toBe('remoteEntry.server.ssr.js');
     expect(read('mf-stats.json')).toBe('remoteEntry.server.ssr.js');
 
-    // Vite 5: no `this.environment`; a legacy `vite build --ssr` is detected
-    // through `build.ssr`, and a plain client build is left alone.
+    // The builder may run `ssr` before `client`: the client build then finds
+    // the SSR entry already on disk and advertises it.
     write('mf-manifest.json', 'remoteEntry.ssr.js');
-    runWriteBundle(makePlugin('remoteEntry.server.js'));
-    expect(read('mf-manifest.json')).toBe('remoteEntry.ssr.js');
+    runWriteBundle(makePlugin('remoteEntry.server.js'), 'client');
+    expect(read('mf-manifest.json')).toBe('remoteEntry.server.ssr.js');
+
+    // Vite 5: no `this.environment`; a legacy `vite build --ssr` is detected
+    // through the emitted file alone.
+    write('mf-manifest.json', 'remoteEntry.ssr.js');
     runWriteBundle(makePlugin('remoteEntry.server.js', { ssr: 'src/entry-server.tsx' }));
     expect(read('mf-manifest.json')).toBe('remoteEntry.server.ssr.js');
 

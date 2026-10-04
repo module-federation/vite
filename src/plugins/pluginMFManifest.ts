@@ -436,28 +436,24 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             : resolvePublicPath(mfOptions, base, _originalConfigBase);
       },
       /**
-       * A standalone `vite build --ssr` may run with its own `filename`, e.g.
-       * `defineConfig(({ isSsrBuild }) => ...)`. The manifest written by the
-       * earlier client build then advertises an SSR entry derived from the
-       * browser filename, which is not the file this build emitted, or omits
-       * the entry because the client build did not emit one. Point the
-       * manifest and stats on disk at the emitted SSR entry.
+       * The client manifest only advertises an SSR entry its own bundle
+       * emitted. The SSR entry usually lands in a separate build: a standalone
+       * `vite build --ssr` (possibly with its own `filename`, e.g.
+       * `defineConfig(({ isSsrBuild }) => ...)`) or the `ssr` environment,
+       * which the builder may run before or after `client`. Whichever build
+       * finishes with the SSR entry on disk points the manifest and stats at it.
        */
       writeBundle(outputOptions) {
         if (!mfManifestName || _command !== 'build' || isConsumerProject) return;
-        // Vite 6+ exposes the environment; Vite 5 has no `this.environment`,
-        // so fall back to the legacy `vite build --ssr` flag like the SSR
-        // remote entry plugin does.
-        const environment = (this as { environment?: { name?: string } }).environment;
-        const isSsrBuild = environment
-          ? environment.name === 'ssr'
-          : Boolean(viteConfig?.build?.ssr);
-        if (!isSsrBuild) return;
 
         const ssrEntryName = getSsrRemoteEntryFileName(mfOptions);
         const outDirs = [
           ...new Set(
-            [outputOptions.dir, viteConfig?.environments?.client?.build?.outDir]
+            [
+              outputOptions.dir,
+              viteConfig?.environments?.client?.build?.outDir,
+              viteConfig?.environments?.ssr?.build?.outDir,
+            ]
               .filter((dir): dir is string => typeof dir === 'string')
               .map((dir) => path.resolve(root, dir))
           ),
