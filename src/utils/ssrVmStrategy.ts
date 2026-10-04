@@ -26,7 +26,6 @@ import {
   readResponseTextBounded,
 } from './fetchWithTimeout';
 import { findSharedKey, type SharedKeyLookup } from './sharedKeyMatcher';
-import { getUrlOrigin } from './url';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
@@ -36,7 +35,11 @@ interface VmStrategyOptions {
   fetchMaxBytes?: number;
   cacheContext: object;
   federationInstance?: object;
-  /** Root entry URL used to scope cache invalidation to a remote graph. */
+  /**
+   * Remote entry URL (the one hosts configure and pass to `revalidate()`) that
+   * owns this graph. Scopes cache invalidation to that remote. Defaults to the
+   * SSR entry URL being loaded.
+   */
   rootEntryUrl?: string;
 }
 
@@ -268,36 +271,27 @@ function addVmCacheOwner(
 function clearOwnedVmCache<T>(
   cache: Map<string, T>,
   ownersByCacheKey: Map<string, Set<string>>,
-  remoteOrigin: string | undefined
+  remoteEntryUrl: string | undefined
 ): void {
   for (const [cacheKey, owners] of ownersByCacheKey) {
-    if (!remoteOrigin) {
-      cache.delete(cacheKey);
-      ownersByCacheKey.delete(cacheKey);
-      continue;
-    }
+    if (remoteEntryUrl !== undefined && !owners.delete(remoteEntryUrl)) continue;
+    if (remoteEntryUrl !== undefined && owners.size > 0) continue;
 
-    for (const owner of owners) {
-      if (getUrlOrigin(owner) === remoteOrigin) owners.delete(owner);
-    }
-    if (owners.size === 0) {
-      cache.delete(cacheKey);
-      ownersByCacheKey.delete(cacheKey);
-    }
+    cache.delete(cacheKey);
+    ownersByCacheKey.delete(cacheKey);
   }
 }
 
 /**
  * Drop cached VM module graphs after a remote revalidation. A module graph can
- * contain URLs from another origin, so ownership is tracked by the root entry
- * rather than inferred from each module URL.
+ * contain URLs from another origin, and one origin can serve several remotes,
+ * so ownership is tracked by the owning remote entry URL rather than inferred
+ * from each module URL. A module shared by several graphs stays cached while
+ * another remote still owns it.
  */
 export function clearVmStrategyCaches(remoteEntryUrl?: string): void {
-  const remoteOrigin = remoteEntryUrl === undefined ? undefined : getUrlOrigin(remoteEntryUrl);
-  if (remoteEntryUrl !== undefined && !remoteOrigin) return;
-
-  clearOwnedVmCache(httpModuleCache, httpModuleCacheOwners, remoteOrigin);
-  clearOwnedVmCache(namespaceCache, namespaceCacheOwners, remoteOrigin);
+  clearOwnedVmCache(httpModuleCache, httpModuleCacheOwners, remoteEntryUrl);
+  clearOwnedVmCache(namespaceCache, namespaceCacheOwners, remoteEntryUrl);
 }
 
 function getBodyPreview(body: string): string {
@@ -421,9 +415,10 @@ export async function loadViaVmStrategy(
   const vm = await getVmApi();
   if (!vm) return null;
 
-  const graphOptions = { ...options, rootEntryUrl: entryUrl };
+  const rootEntryUrl = options.rootEntryUrl ?? entryUrl;
+  const graphOptions = { ...options, rootEntryUrl };
   const cacheKey = `${getVmCacheContextKey(options)}::${options.versionKey}::${entryUrl}`;
-  addVmCacheOwner(namespaceCacheOwners, cacheKey, entryUrl);
+  addVmCacheOwner(namespaceCacheOwners, cacheKey, rootEntryUrl);
   if (!namespaceCache.has(cacheKey)) {
     namespaceCache.set(
       cacheKey,

@@ -685,6 +685,12 @@ function scheduleVmCacheCleanup(remoteEntryUrl?: string): void {
     });
 }
 
+/**
+ * A dev-mode ModuleRunner is created per origin (one Vite dev server) and is
+ * shared by every remote that server hosts, so its module cache can only be
+ * cleared as a whole. Origin scoping is therefore the finest granularity here;
+ * clearing only costs a re-evaluation, no generated files are removed.
+ */
 async function clearRunnerCaches(remoteEntryUrl?: string): Promise<void> {
   let remoteOrigin: string | undefined;
   if (remoteEntryUrl) {
@@ -1258,7 +1264,8 @@ function warnStrategyFallback(
 
 async function tryVmStrategy(
   ssrEntry: SsrEntryCandidate,
-  options: ResolvedLoaderOptions
+  options: ResolvedLoaderOptions,
+  rootEntryUrl: string
 ): Promise<{ init: unknown; get: unknown } | null> {
   const { loadViaVmStrategy, isVmStrategyAvailable } = await getVmStrategyModule();
 
@@ -1281,6 +1288,7 @@ async function tryVmStrategy(
     fetchMaxBytes: options.fetchMaxBytes,
     cacheContext: options.cacheContext,
     federationInstance: options.federationInstance,
+    rootEntryUrl,
   })) as { init: unknown; get: unknown } | null;
 }
 
@@ -1350,7 +1358,7 @@ async function loadSSRRemoteEntry(
     // SourceTextModule API is unavailable or evaluation fails.
     if (options.strategy === 'vm') {
       try {
-        const fromVm = await tryVmStrategy(ssrEntry, options);
+        const fromVm = await tryVmStrategy(ssrEntry, options, rootEntryUrl);
         if (fromVm) return fromVm;
       } catch (error) {
         if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
