@@ -6,6 +6,7 @@
  */
 import type { Plugin } from 'vite';
 import { mfWarn } from '../utils/logger';
+import { resolveInternally } from '../utils/sharedSource';
 
 type ParseCompletion =
   | { complete: true; reason: 'graph-complete' }
@@ -250,12 +251,15 @@ export default function (
         // resolution has to be repeated. `this.resolve` replays the whole
         // resolveId chain, which means an external produced by a plugin ordered
         // before this one is still observed — watching our own resolveId hook
-        // cannot see those, because resolution is first-wins.
+        // cannot see those, because resolution is first-wins. The probe is an
+        // internal resolve: it replays an already-resolved id, which the share
+        // hooks would otherwise take for a fresh import and register as a used
+        // share (an absolute node_modules path under a prefix share, say).
         const probeExternal = (pendingId: string) => {
           if (typeof this.resolve !== 'function') return;
           if (controller.resolutionProbed.has(pendingId)) return;
           controller.resolutionProbed.add(pendingId);
-          void this.resolve(pendingId, id, { skipSelf: true })
+          void resolveInternally(this, pendingId, id)
             .then((resolved) => {
               if (!resolved?.external) return;
               controller.externalSet.add(pendingId);

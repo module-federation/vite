@@ -43,6 +43,32 @@ export function isSharedEntryLookup(
   );
 }
 
+/**
+ * Runs one of the plugin's own `this.resolve()` calls (a shared entry lookup, a
+ * parse-barrier external probe), marked so `isSharedEntryLookup` recognizes it
+ * and the share hooks neither proxy it nor register a used share for it.
+ */
+export async function resolveInternally(
+  context: ResolveContext,
+  source: string,
+  importer: string | undefined,
+  options: ResolveOptions = {}
+) {
+  const lookupKey = getEntryLookupKey(source, importer);
+  pendingEntryLookups.set(lookupKey, (pendingEntryLookups.get(lookupKey) ?? 0) + 1);
+  try {
+    return await context.resolve(source, importer, {
+      ...options,
+      skipSelf: true,
+      custom: { ...options.custom, __mfSharedEntryLookup: true },
+    });
+  } finally {
+    const remaining = pendingEntryLookups.get(lookupKey)! - 1;
+    if (remaining) pendingEntryLookups.set(lookupKey, remaining);
+    else pendingEntryLookups.delete(lookupKey);
+  }
+}
+
 /** Identify shared entries through Vite, with a cache scoped to this federation instance. */
 export function createSharedSourceResolver(
   shared: NormalizedShared,
@@ -141,22 +167,12 @@ export function createSharedSourceResolver(
         )
           return undefined;
         const importer = path.join(root, 'package.json');
-        const lookupKey = getEntryLookupKey(request, importer);
-        pendingEntryLookups.set(lookupKey, (pendingEntryLookups.get(lookupKey) ?? 0) + 1);
         try {
-          const resolved = await context.resolve(request, importer, {
-            ...options,
-            skipSelf: true,
-            custom: { ...options.custom, __mfSharedEntryLookup: true },
-          });
+          const resolved = await resolveInternally(context, request, importer, options);
           return resolved && !resolved.external ? resolved.id : undefined;
         } catch {
           // A prefix can suggest a private or missing export. It is not a shared entry.
           return undefined;
-        } finally {
-          const remaining = pendingEntryLookups.get(lookupKey)! - 1;
-          if (remaining) pendingEntryLookups.set(lookupKey, remaining);
-          else pendingEntryLookups.delete(lookupKey);
         }
       });
       // Vite can re-enter resolution while an earlier lookup is pending. Sharing

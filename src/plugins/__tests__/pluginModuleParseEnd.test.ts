@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { build as viteBuild } from 'vite';
 import pluginModuleParseEnd, { createModuleParseController } from '../pluginModuleParseEnd';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
+import { isSharedEntryLookup } from '../../utils/sharedSource';
 
 function getParsePlugins(
   excludeFn: (id: string) => boolean,
@@ -201,6 +202,30 @@ describe('pluginModuleParseEnd', () => {
       complete: true,
       reason: 'graph-complete',
     });
+  });
+
+  it('probes externals as internal resolves so share hooks ignore them', async () => {
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const resolve = vi.fn(async () => ({ id: '/src/child.ts', external: false }));
+    const ctx = { getModuleInfo: () => null, resolve } as any;
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    callHook(parseEnd.moduleParsed, ctx, {
+      id: '/src/main.ts',
+      importedIds: ['/src/child.ts'],
+      dynamicallyImportedIds: [],
+    } as never);
+
+    expect(resolve).toHaveBeenCalledWith('/src/child.ts', '/src/main.ts', {
+      skipSelf: true,
+      custom: { __mfSharedEntryLookup: true },
+    });
+    // Also tracked in flight, for rolldown versions that drop `custom`.
+    expect(isSharedEntryLookup('/src/child.ts', '/src/main.ts', {})).toBe(true);
+    await Promise.resolve();
+    expect(isSharedEntryLookup('/src/child.ts', '/src/main.ts', {})).toBe(false);
+    expect(controller.externalSet.has('/src/child.ts')).toBe(false);
   });
 
   it('does not wait for external dependencies discovered during parsing', async () => {
