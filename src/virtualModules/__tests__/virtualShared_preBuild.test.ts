@@ -21,6 +21,7 @@ import {
   invalidateSharedExportInspectionCache,
   isCoalescableLoadShareWrapper,
   markLoadShareWrapperNotCoalescable,
+  prependWorkspaceSingletonSsrImport,
   refreshTreeShakingModules,
   resetConcreteSharedImportSourceCache,
   stripTreeShakingGraphQuery,
@@ -3808,8 +3809,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
-  it('prepends workspace singleton static import for SSR build loads only', async () => {
-    const { prependWorkspaceSingletonSsrImport } = await import('../virtualShared_preBuild');
+  it('prepends workspace singleton static import for SSR build loads only', () => {
     const pkg = 'workspace-shared-lib';
     const mockShareItem: ShareItem = {
       name: pkg,
@@ -4397,7 +4397,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
-  it('defers entry-injected react-dom/client fallbacks to avoid duplicate renderers', async () => {
+  it('defers entry-injected react-dom/client fallbacks to avoid duplicate renderers', () => {
     normalizeModuleFederationOptions({
       name: 'remote',
       hostInitInjectLocation: 'entry',
@@ -4428,7 +4428,6 @@ describe('writeLoadShareModule', () => {
     // No synchronous fallback branch at all, so the server build resolves it the same way.
     expect(generatedCode).not.toContain('import.meta.env.SSR');
     expect(generatedCode).not.toContain('&& false');
-    const { prependWorkspaceSingletonSsrImport } = await import('../virtualShared_preBuild');
     expect(prependWorkspaceSingletonSsrImport(generatedCode)).toBe(generatedCode);
   });
 
@@ -4488,8 +4487,7 @@ describe('writeLoadShareModule', () => {
     }
   );
 
-  it('prepends the local payload for deferred entry-injected SSR wrappers', async () => {
-    const { prependWorkspaceSingletonSsrImport } = await import('../virtualShared_preBuild');
+  it('prepends the local payload for deferred entry-injected SSR wrappers', () => {
     const code = entryInjectedCode('vue');
     expect(code).not.toContain('import * as __mfLocalShare');
     const ssrCode = prependWorkspaceSingletonSsrImport(code);

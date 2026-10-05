@@ -1844,7 +1844,7 @@ function generateLazyWorkspaceSingletonExports(
   serveLocalFallback = false,
   mutableExports: string[] = [],
   deferredEntryFallback = false,
-  ssrLocalFallback?: boolean
+  ssrLocalFallback = true
 ) {
   const copiedExports = namedExports.filter((name) => !mutableExports.includes(name));
   const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
@@ -1918,9 +1918,8 @@ function generateLazyWorkspaceSingletonExports(
   // adds the local payload edge in the server load hook. react-dom/client is
   // the exception — loading an unused local renderer registers it and splits
   // React identity (#1335), so it keeps skipping the SSR branch.
-  const applySsrLocalFallback = ssrLocalFallback ?? !deferredEntryFallback;
   const synchronousFallbackConditions = [
-    ...(applySsrLocalFallback ? ['import.meta.env.SSR'] : []),
+    ...(ssrLocalFallback ? ['import.meta.env.SSR'] : []),
     ...(serveLocalFallback
       ? ["(import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')"]
       : []),
