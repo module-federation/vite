@@ -4397,7 +4397,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('await ');
   });
 
-  it('defers entry-injected react-dom/client fallbacks to avoid duplicate renderers', () => {
+  it('defers entry-injected react-dom/client fallbacks to avoid duplicate renderers', async () => {
     normalizeModuleFederationOptions({
       name: 'remote',
       hostInitInjectLocation: 'entry',
@@ -4428,6 +4428,8 @@ describe('writeLoadShareModule', () => {
     // No synchronous fallback branch at all, so the server build resolves it the same way.
     expect(generatedCode).not.toContain('import.meta.env.SSR');
     expect(generatedCode).not.toContain('&& false');
+    const { prependWorkspaceSingletonSsrImport } = await import('../virtualShared_preBuild');
+    expect(prependWorkspaceSingletonSsrImport(generatedCode)).toBe(generatedCode);
   });
 
   function entryInjectedCode(
@@ -4472,7 +4474,7 @@ describe('writeLoadShareModule', () => {
   );
 
   it.each(['react-router', 'vue', 'vue-router', 'lit'])(
-    'defers entry-injected singleton %s until the host cache or init wins',
+    'defers entry-injected singleton %s on the client and keeps an SSR local fallback',
     (pkg) => {
       const code = entryInjectedCode(pkg);
       expect(code).not.toContain('import * as __mfLocalShare');
@@ -4480,10 +4482,22 @@ describe('writeLoadShareModule', () => {
       expect(code).toContain(
         `import("${pkg === 'lit' ? 'mock-import-id' : `/resolved/${pkg}`}").then((mod) => {`
       );
-      expect(code).not.toContain('import.meta.env.SSR');
+      expect(code).toContain('if (import.meta.env.SSR)');
+      expect(code).toContain('__mfNormalizeShareModule(__mfLocalShare)');
       expect(code).not.toContain('await ');
     }
   );
+
+  it('prepends the local payload for deferred entry-injected SSR wrappers', async () => {
+    const { prependWorkspaceSingletonSsrImport } = await import('../virtualShared_preBuild');
+    const code = entryInjectedCode('vue');
+    expect(code).not.toContain('import * as __mfLocalShare');
+    const ssrCode = prependWorkspaceSingletonSsrImport(code);
+    expect(ssrCode).toContain('import * as __mfLocalShare from "/resolved/vue";');
+    expect(ssrCode).toContain('if (import.meta.env.SSR)');
+    expect(ssrCode).toContain('Promise.race([');
+    expect(prependWorkspaceSingletonSsrImport(ssrCode)).toBe(ssrCode);
+  });
 
   it('keeps a singleton on the remote entry static graph synchronous', () => {
     const code = entryInjectedCode('vue', {
@@ -4539,6 +4553,7 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
     expect(generatedCode).toContain('useSyncExternalStoreWithSelector');
     expect(generatedCode).toContain('Promise.race([');
+    expect(generatedCode).toContain('if (import.meta.env.SSR)');
     expect(generatedCode).toContain(
       'import("/resolved/use-sync-external-store/shim/with-selector").then'
     );

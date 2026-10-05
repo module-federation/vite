@@ -1843,7 +1843,8 @@ function generateLazyWorkspaceSingletonExports(
   treeShakingConsumer?: string,
   serveLocalFallback = false,
   mutableExports: string[] = [],
-  deferredEntryFallback = false
+  deferredEntryFallback = false,
+  ssrLocalFallback?: boolean
 ) {
   const copiedExports = namedExports.filter((name) => !mutableExports.includes(name));
   const namedExportVars = copiedExports.map((_name, i) => `__mf_${i}`);
@@ -1909,13 +1910,17 @@ function generateLazyWorkspaceSingletonExports(
           });
         })`;
 
-  // Where the local fallback may be applied synchronously. An entry-injected
-  // deferred fallback never is, not even on the server: it emits no
-  // `if (import.meta.env.SSR)` branch, so `prependWorkspaceSingletonSsrImport`
-  // leaves the wrapper alone and both builds resolve it through the cache or
-  // init, then the dynamic import.
+  // Client entry-injected deferred fallbacks wait for the host cache or init
+  // (Promise.race) so a hosted remote does not evaluate its local prebuild.
+  // SSR still applies the local copy immediately when the share cache has no
+  // provider yet: module-scope consumers (e.g. vue `defineComponent`) run during
+  // evaluation, before async init. `prependWorkspaceSingletonSsrImport` then
+  // adds the local payload edge in the server load hook. react-dom/client is
+  // the exception — loading an unused local renderer registers it and splits
+  // React identity (#1335), so it keeps skipping the SSR branch.
+  const applySsrLocalFallback = ssrLocalFallback ?? !deferredEntryFallback;
   const synchronousFallbackConditions = [
-    ...(deferredEntryFallback ? [] : ['import.meta.env.SSR']),
+    ...(applySsrLocalFallback ? ['import.meta.env.SSR'] : []),
     ...(serveLocalFallback
       ? ["(import.meta.env.DEV && typeof __mfLocalShare !== 'undefined')"]
       : []),
@@ -2288,8 +2293,10 @@ export function writeLoadShareModule(
   // singleton with a federation-runtime dependency can also pull its dependency
   // into the remote entry's static graph (#1196), so keep that dependency
   // synchronous. Other singletons can wait for a host cache write or init before
-  // loading their local fallback. Respect an explicit eager share choice.
-  // react-dom/client must always take this path:
+  // loading their local fallback on the client. SSR still uses a synchronous
+  // local fallback when the cache is empty so module-scope consumers bind
+  // during evaluation. Respect an explicit eager share choice.
+  // react-dom/client must always take this path, including on the server:
   // evaluating an unused local renderer registers it and splits React identity
   // (#1335).
   const usesDeferredEntryInjectedSingletonFallback =
@@ -2332,7 +2339,8 @@ export function writeLoadShareModule(
       treeShakingConsumer,
       false,
       liveNamedExports,
-      true
+      true,
+      pkg !== REACT_DOM_CLIENT_SHARE
     );
   } else if (usesEagerWorkspaceFallback || usesEntryInjectedRemoteFallback) {
     exportLine = generateEagerWorkspaceSingletonExports(
