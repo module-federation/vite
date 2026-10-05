@@ -122,6 +122,40 @@ describe('normalizeModuleFederationOption', () => {
     ).toBeUndefined();
   });
 
+  it('forwards ssrEntryLoader fetch and cache options when set', () => {
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrEntryLoader: {
+          strategy: 'vm',
+          maxAgeMs: 5_000,
+          fetchTimeoutMs: 1_000,
+          fetchMaxBytes: 1024,
+        },
+      }).ssrEntryLoader
+    ).toEqual({
+      strategy: 'vm',
+      maxAgeMs: 5_000,
+      fetchTimeoutMs: 1_000,
+      fetchMaxBytes: 1024,
+    });
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrEntryLoader: { maxAgeMs: 0, fetchTimeoutMs: 0, fetchMaxBytes: 0 },
+      }).ssrEntryLoader
+    ).toEqual({ maxAgeMs: 0, fetchTimeoutMs: 0, fetchMaxBytes: 0 });
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrEntryLoader: {
+          strategy: 'unknown' as 'vm',
+          maxAgeMs: 1000,
+        },
+      }).ssrEntryLoader
+    ).toEqual({ maxAgeMs: 1000 });
+  });
+
   it('normalizes experiments.ssrMode as an explicit island opt-in', () => {
     expect(normalizeModuleFederationOptions(minimalOptions).experiments.ssrMode).toBeUndefined();
     expect(

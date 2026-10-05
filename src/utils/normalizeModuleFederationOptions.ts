@@ -624,9 +624,22 @@ function normalizeExperiments(
 function normalizeSsrEntryLoader(
   ssrEntryLoader: ModuleFederationOptions['ssrEntryLoader']
 ): SsrEntryLoaderConfig | undefined {
-  const strategy = ssrEntryLoader?.strategy;
-  if (strategy !== 'temp-file' && strategy !== 'vm') return undefined;
-  return { strategy };
+  if (!ssrEntryLoader) return undefined;
+
+  const normalized: SsrEntryLoaderConfig = {};
+  if (ssrEntryLoader.strategy === 'temp-file' || ssrEntryLoader.strategy === 'vm') {
+    normalized.strategy = ssrEntryLoader.strategy;
+  }
+  if (typeof ssrEntryLoader.maxAgeMs === 'number') {
+    normalized.maxAgeMs = ssrEntryLoader.maxAgeMs;
+  }
+  if (typeof ssrEntryLoader.fetchTimeoutMs === 'number') {
+    normalized.fetchTimeoutMs = ssrEntryLoader.fetchTimeoutMs;
+  }
+  if (typeof ssrEntryLoader.fetchMaxBytes === 'number') {
+    normalized.fetchMaxBytes = ssrEntryLoader.fetchMaxBytes;
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 export type ModuleFederationOptions = {
@@ -751,7 +764,8 @@ export type ModuleFederationOptions = {
    * Options for the auto-injected `@module-federation/vite/ssrEntryLoader`.
    * When omitted, the loader uses the `'temp-file'` strategy. Set
    * `strategy: 'vm'` to opt into `vm.SourceTextModule` evaluation while keeping
-   * the computed `resolvedShared` map.
+   * the computed `resolvedShared` map. Optional `maxAgeMs`, `fetchTimeoutMs`,
+   * and `fetchMaxBytes` are forwarded to the loader when set.
    */
   ssrEntryLoader?: SsrEntryLoaderConfig;
   /**
@@ -810,6 +824,22 @@ export type SsrEntryLoaderConfig = {
    *   falls back to `'temp-file'` when that API is unavailable.
    */
   strategy?: SsrEntryLoaderStrategy;
+  /**
+   * Re-check each remote's manifest when the cached SSR entry resolution is
+   * older than this many milliseconds. Omit to cache until process exit or an
+   * explicit `revalidate()` call.
+   */
+  maxAgeMs?: number;
+  /**
+   * Maximum time in milliseconds for each SSR network request. Defaults to
+   * 10 seconds in the loader. Set to `0` to disable the timeout.
+   */
+  fetchTimeoutMs?: number;
+  /**
+   * Maximum response body size in bytes for each SSR network request. Defaults
+   * to 10 MiB in the loader. Set to `0` to disable the limit.
+   */
+  fetchMaxBytes?: number;
 };
 
 export interface NormalizedExperimentsOptions {

@@ -4498,4 +4498,25 @@ describe('ssrEntryLoader strategy injection', () => {
       },
     ]);
   });
+
+  it('forwards ssrEntryLoader fetch and cache options on the injected plugin', () => {
+    const injected = injectSsrEntryLoader({
+      ssrEntryLoader: {
+        strategy: 'vm',
+        maxAgeMs: 5_000,
+        fetchTimeoutMs: 0,
+        fetchMaxBytes: 1024,
+      },
+    });
+    expect(injected).toEqual([
+      '@module-federation/vite/ssrEntryLoader',
+      {
+        resolvedShared: expect.any(Object),
+        strategy: 'vm',
+        maxAgeMs: 5_000,
+        fetchTimeoutMs: 0,
+        fetchMaxBytes: 1024,
+      },
+    ]);
+  });
 });

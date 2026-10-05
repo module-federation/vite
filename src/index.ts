@@ -1069,9 +1069,7 @@ export default __mfShared.default ?? __mfShared;`,
           ssrEntryLoaderSpecifier,
           {
             resolvedShared,
-            ...(options.ssrEntryLoader?.strategy
-              ? { strategy: options.ssrEntryLoader.strategy }
-              : {}),
+            ...options.ssrEntryLoader,
           },
         ]);
       } catch {
