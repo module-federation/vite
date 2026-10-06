@@ -306,6 +306,13 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
     })?.fileName;
   };
 
+  const findEmittedExposesChunk = (
+    bundle: Record<string, { type: string; fileName: string; facadeModuleId?: string | null }>
+  ) =>
+    Object.values(bundle).find(
+      (file) => file.type === 'chunk' && file.facadeModuleId === virtualExposesSSRId
+    )?.fileName;
+
   return [
     {
       name: 'mf:ssr-remote-entry:pre',
@@ -563,6 +570,20 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
             fileName: ssrOutputFilename,
             preserveSignature: 'strict',
           });
+        } else if (
+          Object.keys(options.exposes).length > 0 &&
+          !isNuxtProjectRoot(viteConfig?.root ?? process.cwd())
+        ) {
+          // Rollup emits the SSR entry as an asset (see generateBundle), so its
+          // `import("virtual:mf-exposes-ssr:…")` must point at a real chunk. Nuxt
+          // bundles the exposes into its own server chunk; other SSR frameworks
+          // (TanStack Start, plain `vite build --ssr`) need it emitted here.
+          this.emitFile({
+            type: 'chunk',
+            id: virtualExposesSSRId,
+            name: 'ssrExposes',
+            preserveSignature: 'strict',
+          });
         }
       },
 
@@ -575,7 +596,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               environment?: { name?: string; config?: ResolvedConfig };
             }
           ).environment;
-          const exposesChunk = findNuxtExposesChunk(bundle);
+          const exposesChunk = findNuxtExposesChunk(bundle) ?? findEmittedExposesChunk(bundle);
           if (!isRolldown && isSsrRemoteEntryBuild(environment)) {
             let source = getSsrRemoteEntrySource();
             if (exposesChunk) {
