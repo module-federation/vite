@@ -1421,7 +1421,23 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         if (command === 'build' && (id.includes(LOAD_SHARE_TAG) || id.includes(LOAD_REMOTE_TAG))) {
           return;
         }
-        return virtualModule.code;
+        // In serve mode this hook answers before the esm-shims load hook (build
+        // only), so the server's local fallback edge has to be added here too.
+        // Without it a remote-only singleton's SSR branch reads an undeclared
+        // `__mfLocalShare` (#1419).
+        const code = virtualModule.code;
+        if (code && id.includes(LOAD_SHARE_TAG)) {
+          const consumerTarget = resolveEnvironmentConsumerTarget(this);
+          if (consumerTarget === 'server' || (!consumerTarget && loadOptions?.ssr === true)) {
+            const withSsrImport = prependWorkspaceSingletonSsrImport(code);
+            if (withSsrImport !== code) {
+              const pkg = getCachedLoadSharePkg(id);
+              if (pkg) markLoadShareWrapperNotCoalescable(pkg, options, id);
+              return withSsrImport;
+            }
+          }
+        }
+        return code;
       },
     },
     ...(options.experiments.externalRuntime ? [pluginExternalRuntimeCore()] : []),

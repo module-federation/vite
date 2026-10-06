@@ -438,6 +438,69 @@ describe('virtual module resolution', () => {
       callHook(virtualModulesPlugin.load, context, `\0${currentId}`)
     );
   });
+
+  it('binds the SSR local fallback of a remote-only singleton in serve mode', () => {
+    const plugins = federation({
+      name: 'remote-only-dev-ssr',
+      exposes: { './widget': './src/widget.js' },
+    }) as Plugin[];
+    const configPlugin = plugins.find((plugin) => plugin.name === 'vite:module-federation-config')!;
+    const virtualModulesPlugin = plugins.find(
+      (plugin) => plugin.name === 'vite:module-federation-virtual-modules'
+    )!;
+    runConfig(
+      configPlugin,
+      {} as ConfigPluginContext,
+      { root: process.cwd() },
+      { command: 'serve', mode: 'development' }
+    );
+
+    // The shape of a remote-only singleton wrapper in serve mode: an SSR branch
+    // that reads `__mfLocalShare`, with no import binding it (#1419).
+    const virtualModule = new VirtualModule('remote-only-dev-ssr', LOAD_SHARE_TAG, '.js');
+    virtualModule.write(`
+      let __mf_default;
+      const __mfApplyLazyShareExports = (mod) => {
+        __mf_default = mod.default ?? mod;
+      };
+      let exportModule = undefined;
+      if (exportModule === undefined) {
+        if (import.meta.env.SSR) {
+          exportModule = __mfNormalizeShareModule(__mfLocalShare);
+          __mfApplyLazyShareExports(exportModule);
+        } else {
+          __mfTrackPendingShareLoad(initPromise.then(() => {
+            exportModule = undefined;
+            return import("clsx").then((mod) => {
+              exportModule = __mfNormalizeShareModule(mod);
+              __mfApplyLazyShareExports(exportModule);
+            });
+          }));
+        }
+      }
+      export { __mf_default as default };
+    `);
+    const id = virtualModule.getImportId();
+    const localShareImport = 'import * as __mfLocalShare from "clsx";';
+    const loadFor = (consumer: 'client' | 'server') => {
+      const name = consumer === 'server' ? 'ssr' : 'client';
+      return callHook(
+        virtualModulesPlugin.load,
+        { environment: { name, config: { consumer } } } as any,
+        id
+      ) as string;
+    };
+
+    expect(loadFor('server')).toContain(localShareImport);
+    expect(loadFor('client')).not.toContain('import * as __mfLocalShare');
+    // Vite 5-7 dev SSR has no environment and flags the request through load options.
+    expect(callHook(virtualModulesPlugin.load, {} as any, id, { ssr: true })).toContain(
+      localShareImport
+    );
+    expect(callHook(virtualModulesPlugin.load, {} as any, id)).not.toContain(
+      'import * as __mfLocalShare'
+    );
+  });
 });
 
 describe('module parse wiring', () => {
