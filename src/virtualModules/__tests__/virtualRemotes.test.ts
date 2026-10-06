@@ -235,6 +235,32 @@ describe('generateRemotes', () => {
     expect(code).not.toContain('__mfCreateRemoteProxy');
   });
 
+  it('does not leak a rejection from an unawaited pending export', async () => {
+    const code = generateRemotes('remote/Button', 'serve', true, 'server');
+    const remoteCacheKey = /const remoteCacheKey = ("[^"]+");/.exec(code)?.[1];
+    expect(remoteCacheKey).toBeDefined();
+    // A re-evaluated wrapper finds its remote cached, so `__mf_remote_pending`
+    // starts a fresh load that nothing awaits.
+    const moduleCache = {
+      remote: { [JSON.parse(remoteCacheKey!)]: { default: 'cached' } },
+      share: {},
+    };
+    const failure = new Error('remote offline');
+    const runtime = { loadRemote: vi.fn(() => Promise.reject(failure)) };
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const exports = runGeneratedRemoteModule(code, runtime, moduleCache);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(runtime.loadRemote).toHaveBeenCalledWith('remote/Button');
+      expect(unhandled).not.toHaveBeenCalled();
+      await expect(exports.__mf_remote_pending).rejects.toBe(failure);
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
   it('keeps default-only imports live until the remote resolves', async () => {
     const remoteDefault = { kind: 'default' };
     const runtime = {
