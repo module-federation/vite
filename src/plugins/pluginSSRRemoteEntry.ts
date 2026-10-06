@@ -572,7 +572,8 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           });
         } else if (
           Object.keys(options.exposes).length > 0 &&
-          !isNuxtProjectRoot(viteConfig?.root ?? process.cwd())
+          !isNuxtProject &&
+          !isNuxtClientBase(getBasePath(viteConfig?.base))
         ) {
           // Rollup emits the SSR entry as an asset (see generateBundle), so its
           // `import("virtual:mf-exposes-ssr:…")` must point at a real chunk. Nuxt
