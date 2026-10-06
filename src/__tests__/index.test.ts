@@ -23,6 +23,7 @@ import { toViteEncodedId } from '../utils/VirtualModule';
 import {
   getLoadShareImportId,
   getLoadShareModulePath,
+  writeLoadShareModule,
 } from '../virtualModules/virtualShared_preBuild';
 
 const { getSharedExportConditionsMock, hasPackageDependencyMock, mfWarn } = vi.hoisted(() => ({
@@ -440,14 +441,21 @@ describe('virtual module resolution', () => {
   });
 
   it('binds the SSR local fallback of a remote-only singleton in serve mode', () => {
+    const pkg = '@module-federation/sdk';
     const plugins = federation({
       name: 'remote-only-dev-ssr',
       exposes: { './widget': './src/widget.js' },
+      shared: { [pkg]: { singleton: true } },
     }) as Plugin[];
     const configPlugin = plugins.find((plugin) => plugin.name === 'vite:module-federation-config')!;
     const virtualModulesPlugin = plugins.find(
       (plugin) => plugin.name === 'vite:module-federation-virtual-modules'
     )!;
+    const options = (
+      plugins.find((plugin) => plugin.name === 'module-federation-vite') as Plugin & {
+        _options: NormalizedModuleFederationOptions;
+      }
+    )._options;
     runConfig(
       configPlugin,
       {} as ConfigPluginContext,
@@ -455,33 +463,11 @@ describe('virtual module resolution', () => {
       { command: 'serve', mode: 'development' }
     );
 
-    // The shape of a remote-only singleton wrapper in serve mode: an SSR branch
-    // that reads `__mfLocalShare`, with no import binding it (#1419).
-    const virtualModule = new VirtualModule('remote-only-dev-ssr', LOAD_SHARE_TAG, '.js');
-    virtualModule.write(`
-      let __mf_default;
-      const __mfApplyLazyShareExports = (mod) => {
-        __mf_default = mod.default ?? mod;
-      };
-      let exportModule = undefined;
-      if (exportModule === undefined) {
-        if (import.meta.env.SSR) {
-          exportModule = __mfNormalizeShareModule(__mfLocalShare);
-          __mfApplyLazyShareExports(exportModule);
-        } else {
-          __mfTrackPendingShareLoad(initPromise.then(() => {
-            exportModule = undefined;
-            return import("clsx").then((mod) => {
-              exportModule = __mfNormalizeShareModule(mod);
-              __mfApplyLazyShareExports(exportModule);
-            });
-          }));
-        }
-      }
-      export { __mf_default as default };
-    `);
-    const id = virtualModule.getImportId();
-    const localShareImport = 'import * as __mfLocalShare from "clsx";';
+    // A container with exposes and no remotes is remote-only: its serve-mode
+    // wrapper has an SSR branch that reads `__mfLocalShare` but no import
+    // binding it (#1419).
+    writeLoadShareModule(pkg, options.shared[pkg], 'serve', false, options);
+    const id = getLoadShareModulePath(pkg, false, options);
     const loadFor = (consumer: 'client' | 'server') => {
       const name = consumer === 'server' ? 'ssr' : 'client';
       return callHook(
@@ -490,16 +476,17 @@ describe('virtual module resolution', () => {
         id
       ) as string;
     };
+    const clientCode = loadFor('client');
+    const serverCode = loadFor('server');
 
-    expect(loadFor('server')).toContain(localShareImport);
-    expect(loadFor('client')).not.toContain('import * as __mfLocalShare');
-    // Vite 5-7 dev SSR has no environment and flags the request through load options.
-    expect(callHook(virtualModulesPlugin.load, {} as any, id, { ssr: true })).toContain(
-      localShareImport
-    );
-    expect(callHook(virtualModulesPlugin.load, {} as any, id)).not.toContain(
-      'import * as __mfLocalShare'
-    );
+    expect(clientCode).toContain('if (import.meta.env.SSR)');
+    expect(clientCode).toContain('__mfNormalizeShareModule(__mfLocalShare)');
+    expect(clientCode).not.toContain('import * as __mfLocalShare');
+    expect(serverCode.match(/import \* as __mfLocalShare from /g)).toHaveLength(1);
+    expect(serverCode.endsWith(clientCode)).toBe(true);
+    // Vite 5 dev SSR has no environment and flags the request through load options.
+    expect(callHook(virtualModulesPlugin.load, {} as any, id, { ssr: true })).toBe(serverCode);
+    expect(callHook(virtualModulesPlugin.load, {} as any, id)).toBe(clientCode);
   });
 });
 
