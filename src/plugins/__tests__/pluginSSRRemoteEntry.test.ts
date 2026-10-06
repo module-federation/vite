@@ -1043,7 +1043,10 @@ describe('pluginSSRRemoteEntry', () => {
       // The asset is generated later; buildStart only emits the exposes chunk it imports.
       expect(emitFile).toHaveBeenCalledTimes(1);
       expect(emitFile).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'chunk', id: 'virtual:mf-exposes-ssr:__mfe_internal__remote' })
+        expect.objectContaining({
+          type: 'chunk',
+          id: 'virtual:mf-exposes-ssr:__mfe_internal__remote',
+        })
       );
 
       callHook(
@@ -1259,7 +1262,10 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(ssrEmitFile).toHaveBeenCalledTimes(2);
       expect(ssrEmitFile).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'chunk', id: 'virtual:mf-exposes-ssr:__mfe_internal__remote' })
+        expect.objectContaining({
+          type: 'chunk',
+          id: 'virtual:mf-exposes-ssr:__mfe_internal__remote',
+        })
       );
       expect(ssrEmitFile).toHaveBeenCalledWith(
         expect.objectContaining({
