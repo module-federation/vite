@@ -1242,7 +1242,9 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         // (#1292). Only hostInit still injects.
         if (viteConfig?.command === 'build' && !waitsForInit) return;
         if (isSvelteKitServerModule(id)) return;
-        if (hasEntryBootstrapParam(id)) return;
+        // The re-imported entry is reached only through a dynamic import, so a
+        // package `sideEffects: false` would tree-shake its body (#1414).
+        if (hasEntryBootstrapParam(id)) return { code, map: null, moduleSideEffects: true };
         if (normalizeModuleId(id).endsWith('.html')) return;
         const projectId = resolveProjectId(id);
         if (skipTransformIds.has(projectId)) return;

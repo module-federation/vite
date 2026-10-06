@@ -562,6 +562,30 @@ describe('pluginAddEntry', () => {
     });
   }
 
+  it('keeps side effects of the re-imported bootstrap entry (#1414)', async () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+    });
+    const buildPlugin = plugins[1];
+    runConfigResolved(buildPlugin, {
+      root: '/app',
+      base: '/',
+      command: 'build',
+      build: { rollupOptions: { input: '/node_modules/start/client.tsx' } },
+    } as unknown as ResolvedConfig);
+
+    // A package `sideEffects: false` would otherwise drop the entry body.
+    expect(
+      await runTransform(
+        buildPlugin,
+        'hydrateRoot(document);',
+        '/node_modules/start/client.tsx?mf-entry-bootstrap'
+      )
+    ).toEqual({ code: 'hydrateRoot(document);', map: null, moduleSideEffects: true });
+  });
+
   it('leaves remoteEntry and virtualExposes imports out of build entries (#1292)', async () => {
     // Both chunks are emitted in buildStart and reached through dynamic
     // imports. A static side-effect import from the app entry makes Rolldown
@@ -1311,13 +1335,15 @@ describe('pluginAddEntry', () => {
       build: { rollupOptions: {} },
     } as unknown as ResolvedConfig);
 
+    const code =
+      'const entry = () => import("#app/entry").then((m) => m.default);\nif (true) {\n  entry();\n}\nexport default entry;';
     const result = await runTransform(
       buildPlugin,
-      'const entry = () => import("#app/entry").then((m) => m.default);\nif (true) {\n  entry();\n}\nexport default entry;',
+      code,
       '/repo/node_modules/.pnpm/nuxt@4.3.1/node_modules/nuxt/dist/app/entry.async.js?v=123&mf-entry-bootstrap'
     );
 
-    expect(result).toBeUndefined();
+    expect(result).toEqual({ code, map: null, moduleSideEffects: true });
   });
 
   it('injects host init before Nuxt dev mount', async () => {
