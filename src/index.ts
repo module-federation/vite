@@ -32,7 +32,7 @@ import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import { escapeRegExp } from './utils/regexEscape';
-import { resolveEnvironmentConsumerTarget } from './utils/remoteConsumerTarget';
+import { isServerContext } from './utils/remoteConsumerTarget';
 import {
   collectLoadShareProxyChunks,
   collectSystemProxyInfos,
@@ -1429,8 +1429,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         // environment in dev and flags SSR through the load options instead.
         const code = virtualModule.code;
         if (code && id.includes(LOAD_SHARE_TAG)) {
-          const consumerTarget = resolveEnvironmentConsumerTarget(this);
-          if (consumerTarget === 'server' || (!consumerTarget && loadOptions?.ssr === true)) {
+          if (isServerContext(this, loadOptions?.ssr === true)) {
             return prependWorkspaceSingletonSsrImport(code);
           }
         }
@@ -1911,10 +1910,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           if (!virtualModule?.code) return null;
           let code = virtualModule.code;
 
-          const consumerTarget = resolveEnvironmentConsumerTarget(this);
           // Vite 5-7 SSR builds do not expose `this.environment`, so fall back to root
           // build.ssr to ensure SSR-only local fallback imports are still prepended.
-          if (consumerTarget === 'server' || (!consumerTarget && isSsrBuild)) {
+          if (isServerContext(this, isSsrBuild)) {
             const withSsrImport = prependWorkspaceSingletonSsrImport(code);
             if (withSsrImport !== code) {
               const pkg = getCachedLoadSharePkg(id);

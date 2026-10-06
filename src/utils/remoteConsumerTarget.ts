@@ -46,9 +46,18 @@ export function isServerBuildContext(
   ctx: unknown,
   config: { build?: { ssr?: boolean | string } } | undefined
 ): boolean {
+  return isServerContext(ctx, Boolean(config?.build?.ssr));
+}
+
+/**
+ * Whether a hook runs for a server graph. Hooks without an environment context
+ * (Vite 5) use `legacySsr`, such as the root `build.ssr` flag or the load
+ * hook's `ssr` option.
+ */
+export function isServerContext(ctx: unknown, legacySsr: boolean): boolean {
   const target = resolveEnvironmentConsumerTarget(ctx);
   if (target) return target === 'server';
-  return Boolean(config?.build?.ssr);
+  return legacySsr;
 }
 
 export function resolveRemoteConsumer(ctx: unknown, hasMultiEnvironment: boolean): RemoteConsumer {
