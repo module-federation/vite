@@ -317,6 +317,7 @@ const addEntry = ({
   let emittedFileName: string | undefined;
   let skipTransformIds = new Set<string>();
   let injectedTransformIds = new Set<string>();
+  const virtualEntryCode = new Map<string, string>();
   const ignoredHtmlScriptSources = new Set<string>();
   let bootstrapDir = '';
 
@@ -1008,7 +1009,26 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           addHtmlScriptEntries(htmlFilePath);
         }
       },
-      buildStart() {
+      async buildStart() {
+        // Inputs aliased by another plugin (TanStack Start's
+        // `virtual:tanstack-start-client-entry`) never match the resolved ids
+        // seen in transform, so also record what they resolve to (#1413).
+        // `\0` ids are only re-importable in dev, through the load hook below.
+        if (inject === 'entry' && waitsForInit && isClientEnvironment(this)) {
+          for (const entry of [...entryFiles]) {
+            if (path.isAbsolute(entry)) continue;
+            const resolved = await this.resolve(entry, undefined, { skipSelf: true }).catch(
+              () => null
+            );
+            if (
+              resolved &&
+              !resolved.external &&
+              (_command === 'serve' || !resolved.id.startsWith('\0'))
+            ) {
+              addEntryFile(resolveProjectId(resolved.id));
+            }
+          }
+        }
         if (_command === 'serve') return;
         if (skipSvelteKitSsrBuild()) return;
         // Skip Nitro's "ssr" environment — it reads all emitted entry chunks to
@@ -1209,6 +1229,9 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         };
         setTimeout(retry, 0);
       },
+      load(id) {
+        return virtualEntryCode.get(id);
+      },
       transform(code, id) {
         if (skipSvelteKitSsrBuild()) return;
         // The remoteEntry chunk is emitted in buildStart and reached through a
@@ -1355,9 +1378,15 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             const injection = `import ${JSON.stringify(getEntryPath())};\n`;
             return mapCodeToCodeWithSourcemap(injection + code);
           }
-          const entrySrc = id.includes('?')
+          let entrySrc = id.includes('?')
             ? `${id}&${ENTRY_BOOTSTRAP_QUERY.slice(1)}`
             : `${id}${ENTRY_BOOTSTRAP_QUERY}`;
+          // A `\0` entry's own load hook only matches its exact id, so serve
+          // the re-imported copy from here (#1413).
+          if (entrySrc.startsWith('\0')) {
+            virtualEntryCode.set(entrySrc, code);
+            entrySrc = toViteEncodedId(entrySrc.slice(1));
+          }
           const bootstrap = getBootstrapSource(getEntryPath(), entrySrc, false, {
             skipRemotePreload: _command === 'serve' && isNuxtEntryAsyncModule,
           });

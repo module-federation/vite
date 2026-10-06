@@ -514,6 +514,54 @@ describe('pluginAddEntry', () => {
     expect(result?.code).not.toContain('globalThis.System.import(src)');
   });
 
+  for (const command of ['build', 'serve'] as const) {
+    it(`injects host init into the resolved target of an aliased entry input (${command}) (#1413)`, async () => {
+      const resolvedEntry =
+        command === 'build' ? '/node_modules/start/client.tsx' : '\0virtual:start-dev-entry';
+      const plugins = addEntry({
+        entryName: 'hostInit',
+        entryPath: '/virtual/hostInit.js',
+        inject: 'entry',
+      });
+      const buildPlugin = plugins[1];
+      const config = {
+        root: '/app',
+        base: '/',
+        build: { rollupOptions: { input: { index: 'virtual:start-entry' } } },
+      };
+      for (const plugin of plugins) {
+        runConfig(plugin, {} as ConfigPluginContext, config, { command, mode: 'production' });
+      }
+      runConfigResolved(buildPlugin, { ...config, command } as unknown as ResolvedConfig);
+      await callHook(
+        buildPlugin.buildStart,
+        {
+          resolve: async () => ({ id: resolvedEntry, external: false }),
+          emitFile: () => 'ref',
+        } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      const result = (await runTransform(buildPlugin, 'hydrateRoot(document);', resolvedEntry)) as
+        | { code: string }
+        | undefined;
+
+      expect(result?.code).toContain('await initHost();');
+      if (command === 'build') {
+        expect(result?.code).toContain(`import("${resolvedEntry}?mf-entry-bootstrap")`);
+      } else {
+        // The framework's virtual module only loads its exact id, so the
+        // re-imported copy is served by this plugin.
+        expect(result?.code).toContain(
+          `"${toViteEncodedId('virtual:start-dev-entry?mf-entry-bootstrap')}"`
+        );
+        expect(await runLoad(buildPlugin, `${resolvedEntry}?mf-entry-bootstrap`)).toBe(
+          'hydrateRoot(document);'
+        );
+      }
+    });
+  }
+
   it('leaves remoteEntry and virtualExposes imports out of build entries (#1292)', async () => {
     // Both chunks are emitted in buildStart and reached through dynamic
     // imports. A static side-effect import from the app entry makes Rolldown
