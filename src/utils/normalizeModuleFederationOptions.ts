@@ -624,9 +624,22 @@ function normalizeExperiments(
 function normalizeSsrEntryLoader(
   ssrEntryLoader: ModuleFederationOptions['ssrEntryLoader']
 ): SsrEntryLoaderConfig | undefined {
-  const strategy = ssrEntryLoader?.strategy;
-  if (strategy !== 'temp-file' && strategy !== 'vm') return undefined;
-  return { strategy };
+  if (!ssrEntryLoader) return undefined;
+
+  const normalized: SsrEntryLoaderConfig = {};
+  if (ssrEntryLoader.strategy === 'temp-file' || ssrEntryLoader.strategy === 'vm') {
+    normalized.strategy = ssrEntryLoader.strategy;
+  }
+  if (Number.isFinite(ssrEntryLoader.maxAgeMs)) {
+    normalized.maxAgeMs = ssrEntryLoader.maxAgeMs;
+  }
+  if (Number.isFinite(ssrEntryLoader.fetchTimeoutMs)) {
+    normalized.fetchTimeoutMs = ssrEntryLoader.fetchTimeoutMs;
+  }
+  if (Number.isFinite(ssrEntryLoader.fetchMaxBytes)) {
+    normalized.fetchMaxBytes = ssrEntryLoader.fetchMaxBytes;
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 export type ModuleFederationOptions = {
@@ -751,7 +764,8 @@ export type ModuleFederationOptions = {
    * Options for the auto-injected `@module-federation/vite/ssrEntryLoader`.
    * When omitted, the loader uses the `'temp-file'` strategy. Set
    * `strategy: 'vm'` to opt into `vm.SourceTextModule` evaluation while keeping
-   * the computed `resolvedShared` map.
+   * the computed `resolvedShared` map. Optional `maxAgeMs`, `fetchTimeoutMs`,
+   * and `fetchMaxBytes` are forwarded to the loader when set.
    */
   ssrEntryLoader?: SsrEntryLoaderConfig;
   /**
@@ -804,12 +818,36 @@ export type SsrEntryLoaderConfig = {
    * remote SSR entries.
    *
    * - `'temp-file'` (default when omitted): fetch the ESM graph, rewrite
-   *   specifiers, write temp files and `import()` them.
-   * - `'vm'`: evaluate the graph with `vm.SourceTextModule`. Requires
-   *   `--experimental-vm-modules`; the loader emits a single warning and
-   *   falls back to `'temp-file'` when that API is unavailable.
+   *   specifiers, write temp files and `import()` them. Works on stock Node;
+   *   shared packages are pinned to the host's copies via `resolvedShared`
+   *   (no version negotiation).
+   * - `'vm'`: evaluate the graph with `vm.SourceTextModule` and link bare
+   *   shared imports through the host's federation share scope (`loadShare`),
+   *   restoring version negotiation. Requires `--experimental-vm-modules`; the
+   *   loader emits a single warning and falls back to `'temp-file'` when that
+   *   API is unavailable.
    */
   strategy?: SsrEntryLoaderStrategy;
+  /**
+   * Re-check each remote's manifest when the cached SSR entry resolution is
+   * older than this many milliseconds. When the manifest's version changes
+   * (remote redeployed at the same URL), the loader drops its caches for that
+   * remote so subsequent loads use the new build. Omit to cache until process
+   * exit or an explicit `revalidate()` call. Only manifest-resolved entries
+   * can be revalidated this way — convention-resolved entries have no version
+   * source.
+   */
+  maxAgeMs?: number;
+  /**
+   * Maximum time in milliseconds for each SSR network request. Defaults to
+   * 10 seconds. Set to `0` to disable the timeout.
+   */
+  fetchTimeoutMs?: number;
+  /**
+   * Maximum response body size in bytes for each SSR network request. Defaults
+   * to 10 MiB. Set to `0` to disable the limit.
+   */
+  fetchMaxBytes?: number;
 };
 
 export interface NormalizedExperimentsOptions {
