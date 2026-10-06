@@ -5,6 +5,7 @@ import {
   getPackageName,
   getPackageNameFromNodeModulePath,
   isPackageExportAvailable,
+  isPackageExportSelfConsistent,
 } from './packageUtils';
 import {
   getCommonSharedSubpaths,
@@ -82,13 +83,21 @@ export function createSharedSourceResolver(
   async function matchEntry(
     source: string,
     suffix: string,
+    entryOptions: { cwd: string; conditions: string[] },
     resolveEntry: (request: string) => Promise<string | undefined>
   ): Promise<string | undefined> {
     const packageName = getPackageNameFromNodeModulePath(source);
     if (!packageName) return;
     const candidates = new Set<string>();
     if (findSharedKey(packageName, shared)) candidates.add(packageName);
-    if (findSharedKey(suffix, shared)) candidates.add(suffix);
+    // `suffix` is the resolved path below the last `node_modules/`, so it is only a specifier the
+    // package publishes when `exports` maps it back to that same file. Packages that remap
+    // directories (`"./*": "./dist/*.js"`) match any subpath via the pattern while resolving it
+    // somewhere else, so the reconstructed specifier can never name the file it came from. Probing
+    // it is wasted work at best; at worst a resolver plugin reacts to the failed request with side
+    // effects of its own, so it must not become a candidate.
+    if (findSharedKey(suffix, shared) && isPackageExportSelfConsistent(suffix, entryOptions))
+      candidates.add(suffix);
     for (const key of Object.keys(shared)) {
       const request = getSharedRequest(key, shared[key]);
       if (getPackageName(request) !== packageName) continue;
@@ -158,23 +167,28 @@ export function createSharedSourceResolver(
       if (cache?.has(normalizedSource)) return cache.get(normalizedSource);
 
       const { root, conditions } = getResolutionConfig(context, options);
-      const result = await matchEntry(normalizedSource, suffix, async (request) => {
-        // Rolldown can retain errors from speculative this.resolve() calls even
-        // when caught. A file path does not imply a public package export.
-        if (
-          !path.isAbsolute(request) &&
-          !isPackageExportAvailable(request, { cwd: root, conditions })
-        )
-          return undefined;
-        const importer = path.join(root, 'package.json');
-        try {
-          const resolved = await resolveInternally(context, request, importer, options);
-          return resolved && !resolved.external ? resolved.id : undefined;
-        } catch {
-          // A prefix can suggest a private or missing export. It is not a shared entry.
-          return undefined;
+      const result = await matchEntry(
+        normalizedSource,
+        suffix,
+        { cwd: root, conditions },
+        async (request) => {
+          // Rolldown can retain errors from speculative this.resolve() calls even
+          // when caught. A file path does not imply a public package export.
+          if (
+            !path.isAbsolute(request) &&
+            !isPackageExportAvailable(request, { cwd: root, conditions })
+          )
+            return undefined;
+          const importer = path.join(root, 'package.json');
+          try {
+            const resolved = await resolveInternally(context, request, importer, options);
+            return resolved && !resolved.external ? resolved.id : undefined;
+          } catch {
+            // A prefix can suggest a private or missing export. It is not a shared entry.
+            return undefined;
+          }
         }
-      });
+      );
       // Vite can re-enter resolution while an earlier lookup is pending. Sharing
       // that promise can make the resolver wait on itself, so cache completed results only.
       cache?.set(normalizedSource, result);

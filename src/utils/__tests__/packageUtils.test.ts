@@ -13,6 +13,7 @@ import {
   getSharedCacheDescriptor,
   getSharedCacheKey,
   isPackageExportAvailable,
+  isPackageExportSelfConsistent,
   isPackageInstalled,
   packageNameDecode,
   packageNameEncode,
@@ -728,6 +729,117 @@ describe('isPackageExportAvailable', () => {
     writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
 
     expect(isPackageExportAvailable('mf-test-does-not-exist', { cwd: root })).toBe(true);
+  });
+});
+
+describe('isPackageExportSelfConsistent', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  function installPackage(label: string, packageName: string, exports: unknown): string {
+    const root = mkdtempSync(path.join(tmpdir(), `mf-vite-${label}-`));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: packageName, exports })
+    );
+
+    return hostDir;
+  }
+
+  it('rejects a specifier a directory-remapping wildcard only appears to publish', () => {
+    // The package publishes "pkg/button.js" (-> ./dist/button.js). A specifier rebuilt from the
+    // resolved path is "pkg/dist/button.js", which the "./*.js" pattern matches while resolving to
+    // ./dist/dist/button.js — a file that does not exist and is not exported.
+    const packageName = 'mf-test-dist-remap';
+    const hostDir = installPackage('dist-remap', packageName, {
+      './*.js': { import: './dist/*.js' },
+      './*': { import: './dist/*.js' },
+    });
+
+    expect(isPackageExportSelfConsistent(`${packageName}/dist/button.js`, { cwd: hostDir })).toBe(
+      false
+    );
+    // isPackageExportAvailable cannot tell the difference, which is why this check exists.
+    expect(isPackageExportAvailable(`${packageName}/dist/button.js`, { cwd: hostDir })).toBe(true);
+  });
+
+  it('accepts a specifier the package publishes at its on-disk path', () => {
+    const packageName = 'mf-test-flat';
+    const hostDir = installPackage('flat', packageName, {
+      './decorators.js': { import: './decorators.js' },
+    });
+
+    expect(isPackageExportSelfConsistent(`${packageName}/decorators.js`, { cwd: hostDir })).toBe(
+      true
+    );
+  });
+
+  it('accepts an identity wildcard', () => {
+    const packageName = 'mf-test-identity';
+    const hostDir = installPackage('identity', packageName, { './*': './*' });
+
+    expect(isPackageExportSelfConsistent(`${packageName}/nested/thing.js`, { cwd: hostDir })).toBe(
+      true
+    );
+  });
+
+  it('rejects a subpath that is blocked by an explicit null export', () => {
+    const packageName = 'mf-test-blocked';
+    const hostDir = installPackage('blocked', packageName, {
+      './library/*': null,
+      './*': { import: './*' },
+    });
+
+    // The file really is at library/helper.js, and the identity wildcard would otherwise
+    // publish it, but the more specific "./library/*": null withdraws the whole directory.
+    expect(
+      isPackageExportSelfConsistent(`${packageName}/library/helper.js`, { cwd: hostDir })
+    ).toBe(false);
+    expect(isPackageExportSelfConsistent(`${packageName}/public/thing.js`, { cwd: hostDir })).toBe(
+      true
+    );
+  });
+
+  it('is a no-op for a bare package name, which reconstructs no subpath', () => {
+    const packageName = 'mf-test-bare-self';
+    const hostDir = installPackage('bare-self', packageName, { '.': './dist/index.js' });
+
+    expect(isPackageExportSelfConsistent(packageName, { cwd: hostDir })).toBe(true);
+  });
+
+  it('stays lenient for a legacy package with no "exports" field', () => {
+    const packageName = 'mf-test-legacy-self';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-legacy-self-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName }));
+
+    expect(isPackageExportSelfConsistent(`${packageName}/dist/anything.js`, { cwd: hostDir })).toBe(
+      true
+    );
+  });
+
+  it('stays lenient for a package that is not installed', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-self-not-installed-'));
+    tempDirs.push(root);
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+
+    expect(isPackageExportSelfConsistent('mf-test-missing/dist/x.js', { cwd: root })).toBe(true);
   });
 });
 

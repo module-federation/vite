@@ -189,6 +189,41 @@ export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditio
 }
 
 /**
+ * Whether the installed package's `exports` field maps `pkg` back to the same file its subpath
+ * names on disk. Callers pass a specifier reconstructed from a resolved path, so its subpath *is*
+ * the file's path below the package root.
+ *
+ * `isPackageExportAvailable` only asks whether `exports` yields some target for a specifier, which
+ * a catch-all pattern answers for any subpath. That is too weak for a reconstructed specifier:
+ * a package that remaps directories in `exports` (`"./*": "./dist/*.js"`) publishes `pkg/foo.js`
+ * and never `pkg/dist/foo.js`, so `pkg/dist/foo.js` matches the pattern yet points at
+ * `./dist/dist/foo.js` — a file the package does not export and that cannot resolve.
+ *
+ * Lenient when the package cannot be found or has no `exports`, matching
+ * `isPackageExportAvailable`.
+ */
+export function isPackageExportSelfConsistent(
+  pkg: string,
+  opts: PackageEntryConditions = {}
+): boolean {
+  const packageName = getPackageName(pkg);
+  // No subpath was reconstructed, so there is nothing to contradict.
+  if (pkg === packageName) return true;
+  const installed = getInstalledPackageJson(packageName, opts);
+  if (installed?.packageJson.exports == null) return true;
+  const target = resolveExportsEntry(
+    getPackageExportsTarget(pkg, packageName, installed.packageJson.exports),
+    opts.conditions
+  );
+  if (typeof target !== 'string') return false;
+  return stripRelativePrefix(target) === stripRelativePrefix(pkg.slice(packageName.length + 1));
+}
+
+function stripRelativePrefix(target: string): string {
+  return target.replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+/**
  * Escaping rules:
  * Convert using the format __${mapping}__, where _ and $ are not allowed in npm package names but can be used in variable names.
  *  @ => 1
