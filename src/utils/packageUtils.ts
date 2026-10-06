@@ -31,6 +31,8 @@ function getDependencyCacheKey(cwd: string, dependencyName: string) {
 const installedPackageJsonCache = new Map<string, InstalledPackageJson | undefined>();
 // Keyed by project and package name, so subpath lookups share one walk and one warning.
 const dependentsLookupCache = new Map<string, InstalledPackageJson | undefined>();
+// Per project: every name installed under some package the dependents walk can reach.
+const reachableDependencyNames = new Map<string, Set<string>>();
 
 export function setPackageDetectionCwd(cwd: string) {
   packageDetectionCwd = cwd;
@@ -626,12 +628,28 @@ function findPackageInDependents(
 ): InstalledPackageJson | undefined {
   const cacheKey = `${cwd}\0${packageName}`;
   if (!dependentsLookupCache.has(cacheKey)) {
-    dependentsLookupCache.set(cacheKey, walkDependents(packageName, cwd));
+    // A walk for a name no reachable package installs visits the whole graph,
+    // so check one shared index first instead of repeating that walk per name.
+    if (!reachableDependencyNames.has(cwd)) {
+      const names = new Set<string>();
+      walkDependents('', cwd, names);
+      reachableDependencyNames.set(cwd, names);
+    }
+    dependentsLookupCache.set(
+      cacheKey,
+      reachableDependencyNames.get(cwd)!.has(packageName)
+        ? walkDependents(packageName, cwd)
+        : undefined
+    );
   }
   return dependentsLookupCache.get(cacheKey);
 }
 
-function walkDependents(packageName: string, cwd: string): InstalledPackageJson | undefined {
+function walkDependents(
+  packageName: string,
+  cwd: string,
+  reachedNames?: Set<string>
+): InstalledPackageJson | undefined {
   const root = tryReadPackageJson(path.join(cwd, 'package.json'));
   if (!root) return undefined;
 
@@ -655,6 +673,7 @@ function walkDependents(packageName: string, cwd: string): InstalledPackageJson 
         const dependent = findPackageFrom(name, fromDir);
         if (!dependent || visited.has(dependent.dir)) continue;
         visited.add(dependent.dir);
+        reachedNames?.add(name);
         const dependencies = getDependencyNames(dependent.packageJson);
         // Only a declared edge is followed. Node resolution from a package that
         // merely sits near the target walks up into a hoisted copy, which is the
