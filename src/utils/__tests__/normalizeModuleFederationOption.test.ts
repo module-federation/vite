@@ -151,6 +151,8 @@ describe('normalizeModuleFederationOption', () => {
         ssrEntryLoader: {
           strategy: 'unknown' as 'vm',
           maxAgeMs: 1000,
+          fetchTimeoutMs: Number.NaN,
+          fetchMaxBytes: Number.POSITIVE_INFINITY,
         },
       }).ssrEntryLoader
     ).toEqual({ maxAgeMs: 1000 });

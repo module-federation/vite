@@ -630,13 +630,13 @@ function normalizeSsrEntryLoader(
   if (ssrEntryLoader.strategy === 'temp-file' || ssrEntryLoader.strategy === 'vm') {
     normalized.strategy = ssrEntryLoader.strategy;
   }
-  if (typeof ssrEntryLoader.maxAgeMs === 'number') {
+  if (Number.isFinite(ssrEntryLoader.maxAgeMs)) {
     normalized.maxAgeMs = ssrEntryLoader.maxAgeMs;
   }
-  if (typeof ssrEntryLoader.fetchTimeoutMs === 'number') {
+  if (Number.isFinite(ssrEntryLoader.fetchTimeoutMs)) {
     normalized.fetchTimeoutMs = ssrEntryLoader.fetchTimeoutMs;
   }
-  if (typeof ssrEntryLoader.fetchMaxBytes === 'number') {
+  if (Number.isFinite(ssrEntryLoader.fetchMaxBytes)) {
     normalized.fetchMaxBytes = ssrEntryLoader.fetchMaxBytes;
   }
   return Object.keys(normalized).length > 0 ? normalized : undefined;
@@ -818,26 +818,34 @@ export type SsrEntryLoaderConfig = {
    * remote SSR entries.
    *
    * - `'temp-file'` (default when omitted): fetch the ESM graph, rewrite
-   *   specifiers, write temp files and `import()` them.
-   * - `'vm'`: evaluate the graph with `vm.SourceTextModule`. Requires
-   *   `--experimental-vm-modules`; the loader emits a single warning and
-   *   falls back to `'temp-file'` when that API is unavailable.
+   *   specifiers, write temp files and `import()` them. Works on stock Node;
+   *   shared packages are pinned to the host's copies via `resolvedShared`
+   *   (no version negotiation).
+   * - `'vm'`: evaluate the graph with `vm.SourceTextModule` and link bare
+   *   shared imports through the host's federation share scope (`loadShare`),
+   *   restoring version negotiation. Requires `--experimental-vm-modules`; the
+   *   loader emits a single warning and falls back to `'temp-file'` when that
+   *   API is unavailable.
    */
   strategy?: SsrEntryLoaderStrategy;
   /**
    * Re-check each remote's manifest when the cached SSR entry resolution is
-   * older than this many milliseconds. Omit to cache until process exit or an
-   * explicit `revalidate()` call.
+   * older than this many milliseconds. When the manifest's version changes
+   * (remote redeployed at the same URL), the loader drops its caches for that
+   * remote so subsequent loads use the new build. Omit to cache until process
+   * exit or an explicit `revalidate()` call. Only manifest-resolved entries
+   * can be revalidated this way — convention-resolved entries have no version
+   * source.
    */
   maxAgeMs?: number;
   /**
    * Maximum time in milliseconds for each SSR network request. Defaults to
-   * 10 seconds in the loader. Set to `0` to disable the timeout.
+   * 10 seconds. Set to `0` to disable the timeout.
    */
   fetchTimeoutMs?: number;
   /**
    * Maximum response body size in bytes for each SSR network request. Defaults
-   * to 10 MiB in the loader. Set to `0` to disable the limit.
+   * to 10 MiB. Set to `0` to disable the limit.
    */
   fetchMaxBytes?: number;
 };
