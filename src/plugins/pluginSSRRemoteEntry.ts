@@ -306,6 +306,10 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
     })?.fileName;
   };
 
+  // Nuxt bundles the exposes into its own server chunk and serves the SSR entry
+  // under its client base.
+  const isNuxtLike = () => isNuxtProject || isNuxtClientBase(getBasePath(viteConfig?.base));
+
   const findEmittedExposesChunk = (
     bundle: Record<string, { type: string; fileName: string; facadeModuleId?: string | null }>
   ) =>
@@ -391,7 +395,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         const basePath = getBasePath(viteConfig?.base);
         const ssrEntryFileName = getSsrRemoteEntryFileName(options);
 
-        if (isNuxtProject || isNuxtClientBase(basePath)) {
+        if (isNuxtLike()) {
           server.middlewares.use((req, _res, next) => {
             if (req.url?.replace(/\?.*/, '') === `${basePath}/${ssrEntryFileName}`) {
               req.url = `${basePath}/__mf_ssr__/${ssrEntryFileName}`;
@@ -570,11 +574,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
             fileName: ssrOutputFilename,
             preserveSignature: 'strict',
           });
-        } else if (
-          Object.keys(options.exposes).length > 0 &&
-          !isNuxtProject &&
-          !isNuxtClientBase(getBasePath(viteConfig?.base))
-        ) {
+        } else if (Object.keys(options.exposes).length > 0 && !isNuxtLike()) {
           // Rollup emits the SSR entry as an asset (see generateBundle), so its
           // `import("virtual:mf-exposes-ssr:…")` must point at a real chunk. Nuxt
           // bundles the exposes into its own server chunk; other SSR frameworks
@@ -601,9 +601,16 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           if (!isRolldown && isSsrRemoteEntryBuild(environment)) {
             let source = getSsrRemoteEntrySource();
             if (exposesChunk) {
+              // The entry may sit below the output root (`filename` or
+              // `ssrFilename` with a directory), so import relative to it.
+              let exposesImport = path.posix.relative(
+                path.posix.dirname(ssrOutputFilename),
+                exposesChunk
+              );
+              if (!exposesImport.startsWith('.')) exposesImport = `./${exposesImport}`;
               source = source.replace(
                 /import\("virtual:mf-exposes-ssr:[^"]+"\)/g,
-                `import("./${exposesChunk}")`
+                `import("${exposesImport}")`
               );
             }
             // Vite removes SSR assets when `ssrEmitAssets` is false. Emit after its
