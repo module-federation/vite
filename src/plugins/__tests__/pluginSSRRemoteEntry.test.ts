@@ -1040,7 +1040,14 @@ describe('pluginSSRRemoteEntry', () => {
         } as unknown as Rollup.PluginContext,
         {} as Rollup.NormalizedInputOptions
       );
-      expect(emitFile).not.toHaveBeenCalled();
+      // The asset is generated later; buildStart only emits the exposes chunk it imports.
+      expect(emitFile).toHaveBeenCalledTimes(1);
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'chunk',
+          id: 'virtual:mf-exposes-ssr:__mfe_internal__remote',
+        })
+      );
 
       callHook(
         mainPlugin.generateBundle,
@@ -1253,7 +1260,13 @@ describe('pluginSSRRemoteEntry', () => {
         false
       );
 
-      expect(ssrEmitFile).toHaveBeenCalledTimes(1);
+      expect(ssrEmitFile).toHaveBeenCalledTimes(2);
+      expect(ssrEmitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'chunk',
+          id: 'virtual:mf-exposes-ssr:__mfe_internal__remote',
+        })
+      );
       expect(ssrEmitFile).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'asset',
@@ -1349,7 +1362,9 @@ describe('pluginSSRRemoteEntry', () => {
         false
       );
 
-      const call = emitFile.mock.calls[0]?.[0] as { source?: string } | undefined;
+      const call = emitFile.mock.calls
+        .map(([file]) => file as { type?: string; source?: string })
+        .find((file) => file.type === 'asset');
       return call?.source ?? '';
     }
 
@@ -1469,6 +1484,115 @@ describe('pluginSSRRemoteEntry', () => {
           source: 'const map = import("./_nuxt/virtualExposes-abc.js");',
         })
       );
+    });
+
+    it('points the Rollup SSR entry at the emitted exposes chunk outside Nuxt', () => {
+      getIsRolldownMock.mockReturnValue(false);
+      vi.mocked(generateRemoteEntrySSR).mockReturnValueOnce(
+        'const map = import("virtual:mf-exposes-ssr:__mfe_internal__remote");'
+      );
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      callHook(
+        mainPlugin.configResolved,
+        {} as Rollup.PluginContext,
+        { command: 'build', build: { ssr: true } } as ResolvedConfig
+      );
+      const emitFile = makeEmitFile();
+      callHook(
+        mainPlugin.buildStart,
+        { meta: makePluginMeta(false), emitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+      callHook(
+        mainPlugin.generateBundle,
+        { emitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedOutputOptions,
+        {
+          'assets/ssrExposes-abc.js': {
+            type: 'chunk',
+            fileName: 'assets/ssrExposes-abc.js',
+            facadeModuleId: 'virtual:mf-exposes-ssr:__mfe_internal__remote',
+            code: 'export default {"./Widget": () => import("./Widget.js")}',
+          },
+        } as unknown as Rollup.OutputBundle,
+        false
+      );
+
+      expect(emitFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'asset',
+          source: 'const map = import("./assets/ssrExposes-abc.js");',
+        })
+      );
+    });
+
+    it.each([
+      [{ filename: 'assets/remoteEntry.js' }, 'assets/remoteEntry.ssr.js', './ssrExposes-abc.js'],
+      [
+        { ssrFilename: 'server/remoteEntry.js' },
+        'server/remoteEntry.js',
+        '../assets/ssrExposes-abc.js',
+      ],
+    ])(
+      'imports the exposes chunk relative to a nested Rollup SSR entry (%o)',
+      (overrides, entryFileName, exposesImport) => {
+        getIsRolldownMock.mockReturnValue(false);
+        vi.mocked(generateRemoteEntrySSR).mockReturnValueOnce(
+          'const map = import("virtual:mf-exposes-ssr:__mfe_internal__remote");'
+        );
+        const plugins = pluginSSRRemoteEntry(makeOptions(overrides));
+        const mainPlugin = plugins[1];
+        callHook(
+          mainPlugin.configResolved,
+          {} as Rollup.PluginContext,
+          { command: 'build', build: { ssr: true } } as ResolvedConfig
+        );
+        const emitFile = makeEmitFile();
+        const exposesFileName = 'assets/ssrExposes-abc.js';
+        callHook(
+          mainPlugin.generateBundle,
+          { emitFile } as unknown as Rollup.PluginContext,
+          {} as Rollup.NormalizedOutputOptions,
+          {
+            [exposesFileName]: {
+              type: 'chunk',
+              fileName: exposesFileName,
+              facadeModuleId: 'virtual:mf-exposes-ssr:__mfe_internal__remote',
+              code: 'export default {}',
+            },
+          } as unknown as Rollup.OutputBundle,
+          false
+        );
+
+        expect(emitFile).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'asset',
+            fileName: entryFileName,
+            source: `const map = import("${exposesImport}");`,
+          })
+        );
+      }
+    );
+
+    it('leaves the exposes chunk to Nuxt in Nuxt projects', () => {
+      getIsRolldownMock.mockReturnValue(false);
+      isNuxtProjectRootMock.mockReturnValue(true);
+      const plugins = pluginSSRRemoteEntry(makeOptions());
+      const mainPlugin = plugins[1];
+      callHook(
+        mainPlugin.configResolved,
+        {} as Rollup.PluginContext,
+        { command: 'build', build: { ssr: true } } as ResolvedConfig
+      );
+      const emitFile = makeEmitFile();
+      callHook(
+        mainPlugin.buildStart,
+        { meta: makePluginMeta(false), emitFile } as unknown as Rollup.PluginContext,
+        {} as Rollup.NormalizedInputOptions
+      );
+
+      expect(emitFile).not.toHaveBeenCalled();
     });
 
     it('caches the base SSR entry across outputs while rewriting Nuxt imports per output', () => {
