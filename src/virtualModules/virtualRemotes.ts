@@ -384,9 +384,14 @@ function getLazyRemotePendingExport() {
 }
 
 function getEagerRemotePendingExport() {
+  // A wrapper re-evaluated after its remote was cached (SSR revalidation, dev
+  // invalidation) starts a fresh load here. Importers that never await the
+  // export must not turn a failed load into an unhandled rejection, which
+  // exits a Node server; awaiting the export still rejects.
   return `export const __mf_remote_pending =
   __mfRemotePending ??
-  __mfStartRemoteLoad().then(__mfAssignRemoteModule);`;
+  __mfStartRemoteLoad().then(__mfAssignRemoteModule);
+__mf_remote_pending.catch(() => {});`;
 }
 
 function getServerThenExport() {
