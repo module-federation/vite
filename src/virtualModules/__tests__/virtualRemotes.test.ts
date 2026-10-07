@@ -121,6 +121,7 @@ function runGeneratedRemoteModule(
       'Object.defineProperty(__exports, "__moduleExports", { enumerable: true, get: () => exportModule });'
     )
     .replace('export const __mf_remote_pending =', 'const __mf_remote_pending =')
+    .replace('export let __mf_remote_pending =', 'let __mf_remote_pending =')
     .replace('export function then', 'function then')
     .replace(
       'export { __mfDefaultExport as default };',
@@ -140,12 +141,14 @@ function runGeneratedRemoteModule(
         enumerable: true,
         get: () => __mf_remote_pending,
       });
+      if (typeof then === "function") __exports.then = then;
       return __exports;
     `
   )(runtime, moduleCache) as {
     default: unknown;
     __moduleExports: Record<string, unknown>;
     __mf_remote_pending: Promise<unknown> | { then: Promise<unknown>['then'] };
+    then?: unknown;
   };
 }
 
@@ -259,6 +262,32 @@ describe('generateRemotes', () => {
     } finally {
       process.off('unhandledRejection', unhandled);
     }
+  });
+
+  it('retries a failed server load on the next await (#1424)', async () => {
+    const failure = new Error('remote offline');
+    const remoteDefault = { kind: 'default' };
+    const runtime = {
+      loadRemote: vi
+        .fn()
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValue({ default: remoteDefault }),
+    };
+    const code = generateRemotes('remote/Button', 'serve', true, 'server');
+    const exports = runGeneratedRemoteModule(code, runtime);
+    const then = exports.then as Promise<any>['then'];
+
+    // Vite's module runner caches what the wrapper's `then` settles with.
+    const runnerValue = await new Promise<any>((resolve, reject) => then(resolve, reject));
+    await expect(Promise.resolve(runnerValue.__mf_remote_pending)).resolves.toEqual({
+      default: remoteDefault,
+    });
+    await expect(Promise.resolve(exports.__mf_remote_pending)).resolves.toEqual({
+      default: remoteDefault,
+    });
+    expect(runtime.loadRemote).toHaveBeenCalledTimes(2);
+    expect(exports.default).toBe(remoteDefault);
+    expect(runnerValue.default).toBe(remoteDefault);
   });
 
   it('keeps default-only imports live until the remote resolves', async () => {
@@ -486,7 +515,7 @@ describe('generateRemotes', () => {
     );
     expect(code).toContain('export { exportModule as __moduleExports };');
     expect(code).toContain('export { __mfDefaultExport as default };');
-    expect(code).toContain('export const __mf_remote_pending =');
+    expect(code).toContain('export let __mf_remote_pending =');
     expect(code).not.toContain('module.exports = exportModule');
   });
 
