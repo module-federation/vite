@@ -1197,7 +1197,10 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written.every((path) => path.endsWith('.mjs'))).toBe(true);
   });
 
-  it('keeps .js temp files for CommonJS entries so Node still detects them', async () => {
+  it.each([
+    ['a manifest ssrRemoteEntry', 'http://localhost:5001/mf-manifest.json', undefined],
+    ['a direct .ssr.js entry', 'http://localhost:5001/ssr/remoteEntry.ssr.js', 'commonjs-module'],
+  ])('writes .cjs temp files for CommonJS entries from %s', async (_, entry, type) => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     const written: string[] = [];
@@ -1209,24 +1212,22 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
         ok: true,
         json: {
           metaData: {
-            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'commonjs-module' },
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: 'ssr', type: 'commonjs-module' },
           },
         },
       },
-      'http://localhost:5001/remoteEntry.ssr.js': {
+      'http://localhost:5001/ssr/remoteEntry.ssr.js': {
         ok: true,
         headers: { 'content-type': 'application/javascript' },
-        text: 'exports.init = async function init() {};',
+        text: 'module.exports = { init: async function init() {} };',
       },
     }) as unknown as typeof globalThis.fetch;
     const factory = await freshLoader();
 
-    await factory().loadEntry!({
-      remoteInfo: { name: 'r', entry: 'http://localhost:5001/mf-manifest.json' },
-    });
+    await factory().loadEntry!({ remoteInfo: { name: 'r', entry, type } });
 
     expect(written).toHaveLength(1);
-    expect(written[0].endsWith('.js')).toBe(true);
+    expect(written[0].endsWith('.cjs')).toBe(true);
   });
 
   it('rejects oversized SSR module bodies before writing temp files', async () => {

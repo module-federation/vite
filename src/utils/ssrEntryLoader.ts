@@ -25,6 +25,7 @@
  * generated runtimePlugins list in virtualRemotes.ts.
  */
 
+import { simpleJoinRemoteEntry } from '@module-federation/sdk';
 import {
   DEFAULT_SSR_FETCH_MAX_BYTES,
   DEFAULT_SSR_FETCH_TIMEOUT_MS,
@@ -445,7 +446,7 @@ function getEntryFilename(entryUrl: string): string {
 
 function resolveEntryAssetUrl(entry: { name: string; path?: string }, manifestUrl: string): string {
   const base = manifestUrl.replace(/\/[^/]+$/, '/');
-  return new URL(`${entry.path || ''}${entry.name}`, base).href;
+  return new URL(simpleJoinRemoteEntry(entry.path || '', entry.name), base).href;
 }
 
 function resolveSSREntryUrl(manifest: Manifest, manifestUrl: string): SsrEntryCandidate | null {
@@ -453,8 +454,7 @@ function resolveSSREntryUrl(manifest: Manifest, manifestUrl: string): SsrEntryCa
   if (!entry) return null;
 
   const base = manifestUrl.replace(/\/[^/]+$/, '/');
-  const entryPath = entry.path + entry.name;
-  const url = new URL(entryPath, base).href;
+  const url = new URL(simpleJoinRemoteEntry(entry.path, entry.name), base).href;
   return {
     url,
     type: entry.type,
@@ -1381,11 +1381,10 @@ async function loadSSRRemoteEntry(
     // walk-up needed.
     const sharedPkgMap = new Map(Object.entries(resolvedShared));
 
-    // `.mjs` tells Node the module format up front; a typeless `.js` has Node
-    // check each file's syntax first. CommonJS entries reach this path only
-    // when createRequire cannot load their http URL, and keep `.js` so Node
-    // still detects them as CommonJS.
-    const extension = type === 'commonjs-module' || type === 'commonjs' ? '.js' : '.mjs';
+    // `.mjs`/`.cjs` tell Node the module format up front. CommonJS entries
+    // reach this path only when createRequire cannot load their http URL.
+    const isCommonJs = type === 'commonjs-module' || type === 'commonjs';
+    const extension = isCommonJs ? '.cjs' : '.mjs';
 
     try {
       const tmpFile = await fetchEsmGraphToTempFile(
@@ -1399,6 +1398,15 @@ async function loadSSRRemoteEntry(
         extension,
         rootEntryUrl
       );
+      // Node's require returns the container (`module.exports`), not an ES
+      // namespace, and bypasses Vite's dev module runner, which evaluates
+      // every file as an ES module.
+      if (isCommonJs) {
+        return (await _module()).createRequire(import.meta.url)(tmpFile) as {
+          init: unknown;
+          get: unknown;
+        };
+      }
       return await importTempModule(tmpFile, versionKey);
     } catch (error) {
       if (isSsrEntryHttpError(error) || isSsrFetchBodyTooLargeError(error)) throw error;
@@ -1482,7 +1490,15 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
       );
       if (!ssrEntry) return;
 
-      const mod = await loadSSRRemoteEntry(ssrEntry, loadOptions, remoteInfo.entry);
+      // A direct `.ssr.js` entry (e.g. a manifest's `ssrRemoteEntry`) carries
+      // its module format on remoteInfo, such as Rspack's `commonjs-module`.
+      const mod = await loadSSRRemoteEntry(
+        ssrEntry.url === remoteInfo.entry && remoteInfo.type
+          ? { ...ssrEntry, type: remoteInfo.type }
+          : ssrEntry,
+        loadOptions,
+        remoteInfo.entry
+      );
       if (!mod) return;
 
       return mod;
