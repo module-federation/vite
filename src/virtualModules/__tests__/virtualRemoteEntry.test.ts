@@ -4090,6 +4090,20 @@ describe('virtualRemoteEntry', () => {
     }
   });
 
+  it('re-negotiates seeded version-first singletons in dev like build (#1396)', async () => {
+    optionsMock.shareStrategy = 'version-first';
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+
+    expect(code).toContain(
+      '!(share.shareConfig?.singleton && __mfHasAlternativeSharedVersion(pkg, share))'
+    );
+  });
+
   it('does not register remotes during remoteEntry init with loaded-first', async () => {
     optionsMock.shareStrategy = 'loaded-first';
     const mod = await import('../virtualRemoteEntry');
