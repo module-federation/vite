@@ -2569,7 +2569,9 @@ export function generateHostAutoInitCode(
                 __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined &&
                 ${
                   _command === 'serve'
-                    ? `__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined`
+                    ? // Same singleton re-negotiation as build, so dev picks the same version (#1396).
+                      `__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined &&
+                      !(share.shareConfig?.singleton && __mfHasAlternativeSharedVersion(pkg, share))`
                     : // A singleton negotiates against every remote under this strategy, so the
                       // pre-init seed above can only ever record this container's own provisional
                       // guess for it. Re-run loadShare() to let the runtime confirm or upgrade that
