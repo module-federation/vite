@@ -502,29 +502,32 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
     hasShared: (options: { shared?: object }) => Object.keys(options?.shared ?? {}).length > 0,
     isRemoteContainer: (options: { exposes?: object }) =>
       Object.keys(options?.exposes ?? {}).length > 0,
-    getNormalizeShareItem: (pkg: string) => ({
-      name: pkg,
-      from: '',
-      version: '19.2.4',
-      scope: 'default',
-      shareConfig: {
-        import:
-          pkg === 'host-only'
-            ? false
-            : pkg === 'custom-import'
-              ? '/abs/custom-import.js'
-              : pkg === 'tree-shared' && optionsMock.treeSharedImportFalse
-                ? false
-                : undefined,
-        singleton: pkg !== 'non-singleton',
-        requiredVersion: pkg === 'unconstrained' ? false : '^19.2.4',
-        strictVersion: false,
-        eager: pkg === 'eager-shared',
-        ...(pkg === 'tree-shared' || pkg === 'unknown-tree-shared'
-          ? { treeShaking: { mode: 'runtime-infer', usedExports: ['Button'] } }
-          : {}),
-      },
-    }),
+    getNormalizeShareItem: (pkg: string) =>
+      pkg === 'excluded-dep'
+        ? undefined
+        : {
+            name: pkg,
+            from: '',
+            version: '19.2.4',
+            scope: 'default',
+            shareConfig: {
+              import:
+                pkg === 'host-only'
+                  ? false
+                  : pkg === 'custom-import'
+                    ? '/abs/custom-import.js'
+                    : pkg === 'tree-shared' && optionsMock.treeSharedImportFalse
+                      ? false
+                      : undefined,
+              singleton: pkg !== 'non-singleton',
+              requiredVersion: pkg === 'unconstrained' ? false : '^19.2.4',
+              strictVersion: false,
+              eager: pkg === 'eager-shared',
+              ...(pkg === 'tree-shared' || pkg === 'unknown-tree-shared'
+                ? { treeShaking: { mode: 'runtime-infer', usedExports: ['Button'] } }
+                : {}),
+            },
+          },
   };
 });
 
@@ -971,6 +974,30 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('let pkg = await import("/abs/custom-import.js");');
     expect(code).not.toContain('virtual:prebuild:custom-import');
+  });
+
+  it('skips a used share with no config instead of leaving an empty import map entry (#1428)', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('host-only');
+    // Dev auto-excludes a shared sub-dependency after the scan recorded it
+    mod.addUsedShares('excluded-dep');
+    mod.addUsedShares('react');
+
+    const code = mod.generateLocalSharedImportMap();
+    expect(code).not.toContain('excluded-dep');
+    expect(
+      () =>
+        new Function(
+          code
+            .replace(
+              'import {loadShare} from "@module-federation/runtime";',
+              'const loadShare = () => {};'
+            )
+            .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, '')
+        )
+    ).not.toThrow();
   });
 
   it('builds a consume-only entry through one helper with the shape the literal had', async () => {

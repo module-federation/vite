@@ -262,6 +262,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
         }
       `;
         })
+        .filter(Boolean)
         .join(',')}
     }
       const usedShared = {
