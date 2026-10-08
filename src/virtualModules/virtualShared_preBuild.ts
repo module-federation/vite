@@ -1070,7 +1070,21 @@ function getWorkspacePackageJson(pkg: string) {
   })?.packageJson;
 }
 
+// The peer-singleton walk below revisits the same packages on every call, and
+// failed resolves (exports-hidden or uninstalled packages) are the costly part.
+const sharedDependencyGraphPackageJsonCache = new Map<string, any>();
+
 function getSharedDependencyGraphPackageJson(pkg: string) {
+  const cacheKey = `${getPackageDetectionCwd()}\0${pkg}`;
+  if (sharedDependencyGraphPackageJsonCache.has(cacheKey)) {
+    return sharedDependencyGraphPackageJsonCache.get(cacheKey);
+  }
+  const packageJson = resolveSharedDependencyGraphPackageJson(pkg);
+  sharedDependencyGraphPackageJsonCache.set(cacheKey, packageJson);
+  return packageJson;
+}
+
+function resolveSharedDependencyGraphPackageJson(pkg: string) {
   const installedPackageJson = getInstalledPackageJson(pkg, {
     packageName: getPackageName(pkg),
   })?.packageJson;
@@ -1087,10 +1101,33 @@ function getSharedDependencyGraphPackageJson(pkg: string) {
   return getWorkspacePackageJson(pkg);
 }
 
+// Called from config, resolveId and every loadShare load with the same inputs.
+const sharedSingletonConsumedByPeerCache = new WeakMap<object, Map<string, boolean>>();
+
 function isSharedSingletonConsumedByPeer(
   pkg: string,
   options: NormalizedModuleFederationOptions = getNormalizeModuleFederationOptions(),
   requireFederationRuntimeDependency = false
+) {
+  if (!options) {
+    return computeSharedSingletonConsumedByPeer(pkg, options, requireFederationRuntimeDependency);
+  }
+  let cache = sharedSingletonConsumedByPeerCache.get(options);
+  if (!cache) sharedSingletonConsumedByPeerCache.set(options, (cache = new Map()));
+  const cacheKey = `${getPackageDetectionCwd()}\0${pkg}\0${requireFederationRuntimeDependency}`;
+  if (!cache.has(cacheKey)) {
+    cache.set(
+      cacheKey,
+      computeSharedSingletonConsumedByPeer(pkg, options, requireFederationRuntimeDependency)
+    );
+  }
+  return cache.get(cacheKey)!;
+}
+
+function computeSharedSingletonConsumedByPeer(
+  pkg: string,
+  options: NormalizedModuleFederationOptions,
+  requireFederationRuntimeDependency: boolean
 ) {
   const shared = options?.shared || {};
   // Subpath shares (for example `preact/hooks`) execute against their package
