@@ -287,6 +287,36 @@ function patchHashEntryFileNames(config: any, entryName: string, fileName?: stri
   );
 }
 
+const ROLLDOWN_RUNTIME_GLOBAL = '__rolldown_runtime__';
+
+/**
+ * Rolldown's dev runtime lives on `globalThis.__rolldown_runtime__`, and its
+ * module registry is keyed by cwd-relative ids (`src/App.jsx`). A bundledDev
+ * remote loaded into a bundledDev host would share the host's runtime, so the
+ * remote's modules, hot contexts and HMR factories would collide with the
+ * host's. Give each remote its own same-length global (sourcemaps stay valid)
+ * in every chunk and HMR patch it serves.
+ */
+function renameBundledDevRuntime(
+  req: { url?: string },
+  res: { end: (...args: any[]) => unknown },
+  remoteName: string
+) {
+  if (!req.url || !stripQueryAndHash(req.url).endsWith('.js')) return;
+  const hash = createHash('sha256').update(remoteName).digest('hex');
+  const runtimeGlobal = `__mf_rt_${hash.slice(0, ROLLDOWN_RUNTIME_GLOBAL.length - 10)}__`;
+  const end = res.end;
+  res.end = function (this: unknown, chunk?: unknown, ...args: unknown[]) {
+    if (typeof chunk === 'string' || chunk instanceof Uint8Array) {
+      const code = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      if (code.includes(ROLLDOWN_RUNTIME_GLOBAL)) {
+        chunk = code.replace(/\b__rolldown_runtime__\b/g, runtimeGlobal);
+      }
+    }
+    return end.call(this, chunk, ...args);
+  };
+}
+
 const addEntry = ({
   entryName,
   entryPath,
@@ -320,6 +350,11 @@ const addEntry = ({
   const virtualEntryCode = new Map<string, string>();
   const ignoredHtmlScriptSources = new Set<string>();
   let bootstrapDir = '';
+  // Vite bundledDev remote: remoteEntry is a bundle input whose generated
+  // code is served at the configured filename once the first bundle exists.
+  let isBundledDevRemote = false;
+  let bundledDevRemoteEntryCode: Promise<string | undefined> | undefined;
+  let resolveBundledDevRemoteEntryCode: ((code: string | undefined) => void) | undefined;
 
   function skipSvelteKitSsrBuild() {
     return (
@@ -486,7 +521,7 @@ const __mfCurrentScript = document.currentScript;
     initSrc: string,
     entrySrc: string,
     useSystemImportFallback = false,
-    options?: { skipRemotePreload?: boolean; pendingSharesSrc?: string }
+    options?: { skipRemotePreload?: boolean; pendingSharesSrc?: string; isBundled?: boolean }
   ) {
     const importHelper = useSystemImportFallback
       ? `const __mfImport = (src) =>
@@ -503,7 +538,10 @@ const __mfCurrentScript = document.currentScript;
     // module URL is already browser-resolvable through Vite's dev server, but
     // it is not resolvable relative to this in-memory proxy module. Preserve it
     // for the browser instead of asking Vite to resolve it a second time.
-    const isEncodedVirtualEntry = entrySrc.startsWith(VITE_ENCODED_NULL_BYTE_PREFIX);
+    // Under Vite bundledDev the bundler resolves it (e.g. a nested html proxy
+    // from a second federation instance) and there is no runtime /@id/ URL.
+    const isEncodedVirtualEntry =
+      !options?.isBundled && entrySrc.startsWith(VITE_ENCODED_NULL_BYTE_PREFIX);
     const entryImportDeclaration = isEncodedVirtualEntry
       ? `const __mfEntryUrl = ${JSON.stringify(entrySrc)};
 `
@@ -589,14 +627,22 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
                   Boolean(getProjectResolvedImportPath(pkg)))
               );
             })
-            .map((pkg) => toViteEncodedId(getLoadShareModulePath(pkg, false, federationOptions)))
+            .map((pkg) => getLoadShareModulePath(pkg, false, federationOptions))
         : [];
+    // Under Vite bundledDev there are no /@id/ URLs: the bundler must see the imports.
     const sharedPreloadBlock =
-      sharedPreloadSources.length > 0
-        ? `
-  const __mfSharedPreloadUrls = ${JSON.stringify(sharedPreloadSources)};
-  await Promise.all(__mfSharedPreloadUrls.map((src) => import(/* @vite-ignore */ src).catch((err) => console.warn("[module-federation] shared preload failed:", src, err))));`
-        : '';
+      sharedPreloadSources.length === 0
+        ? ''
+        : options?.isBundled
+          ? `
+  await Promise.all([${sharedPreloadSources
+    .map((src) => `[${JSON.stringify(src)}, import(${JSON.stringify(src)})]`)
+    .join(
+      ', '
+    )}].map(([src, load]) => load.catch((err) => console.warn("[module-federation] shared preload failed:", src, err))));`
+          : `
+  const __mfSharedPreloadUrls = ${JSON.stringify(sharedPreloadSources.map(toViteEncodedId))};
+  await Promise.all(__mfSharedPreloadUrls.map((src) => import(/* @vite-ignore */ src).catch((err) => console.warn("[module-federation] shared preload failed:", src, err))));`;
     const remoteCachePrefix = getRuntimeRemoteCachePrefix(federationOptions);
     const preloadRegistrationParameter = isLoadedFirstClientBuild ? ', registration' : '';
     const preloadRegistrationBlock = isLoadedFirstClientBuild
@@ -794,24 +840,6 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
       apply: 'serve',
       config(_config, { command }) {
         _command = command;
-        // Vite bundledDev evaluates a bundled entry before its lazy virtual
-        // dependencies are guaranteed to have run. Keep remote containers on
-        // the standard dev path so their remoteEntry keeps the init/get contract.
-        const isRemoteEntry =
-          entryName === 'remoteEntry' &&
-          federationOptions !== undefined &&
-          isRemoteContainer(federationOptions);
-        if (command === 'serve' && _config.experimental?.bundledDev && isRemoteEntry) {
-          _config.experimental = { ..._config.experimental, bundledDev: false };
-          _config.environments ??= {};
-          _config.environments.client ??= {};
-          if (_config.environments.client.isBundled !== false) {
-            _config.environments.client.isBundled = false;
-            mfWarn(
-              'Vite bundledDev is disabled for the client environment of a Module Federation remote container so its remoteEntry keeps the standard init/get contract.'
-            );
-          }
-        }
       },
       configResolved(config) {
         viteConfig = config;
@@ -831,6 +859,17 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           devEntryPath = config.base + relativePath.replace(/^\//, '');
         }
         skipTransformIds = new Set(skipTransformFor.map(resolveProjectId));
+        isBundledDevRemote =
+          config.command === 'serve' &&
+          entryName === 'remoteEntry' &&
+          federationOptions !== undefined &&
+          isRemoteContainer(federationOptions) &&
+          (config.environments?.client as { isBundled?: boolean } | undefined)?.isBundled === true;
+        if (isBundledDevRemote) {
+          bundledDevRemoteEntryCode = new Promise((resolve) => {
+            resolveBundledDevRemoteEntryCode = resolve;
+          });
+        }
       },
       configureServer(server) {
         devServer = server;
@@ -864,7 +903,29 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           ) {
             req.url = req.url.replace(devFileName, fileName);
           }
+          if (isBundledDevRemote) {
+            renameBundledDevRuntime(req, res, federationOptions!.name);
+          }
           if (req.url && req.url.startsWith((viteConfig.base + fileName).replace(/^\/?/, '/'))) {
+            if (isBundledDevRemote) {
+              // The facade imports the generated chunk, which Vite serves from
+              // memory only once the initial bundle is stored.
+              const bundledDev = (
+                server.environments?.client as
+                  | { bundledDev?: { waitForInitialBuildFinish?(): Promise<void> } }
+                  | undefined
+              )?.bundledDev;
+              void Promise.all([
+                bundledDevRemoteEntryCode,
+                bundledDev?.waitForInitialBuildFinish?.(),
+              ]).then(([code]) => {
+                if (code === undefined) return next();
+                res.setHeader('Content-Type', 'text/javascript');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.end(code);
+              }, next);
+              return;
+            }
             req.url = devEntryPath;
             req.headers['sec-fetch-dest'] = 'script';
           }
@@ -921,7 +982,11 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         const initSrc = params.get('init');
         const entrySrc = params.get('entry');
         if (!initSrc || !entrySrc) return;
-        const source = getBootstrapSource(initSrc, entrySrc);
+        const source = getBootstrapSource(initSrc, entrySrc, false, {
+          isBundled:
+            (this as { environment?: { config?: { isBundled?: boolean } } }).environment?.config
+              ?.isBundled === true,
+        });
         return warmupDevEntryGraph(entrySrc).then(() => source);
       },
       transform(code, id) {
@@ -1009,6 +1074,21 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           addHtmlScriptEntries(htmlFilePath);
         }
       },
+      options(inputOptions) {
+        if (!isBundledDevRemote || !isClientEnvironment(this)) return;
+        const input = inputOptions.input;
+        if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
+          return { ...inputOptions, input: { ...input, [entryName]: getEntryPath() } };
+        }
+        return {
+          ...inputOptions,
+          input: [...(input === undefined ? [] : [input].flat()), getEntryPath()],
+        };
+      },
+      buildEnd(error) {
+        // A failed bundle has no remoteEntry; let the request fall through.
+        if (error && isBundledDevRemote) resolveBundledDevRemoteEntryCode?.(undefined);
+      },
       async buildStart() {
         // Inputs aliased by another plugin (TanStack Start's
         // `virtual:tanstack-start-client-entry`) never match the resolved ids
@@ -1063,6 +1143,20 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         }
       },
       generateBundle(_options, bundle) {
+        if (isBundledDevRemote && _command === 'serve') {
+          const remoteEntryChunk = Object.values(bundle).find(
+            (output) =>
+              output.type === 'chunk' && output.isEntry && output.facadeModuleId === getEntryPath()
+          );
+          if (remoteEntryChunk?.type === 'chunk') {
+            const code = `export { ${remoteEntryChunk.exports.join(', ')} } from ${JSON.stringify(
+              `./${remoteEntryChunk.fileName}`
+            )};\n`;
+            bundledDevRemoteEntryCode = Promise.resolve(code);
+            resolveBundledDevRemoteEntryCode?.(code);
+          }
+          return;
+        }
         if (skipSvelteKitSsrBuild()) return;
         if (
           entryName === 'remoteEntry' &&
@@ -1391,6 +1485,10 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           }
           const bootstrap = getBootstrapSource(getEntryPath(), entrySrc, false, {
             skipRemotePreload: _command === 'serve' && isNuxtEntryAsyncModule,
+            isBundled:
+              _command === 'serve' &&
+              (this as { environment?: { config?: { isBundled?: boolean } } }).environment?.config
+                ?.isBundled === true,
           });
           return mapCodeToCodeWithSourcemap(bootstrap);
         }

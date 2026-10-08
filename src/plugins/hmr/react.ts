@@ -7,6 +7,16 @@ import type { HmrAdapter } from '../pluginDevRemoteHmr';
 const REACT_REFRESH_PATH = '/@react-refresh';
 const LOCAL_REACT_REFRESH_PATH = '/@mf-react-refresh-local';
 const HOST_REACT_REFRESH_URL = '__MF_REACT_REFRESH_URL__';
+const HOST_REACT_REFRESH_RUNTIME = '__MF_REACT_REFRESH_RUNTIME__';
+const LOCAL_REACT_REFRESH_ID = 'virtual:mf-react-refresh-local';
+const REACT_REFRESH_EXPORTS = [
+  'injectIntoGlobalHook',
+  'register',
+  'getRefreshReg',
+  'createSignatureFunctionForTransform',
+  'registerExportsForReactRefresh',
+  'validateRefreshBoundaryAndEnqueueUpdate',
+];
 
 function stripQuery(url?: string): string | undefined {
   return url?.replace(/\?.*$/, '');
@@ -43,8 +53,9 @@ function resolveReactRefreshRuntime(root: string): string {
  */
 const REACT_REFRESH_PROXY_MODULE = [
   `const __remoteUrl = new URL(import.meta.url);`,
-  `const __target = window.location.origin === __remoteUrl.origin ? new URL('.${LOCAL_REACT_REFRESH_PATH}', __remoteUrl).href : globalThis.${HOST_REACT_REFRESH_URL} || window.location.origin + '${REACT_REFRESH_PATH}';`,
-  `const __rt = await import(__target);`,
+  `const __isHost = window.location.origin !== __remoteUrl.origin;`,
+  `const __target = __isHost ? globalThis.${HOST_REACT_REFRESH_URL} || window.location.origin + '${REACT_REFRESH_PATH}' : new URL('.${LOCAL_REACT_REFRESH_PATH}', __remoteUrl).href;`,
+  `const __rt = (__isHost && globalThis.${HOST_REACT_REFRESH_RUNTIME}) || await import(__target);`,
   `export const injectIntoGlobalHook = __rt.injectIntoGlobalHook;`,
   `export const register = __rt.register;`,
   `export const getRefreshReg = __rt.getRefreshReg;`,
@@ -53,6 +64,23 @@ const REACT_REFRESH_PROXY_MODULE = [
   `export const validateRefreshBoundaryAndEnqueueUpdate = __rt.validateRefreshBoundaryAndEnqueueUpdate;`,
   `export const __hmr_import = __rt.__hmr_import;`,
   `export default __rt.default || __rt;`,
+].join('\n');
+
+/**
+ * `/@react-refresh` for a bundledDev remote. The bundle cannot fetch the
+ * host's runtime by URL, so it binds lazily to the runtime the host page
+ * publishes on a global and falls back to its own copy when opened directly.
+ * Both share one component registry with the host's React.
+ */
+const BUNDLED_REACT_REFRESH_MODULE = [
+  `import * as __local from '${LOCAL_REACT_REFRESH_ID}';`,
+  `const __rt = () => globalThis.${HOST_REACT_REFRESH_RUNTIME} || __local;`,
+  ...REACT_REFRESH_EXPORTS.map(
+    (name) => `export function ${name}(...args) { return __rt().${name}(...args); }`
+  ),
+  `export const __hmr_import = __local.__hmr_import;`,
+  `export const __mfLocalRuntime = __local;`,
+  `export default { injectIntoGlobalHook };`,
 ].join('\n');
 
 export const reactAdapter: HmrAdapter = {
@@ -64,10 +92,19 @@ export const reactAdapter: HmrAdapter = {
   host: {
     transformIndexHtml({ server }) {
       const refreshPath = `${server.config.base.replace(/\/$/, '')}${REACT_REFRESH_PATH}`;
+      // plugin-react's bundledDev preamble imports the runtime without base.
+      const isBundled = server.config.experimental?.bundledDev === true;
       return [
         {
           tag: 'script',
           children: `globalThis.${HOST_REACT_REFRESH_URL} = new URL(${JSON.stringify(refreshPath)}, window.location.origin).href;`,
+          injectTo: 'head-prepend',
+        },
+        {
+          // Publish this page's RefreshRuntime instance for remote modules.
+          tag: 'script',
+          attrs: { type: 'module' },
+          children: `import * as rt from ${JSON.stringify(isBundled ? REACT_REFRESH_PATH : refreshPath)};\nglobalThis.${HOST_REACT_REFRESH_RUNTIME} ??= rt.__mfLocalRuntime || rt;`,
           injectTo: 'head-prepend',
         },
       ];
@@ -93,6 +130,14 @@ export const reactAdapter: HmrAdapter = {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.end(REACT_REFRESH_PROXY_MODULE);
       });
+    },
+    resolveId(id) {
+      if (id === LOCAL_REACT_REFRESH_ID) return `\0${LOCAL_REACT_REFRESH_ID}`;
+    },
+    load(id, { root, isBundled }) {
+      if (!isBundled) return;
+      if (id === REACT_REFRESH_PATH) return BUNDLED_REACT_REFRESH_MODULE;
+      if (id === `\0${LOCAL_REACT_REFRESH_ID}`) return resolveReactRefreshRuntime(root);
     },
   },
 };

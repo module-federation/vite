@@ -186,6 +186,22 @@ type CodeSplittingGroup = {
 const MF_GROUP_PRIORITY = 1_000_000;
 const USER_GROUP_MAX_PRIORITY = MF_GROUP_PRIORITY - 1;
 
+function getBundledDevHtmlPreambleChunk(
+  id: string,
+  ctx: { getModuleInfo(id: string): { importers: readonly string[] } | null }
+): string | null {
+  let importers: readonly string[] | undefined;
+  try {
+    importers = ctx.getModuleInfo(id)?.importers;
+  } catch {
+    // Rolldown 1.2.0 throws for some internal ids.
+    return null;
+  }
+  return importers?.some((importer) => importer.includes('?html-proxy'))
+    ? 'mf-html-preamble'
+    : null;
+}
+
 type ViteWatchOptions = NonNullable<NonNullable<UserConfig['server']>['watch']>;
 type ViteWatchConfig = ViteWatchOptions | boolean | null | undefined;
 
@@ -1349,6 +1365,227 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     });
   };
 
+  // Isolates runtimeInit, loadShare wrappers and the preload helper in their own
+  // chunks so no shared init barrier closes a top-level-await cycle. Applied to
+  // the build and to the Vite bundledDev client bundle.
+  function applyFederationChunking(config: UserConfig, ctx: unknown, snapshotOutput: boolean) {
+    const runtimeInitId = getRuntimeInitStatusImportId(options);
+    config.build = config.build || {};
+    let warnedAboutCodeSplitting = false;
+    const ensureCodeSplitting = (output: MutableBundlerOutput) => {
+      if (output?.codeSplitting !== false) return;
+      delete output.codeSplitting;
+      if (warnedAboutCodeSplitting) return;
+      warnedAboutCodeSplitting = true;
+      mfWarn(
+        'Ignoring `output.codeSplitting = false` because module federation requires chunk splitting.'
+      );
+    };
+
+    // Groups installed by applyManualChunks, matched by object identity (not
+    // name) so a user group named like a federation group isn't filtered out.
+    const isFederationGroup = (group: unknown): boolean =>
+      typeof group === 'object' && group !== null && federationGroups.has(group);
+
+    let warnedAboutGroupPriority = false;
+    // Keep user groups, but clamp their priority below the federation groups so
+    // they can only claim modules the federation groups didn't.
+    const clampUserGroup = (group: unknown): unknown => {
+      const candidate = group as Partial<CodeSplittingGroup>;
+      if (typeof candidate?.priority !== 'number') return group;
+      if (candidate.priority <= USER_GROUP_MAX_PRIORITY) return group;
+      if (!warnedAboutGroupPriority) {
+        warnedAboutGroupPriority = true;
+        mfWarn(
+          `Clamping \`output.codeSplitting.groups\` priority to ${USER_GROUP_MAX_PRIORITY} — ` +
+            'module federation groups must keep the highest priority so shared dependency init ' +
+            'wrappers stay isolated in their own chunks.'
+        );
+      }
+      return { ...candidate, priority: USER_GROUP_MAX_PRIORITY };
+    };
+
+    // Gives the federation `name()` group a label in Rolldown's timing report.
+    const federationGroupDebugName = supportsCodeSplittingGroupDebugName(ctx)
+      ? { debugName: 'module-federation' }
+      : {};
+
+    let warnedAboutManualChunks = false;
+    let warnedAboutObjectManualChunks = false;
+    // `useCodeSplitting` selects the bundler-appropriate isolation mechanism:
+    // Rolldown (Vite 8+) supports `codeSplitting` (and needs it to relocate the
+    // injected preload helper), while Rollup (Vite 5–7) only understands
+    // `manualChunks` and rejects `codeSplitting` as an unknown output option.
+    const applyManualChunks = (output: MutableBundlerOutput, useCodeSplitting: boolean) => {
+      ensureCodeSplitting(output);
+      const isPatchedByPlugin =
+        typeof output.manualChunks === 'function' && patchedManualChunks.has(output.manualChunks);
+      const mfChunkName = function (id: string): string | null {
+        // Keep runtimeInitStatus in its own chunk to break init deadlock
+        if (id.includes(runtimeInitId) || id.includes('__mf_v__runtimeInit__mf_v__')) {
+          return 'runtimeInit';
+        }
+        if (isSharedCacheHelpersId(id)) return getSharedChunkName(id);
+        if (id.includes(LOAD_SHARE_TAG)) {
+          const pkg = getCachedLoadSharePkg(id);
+          const key = pkg && findSharedKey(pkg, shared);
+          if (key && shared[key].shareConfig.eager === true) {
+            return 'loadShare-eager';
+          }
+          // A consume-only share's wrapper holds no fallback, so nothing in it can close a
+          // cycle across wrappers: isolating it only turns each such share into a request
+          // of its own. Leave those to the bundler's own chunking.
+          if (key && shared[key].shareConfig.import === false) return null;
+          // generateBundle finds the CommonJS proxies by file name, so they keep
+          // their own chunks. Eligibility is recorded by the instance that owns the
+          // wrapper, so it holds even when another instance's callback runs here.
+          if (
+            pkg &&
+            !id.includes('commonjs-proxy') &&
+            isCoalescableLoadShareWrapper(pkg, options, id)
+          ) {
+            return getSharedChunkName(id);
+          }
+          // Use the virtual module path as the chunk name
+          const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
+          return match ? match[1] : 'loadShare';
+        }
+        return null;
+      };
+      patchedManualChunks.add(mfChunkName);
+
+      if (!useCodeSplitting) {
+        // Rollup (Vite 5–7): `codeSplitting` is rejected as an unknown output
+        // option, so isolate runtimeInit, loadShare, and the preload helper with
+        // `manualChunks`. A user-provided manualChunks function is composed in as
+        // a fallback: federation modules are claimed first, everything else falls
+        // through to the user's function.
+        if (isPatchedByPlugin) return;
+        const userManualChunks = output.manualChunks;
+        if (
+          userManualChunks &&
+          typeof userManualChunks !== 'function' &&
+          !warnedAboutObjectManualChunks
+        ) {
+          warnedAboutObjectManualChunks = true;
+          mfWarn(
+            'Ignoring the object form of `output.manualChunks` because module federation cannot ' +
+              'safely compose with it. Use the function form instead: federation modules are claimed ' +
+              'first and your function runs for everything else.'
+          );
+        }
+        const mfManualChunks = function (id: string, ...rest: unknown[]) {
+          if (PRELOAD_HELPER_TEST.test(id)) return PRELOAD_HELPER_CHUNK;
+          const mfChunk = mfChunkName(id);
+          if (mfChunk) return mfChunk;
+          if (typeof userManualChunks === 'function') {
+            return userManualChunks(id, ...rest) ?? undefined;
+          }
+          return undefined;
+        };
+        patchedManualChunks.add(mfManualChunks);
+        output.manualChunks = mfManualChunks;
+        return;
+      }
+
+      // Rolldown (Vite 8+): `manualChunks` cannot relocate the injected preload
+      // helper (Rolldown ignores its placement), so use `codeSplitting` instead:
+      // a dynamic `name()` group reproduces the runtimeInit/loadShare isolation,
+      // and a higher-priority `test` group pulls the preload helper into its own
+      // chunk (the helper is only matched by `test`, never the `name()` fn).
+      // User groups are kept, clamped below the federation priorities, so they
+      // can only claim modules the federation groups leave behind.
+      if (output.manualChunks && !isPatchedByPlugin && !warnedAboutManualChunks) {
+        warnedAboutManualChunks = true;
+        mfWarn(
+          'Ignoring `output.manualChunks` for the Rolldown build because module federation manages ' +
+            'chunking with `output.codeSplitting.groups`. Move your grouping there — user groups are ' +
+            'kept below the federation groups.'
+        );
+      }
+      const existingGroups = (
+        output.codeSplitting && typeof output.codeSplitting === 'object'
+          ? output.codeSplitting.groups
+          : undefined
+      ) as unknown[] | undefined;
+      const userGroups = Array.isArray(existingGroups)
+        ? existingGroups.filter((group) => !isFederationGroup(group)).map(clampUserGroup)
+        : [];
+      const mfPreloadGroup = {
+        name: PRELOAD_HELPER_CHUNK,
+        test: PRELOAD_HELPER_TEST,
+        priority: MF_GROUP_PRIORITY + 1,
+      };
+      const mfNameGroup = {
+        name: mfChunkName,
+        priority: MF_GROUP_PRIORITY,
+        ...federationGroupDebugName,
+      };
+      federationGroups.add(mfPreloadGroup);
+      federationGroups.add(mfNameGroup);
+      const groups: unknown[] = [mfPreloadGroup, mfNameGroup];
+      if (!snapshotOutput) {
+        // bundledDev: framework dev preambles (`/@react-refresh`) are imported by
+        // index.html inline scripts and by exposed modules. Left in the html
+        // entry chunk, loading an expose from a host would run the app entry.
+        const htmlPreambleGroup = {
+          name: getBundledDevHtmlPreambleChunk,
+          // Above the loadShare group, which would otherwise pull the preamble
+          // runtime into a shared chunk as a dependency of its consumers.
+          priority: MF_GROUP_PRIORITY + 2,
+        };
+        federationGroups.add(htmlPreambleGroup);
+        groups.push(htmlPreambleGroup);
+      }
+      groups.push(...userGroups);
+      output.codeSplitting = { ...(output.codeSplitting || {}), groups };
+      delete output.manualChunks;
+    };
+
+    config.build.rollupOptions = config.build.rollupOptions || {};
+    const rollupOutput = config.build.rollupOptions.output;
+    if (Array.isArray(rollupOutput)) {
+      rollupOutput.forEach((output) => applyManualChunks(output as MutableBundlerOutput, false));
+    } else {
+      applyManualChunks((config.build.rollupOptions.output ||= {}) as MutableBundlerOutput, false);
+    }
+
+    // Vite 8+ reads build.rolldownOptions instead of rollupOptions. Apply the
+    // same runtimeInit/loadShare isolation there, but via `codeSplitting` so the
+    // Rolldown-injected preload helper can also be pulled into its own chunk.
+    const buildWithRolldown = config.build as typeof config.build & {
+      rolldownOptions?: RolldownOptionsLike;
+    };
+    buildWithRolldown.rolldownOptions = buildWithRolldown.rolldownOptions || {};
+    const rolldownOutput = buildWithRolldown.rolldownOptions.output as
+      | MutableBundlerOutput
+      | MutableBundlerOutput[]
+      | undefined;
+    const snapshotRolldownOutput = (output: MutableBundlerOutput): OutputNameOptions => ({
+      entryFileNames: output.entryFileNames,
+      chunkFileNames: output.chunkFileNames,
+      assetFileNames: output.assetFileNames,
+    });
+    if (Array.isArray(rolldownOutput)) {
+      rolldownOutput.forEach((output) => applyManualChunks(output, true));
+      if (snapshotOutput)
+        desiredRolldownOutput = rolldownOutput.map((output) => snapshotRolldownOutput(output));
+    } else {
+      applyManualChunks(
+        (buildWithRolldown.rolldownOptions.output ||= {}) as MutableBundlerOutput,
+        true
+      );
+      // Vite 8's Rolldown build path overwrites output options like
+      // entryFileNames/chunkFileNames/assetFileNames. Keep only those
+      // values so we can restore them in buildApp without clobbering other
+      // later output mutations from Vite or plugins.
+      if (snapshotOutput)
+        desiredRolldownOutput = [
+          snapshotRolldownOutput(buildWithRolldown.rolldownOptions.output as MutableBundlerOutput),
+        ];
+    }
+  }
+
   return [
     {
       name: 'vite:module-federation-virtual-modules',
@@ -1556,6 +1793,17 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     }),
     pluginLazyConsumeOnlyShares(options),
     {
+      // Vite bundledDev bundles the client graph in serve too; without these
+      // groups a loadShare wrapper shares a chunk with its consumers, so
+      // preloading the share evaluates them before the share is ready.
+      name: 'module-federation-bundled-dev-chunks',
+      apply: 'serve',
+      config(config: UserConfig) {
+        if (!config.experimental?.bundledDev) return;
+        applyFederationChunking(config, this, false);
+      },
+    },
+    {
       name: 'module-federation-esm-shims',
       enforce: 'pre',
       apply: 'build',
@@ -1570,7 +1818,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         // to break init deadlock: loadShare waits for initPromise, remoteEntry
         // resolves initPromise via initResolve. If both are in the same chunk,
         // loadShare blocks remoteEntry from ever executing.
-        const runtimeInitId = getRuntimeInitStatusImportId(options);
         config.build = config.build || {};
 
         if (config.build.modulePreload !== false) {
@@ -1632,211 +1879,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           };
         }
 
-        let warnedAboutCodeSplitting = false;
-        const ensureCodeSplitting = (output: MutableBundlerOutput) => {
-          if (output?.codeSplitting !== false) return;
-          delete output.codeSplitting;
-          if (warnedAboutCodeSplitting) return;
-          warnedAboutCodeSplitting = true;
-          mfWarn(
-            'Ignoring `output.codeSplitting = false` because module federation requires chunk splitting.'
-          );
-        };
-
-        // Groups installed by applyManualChunks, matched by object identity (not
-        // name) so a user group named like a federation group isn't filtered out.
-        const isFederationGroup = (group: unknown): boolean =>
-          typeof group === 'object' && group !== null && federationGroups.has(group);
-
-        let warnedAboutGroupPriority = false;
-        // Keep user groups, but clamp their priority below the federation groups so
-        // they can only claim modules the federation groups didn't.
-        const clampUserGroup = (group: unknown): unknown => {
-          const candidate = group as Partial<CodeSplittingGroup>;
-          if (typeof candidate?.priority !== 'number') return group;
-          if (candidate.priority <= USER_GROUP_MAX_PRIORITY) return group;
-          if (!warnedAboutGroupPriority) {
-            warnedAboutGroupPriority = true;
-            mfWarn(
-              `Clamping \`output.codeSplitting.groups\` priority to ${USER_GROUP_MAX_PRIORITY} — ` +
-                'module federation groups must keep the highest priority so shared dependency init ' +
-                'wrappers stay isolated in their own chunks.'
-            );
-          }
-          return { ...candidate, priority: USER_GROUP_MAX_PRIORITY };
-        };
-
-        // Gives the federation `name()` group a label in Rolldown's timing report.
-        const federationGroupDebugName = supportsCodeSplittingGroupDebugName(this)
-          ? { debugName: 'module-federation' }
-          : {};
-
-        let warnedAboutManualChunks = false;
-        let warnedAboutObjectManualChunks = false;
-        // `useCodeSplitting` selects the bundler-appropriate isolation mechanism:
-        // Rolldown (Vite 8+) supports `codeSplitting` (and needs it to relocate the
-        // injected preload helper), while Rollup (Vite 5–7) only understands
-        // `manualChunks` and rejects `codeSplitting` as an unknown output option.
-        const applyManualChunks = (output: MutableBundlerOutput, useCodeSplitting: boolean) => {
-          ensureCodeSplitting(output);
-          const isPatchedByPlugin =
-            typeof output.manualChunks === 'function' &&
-            patchedManualChunks.has(output.manualChunks);
-          const mfChunkName = function (id: string): string | null {
-            // Keep runtimeInitStatus in its own chunk to break init deadlock
-            if (id.includes(runtimeInitId) || id.includes('__mf_v__runtimeInit__mf_v__')) {
-              return 'runtimeInit';
-            }
-            if (isSharedCacheHelpersId(id)) return getSharedChunkName(id);
-            if (id.includes(LOAD_SHARE_TAG)) {
-              const pkg = getCachedLoadSharePkg(id);
-              const key = pkg && findSharedKey(pkg, shared);
-              if (key && shared[key].shareConfig.eager === true) {
-                return 'loadShare-eager';
-              }
-              // A consume-only share's wrapper holds no fallback, so nothing in it can close a
-              // cycle across wrappers: isolating it only turns each such share into a request
-              // of its own. Leave those to the bundler's own chunking.
-              if (key && shared[key].shareConfig.import === false) return null;
-              // generateBundle finds the CommonJS proxies by file name, so they keep
-              // their own chunks. Eligibility is recorded by the instance that owns the
-              // wrapper, so it holds even when another instance's callback runs here.
-              if (
-                pkg &&
-                !id.includes('commonjs-proxy') &&
-                isCoalescableLoadShareWrapper(pkg, options, id)
-              ) {
-                return getSharedChunkName(id);
-              }
-              // Use the virtual module path as the chunk name
-              const match = id.match(/([^/\\]+__loadShare__[^/\\]+)/);
-              return match ? match[1] : 'loadShare';
-            }
-            return null;
-          };
-          patchedManualChunks.add(mfChunkName);
-
-          if (!useCodeSplitting) {
-            // Rollup (Vite 5–7): `codeSplitting` is rejected as an unknown output
-            // option, so isolate runtimeInit, loadShare, and the preload helper with
-            // `manualChunks`. A user-provided manualChunks function is composed in as
-            // a fallback: federation modules are claimed first, everything else falls
-            // through to the user's function.
-            if (isPatchedByPlugin) return;
-            const userManualChunks = output.manualChunks;
-            if (
-              userManualChunks &&
-              typeof userManualChunks !== 'function' &&
-              !warnedAboutObjectManualChunks
-            ) {
-              warnedAboutObjectManualChunks = true;
-              mfWarn(
-                'Ignoring the object form of `output.manualChunks` because module federation cannot ' +
-                  'safely compose with it. Use the function form instead: federation modules are claimed ' +
-                  'first and your function runs for everything else.'
-              );
-            }
-            const mfManualChunks = function (id: string, ...rest: unknown[]) {
-              if (PRELOAD_HELPER_TEST.test(id)) return PRELOAD_HELPER_CHUNK;
-              const mfChunk = mfChunkName(id);
-              if (mfChunk) return mfChunk;
-              if (typeof userManualChunks === 'function') {
-                return userManualChunks(id, ...rest) ?? undefined;
-              }
-              return undefined;
-            };
-            patchedManualChunks.add(mfManualChunks);
-            output.manualChunks = mfManualChunks;
-            return;
-          }
-
-          // Rolldown (Vite 8+): `manualChunks` cannot relocate the injected preload
-          // helper (Rolldown ignores its placement), so use `codeSplitting` instead:
-          // a dynamic `name()` group reproduces the runtimeInit/loadShare isolation,
-          // and a higher-priority `test` group pulls the preload helper into its own
-          // chunk (the helper is only matched by `test`, never the `name()` fn).
-          // User groups are kept, clamped below the federation priorities, so they
-          // can only claim modules the federation groups leave behind.
-          if (output.manualChunks && !isPatchedByPlugin && !warnedAboutManualChunks) {
-            warnedAboutManualChunks = true;
-            mfWarn(
-              'Ignoring `output.manualChunks` for the Rolldown build because module federation manages ' +
-                'chunking with `output.codeSplitting.groups`. Move your grouping there — user groups are ' +
-                'kept below the federation groups.'
-            );
-          }
-          const existingGroups = (
-            output.codeSplitting && typeof output.codeSplitting === 'object'
-              ? output.codeSplitting.groups
-              : undefined
-          ) as unknown[] | undefined;
-          const userGroups = Array.isArray(existingGroups)
-            ? existingGroups.filter((group) => !isFederationGroup(group)).map(clampUserGroup)
-            : [];
-          const mfPreloadGroup = {
-            name: PRELOAD_HELPER_CHUNK,
-            test: PRELOAD_HELPER_TEST,
-            priority: MF_GROUP_PRIORITY + 1,
-          };
-          const mfNameGroup = {
-            name: mfChunkName,
-            priority: MF_GROUP_PRIORITY,
-            ...federationGroupDebugName,
-          };
-          federationGroups.add(mfPreloadGroup);
-          federationGroups.add(mfNameGroup);
-          const groups = [mfPreloadGroup, mfNameGroup, ...userGroups];
-          output.codeSplitting = { ...(output.codeSplitting || {}), groups };
-          delete output.manualChunks;
-        };
-
-        config.build.rollupOptions = config.build.rollupOptions || {};
-        const rollupOutput = config.build.rollupOptions.output;
-        if (Array.isArray(rollupOutput)) {
-          rollupOutput.forEach((output) =>
-            applyManualChunks(output as MutableBundlerOutput, false)
-          );
-        } else {
-          applyManualChunks(
-            (config.build.rollupOptions.output ||= {}) as MutableBundlerOutput,
-            false
-          );
-        }
-
-        // Vite 8+ reads build.rolldownOptions instead of rollupOptions. Apply the
-        // same runtimeInit/loadShare isolation there, but via `codeSplitting` so the
-        // Rolldown-injected preload helper can also be pulled into its own chunk.
-        const buildWithRolldown = config.build as typeof config.build & {
-          rolldownOptions?: RolldownOptionsLike;
-        };
-        buildWithRolldown.rolldownOptions = buildWithRolldown.rolldownOptions || {};
-        const rolldownOutput = buildWithRolldown.rolldownOptions.output as
-          | MutableBundlerOutput
-          | MutableBundlerOutput[]
-          | undefined;
-        const snapshotRolldownOutput = (output: MutableBundlerOutput): OutputNameOptions => ({
-          entryFileNames: output.entryFileNames,
-          chunkFileNames: output.chunkFileNames,
-          assetFileNames: output.assetFileNames,
-        });
-        if (Array.isArray(rolldownOutput)) {
-          rolldownOutput.forEach((output) => applyManualChunks(output, true));
-          desiredRolldownOutput = rolldownOutput.map((output) => snapshotRolldownOutput(output));
-        } else {
-          applyManualChunks(
-            (buildWithRolldown.rolldownOptions.output ||= {}) as MutableBundlerOutput,
-            true
-          );
-          // Vite 8's Rolldown build path overwrites output options like
-          // entryFileNames/chunkFileNames/assetFileNames. Keep only those
-          // values so we can restore them in buildApp without clobbering other
-          // later output mutations from Vite or plugins.
-          desiredRolldownOutput = [
-            snapshotRolldownOutput(
-              buildWithRolldown.rolldownOptions.output as MutableBundlerOutput
-            ),
-          ];
-        }
+        applyFederationChunking(config, this, true);
       },
       async buildApp(builder: BuilderLike) {
         const desiredOutput = desiredRolldownOutput;

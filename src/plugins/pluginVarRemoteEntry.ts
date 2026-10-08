@@ -69,6 +69,9 @@ const VarRemoteEntry = (providedOptions?: NormalizedModuleFederationOptions): Pl
        */
       async generateBundle(_options, bundle) {
         if (!varFilename) return;
+        // Vite bundledDev generates bundles in serve too; the dev middleware
+        // above already serves the var entry.
+        if (viteConfig?.command === 'serve') return;
 
         const isValidName = isValidVarName(name);
 
