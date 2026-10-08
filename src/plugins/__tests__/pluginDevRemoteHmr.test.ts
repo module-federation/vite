@@ -733,6 +733,16 @@ describe('pluginDevRemoteHmr', () => {
       expect(cacheClear?.injectTo).toBe('head');
     });
 
+    it('injects host tags when the bundledDev html hook has no ctx.server', () => {
+      const { server } = createServer();
+      const plugin = makeHostPlugin({ remoteHmr: true });
+      runConfigureServer(plugin, server);
+      const tags = getHtmlHandler(plugin, server).call(null, '<html></html>', {});
+      expect(
+        tags?.some((t) => typeof t.children === 'string' && t.children.includes('moduleCache'))
+      ).toBe(true);
+    });
+
     it('injects the Vue HMR runtime guard when vite:vue is in the host pipeline', () => {
       const { server } = createServer({
         config: { plugins: [{ name: 'vite:vue' }] },

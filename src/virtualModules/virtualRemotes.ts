@@ -384,12 +384,34 @@ function getLazyRemotePendingExport() {
 }
 
 function getEagerRemotePendingExport() {
-  return `export const __mf_remote_pending =
+  // A wrapper re-evaluated after its remote was cached (SSR revalidation, dev
+  // invalidation) starts a fresh load here. Importers that never await the
+  // export must not turn a failed load into an unhandled rejection, which
+  // exits a Node server; awaiting the export still rejects. After a failure,
+  // the next await starts a new load, so a server can recover once the remote
+  // is back (#1424).
+  return `export let __mf_remote_pending =
   __mfRemotePending ??
-  __mfStartRemoteLoad().then(__mfAssignRemoteModule);`;
+  __mfStartRemoteLoad().then(__mfAssignRemoteModule);
+__mf_remote_pending.then(undefined, () => {
+  let attempt;
+  const retry = {
+    then(onFulfilled, onRejected) {
+      attempt ||= __mfStartRemoteLoad().then(__mfAssignRemoteModule, (error) => {
+        attempt = undefined;
+        throw error;
+      });
+      return attempt.then(onFulfilled, onRejected);
+    },
+  };
+  if (__mfRemotePending) __mfRemotePending = retry;
+  __mf_remote_pending = retry;
+});`;
 }
 
 function getServerThenExport() {
+  // The module runner caches what `then` settles with for every later import,
+  // so a failed load resolves with live bindings that can still recover.
   return `export function then(onFulfilled, onRejected) {
   return (__mfRemotePending ?? Promise.resolve(exportModule))
     .then(__mfAssignRemoteModule)
@@ -401,7 +423,15 @@ function getServerThenExport() {
         __moduleExports: exportModule,
         __mf_remote_pending: __mfRemotePending,
       };
-    })
+    }, () => ({
+      get default() {
+        return __mfDefaultExport;
+      },
+      get __moduleExports() {
+        return exportModule;
+      },
+      __mf_remote_pending: { then: (resolve, reject) => __mf_remote_pending.then(resolve, reject) },
+    }))
     .then(onFulfilled, onRejected);
 }`;
 }

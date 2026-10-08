@@ -502,29 +502,32 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
     hasShared: (options: { shared?: object }) => Object.keys(options?.shared ?? {}).length > 0,
     isRemoteContainer: (options: { exposes?: object }) =>
       Object.keys(options?.exposes ?? {}).length > 0,
-    getNormalizeShareItem: (pkg: string) => ({
-      name: pkg,
-      from: '',
-      version: '19.2.4',
-      scope: 'default',
-      shareConfig: {
-        import:
-          pkg === 'host-only'
-            ? false
-            : pkg === 'custom-import'
-              ? '/abs/custom-import.js'
-              : pkg === 'tree-shared' && optionsMock.treeSharedImportFalse
-                ? false
-                : undefined,
-        singleton: pkg !== 'non-singleton',
-        requiredVersion: pkg === 'unconstrained' ? false : '^19.2.4',
-        strictVersion: false,
-        eager: pkg === 'eager-shared',
-        ...(pkg === 'tree-shared' || pkg === 'unknown-tree-shared'
-          ? { treeShaking: { mode: 'runtime-infer', usedExports: ['Button'] } }
-          : {}),
-      },
-    }),
+    getNormalizeShareItem: (pkg: string) =>
+      pkg === 'excluded-dep'
+        ? undefined
+        : {
+            name: pkg,
+            from: '',
+            version: '19.2.4',
+            scope: 'default',
+            shareConfig: {
+              import:
+                pkg === 'host-only'
+                  ? false
+                  : pkg === 'custom-import'
+                    ? '/abs/custom-import.js'
+                    : pkg === 'tree-shared' && optionsMock.treeSharedImportFalse
+                      ? false
+                      : undefined,
+              singleton: pkg !== 'non-singleton',
+              requiredVersion: pkg === 'unconstrained' ? false : '^19.2.4',
+              strictVersion: false,
+              eager: pkg === 'eager-shared',
+              ...(pkg === 'tree-shared' || pkg === 'unknown-tree-shared'
+                ? { treeShaking: { mode: 'runtime-infer', usedExports: ['Button'] } }
+                : {}),
+            },
+          },
   };
 });
 
@@ -971,6 +974,30 @@ describe('virtualRemoteEntry', () => {
 
     expect(code).toContain('let pkg = await import("/abs/custom-import.js");');
     expect(code).not.toContain('virtual:prebuild:custom-import');
+  });
+
+  it('skips a used share with no config instead of leaving an empty import map entry (#1428)', async () => {
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('host-only');
+    // Dev auto-excludes a shared sub-dependency after the scan recorded it
+    mod.addUsedShares('excluded-dep');
+    mod.addUsedShares('react');
+
+    const code = mod.generateLocalSharedImportMap();
+    expect(code).not.toContain('excluded-dep');
+    expect(
+      () =>
+        new Function(
+          code
+            .replace(
+              'import {loadShare} from "@module-federation/runtime";',
+              'const loadShare = () => {};'
+            )
+            .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, '')
+        )
+    ).not.toThrow();
   });
 
   it('builds a consume-only entry through one helper with the shape the literal had', async () => {
@@ -3789,6 +3816,85 @@ describe('virtualRemoteEntry', () => {
     expect(cached.marker).toBe('local-dep');
   });
 
+  it.each([
+    ['seeds the local copy behind', '1.1.0', 1],
+    ['leaves the late bridge', '1.0.0', 0],
+  ])(
+    '%s an unloaded non-singleton webpack provider of version %s (#1429)',
+    async (_, providerVersion, localLoads) => {
+      const shared = {
+        name: 'dep',
+        from: 'remote',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { singleton: false, requiredVersion: '>=1.0.0' },
+      };
+      normalizedSharedMock.mockReturnValue({ dep: shared });
+      const mod = await import('../virtualRemoteEntry');
+      mod.getUsedShares().clear();
+      mod.addUsedShares('dep');
+
+      const code = mod.generateRemoteEntry(
+        {
+          internalName: '__mfe_internal__remote',
+          name: 'remote',
+          filename: 'remoteEntry.js',
+          exposes: {},
+          remotes: {},
+          shared: normalizedSharedMock(),
+          runtimePlugins: [],
+          shareScope: 'default',
+          shareStrategy: 'version-first',
+        } as any,
+        'virtual:exposes',
+        'build'
+      );
+      // A webpack remote registered dep, a webpack record without a version field, and never loaded it.
+      const externalProvider = { from: 'wremote', get: () => Promise.resolve(() => ({})) };
+      const state = { localLoads: 0 };
+      const usedShared = {
+        dep: {
+          ...shared,
+          scope: ['default'],
+          get: async () => {
+            state.localLoads++;
+            return () => ({ marker: 'local-dep' });
+          },
+        },
+      };
+
+      await new Function(
+        'usedShared',
+        'state',
+        'externalProvider',
+        'providerVersion',
+        `return (async () => {
+          const __mfModuleCache = { share: {} };
+          const mfName = 'remote';
+          const initialShared = { dep: { [providerVersion]: externalProvider } };
+          const __mfGetSharedCacheDescriptor = (pkg) => ({ canonical: 'default:' + pkg });
+          const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+          const __mfReadSharedCacheOwner = () => undefined;
+          const __mfWriteSharedCache = (cache, descriptor, value) => {
+            cache[descriptor.canonical] = value;
+          };
+          const __mfReadTreeShakingSharedSelection = () => undefined;
+          const __mfFindSharedProviderEntry = (versions, provider) => {
+            const entry = Object.entries(versions || {}).find(([, candidate]) => candidate === provider);
+            return entry && { version: entry[0], provider, registered: true };
+          };
+          const __mfSelectExternalSharedProvider = () => externalProvider;
+          const __mfGetExternalSharedProvider = () => externalProvider;
+          const isWebpackProvider = () => true;
+          ${getRuntimeSeedCode(code)}
+          await __mfSeedLocalShared(['dep']);
+        })();`
+      )(usedShared, state, externalProvider, providerVersion);
+
+      expect(state.localLoads).toBe(localLoads);
+    }
+  );
+
   it('seeds a root host singleton before version-first remote initialization', async () => {
     const hostReactShare = {
       name: 'react',
@@ -4061,6 +4167,20 @@ describe('virtualRemoteEntry', () => {
         );
       }
     }
+  });
+
+  it('re-negotiates seeded version-first singletons in dev like build (#1396)', async () => {
+    optionsMock.shareStrategy = 'version-first';
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react');
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+
+    expect(code).toContain(
+      '!(share.shareConfig?.singleton && __mfHasAlternativeSharedVersion(pkg, share))'
+    );
   });
 
   it('does not register remotes during remoteEntry init with loaded-first', async () => {

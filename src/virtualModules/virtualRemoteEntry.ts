@@ -262,6 +262,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
         }
       `;
         })
+        .filter(Boolean)
         .join(',')}
     }
       const usedShared = {
@@ -1036,7 +1037,14 @@ function generateRuntimeSharedCacheSeedCode(
             );
             return;
           }
-          if (typeof isWebpackProvider === 'function' && isWebpackProvider(externalProvider)) return;
+          // Leave an unloaded webpack provider to the late bridge, which only takes a
+          // non-singleton of this share's own version; any other version seeds locally.
+          if (
+            typeof isWebpackProvider === 'function' &&
+            isWebpackProvider(externalProvider) &&
+            (share.shareConfig?.singleton ||
+              __mfFindSharedProviderEntry(initialShared[pkg], externalProvider)?.version === share.version)
+          ) return;
         }
         const providerKey = cacheDescriptor.canonical;
         const resolved = await __mfInitializeProviderOnce(providerKey, async () => {
@@ -2561,7 +2569,9 @@ export function generateHostAutoInitCode(
                 __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined &&
                 ${
                   _command === 'serve'
-                    ? `__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined`
+                    ? // Same singleton re-negotiation as build, so dev picks the same version (#1396).
+                      `__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined &&
+                      !(share.shareConfig?.singleton && __mfHasAlternativeSharedVersion(pkg, share))`
                     : // A singleton negotiates against every remote under this strategy, so the
                       // pre-init seed above can only ever record this container's own provisional
                       // guess for it. Re-run loadShare() to let the runtime confirm or upgrade that
