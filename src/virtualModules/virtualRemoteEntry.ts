@@ -1037,7 +1037,14 @@ function generateRuntimeSharedCacheSeedCode(
             );
             return;
           }
-          if (typeof isWebpackProvider === 'function' && isWebpackProvider(externalProvider)) return;
+          // Leave an unloaded webpack provider to the late bridge, which only takes a
+          // non-singleton of this share's own version; any other version seeds locally.
+          if (
+            typeof isWebpackProvider === 'function' &&
+            isWebpackProvider(externalProvider) &&
+            (share.shareConfig?.singleton ||
+              __mfFindSharedProviderEntry(initialShared[pkg], externalProvider)?.version === share.version)
+          ) return;
         }
         const providerKey = cacheDescriptor.canonical;
         const resolved = await __mfInitializeProviderOnce(providerKey, async () => {
