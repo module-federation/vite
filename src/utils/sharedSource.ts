@@ -78,6 +78,31 @@ export function createSharedSourceResolver(
   ) => { root: string; conditions: string[] }
 ) {
   const caches = new Map<object | boolean, Map<string, string | undefined>>();
+  // A trailing-slash share key claims every subpath of a package, but `resolveId` is speculative:
+  // plugins probe specifiers that do not exist, and another resolver can rewrite a failed probe
+  // into a *different* specifier that still falls under the prefix — @embroider/vite retries any
+  // failed `.js` request as the same path with `.hbs` to find Ember's colocated templates.
+  // Trusting that guess as a shared entry commits a loadShare module whose body re-imports the
+  // specifier, so the build fails on a module nobody imported instead of reporting the real
+  // resolution error. The bare base and the package's own well-known subpaths stay trusted
+  // outright, as before: only a derived, non-exact subpath match is confirmed first.
+  const wildcardSubpathResolvable = new Map<string, Promise<boolean>>();
+
+  function isWildcardSubpathResolvable(
+    context: ResolveContext,
+    source: string,
+    importer: string,
+    options: ResolveOptions
+  ): Promise<boolean> {
+    let pending = wildcardSubpathResolvable.get(source);
+    if (!pending) {
+      pending = resolveInternally(context, source, importer, options)
+        .then((resolved) => resolved != null && !resolved.external)
+        .catch(() => false);
+      wildcardSubpathResolvable.set(source, pending);
+    }
+    return pending;
+  }
 
   async function matchEntry(
     source: string,
@@ -121,6 +146,7 @@ export function createSharedSourceResolver(
     clear() {
       // Pending lookups retain their old cache and cannot repopulate a new build.
       caches.clear();
+      wildcardSubpathResolvable.clear();
     },
     async resolve(
       context: ResolveContext,
@@ -136,7 +162,17 @@ export function createSharedSourceResolver(
         [...new URLSearchParams(query).keys()].some((key) => !['v', 't', 'import'].includes(key))
       )
         return;
-      if (findSharedKey(source, shared)) return source;
+      const directKey = findSharedKey(source, shared);
+      if (directKey) {
+        const request = getSharedRequest(directKey, shared[directKey]);
+        const isWildcardSubpath = request.endsWith('/') && source !== request.slice(0, -1);
+        if (!isWildcardSubpath) return source;
+        const { root } = getResolutionConfig(context, options);
+        const importer = path.join(root, 'package.json');
+        return (await isWildcardSubpathResolvable(context, source, importer, options))
+          ? source
+          : undefined;
+      }
       const suffix = getNodeModulesSuffix(source);
       if (!suffix) return;
 

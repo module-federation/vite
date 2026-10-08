@@ -1148,6 +1148,56 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect((resolution as { id: string }).id).toBeDefined();
   });
 
+  it('does not materialize a share for a wildcard-matched specifier that cannot resolve', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      ...makeShared(),
+      '@ui-lib/': {
+        name: '@ui-lib/',
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: false,
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    // `@ui-lib/` claims the specifier, but nothing can resolve it. Proxying it would emit a
+    // loadShare module whose body re-imports the same unresolvable specifier, turning a plain
+    // "failed to resolve" into a failure inside a generated module nobody imported.
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => (id.includes('/missing') ? null : { id: `/resolved/${id}` }),
+      } as any,
+      '@ui-lib/missing',
+      '/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(preBuildShareItemMap.has('@ui-lib/missing')).toBe(false);
+  });
+
   it('keeps proxying shared imports from other loadShare wrappers', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
