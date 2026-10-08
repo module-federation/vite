@@ -127,6 +127,65 @@ describe('reactAdapter', () => {
           'globalThis.__MF_REACT_REFRESH_URL__ = new URL("/bbb/@react-refresh"'
         ),
       }),
+      expect.objectContaining({
+        tag: 'script',
+        attrs: { type: 'module' },
+        injectTo: 'head-prepend',
+        children: expect.stringContaining('import * as rt from "/bbb/@react-refresh"'),
+      }),
     ]);
+  });
+
+  it('publishes the bundledDev host runtime from the unprefixed preamble path', () => {
+    const { ctx } = createCtx('/bbb/');
+    (ctx.server.config as { experimental?: { bundledDev?: boolean } }).experimental = {
+      bundledDev: true,
+    };
+    const tags = reactAdapter.host?.transformIndexHtml?.(ctx) ?? [];
+
+    expect(tags[1].children).toContain('import * as rt from "/@react-refresh"');
+    expect(tags[1].children).toContain(
+      'globalThis.__MF_REACT_REFRESH_RUNTIME__ ??= rt.__mfLocalRuntime || rt;'
+    );
+  });
+
+  it('lets the unbundled remote proxy prefer the published host runtime', () => {
+    const { ctx, middlewares } = createCtx();
+    reactAdapter.remote?.configureServer?.(ctx);
+    const res = { setHeader: vi.fn(), end: vi.fn() };
+    middlewares[0](
+      { url: '/@react-refresh' } as IncomingMessage,
+      res as unknown as ServerResponse<IncomingMessage>,
+      vi.fn()
+    );
+
+    expect(res.end).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'const __rt = (__isHost && globalThis.__MF_REACT_REFRESH_RUNTIME__) || await import(__target);'
+      )
+    );
+  });
+
+  it('delegates a bundledDev remote /@react-refresh to the host runtime', () => {
+    const root = process.cwd();
+    expect(reactAdapter.remote?.load?.('/@react-refresh', { root, isBundled: false })).toBe(
+      undefined
+    );
+
+    const code = reactAdapter.remote?.load?.('/@react-refresh', { root, isBundled: true });
+    expect(code).toContain("import * as __local from 'virtual:mf-react-refresh-local';");
+    expect(code).toContain(
+      'const __rt = () => globalThis.__MF_REACT_REFRESH_RUNTIME__ || __local;'
+    );
+    expect(code).toContain(
+      'export function register(...args) { return __rt().register(...args); }'
+    );
+    expect(code).not.toContain('await');
+
+    const localId = reactAdapter.remote?.resolveId?.('virtual:mf-react-refresh-local');
+    expect(localId).toBe('\0virtual:mf-react-refresh-local');
+    expect(reactAdapter.remote?.load?.(localId!, { root, isBundled: true })).toContain(
+      'injectIntoGlobalHook'
+    );
   });
 });

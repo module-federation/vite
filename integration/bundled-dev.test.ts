@@ -89,7 +89,7 @@ describe.skipIf(!supportsBundledDev)('Vite bundledDev Module Federation compatib
       dts: false,
     });
 
-    expect(remote.server.config.experimental.bundledDev).toBe(false);
+    expect(remote.server.config.experimental.bundledDev).toBe(true);
     expect(host.server.config.experimental.bundledDev).toBe(true);
 
     const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -155,6 +155,109 @@ describe.skipIf(!supportsBundledDev)('Vite bundledDev Module Federation compatib
     } finally {
       await browser.close();
     }
+  }, 60_000);
+
+  it('serves a bundledDev remote expose graph in a few requests', async () => {
+    const moduleCount = 50;
+    const chain: Record<string, string> = {};
+    for (let i = 0; i < moduleCount; i++) {
+      chain[`src/chain/m${i}.js`] =
+        i + 1 < moduleCount
+          ? `import next from './m${i + 1}.js';\nexport default ${i} + next;\n`
+          : `export default ${i};\n`;
+    }
+    const remoteRoot = await createFixture('chain-remote', {
+      ...chain,
+      // An inline html module shared with the expose, like the React Refresh preamble.
+      'index.html':
+        '<script type="module">import "/src/preamble.js";</script>\n<script type="module" src="/src/main.js"></script>\n',
+      'src/preamble.js': 'export const preamble = true;\n',
+      'src/main.js': 'document.body.dataset.remoteMain = "ran";\n',
+      'src/App.js': `
+        import './preamble.js';
+        import sum from './chain/m0.js';
+        export default 'chain-' + sum;
+      `,
+    });
+    const remote = await startServer(remoteRoot, {
+      name: 'bundledDevChainRemote',
+      filename: 'remoteEntry.js',
+      exposes: { './App': './src/App.js' },
+      dts: false,
+    });
+
+    const hostRoot = await createFixture('chain-host', {
+      'index.html': '<script type="module" src="/src/main.js"></script>\n',
+      'src/main.js': `
+        (async () => {
+          const remote = await import('bundledDevChainRemote/App');
+          document.body.textContent = remote.default;
+        })();
+      `,
+    });
+    const host = await startServer(hostRoot, {
+      name: 'bundledDevChainHost',
+      remotes: {
+        bundledDevChainRemote: {
+          type: 'module',
+          name: 'bundledDevChainRemote',
+          entry: `${remote.origin}/remoteEntry.js`,
+        },
+      },
+      dts: false,
+    });
+
+    const browser = await chromium.launch({ channel: 'chrome', headless: true });
+    const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    const remoteRequests: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+    page.on('request', (request) => {
+      if (request.url().startsWith(remote.origin)) remoteRequests.push(request.url());
+    });
+
+    try {
+      await page.goto(host.origin, { waitUntil: 'domcontentloaded' });
+      const expected = `chain-${(moduleCount * (moduleCount - 1)) / 2}`;
+      await page.waitForFunction((text) => document.body.textContent === text, expected, {
+        timeout: 15_000,
+      });
+      expect(pageErrors).toEqual([]);
+      expect(remoteRequests.length).toBeLessThan(15);
+      // The remote's own app entry must not run inside the host page.
+      expect(await page.evaluate(() => document.body.dataset.remoteMain)).toBeUndefined();
+      // The remote's modules live in its own Rolldown dev runtime, not the host's.
+      const hostRuntimeIds = await page.evaluate(() => [
+        ...((
+          globalThis as { __rolldown_runtime__?: { moduleCache?: Map<string, unknown> } }
+        ).__rolldown_runtime__?.moduleCache?.keys() ?? []),
+      ]);
+      expect(hostRuntimeIds.length).toBeGreaterThan(0);
+      expect(hostRuntimeIds.filter((id) => id.includes('chain-remote'))).toEqual([]);
+    } catch (error) {
+      throw new Error(
+        JSON.stringify({ cause: String(error), pageErrors, remoteRequests }, null, 2)
+      );
+    } finally {
+      await browser.close();
+    }
+  }, 60_000);
+
+  it('keeps a remoteHmr remote on bundledDev', async () => {
+    const remoteRoot = await createFixture('remote-hmr', {
+      'index.html': '<script type="module" src="/src/main.js"></script>\n',
+      'src/main.js': 'document.body.textContent = "remote-ready";\n',
+      'src/App.js': 'export default "remote-hmr";\n',
+    });
+    const remote = await startServer(remoteRoot, {
+      name: 'bundledDevRemoteHmr',
+      filename: 'remoteEntry.js',
+      exposes: { './App': './src/App.js' },
+      dev: { remoteHmr: true },
+      dts: false,
+    });
+
+    expect(remote.server.config.experimental.bundledDev).toBe(true);
   }, 60_000);
 
   it('loads a statically imported expose from a bundledDev remote', async () => {
@@ -274,7 +377,7 @@ describe.skipIf(!supportsBundledDev)('Vite bundledDev Module Federation compatib
       dts: false,
     });
 
-    expect(remote.server.config.experimental.bundledDev).toBe(false);
+    expect(remote.server.config.experimental.bundledDev).toBe(true);
     expect(host.server.config.experimental.bundledDev).toBe(true);
 
     const browser = await chromium.launch({ channel: 'chrome', headless: true });

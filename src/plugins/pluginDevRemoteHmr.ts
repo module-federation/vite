@@ -74,6 +74,9 @@ export interface HmrAdapter {
      * runtime. Return `undefined` to leave the code unchanged.
      */
     transform?(code: string, id: string, ctx: Omit<AdapterContext, 'server'>): string | undefined;
+    /** Virtual modules the remote's own graph imports (e.g. under bundledDev). */
+    resolveId?(id: string): string | undefined;
+    load?(id: string, ctx: { root: string; isBundled: boolean }): string | undefined;
   };
   host?: {
     configureServer?(ctx: AdapterContext): void;
@@ -169,15 +172,19 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
   // the time `configureServer` / `transform` / `transformIndexHtml` run.
   let adapters: readonly HmrAdapter[] = [];
   let strategy: HmrStrategy = 'full-reload';
+  let root: string | undefined;
+  let devServer: ViteDevServer | undefined;
 
   return {
     name: 'module-federation-dev-remote-hmr',
     apply: 'serve',
     configResolved(config) {
+      root = config.root;
       adapters = resolveAdapters(config.plugins);
       strategy = resolveHmrStrategy(options.dev, config.plugins);
     },
     configureServer(server) {
+      devServer = server;
       if (!isRemoteHmrEnabled(options.dev)) return;
       if (isRemote) {
         for (const adapter of adapters) {
@@ -195,6 +202,27 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
 
         if (strategy === 'full-reload') setupHostFullReloadRelay(server, options);
       }
+    },
+    resolveId(id) {
+      if (!isRemote || !isRemoteHmrEnabled(options.dev)) return;
+      for (const adapter of adapters) {
+        const resolved = adapter.remote?.resolveId?.(id);
+        if (resolved) return resolved;
+      }
+    },
+    load: {
+      // Before the framework plugin's own runtime module (plugin-react).
+      order: 'pre',
+      handler(id) {
+        if (!isRemote || !isRemoteHmrEnabled(options.dev) || !root) return;
+        const isBundled =
+          (this as { environment?: { config?: { isBundled?: boolean } } }).environment?.config
+            ?.isBundled === true;
+        for (const adapter of adapters) {
+          const code = adapter.remote?.load?.(id, { root, isBundled });
+          if (code !== undefined) return code;
+        }
+      },
     },
     transform: {
       order: 'post',
@@ -214,8 +242,10 @@ export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOp
       order: 'pre',
       handler(_html, ctx) {
         if (!isRemoteHmrEnabled(options.dev)) return;
-        if (!isHost || !ctx.server) return;
-        return collectHostTags(ctx.server, options, adapters);
+        // Under bundledDev the html is bundled, so the hook has no ctx.server.
+        const server = ctx.server ?? devServer;
+        if (!isHost || !server) return;
+        return collectHostTags(server, options, adapters);
       },
     },
   };
