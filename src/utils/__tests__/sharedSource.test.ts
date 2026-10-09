@@ -136,6 +136,45 @@ describe('createSharedSourceResolver', () => {
     );
   });
 
+  it('matches an entry a directory-remapping package publishes under another name', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
+    tempDirs.push(root);
+    const packageDir = path.join(root, 'node_modules', 'mf-test-remap');
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+    mkdirSync(path.join(packageDir, 'dist'), { recursive: true });
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'mf-test-remap',
+        exports: { './*.js': { import: './dist/*.js' }, './*': { import: './dist/*.js' } },
+      })
+    );
+    const file = path.join(packageDir, 'dist', 'button.js');
+    writeFileSync(file, 'export default 1;');
+
+    // The file is only importable as `mf-test-remap/button.js`; `mf-test-remap/dist/button.js`
+    // would resolve to ./dist/dist/button.js, which the package does not publish.
+    const resolve = vi.fn(async (id: string) => ({
+      id: id === 'mf-test-remap/button.js' ? file : id,
+      external: false,
+    }));
+    const resolver = createSharedSourceResolver(makeShared(['mf-test-remap/']), () => ({
+      root,
+      conditions: ['import'],
+    }));
+
+    await expect(resolver.resolve({ resolve } as any, file, {})).resolves.toBe(
+      'mf-test-remap/button.js'
+    );
+    // The path-derived specifier must never be probed: a failed probe can be rewritten by another
+    // resolver into a specifier that still falls under the shared prefix.
+    expect(resolve).not.toHaveBeenCalledWith(
+      'mf-test-remap/dist/button.js',
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
   it('does not match different node_modules roots unless suffix matching is enabled', async () => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
     tempDirs.push(root);

@@ -188,6 +188,120 @@ export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditio
   );
 }
 
+function stripRelativePrefix(target: string): string {
+  return target.replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+type ExportCandidate = {
+  subpath: string;
+  isPattern: boolean;
+  baseLength: number;
+  keyLength: number;
+};
+
+/**
+ * Specifiers the installed package publishes for the file at `relFilePath` — a path below the
+ * package root, such as `dist/button.js` — ordered most specific first.
+ *
+ * `exports` maps specifiers to files, so a specifier rebuilt from a resolved path is only valid
+ * when the package happens to publish its files at the paths they occupy on disk. A package that
+ * remaps directories (`"./*": "./dist/*.js"`) publishes `pkg/button` and never
+ * `pkg/dist/button.js`, so the rebuilt specifier names a file the package does not export.
+ * Reversing the map recovers the specifiers that do resolve back to that file.
+ *
+ * Candidates are ordered by the same precedence `matchExportsSubpath` applies when resolving
+ * forwards — exact keys, then the longest pattern prefix, then the longest key — so a caller
+ * that takes the first match picks the same specifier for a file in every build, and in every
+ * container that shares the package.
+ *
+ * Empty when the package exports nothing that resolves to the file, which is the case for its
+ * internals and for subpaths an explicit `null` blocks. Lenient when the package cannot be found
+ * or has no `exports`, matching `isPackageExportAvailable`: every file is then reachable at its
+ * own path, so the path is the specifier.
+ */
+export function getPackageExportSpecifiersForFile(
+  packageName: string,
+  relFilePath: string,
+  opts: PackageEntryConditions = {}
+): string[] {
+  const file = `./${stripRelativePrefix(relFilePath)}`;
+  const toSpecifier = (subpath: string) =>
+    subpath === '.' ? packageName : `${packageName}${subpath.slice(1)}`;
+
+  const installed = getInstalledPackageJson(packageName, opts);
+  const exportsField = installed?.packageJson.exports;
+  if (exportsField == null) return [toSpecifier(file)];
+  if (typeof exportsField === 'string') {
+    return stripRelativePrefix(exportsField) === stripRelativePrefix(file) ? [packageName] : [];
+  }
+  if (typeof exportsField !== 'object') return [];
+
+  const record = exportsField as Record<string, unknown>;
+  // Exports without any subpath keys describe the package root through its conditions alone.
+  const subpathKeys = Object.keys(record).filter((key) => key.startsWith('.'));
+  if (subpathKeys.length === 0) {
+    const target = resolveExportsEntry(record, opts.conditions);
+    return typeof target === 'string' && stripRelativePrefix(target) === stripRelativePrefix(file)
+      ? [packageName]
+      : [];
+  }
+
+  const candidates: ExportCandidate[] = [];
+  for (const key of subpathKeys) {
+    const wildcardIndex = key.indexOf('*');
+    if (wildcardIndex === -1) {
+      candidates.push({
+        subpath: key,
+        isPattern: false,
+        baseLength: key.length,
+        keyLength: key.length,
+      });
+      continue;
+    }
+    const trailer = key.slice(wildcardIndex + 1);
+    // Node substitutes only the first wildcard; a second one never matches.
+    if (trailer.includes('*')) continue;
+    // `null` blocks the subpath, so the pattern publishes nothing to reverse.
+    const pattern = resolveExportsEntry(record[key], opts.conditions);
+    if (typeof pattern !== 'string') continue;
+    const patternWildcard = pattern.indexOf('*');
+    if (patternWildcard === -1) continue;
+    const prefix = pattern.slice(0, patternWildcard);
+    const suffix = pattern.slice(patternWildcard + 1);
+    if (!file.startsWith(prefix) || !file.endsWith(suffix)) continue;
+    if (file.length <= prefix.length + suffix.length) continue;
+    candidates.push({
+      subpath:
+        key.slice(0, wildcardIndex) +
+        file.slice(prefix.length, file.length - suffix.length) +
+        trailer,
+      isPattern: true,
+      baseLength: wildcardIndex,
+      keyLength: key.length,
+    });
+  }
+
+  // A narrower pattern can redirect or `null` out what a broader one appears to publish, so keep
+  // only the candidates that resolve forwards to this same file.
+  const verified = candidates.filter((candidate) => {
+    const target = resolveExportsEntry(
+      getPackageExportsTarget(toSpecifier(candidate.subpath), packageName, record),
+      opts.conditions
+    );
+    return typeof target === 'string' && stripRelativePrefix(target) === stripRelativePrefix(file);
+  });
+
+  verified.sort(
+    (a, b) =>
+      Number(a.isPattern) - Number(b.isPattern) ||
+      b.baseLength - a.baseLength ||
+      b.keyLength - a.keyLength ||
+      (a.subpath < b.subpath ? -1 : a.subpath > b.subpath ? 1 : 0)
+  );
+
+  return [...new Set(verified.map((candidate) => toSpecifier(candidate.subpath)))];
+}
+
 /**
  * Escaping rules:
  * Convert using the format __${mapping}__, where _ and $ are not allowed in npm package names but can be used in variable names.

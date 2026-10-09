@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { HookHandler, Plugin } from 'vite';
 import type { NormalizedShared } from './normalizeModuleFederationOptions';
 import {
+  getPackageExportSpecifiersForFile,
   getPackageName,
   getPackageNameFromNodeModulePath,
   isPackageExportAvailable,
@@ -82,13 +83,33 @@ export function createSharedSourceResolver(
   async function matchEntry(
     source: string,
     suffix: string,
+    entryOptions: { cwd: string; conditions: string[] },
     resolveEntry: (request: string) => Promise<string | undefined>
   ): Promise<string | undefined> {
     const packageName = getPackageNameFromNodeModulePath(source);
     if (!packageName) return;
     const candidates = new Set<string>();
     if (findSharedKey(packageName, shared)) candidates.add(packageName);
-    if (findSharedKey(suffix, shared)) candidates.add(suffix);
+    // `suffix` is the resolved file's path below the last `node_modules/`, which is a *file path*,
+    // not necessarily a specifier. It only names something the package publishes when `exports`
+    // leaves its files where they sit on disk. A package that remaps directories
+    // (`"./*": "./dist/*.js"`) publishes `pkg/button` and never `pkg/dist/button.js`, so taking the
+    // path as a specifier both misses the entry and probes a request the package cannot resolve —
+    // and a failed probe is not free: another resolver can rewrite it into a different specifier
+    // that still falls under a shared prefix (@embroider/vite retries a failed `.js` as `.hbs` to
+    // find Ember's colocated templates), which then gets adopted as a share nobody imported.
+    // Reversing `exports` instead yields only specifiers that resolve back to this file, and falls
+    // back to the path itself for packages without `exports`, where the path *is* the specifier.
+    const packageSubpath = suffix.slice(packageName.length + 1);
+    if (packageSubpath) {
+      for (const specifier of getPackageExportSpecifiersForFile(
+        packageName,
+        packageSubpath,
+        entryOptions
+      )) {
+        if (findSharedKey(specifier, shared)) candidates.add(specifier);
+      }
+    }
     for (const key of Object.keys(shared)) {
       const request = getSharedRequest(key, shared[key]);
       if (getPackageName(request) !== packageName) continue;
@@ -158,23 +179,28 @@ export function createSharedSourceResolver(
       if (cache?.has(normalizedSource)) return cache.get(normalizedSource);
 
       const { root, conditions } = getResolutionConfig(context, options);
-      const result = await matchEntry(normalizedSource, suffix, async (request) => {
-        // Rolldown can retain errors from speculative this.resolve() calls even
-        // when caught. A file path does not imply a public package export.
-        if (
-          !path.isAbsolute(request) &&
-          !isPackageExportAvailable(request, { cwd: root, conditions })
-        )
-          return undefined;
-        const importer = path.join(root, 'package.json');
-        try {
-          const resolved = await resolveInternally(context, request, importer, options);
-          return resolved && !resolved.external ? resolved.id : undefined;
-        } catch {
-          // A prefix can suggest a private or missing export. It is not a shared entry.
-          return undefined;
+      const result = await matchEntry(
+        normalizedSource,
+        suffix,
+        { cwd: root, conditions },
+        async (request) => {
+          // Rolldown can retain errors from speculative this.resolve() calls even
+          // when caught. A file path does not imply a public package export.
+          if (
+            !path.isAbsolute(request) &&
+            !isPackageExportAvailable(request, { cwd: root, conditions })
+          )
+            return undefined;
+          const importer = path.join(root, 'package.json');
+          try {
+            const resolved = await resolveInternally(context, request, importer, options);
+            return resolved && !resolved.external ? resolved.id : undefined;
+          } catch {
+            // A prefix can suggest a private or missing export. It is not a shared entry.
+            return undefined;
+          }
         }
-      });
+      );
       // Vite can re-enter resolution while an earlier lookup is pending. Sharing
       // that promise can make the resolver wait on itself, so cache completed results only.
       cache?.set(normalizedSource, result);
