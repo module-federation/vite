@@ -10,6 +10,7 @@ import {
   getCommonSharedSubpaths,
   getNodeModulesSuffix,
   normalizeNodeModulePath,
+  removeTrailingSlash,
   stripViteFsPrefix,
 } from './pathNormalization';
 import { findSharedKey, getSharedRequest } from './sharedKeyMatcher';
@@ -86,22 +87,26 @@ export function createSharedSourceResolver(
   // specifier, so the build fails on a module nobody imported instead of reporting the real
   // resolution error. The bare base and the package's own well-known subpaths stay trusted
   // outright, as before: only a derived, non-exact subpath match is confirmed first.
-  const wildcardSubpathResolvable = new Map<string, Promise<boolean>>();
+  const wildcardSubpathCaches = new Map<object | boolean, Map<string, boolean>>();
 
-  function isWildcardSubpathResolvable(
+  async function resolveEntry(
     context: ResolveContext,
-    source: string,
-    importer: string,
-    options: ResolveOptions
-  ): Promise<boolean> {
-    let pending = wildcardSubpathResolvable.get(source);
-    if (!pending) {
-      pending = resolveInternally(context, source, importer, options)
-        .then((resolved) => resolved != null && !resolved.external)
-        .catch(() => false);
-      wildcardSubpathResolvable.set(source, pending);
+    request: string,
+    options: ResolveOptions,
+    { root, conditions }: ReturnType<typeof getResolutionConfig>
+  ): Promise<string | undefined> {
+    // Rolldown can retain errors from speculative this.resolve() calls even
+    // when caught. A file path does not imply a public package export.
+    if (!path.isAbsolute(request) && !isPackageExportAvailable(request, { cwd: root, conditions }))
+      return undefined;
+    const importer = path.join(root, 'package.json');
+    try {
+      const resolved = await resolveInternally(context, request, importer, options);
+      return resolved && !resolved.external ? resolved.id : undefined;
+    } catch {
+      // A prefix can suggest a private or missing export. It is not a shared entry.
+      return undefined;
     }
-    return pending;
   }
 
   async function matchEntry(
@@ -146,7 +151,7 @@ export function createSharedSourceResolver(
     clear() {
       // Pending lookups retain their old cache and cannot repopulate a new build.
       caches.clear();
-      wildcardSubpathResolvable.clear();
+      wildcardSubpathCaches.clear();
     },
     async resolve(
       context: ResolveContext,
@@ -162,21 +167,6 @@ export function createSharedSourceResolver(
         [...new URLSearchParams(query).keys()].some((key) => !['v', 't', 'import'].includes(key))
       )
         return;
-      const directKey = findSharedKey(source, shared);
-      if (directKey) {
-        const request = getSharedRequest(directKey, shared[directKey]);
-        const isWildcardSubpath = request.endsWith('/') && source !== request.slice(0, -1);
-        if (!isWildcardSubpath) return source;
-        const { root } = getResolutionConfig(context, options);
-        const importer = path.join(root, 'package.json');
-        return (await isWildcardSubpathResolvable(context, source, importer, options))
-          ? source
-          : undefined;
-      }
-      const suffix = getNodeModulesSuffix(source);
-      if (!suffix) return;
-
-      const normalizedSource = stripViteFsPrefix(normalizeNodeModulePath(source));
       // Vite 6+ shares plugins across environments; Vite 5 identifies SSR via options.
       const environment = context.environment ?? !!options.ssr;
       // Other resolution modes or plugin options may select a different entry.
@@ -186,31 +176,45 @@ export function createSharedSourceResolver(
         (!options.kind || options.kind === 'import-statement') &&
         Object.keys(options.attributes ?? {}).length === 0 &&
         Object.keys(options.custom ?? {}).length === 0;
-      let cache = cacheable ? caches.get(environment) : undefined;
-      if (cacheable && !cache) {
-        cache = new Map();
-        caches.set(environment, cache);
+      const getCache = <T>(byEnvironment: Map<object | boolean, Map<string, T>>) => {
+        if (!cacheable) return;
+        let cache = byEnvironment.get(environment);
+        if (!cache) {
+          cache = new Map();
+          byEnvironment.set(environment, cache);
+        }
+        return cache;
+      };
+
+      const directKey = findSharedKey(source, shared);
+      if (directKey) {
+        const request = getSharedRequest(directKey, shared[directKey]);
+        const isDerivedSubpath =
+          request.endsWith('/') &&
+          source !== removeTrailingSlash(request) &&
+          !getCommonSharedSubpaths(request).includes(source);
+        if (!isDerivedSubpath) return source;
+        const cache = getCache(wildcardSubpathCaches);
+        let resolvable = cache?.get(source);
+        if (resolvable === undefined) {
+          const config = getResolutionConfig(context, options);
+          resolvable = (await resolveEntry(context, source, options, config)) !== undefined;
+          // Cache completed results only: see the re-entrancy note below.
+          cache?.set(source, resolvable);
+        }
+        return resolvable ? source : undefined;
       }
+      const suffix = getNodeModulesSuffix(source);
+      if (!suffix) return;
+
+      const normalizedSource = stripViteFsPrefix(normalizeNodeModulePath(source));
+      const cache = getCache(caches);
       if (cache?.has(normalizedSource)) return cache.get(normalizedSource);
 
-      const { root, conditions } = getResolutionConfig(context, options);
-      const result = await matchEntry(normalizedSource, suffix, async (request) => {
-        // Rolldown can retain errors from speculative this.resolve() calls even
-        // when caught. A file path does not imply a public package export.
-        if (
-          !path.isAbsolute(request) &&
-          !isPackageExportAvailable(request, { cwd: root, conditions })
-        )
-          return undefined;
-        const importer = path.join(root, 'package.json');
-        try {
-          const resolved = await resolveInternally(context, request, importer, options);
-          return resolved && !resolved.external ? resolved.id : undefined;
-        } catch {
-          // A prefix can suggest a private or missing export. It is not a shared entry.
-          return undefined;
-        }
-      });
+      const config = getResolutionConfig(context, options);
+      const result = await matchEntry(normalizedSource, suffix, (request) =>
+        resolveEntry(context, request, options, config)
+      );
       // Vite can re-enter resolution while an earlier lookup is pending. Sharing
       // that promise can make the resolver wait on itself, so cache completed results only.
       cache?.set(normalizedSource, result);

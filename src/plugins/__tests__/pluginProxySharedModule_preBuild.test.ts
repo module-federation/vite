@@ -1198,6 +1198,56 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(preBuildShareItemMap.has('@ui-lib/missing')).toBe(false);
   });
 
+  it.each([
+    ['@ui-lib/', '@ui-lib/button', true],
+    ['solid-js/', 'solid-js/web', false],
+  ])('materializes %s subpath %s, probing it only when derived', async (key, specifier, probed) => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const shared: NormalizedShared = {
+      ...makeShared(),
+      [key]: {
+        name: key,
+        from: '',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: {
+          singleton: true,
+          requiredVersion: false,
+          strictVersion: false,
+        },
+      },
+    };
+
+    const plugins = proxySharedModule({ shared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolve = vi.fn(async (id: string, _importer?: string, _options?: any) => ({
+      id: `/resolved/${id}`,
+    }));
+    await callHook(sharedResolvePlugin.resolveId, { resolve } as any, specifier, '/src/main.ts', {
+      isEntry: false,
+    });
+
+    expect(preBuildShareItemMap.has(specifier)).toBe(true);
+    const probes = resolve.mock.calls.filter(
+      ([id, , options]) => id === specifier && options?.custom?.__mfSharedEntryLookup
+    );
+    expect(probes.length > 0).toBe(probed);
+  });
+
   it('keeps proxying shared imports from other loadShare wrappers', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
