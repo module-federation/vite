@@ -32,6 +32,26 @@ const pendingEntryLookups = new Map<string, number>();
 const getEntryLookupKey = (source: string, importer: string | undefined) =>
   `${source}\0${importer}`;
 
+/**
+ * Rolldown saves each this.resolve() call's options under the map's current size and deletes the
+ * entry when the call settles, so a call can take a key that an overlapping call still holds and
+ * hand it the wrong `custom` (our lookup flag lands on a real import, which then is not proxied).
+ * Taking the first free key keeps every in-flight entry intact. A no-op when the internals differ.
+ */
+export function patchRolldownResolveOptionKeys(context: unknown) {
+  const data = (context as { data?: Record<string, unknown> } | undefined)?.data;
+  const map = data?.resolveOptionsMap;
+  if (!data || !(map instanceof Map) || typeof data.saveResolveOptions !== 'function') return;
+  if (data.__mfFreeKeyPatch) return;
+  data.saveResolveOptions = (options: unknown) => {
+    let index = map.size;
+    while (map.has(index)) index++;
+    map.set(index, options);
+    return index;
+  };
+  data.__mfFreeKeyPatch = true;
+}
+
 /** Whether a resolveId call is one of the shared source resolver's own entry lookups. */
 export function isSharedEntryLookup(
   source: string,

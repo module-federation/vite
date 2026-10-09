@@ -3,7 +3,11 @@ import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NormalizedShared } from '../normalizeModuleFederationOptions';
-import { createSharedSourceResolver, isSharedEntryLookup } from '../sharedSource';
+import {
+  createSharedSourceResolver,
+  isSharedEntryLookup,
+  patchRolldownResolveOptionKeys,
+} from '../sharedSource';
 
 function makeShared(keys: string[], shareConfig: Record<string, unknown> = {}): NormalizedShared {
   return Object.fromEntries(
@@ -200,5 +204,39 @@ describe('createSharedSourceResolver', () => {
     await expect(withOptIn.resolve({ resolve } as any, source, {})).resolves.toBe(
       'mf-test-suffix-match'
     );
+  });
+});
+
+describe('patchRolldownResolveOptionKeys', () => {
+  // Mirrors rolldown's PluginContextData, which keys saved options by the map's size.
+  const makeData = () => {
+    const resolveOptionsMap = new Map<number, unknown>();
+    return {
+      resolveOptionsMap,
+      saveResolveOptions(options: unknown) {
+        const index = resolveOptionsMap.size;
+        resolveOptionsMap.set(index, options);
+        return index;
+      },
+    };
+  };
+  const overlap = (data: ReturnType<typeof makeData>) => {
+    const a = data.saveResolveOptions('a');
+    const b = data.saveResolveOptions('b');
+    data.resolveOptionsMap.delete(a);
+    data.saveResolveOptions('c');
+    return data.resolveOptionsMap.get(b);
+  };
+
+  it('keeps an in-flight call its own options when an earlier one settles', () => {
+    expect(overlap(makeData())).toBe('c');
+    const data = makeData();
+    patchRolldownResolveOptionKeys({ data });
+    expect(overlap(data)).toBe('b');
+  });
+
+  it('leaves contexts without rolldown internals alone', () => {
+    expect(() => patchRolldownResolveOptionKeys({})).not.toThrow();
+    expect(() => patchRolldownResolveOptionKeys(undefined)).not.toThrow();
   });
 });
