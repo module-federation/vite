@@ -28,6 +28,9 @@ function createContext(parseError = false) {
       if (parseError) throw new Error('Parse error');
       return parseAst(code);
     },
+    async resolve(): Promise<{ id: string } | null> {
+      return null;
+    },
   };
 }
 
@@ -57,6 +60,17 @@ describe('pluginRemoteNamedExports', () => {
         '/src/app.js'
       );
       expect(result?.code).toContain('__moduleExports');
+    });
+
+    it('skips specifiers another plugin resolved to a non-remote module', async () => {
+      const plugin = pluginRemoteNamedExports(OPTIONS);
+      const ctx = { ...createContext(), resolve: async () => ({ id: '/src/stubs/utils.ts' }) };
+      const result = await (plugin as any).transform.call(
+        ctx,
+        'import { foo } from "remoteApp/utils";',
+        '/src/app.js'
+      );
+      expect(result).toBeUndefined();
     });
 
     it('skips when no remotes configured', async () => {
