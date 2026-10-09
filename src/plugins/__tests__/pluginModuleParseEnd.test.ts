@@ -51,6 +51,9 @@ describe('pluginModuleParseEnd', () => {
       const { controller, parseStart } = getParsePlugins(() => false, undefined, 0.001);
 
       callHook(parseStart.buildStart, {} as any, undefined as never);
+      // Other plugins' buildStart work is not idle time (#1439).
+      expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
+      callHook(parseStart.load, {} as any, '/src/main.ts');
 
       expect(await controller.parsePromise).toEqual({
         complete: false,
