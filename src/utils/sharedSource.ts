@@ -102,11 +102,12 @@ export function createSharedSourceResolver(
     // back to the path itself for packages without `exports`, where the path *is* the specifier.
     const packageSubpath = suffix.slice(packageName.length + 1);
     if (packageSubpath) {
-      for (const specifier of getPackageExportSpecifiersForFile(
-        packageName,
-        packageSubpath,
-        entryOptions
-      )) {
+      // Read the copy that holds `source`, not whichever one the root resolves, so a nested
+      // install reverses its own `exports`.
+      for (const specifier of getPackageExportSpecifiersForFile(packageName, packageSubpath, {
+        ...entryOptions,
+        fromResolvedEntry: source,
+      })) {
         if (findSharedKey(specifier, shared)) candidates.add(specifier);
       }
     }

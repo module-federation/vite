@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { normalizePathForImport } from './buildPaths';
 import { createModuleFederationError, mfWarn } from './logger';
 import type { ShareItem } from './normalizeModuleFederationOptions';
 import { getNodeModulesSuffix } from './pathNormalization';
@@ -124,6 +125,25 @@ function substituteExportsWildcard(target: unknown, patternMatch: string): unkno
   return target;
 }
 
+/** Splits an exports pattern at its wildcard. Node substitutes only the first one, so a second never matches. */
+function splitExportsPattern(pattern: string): { base: string; trailer: string } | undefined {
+  const wildcardIndex = pattern.indexOf('*');
+  if (wildcardIndex === -1) return undefined;
+  const trailer = pattern.slice(wildcardIndex + 1);
+  if (trailer.includes('*')) return undefined;
+  return { base: pattern.slice(0, wildcardIndex), trailer };
+}
+
+/** The text `value` substitutes for the wildcard of a pattern split by `splitExportsPattern`. */
+function matchExportsPatternPart(
+  value: string,
+  { base, trailer }: { base: string; trailer: string }
+): string | undefined {
+  if (!value.startsWith(base) || !value.endsWith(trailer)) return undefined;
+  if (value.length <= base.length + trailer.length) return undefined;
+  return value.slice(base.length, value.length - trailer.length);
+}
+
 function matchExportsSubpath(record: Record<string, unknown>, subpath: string): unknown {
   if (subpath in record) return record[subpath];
 
@@ -131,19 +151,14 @@ function matchExportsSubpath(record: Record<string, unknown>, subpath: string): 
   let bestBaseLength = -1;
   let bestKeyLength = -1;
   for (const key of Object.keys(record)) {
-    const wildcardIndex = key.indexOf('*');
-    if (wildcardIndex === -1) continue;
-    const patternBase = key.slice(0, wildcardIndex);
-    const patternTrailer = key.slice(wildcardIndex + 1);
-    if (patternTrailer.includes('*')) continue;
-    if (!subpath.startsWith(patternBase) || !subpath.endsWith(patternTrailer)) continue;
-    if (subpath.length <= patternBase.length + patternTrailer.length) continue;
+    const pattern = splitExportsPattern(key);
+    if (!pattern || matchExportsPatternPart(subpath, pattern) === undefined) continue;
     if (
-      patternBase.length > bestBaseLength ||
-      (patternBase.length === bestBaseLength && key.length > bestKeyLength)
+      pattern.base.length > bestBaseLength ||
+      (pattern.base.length === bestBaseLength && key.length > bestKeyLength)
     ) {
       bestKey = key;
-      bestBaseLength = patternBase.length;
+      bestBaseLength = pattern.base.length;
       bestKeyLength = key.length;
     }
   }
@@ -189,7 +204,7 @@ export function isPackageExportAvailable(pkg: string, opts: PackageEntryConditio
 }
 
 function stripRelativePrefix(target: string): string {
-  return target.replace(/\\/g, '/').replace(/^\.\//, '');
+  return normalizePathForImport(target).replace(/^\.\//, '');
 }
 
 type ExportCandidate = {
@@ -248,8 +263,7 @@ export function getPackageExportSpecifiersForFile(
 
   const candidates: ExportCandidate[] = [];
   for (const key of subpathKeys) {
-    const wildcardIndex = key.indexOf('*');
-    if (wildcardIndex === -1) {
+    if (!key.includes('*')) {
       candidates.push({
         subpath: key,
         isPattern: false,
@@ -258,25 +272,18 @@ export function getPackageExportSpecifiersForFile(
       });
       continue;
     }
-    const trailer = key.slice(wildcardIndex + 1);
-    // Node substitutes only the first wildcard; a second one never matches.
-    if (trailer.includes('*')) continue;
+    const keyPattern = splitExportsPattern(key);
+    if (!keyPattern) continue;
     // `null` blocks the subpath, so the pattern publishes nothing to reverse.
-    const pattern = resolveExportsEntry(record[key], opts.conditions);
-    if (typeof pattern !== 'string') continue;
-    const patternWildcard = pattern.indexOf('*');
-    if (patternWildcard === -1) continue;
-    const prefix = pattern.slice(0, patternWildcard);
-    const suffix = pattern.slice(patternWildcard + 1);
-    if (!file.startsWith(prefix) || !file.endsWith(suffix)) continue;
-    if (file.length <= prefix.length + suffix.length) continue;
+    const target = resolveExportsEntry(record[key], opts.conditions);
+    const targetPattern = typeof target === 'string' ? splitExportsPattern(target) : undefined;
+    if (!targetPattern) continue;
+    const patternMatch = matchExportsPatternPart(file, targetPattern);
+    if (patternMatch === undefined) continue;
     candidates.push({
-      subpath:
-        key.slice(0, wildcardIndex) +
-        file.slice(prefix.length, file.length - suffix.length) +
-        trailer,
+      subpath: keyPattern.base + patternMatch + keyPattern.trailer,
       isPattern: true,
-      baseLength: wildcardIndex,
+      baseLength: keyPattern.base.length,
       keyLength: key.length,
     });
   }
