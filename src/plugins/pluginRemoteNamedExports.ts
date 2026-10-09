@@ -563,8 +563,17 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
       if (!JS_EXTENSIONS_RE.test(id)) return;
       // Quick bail-out: does the source mention any remote name?
       if (!remoteNames.some((name) => code.includes(name))) return;
-      const matchesRemoteImport = (source: string) => isRemoteImport(source, id);
-      for (const { kind, source, typeOnly } of findModuleImportDescriptors(code)) {
+      const descriptors = findModuleImportDescriptors(code);
+      // Leave specifiers another plugin resolved elsewhere (e.g. a `pre` stub) untouched.
+      const resolvedElsewhere = new Set<string>();
+      for (const source of new Set(descriptors.map((d) => d.source))) {
+        if (source.includes(LOAD_REMOTE_TAG) || !isRemoteImport(source, id)) continue;
+        const resolved = await this.resolve(source, id);
+        if (resolved && !resolved.id.includes(LOAD_REMOTE_TAG)) resolvedElsewhere.add(source);
+      }
+      const matchesRemoteImport = (source: string) =>
+        !resolvedElsewhere.has(source) && isRemoteImport(source, id);
+      for (const { kind, source, typeOnly } of descriptors) {
         if (kind === 'static' && !typeOnly && matchesRemoteImport(source)) {
           markStaticRemote(source, options);
         }
