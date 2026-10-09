@@ -184,9 +184,9 @@ export default function (
       },
       async buildStart() {
         resetParseState(controller);
-        if (idleTimeout) {
-          resetIdleTimeout(controller, idleTimeout);
-        } else if (options.moduleParseTimeout) {
+        // The idle timer is armed by the first load: Vite finishes every
+        // plugin's buildStart before loading, so time spent there is not idle.
+        if (!idleTimeout && options.moduleParseTimeout) {
           setParseTimeout(controller, options.moduleParseTimeout);
         }
         // Exposed modules and explicit Rollup inputs can be scheduled
