@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { HookHandler, Plugin } from 'vite';
 import type { NormalizedShared } from './normalizeModuleFederationOptions';
 import {
+  getPackageExportSpecifiersForFile,
   getPackageName,
   getPackageNameFromNodeModulePath,
   isPackageExportAvailable,
@@ -31,6 +32,26 @@ const pendingEntryLookups = new Map<string, number>();
 
 const getEntryLookupKey = (source: string, importer: string | undefined) =>
   `${source}\0${importer}`;
+
+/**
+ * Rolldown saves each this.resolve() call's options under the map's current size and deletes the
+ * entry when the call settles, so a call can take a key that an overlapping call still holds and
+ * hand it the wrong `custom` (our lookup flag lands on a real import, which then is not proxied).
+ * Taking the first free key keeps every in-flight entry intact. A no-op when the internals differ.
+ */
+export function patchRolldownResolveOptionKeys(context: unknown) {
+  const data = (context as { data?: Record<string, unknown> } | undefined)?.data;
+  const map = data?.resolveOptionsMap;
+  if (!data || !(map instanceof Map) || typeof data.saveResolveOptions !== 'function') return;
+  if (data.__mfFreeKeyPatch) return;
+  data.saveResolveOptions = (options: unknown) => {
+    let index = map.size;
+    while (map.has(index)) index++;
+    map.set(index, options);
+    return index;
+  };
+  data.__mfFreeKeyPatch = true;
+}
 
 /** Whether a resolveId call is one of the shared source resolver's own entry lookups. */
 export function isSharedEntryLookup(
@@ -112,13 +133,34 @@ export function createSharedSourceResolver(
   async function matchEntry(
     source: string,
     suffix: string,
+    entryOptions: { cwd: string; conditions: string[] },
     resolveEntry: (request: string) => Promise<string | undefined>
   ): Promise<string | undefined> {
     const packageName = getPackageNameFromNodeModulePath(source);
     if (!packageName) return;
     const candidates = new Set<string>();
     if (findSharedKey(packageName, shared)) candidates.add(packageName);
-    if (findSharedKey(suffix, shared)) candidates.add(suffix);
+    // `suffix` is the resolved file's path below the last `node_modules/`, which is a *file path*,
+    // not necessarily a specifier. It only names something the package publishes when `exports`
+    // leaves its files where they sit on disk. A package that remaps directories
+    // (`"./*": "./dist/*.js"`) publishes `pkg/button` and never `pkg/dist/button.js`, so taking the
+    // path as a specifier both misses the entry and probes a request the package cannot resolve —
+    // and a failed probe is not free: another resolver can rewrite it into a different specifier
+    // that still falls under a shared prefix (@embroider/vite retries a failed `.js` as `.hbs` to
+    // find Ember's colocated templates), which then gets adopted as a share nobody imported.
+    // Reversing `exports` instead yields only specifiers that resolve back to this file, and falls
+    // back to the path itself for packages without `exports`, where the path *is* the specifier.
+    const packageSubpath = suffix.slice(packageName.length + 1);
+    if (packageSubpath) {
+      // Read the copy that holds `source`, not whichever one the root resolves, so a nested
+      // install reverses its own `exports`.
+      for (const specifier of getPackageExportSpecifiersForFile(packageName, packageSubpath, {
+        ...entryOptions,
+        fromResolvedEntry: source,
+      })) {
+        if (findSharedKey(specifier, shared)) candidates.add(specifier);
+      }
+    }
     for (const key of Object.keys(shared)) {
       const request = getSharedRequest(key, shared[key]);
       if (getPackageName(request) !== packageName) continue;
@@ -212,8 +254,11 @@ export function createSharedSourceResolver(
       if (cache?.has(normalizedSource)) return cache.get(normalizedSource);
 
       const config = getResolutionConfig(context, options);
-      const result = await matchEntry(normalizedSource, suffix, (request) =>
-        resolveEntry(context, request, options, config)
+      const result = await matchEntry(
+        normalizedSource,
+        suffix,
+        { cwd: config.root, conditions: config.conditions },
+        (request) => resolveEntry(context, request, options, config)
       );
       // Vite can re-enter resolution while an earlier lookup is pending. Sharing
       // that promise can make the resolver wait on itself, so cache completed results only.

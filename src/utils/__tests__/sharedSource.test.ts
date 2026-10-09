@@ -3,7 +3,11 @@ import * as path from 'node:path';
 import { tmpdir } from 'os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NormalizedShared } from '../normalizeModuleFederationOptions';
-import { createSharedSourceResolver, isSharedEntryLookup } from '../sharedSource';
+import {
+  createSharedSourceResolver,
+  isSharedEntryLookup,
+  patchRolldownResolveOptionKeys,
+} from '../sharedSource';
 
 function makeShared(keys: string[], shareConfig: Record<string, unknown> = {}): NormalizedShared {
   return Object.fromEntries(
@@ -136,6 +140,45 @@ describe('createSharedSourceResolver', () => {
     );
   });
 
+  it('matches an entry a directory-remapping package publishes under another name', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
+    tempDirs.push(root);
+    const packageDir = path.join(root, 'node_modules', 'mf-test-remap');
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+    mkdirSync(path.join(packageDir, 'dist'), { recursive: true });
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'mf-test-remap',
+        exports: { './*.js': { import: './dist/*.js' }, './*': { import: './dist/*.js' } },
+      })
+    );
+    const file = path.join(packageDir, 'dist', 'button.js');
+    writeFileSync(file, 'export default 1;');
+
+    // The file is only importable as `mf-test-remap/button.js`; `mf-test-remap/dist/button.js`
+    // would resolve to ./dist/dist/button.js, which the package does not publish.
+    const resolve = vi.fn(async (id: string) => ({
+      id: id === 'mf-test-remap/button.js' ? file : id,
+      external: false,
+    }));
+    const resolver = createSharedSourceResolver(makeShared(['mf-test-remap/']), () => ({
+      root,
+      conditions: ['import'],
+    }));
+
+    await expect(resolver.resolve({ resolve } as any, file, {})).resolves.toBe(
+      'mf-test-remap/button.js'
+    );
+    // The path-derived specifier must never be probed: a failed probe can be rewritten by another
+    // resolver into a specifier that still falls under the shared prefix.
+    expect(resolve).not.toHaveBeenCalledWith(
+      'mf-test-remap/dist/button.js',
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
   it('does not match different node_modules roots unless suffix matching is enabled', async () => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
     tempDirs.push(root);
@@ -161,5 +204,39 @@ describe('createSharedSourceResolver', () => {
     await expect(withOptIn.resolve({ resolve } as any, source, {})).resolves.toBe(
       'mf-test-suffix-match'
     );
+  });
+});
+
+describe('patchRolldownResolveOptionKeys', () => {
+  // Mirrors rolldown's PluginContextData, which keys saved options by the map's size.
+  const makeData = () => {
+    const resolveOptionsMap = new Map<number, unknown>();
+    return {
+      resolveOptionsMap,
+      saveResolveOptions(options: unknown) {
+        const index = resolveOptionsMap.size;
+        resolveOptionsMap.set(index, options);
+        return index;
+      },
+    };
+  };
+  const overlap = (data: ReturnType<typeof makeData>) => {
+    const a = data.saveResolveOptions('a');
+    const b = data.saveResolveOptions('b');
+    data.resolveOptionsMap.delete(a);
+    data.saveResolveOptions('c');
+    return data.resolveOptionsMap.get(b);
+  };
+
+  it('keeps an in-flight call its own options when an earlier one settles', () => {
+    expect(overlap(makeData())).toBe('c');
+    const data = makeData();
+    patchRolldownResolveOptionKeys({ data });
+    expect(overlap(data)).toBe('b');
+  });
+
+  it('leaves contexts without rolldown internals alone', () => {
+    expect(() => patchRolldownResolveOptionKeys({})).not.toThrow();
+    expect(() => patchRolldownResolveOptionKeys(undefined)).not.toThrow();
   });
 });

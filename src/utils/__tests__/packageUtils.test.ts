@@ -9,6 +9,7 @@ import { withNodePath } from './helpers';
 import {
   getInstalledPackageEntry,
   getInstalledPackageJson,
+  getPackageExportSpecifiersForFile,
   getPackageNameFromNodeModulePath,
   getSharedCacheDescriptor,
   getSharedCacheKey,
@@ -728,6 +729,213 @@ describe('isPackageExportAvailable', () => {
     writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
 
     expect(isPackageExportAvailable('mf-test-does-not-exist', { cwd: root })).toBe(true);
+  });
+});
+
+describe('getPackageExportSpecifiersForFile', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  function installPackage(label: string, packageName: string, exports: unknown): string {
+    const root = mkdtempSync(path.join(tmpdir(), `mf-vite-${label}-`));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: packageName, exports })
+    );
+
+    return hostDir;
+  }
+
+  it('reverses a directory-remapping wildcard to the specifiers the package publishes', () => {
+    // The file lives at dist/button.js but is only importable as "pkg/button.js" or "pkg/button".
+    // A specifier rebuilt from the path would be "pkg/dist/button.js", which resolves to
+    // ./dist/dist/button.js — a file the package never exports.
+    const packageName = 'mf-test-reverse-remap';
+    const hostDir = installPackage('reverse-remap', packageName, {
+      './*.js': { import: './dist/*.js' },
+      './*': { import: './dist/*.js' },
+    });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/button.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/button.js`, `${packageName}/button`]);
+  });
+
+  it('orders aliases by the precedence used when resolving forwards', () => {
+    // A caller taking the first match must pick the same specifier in every container, so the
+    // longer pattern key wins the tie exactly as matchExportsSubpath breaks it.
+    const packageName = 'mf-test-order';
+    const hostDir = installPackage('order', packageName, {
+      './*': './dist/*.js',
+      './nested/*.js': './dist/nested/*.js',
+      './nested/*': './dist/nested/*.js',
+    });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/nested/thing.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/nested/thing.js`, `${packageName}/nested/thing`]);
+  });
+
+  it('prefers an exact key over a pattern that reaches the file under another name', () => {
+    const packageName = 'mf-test-exact-first';
+    const hostDir = installPackage('exact-first', packageName, {
+      './alias': './dist/button.js',
+      './*.js': './dist/*.js',
+    });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/button.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/alias`, `${packageName}/button.js`]);
+  });
+
+  it('collapses keys that publish the file under the same specifier', () => {
+    const packageName = 'mf-test-dedupe';
+    const hostDir = installPackage('dedupe', packageName, {
+      './button': './dist/button.js',
+      './*': './dist/*.js',
+    });
+
+    // Substituting `./*` yields `./button` as well, so there is only one specifier here.
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/button.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/button`]);
+  });
+
+  it('maps a file the package exports at its own path', () => {
+    const packageName = 'mf-test-flat-reverse';
+    const hostDir = installPackage('flat-reverse', packageName, {
+      './decorators.js': { import: './decorators.js' },
+    });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'decorators.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/decorators.js`]);
+  });
+
+  it('maps the package root when an export points at the file', () => {
+    const packageName = 'mf-test-root-reverse';
+    const hostDir = installPackage('root-reverse', packageName, { '.': './dist/index.js' });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/index.js', { cwd: hostDir })
+    ).toEqual([packageName]);
+  });
+
+  it('maps the root through exports that only carry conditions', () => {
+    const packageName = 'mf-test-conditions-only';
+    const hostDir = installPackage('conditions-only', packageName, {
+      import: './dist/index.js',
+      require: './dist/index.cjs',
+    });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/index.js', { cwd: hostDir })
+    ).toEqual([packageName]);
+  });
+
+  it('honours the requested conditions', () => {
+    const packageName = 'mf-test-conditions';
+    const hostDir = installPackage('conditions', packageName, {
+      './*': { browser: './browser/*.js', import: './dist/*.js' },
+    });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'browser/button.js', {
+        cwd: hostDir,
+        conditions: ['browser', 'import'],
+      })
+    ).toEqual([`${packageName}/button`]);
+    // Without the browser condition the browser build is not what the specifier resolves to.
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'browser/button.js', {
+        cwd: hostDir,
+        conditions: ['import'],
+      })
+    ).toEqual([]);
+  });
+
+  it('takes the first usable target from an array', () => {
+    const packageName = 'mf-test-array';
+    const hostDir = installPackage('array', packageName, { './*': [{ import: './dist/*.js' }] });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/button.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/button`]);
+  });
+
+  it('publishes nothing for a subpath an explicit null blocks', () => {
+    const packageName = 'mf-test-null-blocked';
+    const hostDir = installPackage('null-blocked', packageName, {
+      './*.styles.js': null,
+      './*.styles': null,
+      './*.js': './dist/*.js',
+      './*': './dist/*.js',
+    });
+
+    // The broad patterns appear to reach it, but the narrower null keys win when resolving
+    // forwards, so the package does not publish this file at all.
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/menu.styles.js', { cwd: hostDir })
+    ).toEqual([]);
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/menu.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/menu.js`, `${packageName}/menu`]);
+  });
+
+  it('publishes nothing for a package internal that exports never name', () => {
+    const packageName = 'mf-test-internal';
+    const hostDir = installPackage('internal', packageName, { '.': './dist/index.js' });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/chunk-RANDOM.js', { cwd: hostDir })
+    ).toEqual([]);
+  });
+
+  it('treats the path as the specifier when the package has no exports', () => {
+    const packageName = 'mf-test-no-exports';
+    const hostDir = installPackage('no-exports', packageName, undefined);
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'lib/thing.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/lib/thing.js`]);
+  });
+
+  it('maps a scoped package without losing the scope', () => {
+    const packageName = '@mf-test/scoped';
+    const hostDir = installPackage('scoped', packageName, { './*.js': './dist/*.js' });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/button.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/button.js`]);
+  });
+
+  it('ignores a pattern whose target has no wildcard to reverse', () => {
+    const packageName = 'mf-test-static-target';
+    const hostDir = installPackage('static-target', packageName, { './*': './dist/index.js' });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'dist/index.js', { cwd: hostDir })
+    ).toEqual([]);
+  });
+
+  it('handles an identity wildcard', () => {
+    const packageName = 'mf-test-identity-reverse';
+    const hostDir = installPackage('identity-reverse', packageName, { './*': './*' });
+
+    expect(
+      getPackageExportSpecifiersForFile(packageName, 'nested/thing.js', { cwd: hostDir })
+    ).toEqual([`${packageName}/nested/thing.js`]);
   });
 });
 

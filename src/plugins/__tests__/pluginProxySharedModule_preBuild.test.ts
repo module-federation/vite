@@ -1,13 +1,13 @@
 import type {
   ConfigEnv,
-  InlineConfig,
   ConfigPluginContext,
+  InlineConfig,
   MinimalPluginContextWithoutEnvironment,
   ResolvedConfig,
   UserConfig,
 } from 'vite';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveConfig } from 'vite';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizePathForImport } from '../../utils/buildPaths';
 import { getImportAnalysis } from '../../utils/importAnalysis';
@@ -77,7 +77,11 @@ vi.mock('fs', async (importOriginal) => {
 vi.mock('../../utils/packageUtils', () => ({
   getSharedCacheDescriptor: (
     pkg: string,
-    shareItem: { version?: string; scope?: string | string[]; shareConfig: { singleton?: boolean } }
+    shareItem: {
+      version?: string;
+      scope?: string | string[];
+      shareConfig: { singleton?: boolean };
+    }
   ) => {
     const normalizedScope = Array.isArray(shareItem.scope) ? shareItem.scope[0] : shareItem.scope;
     const scope = normalizedScope || 'default';
@@ -130,6 +134,7 @@ vi.mock('../../utils/packageUtils', () => ({
   getInstalledPackageEntry: getInstalledPackageEntryMock,
   isPackageExportAvailable: () => true,
   isPackageInstalled: () => true,
+  getPackageExportSpecifiersForFile: () => [],
   getInstalledPackageJson: vi.fn((pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     const packageName = match ? match[0] : pkg;
@@ -186,6 +191,15 @@ vi.mock('../../utils/VirtualModule', () => ({
 }));
 
 import {
+  NormalizedShared,
+  normalizeModuleFederationOptions,
+} from '../../utils/normalizeModuleFederationOptions';
+import {
+  getResolvedLocalSharedImportMapId,
+  getUsedShares,
+  writeLocalSharedImportMap,
+} from '../../virtualModules';
+import {
   excludeSharedSubDependencies,
   findSharedKey,
   getRuntimeImportSpecifiers,
@@ -193,15 +207,6 @@ import {
 } from '../pluginProxySharedModule_preBuild';
 
 const sourceFile = (name: string) => ({ name, isDirectory: () => false, isFile: () => true });
-import {
-  getResolvedLocalSharedImportMapId,
-  getUsedShares,
-  writeLocalSharedImportMap,
-} from '../../virtualModules';
-import {
-  NormalizedShared,
-  normalizeModuleFederationOptions,
-} from '../../utils/normalizeModuleFederationOptions';
 
 type AliasEntry = {
   find: RegExp;
