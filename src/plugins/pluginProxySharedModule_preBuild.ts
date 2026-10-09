@@ -34,7 +34,11 @@ import {
   resolveModulePath,
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
-import { createSharedSourceResolver, isSharedEntryLookup } from '../utils/sharedSource';
+import {
+  createSharedSourceResolver,
+  isSharedEntryLookup,
+  patchRolldownResolveOptionKeys,
+} from '../utils/sharedSource';
 import { PromiseStore } from '../utils/PromiseStore';
 import { getSharedExportConditions } from '../utils/sharedExportConditions';
 import { isServerEnvironment } from '../utils/ssrCapabilities';
@@ -778,6 +782,7 @@ export function proxySharedModule(options: {
       },
       buildStart() {
         sharedSourceResolver.clear();
+        patchRolldownResolveOptionKeys(this);
         if (_command !== 'build') return;
         if (hasAnalyzableShares) getBuildImportAnalysis(this.environment).clear();
         resetTreeShakingExports(federationOptions);
