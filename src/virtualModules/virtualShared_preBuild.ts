@@ -1973,6 +1973,7 @@ function generateLazyWorkspaceSingletonExports(
 
   const body = `${declarations}
     const __mfApplyLazyShareExports = (mod) => {
+      exportModule = mod;
       ${assignments}
     };
     __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplyLazyShareExports);
@@ -1982,7 +1983,7 @@ function generateLazyWorkspaceSingletonExports(
     } else {
       __mfApplyLazyShareExports(exportModule);
     }
-    export { __mf_default as default };${namedExportLine}${mutableExportLine}`;
+    export { __mf_default as default, exportModule as __moduleExports };${namedExportLine}${mutableExportLine}`;
 
   return body;
 }

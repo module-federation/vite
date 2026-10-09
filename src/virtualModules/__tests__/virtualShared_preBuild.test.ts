@@ -3661,7 +3661,9 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain(
       '__mfSubscribeSharedCache(__mfModuleCache.share, {"canonical":"default:workspace-shared-lib","aliases":["workspace-shared-lib"]}, __mfApplyLazyShareExports);'
     );
-    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).toContain(
+      'export { __mf_default as default, exportModule as __moduleExports };'
+    );
   });
 
   it('defers non-singleton workspace fallback without top-level await', () => {
@@ -4286,7 +4288,9 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import * as __mfLocalShare from "lit";');
     expect(generatedCode).toContain('if (import.meta.env.SSR');
     expect(generatedCode).toContain('import("lit").then((mod) => {');
-    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).toContain(
+      'export { __mf_default as default, exportModule as __moduleExports };'
+    );
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('await ');
   });
@@ -4323,7 +4327,9 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('import * as __mfLocalShare from "lit";');
     expect(generatedCode).toContain('if (import.meta.env.SSR');
     expect(generatedCode).toContain('import("lit").then((mod) => {');
-    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).toContain(
+      'export { __mf_default as default, exportModule as __moduleExports };'
+    );
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('await ');
   });
@@ -4631,7 +4637,9 @@ describe('writeLoadShareModule', () => {
     );
     expect(generatedCode).toContain('if (import.meta.env.SSR');
     expect(generatedCode).toContain('import("lit/directives/class-map.js").then((mod) => {');
-    expect(generatedCode).toContain('export { __mf_default as default };');
+    expect(generatedCode).toContain(
+      'export { __mf_default as default, exportModule as __moduleExports };'
+    );
     expect(generatedCode).not.toContain('__prebuild__');
     expect(generatedCode).not.toContain('await ');
   });
