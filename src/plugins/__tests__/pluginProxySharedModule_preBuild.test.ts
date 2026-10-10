@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizePathForImport } from '../../utils/buildPaths';
 import { getImportAnalysis } from '../../utils/importAnalysis';
+import { isSharedEntryLookup } from '../../utils/sharedSource';
 
 const {
   hasPackageDependencyMock,
@@ -1273,17 +1274,16 @@ describe('pluginProxySharedModule_preBuild', () => {
       { command: 'build', mode: 'production' } as ConfigEnv
     );
 
-    const resolve = vi.fn(async (id: string, _importer?: string, _options?: any) => ({
-      id: `/resolved/${id}`,
-    }));
+    const probes: string[] = [];
+    const resolve = vi.fn(async (id: string, importer?: string) => {
+      if (id === specifier && isSharedEntryLookup(id, importer)) probes.push(id);
+      return { id: `/resolved/${id}` };
+    });
     await callHook(sharedResolvePlugin.resolveId, { resolve } as any, specifier, '/src/main.ts', {
       isEntry: false,
     });
 
     expect(preBuildShareItemMap.has(specifier)).toBe(true);
-    const probes = resolve.mock.calls.filter(
-      ([id, , options]) => id === specifier && options?.skipSelf
-    );
     expect(probes.length > 0).toBe(probed);
   });
 
@@ -2549,7 +2549,7 @@ describe('pluginProxySharedModule_preBuild', () => {
         id === 'react-dom/client' || id === entry ? { id: entry } : null
       );
       const resolve = (id: string, importer: string) =>
-        importer.endsWith('/package.json') ? resolveEntry(id) : null;
+        isSharedEntryLookup(id, importer) ? resolveEntry(id) : null;
       const lookup = (request: string) =>
         callHook(sharedResolvePlugin.resolveId, { resolve } as any, request, '/src/main.ts', {
           isEntry: false,

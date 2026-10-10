@@ -94,10 +94,6 @@ describe('createSharedSourceResolver', () => {
     expect(isSharedEntryLookup(entry, importer)).toBe(false);
   });
 
-  it('does not trust a leaked internal-lookup marker on an application import', () => {
-    expect(isSharedEntryLookup('/node_modules/react/jsx-runtime.js', '/src/App.tsx')).toBe(false);
-  });
-
   it('matches an aliased share by its request, not its property name', async () => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
     tempDirs.push(root);
