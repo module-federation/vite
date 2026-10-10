@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizePathForImport } from '../../utils/buildPaths';
 import { getImportAnalysis } from '../../utils/importAnalysis';
+import { isSharedEntryLookup } from '../../utils/sharedSource';
 
 const {
   hasPackageDependencyMock,
@@ -1001,6 +1002,40 @@ describe('pluginProxySharedModule_preBuild', () => {
     });
   }
 
+  it('does not skip an application shared import with a leaked internal marker', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+    const config: MockUserConfig = { resolve: { alias: [] } };
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'development' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      {
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as any,
+      'react/jsx-runtime',
+      '/src/App.tsx',
+      {
+        isEntry: false,
+        custom: { __mfSharedEntryLookup: true },
+      }
+    );
+
+    expect((resolution as { id: string }).id).toBeDefined();
+  });
+
   it('matches Vue bundler aliases to the root Vue share', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
@@ -1239,17 +1274,16 @@ describe('pluginProxySharedModule_preBuild', () => {
       { command: 'build', mode: 'production' } as ConfigEnv
     );
 
-    const resolve = vi.fn(async (id: string, _importer?: string, _options?: any) => ({
-      id: `/resolved/${id}`,
-    }));
+    const probes: string[] = [];
+    const resolve = vi.fn(async (id: string, importer?: string) => {
+      if (id === specifier && isSharedEntryLookup(id, importer)) probes.push(id);
+      return { id: `/resolved/${id}` };
+    });
     await callHook(sharedResolvePlugin.resolveId, { resolve } as any, specifier, '/src/main.ts', {
       isEntry: false,
     });
 
     expect(preBuildShareItemMap.has(specifier)).toBe(true);
-    const probes = resolve.mock.calls.filter(
-      ([id, , options]) => id === specifier && options?.custom?.__mfSharedEntryLookup
-    );
     expect(probes.length > 0).toBe(probed);
   });
 
@@ -2514,8 +2548,8 @@ describe('pluginProxySharedModule_preBuild', () => {
       const resolveEntry = vi.fn(async (id: string) =>
         id === 'react-dom/client' || id === entry ? { id: entry } : null
       );
-      const resolve = (id: string, _importer: string, options: any) =>
-        options.custom?.__mfSharedEntryLookup ? resolveEntry(id) : null;
+      const resolve = (id: string, importer: string) =>
+        isSharedEntryLookup(id, importer) ? resolveEntry(id) : null;
       const lookup = (request: string) =>
         callHook(sharedResolvePlugin.resolveId, { resolve } as any, request, '/src/main.ts', {
           isEntry: false,

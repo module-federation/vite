@@ -26,8 +26,8 @@ type ResolveOptions = Partial<Parameters<ResolveIdHook>[2]> & {
   attributes?: Record<string, string>;
 };
 
-// Workaround: rolldown <= 1.2.10 can drop `custom` from overlapping this.resolve() calls,
-// so entry lookups are also recognized by their in-flight source and importer.
+// Workaround: rolldown <= 1.2.10 can mix up options from overlapping this.resolve() calls,
+// so entry lookups are recognized by their in-flight source and importer instead.
 const pendingEntryLookups = new Map<string, number>();
 
 const getEntryLookupKey = (source: string, importer: string | undefined) =>
@@ -35,8 +35,7 @@ const getEntryLookupKey = (source: string, importer: string | undefined) =>
 
 /**
  * Rolldown saves each this.resolve() call's options under the map's current size and deletes the
- * entry when the call settles, so a call can take a key that an overlapping call still holds and
- * hand it the wrong `custom` (our lookup flag lands on a real import, which then is not proxied).
+ * entry when the call settles, so an overlapping call can receive the wrong `custom` metadata.
  * Taking the first free key keeps every in-flight entry intact. A no-op when the internals differ.
  */
 export function patchRolldownResolveOptionKeys(context: unknown) {
@@ -54,20 +53,13 @@ export function patchRolldownResolveOptionKeys(context: unknown) {
 }
 
 /** Whether a resolveId call is one of the shared source resolver's own entry lookups. */
-export function isSharedEntryLookup(
-  source: string,
-  importer: string | undefined,
-  options: { custom?: Record<string, unknown> }
-): boolean {
-  return (
-    options.custom?.__mfSharedEntryLookup === true ||
-    pendingEntryLookups.has(getEntryLookupKey(source, importer))
-  );
+export function isSharedEntryLookup(source: string, importer: string | undefined): boolean {
+  return pendingEntryLookups.has(getEntryLookupKey(source, importer));
 }
 
 /**
  * Runs one of the plugin's own `this.resolve()` calls (a shared entry lookup, a
- * parse-barrier external probe), marked so `isSharedEntryLookup` recognizes it
+ * parse-barrier external probe), tracked so `isSharedEntryLookup` recognizes it
  * and the share hooks neither proxy it nor register a used share for it.
  */
 export async function resolveInternally(
@@ -82,7 +74,6 @@ export async function resolveInternally(
     return await context.resolve(source, importer, {
       ...options,
       skipSelf: true,
-      custom: { ...options.custom, __mfSharedEntryLookup: true },
     });
   } finally {
     const remaining = pendingEntryLookups.get(lookupKey)! - 1;

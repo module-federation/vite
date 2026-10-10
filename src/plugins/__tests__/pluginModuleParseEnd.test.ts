@@ -220,14 +220,10 @@ describe('pluginModuleParseEnd', () => {
       dynamicallyImportedIds: [],
     } as never);
 
-    expect(resolve).toHaveBeenCalledWith('/src/child.ts', '/src/main.ts', {
-      skipSelf: true,
-      custom: { __mfSharedEntryLookup: true },
-    });
-    // Also tracked in flight, for rolldown versions that drop `custom`.
-    expect(isSharedEntryLookup('/src/child.ts', '/src/main.ts', {})).toBe(true);
+    expect(resolve).toHaveBeenCalledWith('/src/child.ts', '/src/main.ts', { skipSelf: true });
+    expect(isSharedEntryLookup('/src/child.ts', '/src/main.ts')).toBe(true);
     await Promise.resolve();
-    expect(isSharedEntryLookup('/src/child.ts', '/src/main.ts', {})).toBe(false);
+    expect(isSharedEntryLookup('/src/child.ts', '/src/main.ts')).toBe(false);
     expect(controller.externalSet.has('/src/child.ts')).toBe(false);
   });
 
