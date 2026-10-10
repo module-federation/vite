@@ -59,7 +59,7 @@ describe('createSharedSourceResolver', () => {
     );
   });
 
-  // rolldown <= 1.2.10 can drop `custom` when this.resolve() calls overlap.
+  // rolldown <= 1.2.10 can mix up options when this.resolve() calls overlap.
   it('recognizes an entry lookup until the last overlapping lookup for it settles', async () => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'mf-vite-shared-source-')));
     tempDirs.push(root);
@@ -85,13 +85,17 @@ describe('createSharedSourceResolver', () => {
     );
 
     await vi.waitFor(() => expect(settle).toHaveLength(2));
-    expect(isSharedEntryLookup(entry, importer, {})).toBe(true);
+    expect(isSharedEntryLookup(entry, importer)).toBe(true);
     settle[0]();
     await new Promise(setImmediate);
-    expect(isSharedEntryLookup(entry, importer, {})).toBe(true);
+    expect(isSharedEntryLookup(entry, importer)).toBe(true);
     settle[1]();
     await expect(results).resolves.toEqual(['mf-test-lookup', 'mf-test-lookup']);
-    expect(isSharedEntryLookup(entry, importer, {})).toBe(false);
+    expect(isSharedEntryLookup(entry, importer)).toBe(false);
+  });
+
+  it('does not trust a leaked internal-lookup marker on an application import', () => {
+    expect(isSharedEntryLookup('/node_modules/react/jsx-runtime.js', '/src/App.tsx')).toBe(false);
   });
 
   it('matches an aliased share by its request, not its property name', async () => {

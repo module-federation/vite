@@ -825,7 +825,7 @@ export function proxySharedModule(options: {
       enforce: 'pre',
       apply: 'build',
       async resolveId(source, importer, resolveOptions) {
-        if (isSharedEntryLookup(source, importer, resolveOptions)) return;
+        if (isSharedEntryLookup(source, importer)) return;
         const sourceToken = getTreeShakingGraphToken(source);
         const importerToken = getTreeShakingGraphToken(importer);
         const token = sourceToken || importerToken;
@@ -883,7 +883,7 @@ export function proxySharedModule(options: {
       enforce: 'pre',
       async resolveId(source, importer, resolveOptions) {
         if (
-          isSharedEntryLookup(source, importer, resolveOptions) ||
+          isSharedEntryLookup(source, importer) ||
           (resolveOptions.custom as Record<string, unknown> | undefined)?.__mfTreeShakingGraph
         ) {
           return;
