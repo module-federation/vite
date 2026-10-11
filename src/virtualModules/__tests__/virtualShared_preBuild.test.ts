@@ -597,7 +597,8 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/esm-rspack-bundle.js') ||
       filePath.endsWith('/repo/packages/cjs-module-exports.js') ||
       filePath.endsWith('/repo/packages/cjs-esm-keyword-lookalikes.js') ||
-      filePath.endsWith('/repo/packages/cjs-class-field-keywords.js')
+      filePath.endsWith('/repo/packages/cjs-class-field-keywords.js') ||
+      filePath.endsWith('/repo/packages/cjs-dollar-export-binding.js')
     );
   }),
   readFileSync: vi.fn((filePath: string) => {
@@ -1100,6 +1101,12 @@ class Options {
 }
 module.exports = { namedValue: new Options().export };`;
     }
+    if (filePath.endsWith('/repo/packages/cjs-dollar-export-binding.js')) {
+      // core-js 2 style: a top-level `$export` binding is not an export declaration.
+      return `"use strict";
+var $export = require('./_export');
+module.exports = { namedValue: typeof $export };`;
+    }
     if (filePath.endsWith('/repo/packages/cjs-module-exports.js')) {
       return `"use strict";
 module.exports = { namedValue: 'named CommonJS export' };`;
@@ -1207,6 +1214,9 @@ vi.mock('module', async (importOriginal) => {
         }
         if (pkg.endsWith('/cjs-esm-keyword-lookalikes.js')) {
           return { namedValue: true, loadLater: () => undefined };
+        }
+        if (pkg.endsWith('/cjs-dollar-export-binding.js')) {
+          return { namedValue: 'function' };
         }
         if (pkg.endsWith('/cjs-class-field-keywords.js')) {
           return { namedValue: true };
@@ -3441,6 +3451,7 @@ describe('writeLoadShareModule', () => {
       '/repo/packages/cjs-class-field-keywords.js',
       ['namedValue'],
     ],
+    ['a top-level $export binding', '/repo/packages/cjs-dollar-export-binding.js', ['namedValue']],
   ])('still reads runtime keys for CommonJS entries with %s', (_label, importPath, names) => {
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {

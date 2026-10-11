@@ -168,7 +168,8 @@ function hasCodeMatch(source: string, regex: RegExp, codePositions: boolean[]): 
  * function parameters, etc.) must not override that module format.
  */
 function hasEsmModuleSyntax(source: string, codePositions: boolean[]): boolean {
-  const keywordRegex = /\b(?:import|export)\b/g;
+  // `$` is not a word character, so `\b` alone would match `$export`.
+  const keywordRegex = /(?<![$\w])(?:import|export)\b/g;
   let match: RegExpExecArray | null;
   let braceDepth = 0;
   let braceScanIndex = 0;
