@@ -590,7 +590,14 @@ vi.mock('fs', () => ({
       filePath.endsWith('/repo/packages/nodenext-shared-source/index.ts') ||
       filePath.endsWith('/repo/packages/nodenext-shared-source/context.ts') ||
       filePath.endsWith('/repo/packages/cached-shared-source/index.ts') ||
-      filePath.endsWith('/repo/packages/cached-shared-source/leaf.ts')
+      filePath.endsWith('/repo/packages/cached-shared-source/leaf.ts') ||
+      filePath.endsWith('/repo/packages/esm-local-module-param.js') ||
+      filePath.endsWith('/repo/packages/esm-local-exports-param.js') ||
+      filePath.endsWith('/repo/packages/esm-plain-named-export.js') ||
+      filePath.endsWith('/repo/packages/esm-rspack-bundle.js') ||
+      filePath.endsWith('/repo/packages/cjs-module-exports.js') ||
+      filePath.endsWith('/repo/packages/cjs-esm-keyword-lookalikes.js') ||
+      filePath.endsWith('/repo/packages/cjs-class-field-keywords.js')
     );
   }),
   readFileSync: vi.fn((filePath: string) => {
@@ -1050,6 +1057,62 @@ export const [firstItem, ...restItems] = tuple;`;
 window.__internalState = internalModule.exports;
 export const namedValue = 'named ESM export';`;
     }
+    if (filePath.endsWith('/repo/packages/esm-local-module-param.js')) {
+      // Bundlers emit helpers whose parameters are named `module`/`exports`.
+      // Those local bindings must not classify a valid ESM entry as CommonJS.
+      return `export const namedValue = 'named ESM export';
+(function (module, exports) {
+  module.exports = { internal: true };
+  exports.flag = true;
+})({ exports: {} }, {});`;
+    }
+    if (filePath.endsWith('/repo/packages/esm-local-exports-param.js')) {
+      return `export const namedValue = 'named ESM export';
+function applyHelper(exports) {
+  exports.flag = true;
+}
+applyHelper({});`;
+    }
+    if (filePath.endsWith('/repo/packages/esm-plain-named-export.js')) {
+      return `export const namedValue = 'named ESM export';
+export default { namedValue };`;
+    }
+    if (filePath.endsWith('/repo/packages/esm-rspack-bundle.js')) {
+      // Shape of rspack library output: module-scoped `module`/`exports`
+      // bindings in the runtime, then an ESM export list.
+      return `var __webpack_modules__ = ({
+  418(module) {
+    var exports = { a: 'x' };
+    module.exports = exports;
+  },
+});
+function __webpack_require__(id) { /* runtime */ }
+__webpack_require__.d = (exports, getters) => {};
+const __webpack_exports__namedValue = 'named ESM export';
+export { __webpack_exports__namedValue as namedValue };`;
+    }
+    if (filePath.endsWith('/repo/packages/cjs-class-field-keywords.js')) {
+      // Class fields may be named after the keywords without being declarations.
+      return `"use strict";
+class Options {
+  export = true;
+  import = false;
+}
+module.exports = { namedValue: new Options().export };`;
+    }
+    if (filePath.endsWith('/repo/packages/cjs-module-exports.js')) {
+      return `"use strict";
+module.exports = { namedValue: 'named CommonJS export' };`;
+    }
+    if (filePath.endsWith('/repo/packages/cjs-esm-keyword-lookalikes.js')) {
+      // CommonJS may use `import`/`export` as calls, members, and keys.
+      return `"use strict";
+const loadLater = () => import('./lazy.js');
+const options = { import: true, export: false };
+const exporter = { export() {} };
+exporter.export();
+module.exports = { namedValue: options.import, loadLater };`;
+    }
     throw new Error(`Unexpected readFileSync path: ${filePath}`);
   }),
   realpathSync: Object.assign(
@@ -1138,6 +1201,25 @@ vi.mock('module', async (importOriginal) => {
         }
         if (pkg.endsWith('/mock-package-browser-esm-internal-cjs/index.js')) {
           throw new ReferenceError('window is not defined');
+        }
+        if (pkg.endsWith('/cjs-module-exports.js')) {
+          return { namedValue: 'named CommonJS export' };
+        }
+        if (pkg.endsWith('/cjs-esm-keyword-lookalikes.js')) {
+          return { namedValue: true, loadLater: () => undefined };
+        }
+        if (pkg.endsWith('/cjs-class-field-keywords.js')) {
+          return { namedValue: true };
+        }
+        if (
+          pkg.endsWith('/esm-rspack-bundle.js') ||
+          pkg.endsWith('/esm-local-module-param.js') ||
+          pkg.endsWith('/esm-local-exports-param.js') ||
+          pkg.endsWith('/esm-plain-named-export.js')
+        ) {
+          const error = new Error('ERR_REQUIRE_ESM');
+          (error as Error & { code?: string }).code = 'ERR_REQUIRE_ESM';
+          throw error;
         }
         if (pkg.endsWith('/mock-package-cjs-star-entry/index.cjs')) {
           return {
@@ -3304,6 +3386,82 @@ describe('writeLoadShareModule', () => {
 
     expect(generatedCode).toContain('__mf_0 as namedValue');
     expect(mfWarnSpy).not.toHaveBeenCalledWith(expect.stringContaining('not installed locally'));
+  });
+
+  it.each([
+    [
+      'module.exports via a function parameter named module',
+      '/repo/packages/esm-local-module-param.js',
+    ],
+    ['exports via a function parameter named exports', '/repo/packages/esm-local-exports-param.js'],
+    [
+      'rspack runtime module/exports locals and an export list',
+      '/repo/packages/esm-rspack-bundle.js',
+    ],
+    [
+      'a plain ESM named export with no CommonJS lookalikes',
+      '/repo/packages/esm-plain-named-export.js',
+    ],
+  ])(
+    'keeps shared-instance named exports for ESM entries that contain %s',
+    (_label, importPath) => {
+      const pkg = 'mock-package-with-reserved';
+      const mockShareItem: ShareItem = {
+        name: pkg,
+        from: '',
+        version: '1.0.0',
+        shareConfig: {
+          import: importPath,
+          singleton: true,
+          strictVersion: false,
+          requiredVersion: '^1.0.0',
+        },
+        scope: 'default',
+      };
+
+      writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+      const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+      expectLiveSingletonProxy(generatedCode, pkg, ['namedValue']);
+      expect(generatedCode).not.toContain(`export * from ${JSON.stringify(importPath)}`);
+      expect(generatedCode).not.toContain('let current = __mfLocalShare;');
+    }
+  );
+
+  it.each([
+    ['a plain module.exports assignment', '/repo/packages/cjs-module-exports.js', ['namedValue']],
+    [
+      'dynamic import() and import/export members or keys',
+      '/repo/packages/cjs-esm-keyword-lookalikes.js',
+      ['namedValue', 'loadLater'],
+    ],
+    [
+      'class fields named import and export',
+      '/repo/packages/cjs-class-field-keywords.js',
+      ['namedValue'],
+    ],
+  ])('still reads runtime keys for CommonJS entries with %s', (_label, importPath, names) => {
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: '1.0.0',
+      shareConfig: {
+        import: importPath,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '^1.0.0',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'build', false);
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+
+    expectLiveSingletonProxy(generatedCode, pkg, names);
+    expect(generatedCode).not.toContain(`export * from ${JSON.stringify(importPath)}`);
   });
 
   it('prefers browser conditional exports for project-resolved import paths', () => {
