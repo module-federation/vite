@@ -162,8 +162,60 @@ function hasCodeMatch(source: string, regex: RegExp, codePositions: boolean[]): 
   return false;
 }
 
+/**
+ * True when the file contains a top-level static `import`/`export` declaration.
+ * Local identifiers named `module` or `exports` (webpack/rspack helpers,
+ * function parameters, etc.) must not override that module format.
+ */
+function hasEsmModuleSyntax(source: string, codePositions: boolean[]): boolean {
+  // `$` is not a word character, so `\b` alone would match `$export`.
+  const keywordRegex = /(?<![$\w])(?:import|export)\b/g;
+  let match: RegExpExecArray | null;
+  let braceDepth = 0;
+  let braceScanIndex = 0;
+  while ((match = keywordRegex.exec(source)) !== null) {
+    for (; braceScanIndex < match.index; braceScanIndex++) {
+      if (!codePositions[braceScanIndex]) continue;
+      if (source[braceScanIndex] === '{') braceDepth++;
+      else if (source[braceScanIndex] === '}') braceDepth--;
+    }
+    if (!codePositions[match.index]) continue;
+    // Static declarations are only valid at module top level. Keywords inside
+    // braces belong to functions, classes, object literals, or namespaces.
+    // A negative depth means the brace count drifted; treat it as unknown.
+    if (braceDepth !== 0) continue;
+
+    let previousCodeIndex = match.index - 1;
+    while (
+      previousCodeIndex >= 0 &&
+      (/\s/.test(source[previousCodeIndex]) || !codePositions[previousCodeIndex])
+    ) {
+      previousCodeIndex--;
+    }
+    // Member access (`foo.import`) is not a module declaration.
+    if (source[previousCodeIndex] === '.') continue;
+
+    let nextCodeIndex = match.index + match[0].length;
+    while (
+      nextCodeIndex < source.length &&
+      (/\s/.test(source[nextCodeIndex]) || !codePositions[nextCodeIndex])
+    ) {
+      nextCodeIndex++;
+    }
+    // Dynamic `import()` is valid in CommonJS and is not a declaration.
+    if (source[nextCodeIndex] === '(') continue;
+
+    return true;
+  }
+  return false;
+}
+
 function hasCommonJsExports(source: string): boolean {
   const codePositions = createCodePositionMap(source);
+  // An ESM entry stays ESM even when bundled helpers bind `module`/`exports`
+  // as parameters or locals. Those identifiers do not make the file CommonJS.
+  if (hasEsmModuleSyntax(source, codePositions)) return false;
+
   if (hasCodeMatch(source, /\bmodule\s*(?:\.exports|\[\s*['"]exports['"]\s*\])/g, codePositions)) {
     return true;
   }
