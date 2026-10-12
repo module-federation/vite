@@ -20,10 +20,10 @@ import {
 } from '../utils/packageUtils';
 import { getCommonSharedSubpaths } from '../utils/pathNormalization';
 import { REACT_DOM_CLIENT_SHARE } from '../utils/reactShares';
-import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
-import { SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
 import { filterRuntimePluginsForTarget } from '../utils/runtimePluginSpecifier';
+import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import { getSharedRequest, getSharedRuntimeKey } from '../utils/sharedKeyMatcher';
+import { SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
 import { getTreeShakingExportUsage } from '../utils/treeShaking';
 import VirtualModule, { MF_OWNER_INFIX } from '../utils/VirtualModule';
 import { getVirtualExposesId } from './virtualExposes';
@@ -212,7 +212,24 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
         // A host seed from an older React family is not coherent with the newer cached react
         const cachedVersion = cached?.version ?? cached?.default?.version;
         if (cachedVersion !== undefined && isOlder(cachedVersion)) continue;
-        if (!requiredExport || typeof cached?.[requiredExport] === 'function' || typeof cached?.default?.[requiredExport] === 'function') return cached;
+        if (!requiredExport || typeof cached?.[requiredExport] === 'function' || typeof cached?.default?.[requiredExport] === 'function') {
+          const dom = typeof cached?.[requiredExport] === 'function' ? cached : cached?.default;
+          const internals = dom?.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+          if (!requiredExport || key.endsWith('/client') || !internals) return cached;
+          // React 18 root: mirror react-dom/client.js, or createRoot warns it was imported from "react-dom"
+          const client = {};
+          for (const name of ['createRoot', 'hydrateRoot']) {
+            client[name] = (...args) => {
+              internals.usingClientEntryPoint = true;
+              try {
+                return dom[name](...args);
+              } finally {
+                internals.usingClientEntryPoint = false;
+              }
+            };
+          }
+          return { ...client, default: client };
+        }
       }
       return undefined;
     };
@@ -520,6 +537,7 @@ function getMaterializedShares(options?: NormalizedModuleFederationOptions) {
       ...((packageJson?.dependencies as Record<string, string> | undefined) || {}),
       ...((packageJson?.peerDependencies as Record<string, string> | undefined) || {}),
       ...((packageJson?.optionalDependencies as Record<string, string> | undefined) || {}),
+      ...((packageJson?.peerDependenciesMeta as Record<string, unknown> | undefined) || {}),
     };
     for (const dependency of Object.keys(dependencies)) {
       const sharedDependency = configured.get(dependency);
@@ -569,6 +587,8 @@ function getSharePrerequisites(ordered: string[]) {
       ...((packageJson?.dependencies as Record<string, string> | undefined) || {}),
       ...((packageJson?.peerDependencies as Record<string, string> | undefined) || {}),
       ...((packageJson?.optionalDependencies as Record<string, string> | undefined) || {}),
+      // Optional peers (e.g. react-query -> react-dom) can still be imported at evaluation.
+      ...((packageJson?.peerDependenciesMeta as Record<string, unknown> | undefined) || {}),
     };
     const prerequisites = Object.keys(dependencies)
       .map((dependency) => roots.get(dependency))
@@ -632,6 +652,7 @@ function orderSharedDependenciesFirst(sharedPackages: string[]) {
       ...((packageJson?.dependencies as Record<string, string> | undefined) || {}),
       ...((packageJson?.peerDependencies as Record<string, string> | undefined) || {}),
       ...((packageJson?.optionalDependencies as Record<string, string> | undefined) || {}),
+      ...((packageJson?.peerDependenciesMeta as Record<string, unknown> | undefined) || {}),
     };
     Object.keys(dependencies).forEach((dependency) => {
       const sharedDependency = sharedKeyByPackageName.get(dependency);
@@ -918,21 +939,33 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
 /**
  * A consume-only stub never outranks a provider: when registering this container's
  * `import: false` share replaces an unloaded provider of the same version (#1311),
- * the `afterRegisterShare` hook restores the provider. Registered once per instance.
+ * the `afterRegisterShare` hook restores the provider, and a provider kept out by an
+ * unloaded stub takes its slot. Registered once per instance.
  */
 function generateKeepProvidersOverStubsCode(runtimeVar: string) {
   return `if (!${runtimeVar}.__mfKeepAdoptedProviders) {
       ${runtimeVar}.__mfKeepAdoptedProviders = true;
       ${runtimeVar}.sharedHandler?.hooks?.lifecycle?.afterRegisterShare?.on?.((args) => {
         const { shared, previousShared, registeredShared } = args || {};
+        const versions = ${runtimeVar}.shareScopeMap?.[args.scope]?.[args.pkgName];
+        if (!shared || !versions) return;
+        // The reverse: a stub already in the slot (e.g. a loaded-first parent's) keeps a provider
+        // out, and a webpack consumer reading the scope then falls back to its own copy.
+        if (shared.shareConfig?.import !== false) {
+          if (
+            registeredShared !== shared &&
+            registeredShared?.shareConfig?.import === false &&
+            !registeredShared.loaded &&
+            versions[shared.version] === registeredShared
+          ) versions[shared.version] = shared;
+          return;
+        }
         if (
-          shared?.shareConfig?.import !== false ||
           registeredShared !== shared ||
           !previousShared ||
           previousShared.shareConfig?.import === false
         ) return;
-        const versions = ${runtimeVar}.shareScopeMap?.[args.scope]?.[args.pkgName];
-        if (versions && versions[shared.version] === shared) versions[shared.version] = previousShared;
+        if (versions[shared.version] === shared) versions[shared.version] = previousShared;
       });
     }`;
 }
@@ -1139,7 +1172,7 @@ function generateRuntimeSharedCacheSeedCode(
     var __mfDeferredSeedKeys = __mfSeedKeys.filter(
       (pkg) => __mfPreInitBlockedSeedKeys.has(__mfSeedIndex.get(pkg))
     );
-    await __mfSeedLocalShared(__mfImmediateSeedKeys);`;
+    await __mfSeedLocalShared(__mfImmediateSeedKeys).catch(__mfRejectInit);`;
 }
 
 function getBrowserImportPath(importPath: string) {
@@ -1456,15 +1489,21 @@ export function generateRemoteEntry(
   import __mfExposesMap from "${virtualExposesId}"
   ${
     command === 'build'
-      ? getRuntimeInitResolveBootstrapCode(false, getRuntimeInitStatusImportId(options))
+      ? getRuntimeInitResolveBootstrapCode(false, getRuntimeInitStatusImportId(options)) +
+        '\n  const { initReject } = __mfResolveState;'
       : getRuntimeInitBootstrapCode(
           false,
           getRuntimeInitStatusImportId(options),
           undefined,
           undefined,
           exportConditions
-        ) + '\n  const { initResolve } = globalThis[globalKey];'
+        ) + '\n  const { initResolve, initReject } = globalThis[globalKey];'
   }
+  // A failed seed must settle initPromise, or every pending share load hangs forever.
+  const __mfRejectInit = (err) => {
+    initReject(err);
+    throw err;
+  };
   ${getRuntimeModuleCacheBootstrapCode(exportConditions)}
   const initTokens = {}
   const shareScopeNames = Array.isArray(${toSafeJsLiteral(options.shareScope)}) ? ${toSafeJsLiteral(options.shareScope)} : [${toSafeJsLiteral(options.shareScope)}]
@@ -2398,7 +2437,7 @@ export function generateRemoteEntry(
     __mfReadyDeferredSeedKeys.push(...__mfDeferredSeedKeys.filter(
       (pkg) => !__mfBlockedSeedKeys.has(__mfSeedIndex.get(pkg))
     ));
-    await __mfSeedLocalShared(__mfReadyDeferredSeedKeys);
+    await __mfSeedLocalShared(__mfReadyDeferredSeedKeys).catch(__mfRejectInit);
     ${
       command === 'build'
         ? `// A consume-only share reached only through import() is bridged when that import runs

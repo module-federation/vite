@@ -275,21 +275,24 @@ function createRuntimeShareLoader(versionMap: Record<string, RuntimeBridgeProvid
   };
 }
 
+// remoteEntry defines __mfRejectInit outside init(); var tolerates both snippets in one scope.
+const rejectInitStub = 'var __mfRejectInit = (err) => { throw err; };\n';
+
 function getRuntimeSeedCode(code: string) {
   const start = code.indexOf('const __mfSeedOrder =');
-  const endMarker = 'await __mfSeedLocalShared(__mfImmediateSeedKeys);';
+  const endMarker = 'await __mfSeedLocalShared(__mfImmediateSeedKeys).catch(__mfRejectInit);';
   const end = code.indexOf(endMarker, start);
   if (start === -1 || end === -1) throw new Error('runtime seed code not found');
   // The seed code flags the Runtime provider of a seeded share; stub the Runtime instance.
-  return `const initRes = { options: { shared: {} } };\n${code.slice(start, end + endMarker.length)}`;
+  return `const initRes = { options: { shared: {} } };\n${rejectInitStub}${code.slice(start, end + endMarker.length)}`;
 }
 
 function getRuntimeDeferredResolutionCode(code: string) {
   const start = code.indexOf('const __mfReadyDeferredSeedKeys = [];');
-  const endMarker = 'await __mfSeedLocalShared(__mfReadyDeferredSeedKeys);';
+  const endMarker = 'await __mfSeedLocalShared(__mfReadyDeferredSeedKeys).catch(__mfRejectInit);';
   const end = code.indexOf(endMarker, start);
   if (start === -1 || end === -1) throw new Error('runtime deferred resolution code not found');
-  return code.slice(start, end + endMarker.length);
+  return `${rejectInitStub}${code.slice(start, end + endMarker.length)}`;
 }
 
 vi.mock('../../utils/VirtualModule', () => {
@@ -456,6 +459,16 @@ vi.mock('../../utils/packageUtils', () => {
             dependencies: {
               react: '^19.0.0',
             },
+          },
+        };
+      }
+      if (pkg === '@repro/aaa-optional-peer') {
+        return {
+          path: '/repo/packages/aaa-optional-peer/package.json',
+          dir: '/repo/packages/aaa-optional-peer',
+          packageJson: {
+            name: '@repro/aaa-optional-peer',
+            peerDependenciesMeta: { '@repro/zzz-dom': { optional: true } },
           },
         };
       }
@@ -859,6 +872,55 @@ describe('virtualRemoteEntry', () => {
     }
   });
 
+  it('wraps a cached React 18 react-dom root as react-dom/client, like react-dom/client.js', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares().clear();
+    mod.addUsedShares('react-dom/client');
+
+    // React 18's react-dom root warns from createRoot unless usingClientEntryPoint is set
+    const internals = { usingClientEntryPoint: false };
+    const seen: boolean[] = [];
+    const hostRenderer = {
+      __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: internals,
+      createRoot: (container: unknown) => {
+        seen.push(internals.usingClientEntryPoint);
+        return { container };
+      },
+      hydrateRoot: () => seen.push(internals.usingClientEntryPoint),
+    };
+    const previousCache = (globalThis as any).__mf_module_cache__;
+    (globalThis as any).__mf_module_cache__ = {
+      share: {
+        'default:react': { version: '19.2.8' },
+        'default:react-dom': hostRenderer,
+      },
+      remote: {},
+    };
+    const code = mod
+      .generateLocalSharedImportMap()
+      .replace(
+        'import {loadShare} from "@module-federation/runtime";',
+        'const loadShare = () => {};'
+      )
+      .replace('import("virtual:prebuild:react-dom/client")', 'loadLocal()')
+      .replace(/export \{\s*usedShared,\s*usedRemotes\s*\}/, 'return { usedShared, usedRemotes }');
+
+    try {
+      const generated = new Function('loadLocal', code)(async () => {
+        throw new Error('local fallback loaded');
+      });
+      const client = (await generated.usedShared['react-dom/client'].get())();
+
+      expect(client.createRoot('root')).toEqual({ container: 'root' });
+      client.default.hydrateRoot();
+      expect(seen).toEqual([true, true]);
+      expect(internals.usingClientEntryPoint).toBe(false);
+    } finally {
+      if (previousCache === undefined) delete (globalThis as any).__mf_module_cache__;
+      else (globalThis as any).__mf_module_cache__ = previousCache;
+    }
+  });
+
   it('does not reuse a cached React DOM family from an older React than the local one', async () => {
     const mod = await import('../virtualRemoteEntry');
     mod.getUsedShares().clear();
@@ -1134,6 +1196,64 @@ describe('virtualRemoteEntry', () => {
     expect(mod.generateHostAutoInitCode(options, 'build')).toContain(
       'if (!runtime.__mfKeepAdoptedProviders) {'
     );
+  });
+
+  it('lets a provider take the slot of an unloaded consume-only stub registered before it', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__provider',
+        name: 'provider',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+    const start = code.indexOf('if (!initRes.__mfKeepAdoptedProviders) {');
+    let end = code.indexOf('{', start);
+    for (let depth = 0; ; end++) {
+      if (code[end] === '{') depth++;
+      else if (code[end] === '}' && --depth === 0) break;
+    }
+    let afterRegisterShare: ((args: Record<string, unknown>) => void) | undefined;
+    const versions: Record<string, unknown> = {};
+    const initRes = {
+      shareScopeMap: { default: { react: versions } },
+      sharedHandler: {
+        hooks: {
+          lifecycle: { afterRegisterShare: { on: (fn: any) => (afterRegisterShare = fn) } },
+        },
+      },
+    };
+    new Function('initRes', code.slice(start, end + 1))(initRes);
+
+    // A loaded-first parent's stub is never replaced by the Runtime, so a webpack consumer
+    // reading the scope would take its own copy instead of the provider.
+    const stub = { version: '18.3.1', from: 'host', shareConfig: { import: false } };
+    const provider = { version: '18.3.1', from: 'provider', get: () => {} };
+    versions['18.3.1'] = stub;
+    afterRegisterShare!({
+      scope: 'default',
+      pkgName: 'react',
+      shared: provider,
+      registeredShared: stub,
+    });
+    expect(versions['18.3.1']).toBe(provider);
+
+    // A loaded stub already handed something out: leave it.
+    const loadedStub = { ...stub, loaded: true };
+    versions['18.3.1'] = loadedStub;
+    afterRegisterShare!({
+      scope: 'default',
+      pkgName: 'react',
+      shared: provider,
+      registeredShared: loadedStub,
+    });
+    expect(versions['18.3.1']).toBe(loadedStub);
   });
 
   it('resolves a share away from a consume-only stub when the Runtime settles on one', async () => {
@@ -2933,6 +3053,89 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('for (const batch of __mfSeedBatches) await Promise.all');
     expect(code).toContain('const providerKey = cacheDescriptor.canonical;');
   });
+
+  it('seeds optional peers before their consumers', async () => {
+    const shareItem = (name: string) => ({
+      name,
+      from: '',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { singleton: true, requiredVersion: '^1.0.0', strictVersion: false },
+    });
+    normalizedSharedMock.mockReturnValue({
+      '@repro/aaa-optional-peer': shareItem('@repro/aaa-optional-peer'),
+      '@repro/zzz-dom': shareItem('@repro/zzz-dom'),
+    });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares().clear();
+    mod.addUsedShares('@repro/aaa-optional-peer');
+    mod.addUsedShares('@repro/zzz-dom');
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+
+    const batchesMatch = code.match(/const __mfSeedBatches = (\[.*?\]);\n/);
+    expect(batchesMatch).not.toBeNull();
+    // react-query lists react-dom only in peerDependenciesMeta but imports it at evaluation.
+    expect(JSON.parse(batchesMatch![1])).toEqual([
+      ['@repro/zzz-dom'],
+      ['@repro/aaa-optional-peer'],
+    ]);
+  });
+
+  it.each(['serve', 'build'])(
+    'rejects initPromise when a local seed fails (%s)',
+    async (command) => {
+      normalizedSharedMock.mockReturnValue({
+        'pkg-a': {
+          name: 'pkg-a',
+          from: '',
+          version: '1.0.0',
+          scope: 'default',
+          shareConfig: { singleton: true, requiredVersion: '^1.0.0', strictVersion: false },
+        },
+      });
+      const mod = await import('../virtualRemoteEntry');
+
+      mod.getUsedShares().clear();
+      mod.addUsedShares('pkg-a');
+
+      const code = mod.generateRemoteEntry(
+        {
+          internalName: '__mfe_internal__host',
+          name: 'host',
+          filename: 'remoteEntry.js',
+          exposes: {},
+          remotes: {},
+          shared: normalizedSharedMock(),
+          runtimePlugins: [],
+          shareScope: 'default',
+          shareStrategy: 'version-first',
+        } as any,
+        'virtual:exposes',
+        command
+      );
+
+      expect(code).toMatch(/const \{ (?:initResolve, )?initReject \} = /);
+      const seedCalls = code.match(/await __mfSeedLocalShared\([^)]*\)[^;]*;/g) ?? [];
+      expect(seedCalls).toHaveLength(2);
+      for (const call of seedCalls) expect(call).toContain('.catch(__mfRejectInit)');
+    }
+  );
 
   it('defers consumers of tree-enabled shares until the tree selection is cached', async () => {
     const shareItem = (name: string, treeShaking = false) => ({

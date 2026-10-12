@@ -29,6 +29,14 @@ type ResolveOptions = Partial<Parameters<ResolveIdHook>[2]> & {
 // Workaround: rolldown <= 1.2.10 can mix up options from overlapping this.resolve() calls,
 // so entry lookups are recognized by their in-flight source and importer instead.
 const pendingEntryLookups = new Map<string, number>();
+const pendingLookupImporters = new Map<string | undefined, number>();
+
+const increment = <K>(map: Map<K, number>, key: K) => map.set(key, (map.get(key) ?? 0) + 1);
+const decrement = <K>(map: Map<K, number>, key: K) => {
+  const remaining = map.get(key)! - 1;
+  if (remaining) map.set(key, remaining);
+  else map.delete(key);
+};
 
 const getEntryLookupKey = (source: string, importer: string | undefined) =>
   `${source}\0${importer}`;
@@ -53,8 +61,18 @@ export function patchRolldownResolveOptionKeys(context: unknown) {
 }
 
 /** Whether a resolveId call is one of the shared source resolver's own entry lookups. */
-export function isSharedEntryLookup(source: string, importer: string | undefined): boolean {
-  return pendingEntryLookups.has(getEntryLookupKey(source, importer));
+export function isSharedEntryLookup(
+  source: string,
+  importer: string | undefined,
+  options?: { custom?: Record<string, unknown> }
+): boolean {
+  if (pendingEntryLookups.has(getEntryLookupKey(source, importer))) return true;
+  // A resolver that rewrites the source (e.g. a `vue` -> `/abs/vue.runtime.js` alias) re-resolves
+  // it with our `custom`; the marker counts only while a lookup from that importer is in flight.
+  return (
+    options?.custom?.__mfSharedEntryLookupImporter === importer &&
+    pendingLookupImporters.has(importer)
+  );
 }
 
 /**
@@ -69,16 +87,17 @@ export async function resolveInternally(
   options: ResolveOptions = {}
 ) {
   const lookupKey = getEntryLookupKey(source, importer);
-  pendingEntryLookups.set(lookupKey, (pendingEntryLookups.get(lookupKey) ?? 0) + 1);
+  increment(pendingEntryLookups, lookupKey);
+  increment(pendingLookupImporters, importer);
   try {
     return await context.resolve(source, importer, {
       ...options,
+      custom: { ...options.custom, __mfSharedEntryLookupImporter: importer },
       skipSelf: true,
     });
   } finally {
-    const remaining = pendingEntryLookups.get(lookupKey)! - 1;
-    if (remaining) pendingEntryLookups.set(lookupKey, remaining);
-    else pendingEntryLookups.delete(lookupKey);
+    decrement(pendingEntryLookups, lookupKey);
+    decrement(pendingLookupImporters, importer);
   }
 }
 

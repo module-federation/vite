@@ -220,7 +220,10 @@ describe('pluginModuleParseEnd', () => {
       dynamicallyImportedIds: [],
     } as never);
 
-    expect(resolve).toHaveBeenCalledWith('/src/child.ts', '/src/main.ts', { skipSelf: true });
+    expect(resolve).toHaveBeenCalledWith('/src/child.ts', '/src/main.ts', {
+      custom: { __mfSharedEntryLookupImporter: '/src/main.ts' },
+      skipSelf: true,
+    });
     expect(isSharedEntryLookup('/src/child.ts', '/src/main.ts')).toBe(true);
     await Promise.resolve();
     expect(isSharedEntryLookup('/src/child.ts', '/src/main.ts')).toBe(false);
