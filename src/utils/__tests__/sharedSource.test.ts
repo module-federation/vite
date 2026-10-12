@@ -7,6 +7,7 @@ import {
   createSharedSourceResolver,
   isSharedEntryLookup,
   patchRolldownResolveOptionKeys,
+  resolveInternally,
 } from '../sharedSource';
 
 function makeShared(keys: string[], shareConfig: Record<string, unknown> = {}): NormalizedShared {
@@ -92,6 +93,25 @@ describe('createSharedSourceResolver', () => {
     settle[1]();
     await expect(results).resolves.toEqual(['mf-test-lookup', 'mf-test-lookup']);
     expect(isSharedEntryLookup(entry, importer)).toBe(false);
+  });
+
+  it('recognizes a lookup re-resolved by an alias only while it is in flight', async () => {
+    const aliased = '/vendor/node_modules/mf-test-alias/dist/runtime.js';
+    const importer = '/app/package.json';
+    let nestedOptions: any;
+    let nestedIsLookup: boolean | undefined;
+    // Like Vite's alias plugin: re-resolves the rewritten source, forwarding `custom`.
+    const resolve = vi.fn(async (_id: string, from: string | undefined, options: any) => {
+      nestedOptions = { custom: options.custom };
+      nestedIsLookup = isSharedEntryLookup(aliased, from, nestedOptions);
+      return { id: aliased, external: false };
+    });
+
+    await resolveInternally({ resolve } as any, 'mf-test-alias', importer);
+
+    expect(nestedIsLookup).toBe(true);
+    // A marker that outlives its lookup (e.g. leaked onto a real import) is not trusted.
+    expect(isSharedEntryLookup(aliased, importer, nestedOptions)).toBe(false);
   });
 
   it('matches an aliased share by its request, not its property name', async () => {
