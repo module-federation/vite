@@ -65,15 +65,14 @@ const isNodeServer = (): boolean => {
 // ---------------------------------------------------------------------------
 
 /**
- * All mutable loader state lives on one object stored on `globalThis`.
+ * State that `revalidate()` must reach, kept on `globalThis` so every copy of
+ * this module shares it. Server bundlers can emit the module twice (Vite +
+ * Nitro: the injected runtime plugin in the SSR chunk, app routes importing
+ * `revalidate` from a library chunk); module-level maps would leave app-side
+ * `revalidate()` clearing caches the runtime plugin never reads.
  *
- * Server bundlers can emit this module more than once (e.g. Vite + Nitro: the
- * injected runtime plugin lives in the SSR environment chunk while app server
- * routes import `@module-federation/vite/ssrEntryLoader` from a separate
- * library chunk). With module-level maps each copy would own its own caches,
- * so `revalidate()` called from app code could not reach the caches the
- * runtime plugin actually uses. A well-known `Symbol.for` key makes every copy
- * share — and invalidate — the same state.
+ * Fields are only ever added, and each is initialised on its own, so a copy
+ * from another package version tolerates an object created by an older one.
  */
 interface SsrEntryLoaderState {
   runnerCache: Map<string, { remoteOrigin: string; promise: Promise<CachedModuleRunner | null> }>;
@@ -85,9 +84,6 @@ interface SsrEntryLoaderState {
   tempFilePathCache: Map<string, Promise<string>>;
   tempFileRecords: Map<string, TempFileRecord>;
   scheduledTempFileCleanup: Set<string>;
-  requireShimCache: Map<string, Promise<string>>;
-  ssrCacheDirPromise: Promise<string> | undefined;
-  warnedVmUnavailable: boolean;
   vmStrategyModulePromise: Promise<typeof import('./ssrVmStrategy')> | undefined;
 }
 
@@ -109,8 +105,6 @@ function getLoaderState(): SsrEntryLoaderState {
   state.tempFilePathCache ??= new Map();
   state.tempFileRecords ??= new Map();
   state.scheduledTempFileCleanup ??= new Set();
-  state.requireShimCache ??= new Map();
-  state.warnedVmUnavailable ??= false;
   return state as SsrEntryLoaderState;
 }
 
@@ -904,7 +898,7 @@ async function cleanupTempFileRecord(record: TempFileRecord): Promise<void> {
 }
 
 // Temp dir + transform context → `node:module` shim file URL (see getRequireShimUrl).
-const requireShimCache = loaderState.requireShimCache;
+const requireShimCache = new Map<string, Promise<string>>();
 
 /**
  * `resolvedShared` rewrites import/export specifiers only. Bundled CommonJS in a
@@ -961,9 +955,10 @@ function getSsrTransformContextKey(
 }
 
 // Lazily initialised on the server only — avoids evaluating Node APIs in browser.
+let ssrCacheDirPromise: Promise<string> | undefined;
 async function getSSRCacheDir(): Promise<string> {
-  if (!loaderState.ssrCacheDirPromise) {
-    loaderState.ssrCacheDirPromise = (async () => {
+  if (!ssrCacheDirPromise) {
+    ssrCacheDirPromise = (async () => {
       const { join } = await _path();
       const { rmSync } = await _fs();
       // Use process.cwd() (the running app's root) rather than the plugin
@@ -985,7 +980,7 @@ async function getSSRCacheDir(): Promise<string> {
       return dir;
     })();
   }
-  return loaderState.ssrCacheDirPromise;
+  return ssrCacheDirPromise;
 }
 
 /**
@@ -1287,6 +1282,8 @@ async function importTempModule(
   };
 }
 
+let warnedVmUnavailable = false;
+
 function getVmStrategyModule(): Promise<typeof import('./ssrVmStrategy')> {
   if (!loaderState.vmStrategyModulePromise) {
     loaderState.vmStrategyModulePromise = import('./ssrVmStrategy');
@@ -1319,8 +1316,8 @@ async function tryVmStrategy(
   const { loadViaVmStrategy, isVmStrategyAvailable } = await getVmStrategyModule();
 
   if (!(await isVmStrategyAvailable())) {
-    if (!loaderState.warnedVmUnavailable) {
-      loaderState.warnedVmUnavailable = true;
+    if (!warnedVmUnavailable) {
+      warnedVmUnavailable = true;
       mfWarn(
         'SSR entry loader: strategy "vm" requires vm.SourceTextModule ' +
           '(run Node with --experimental-vm-modules); falling back to the temp-file strategy.'
