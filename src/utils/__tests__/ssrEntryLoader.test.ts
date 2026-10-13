@@ -8,6 +8,14 @@
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The loader keeps its state on globalThis so separately bundled copies share
+// it; a fresh module instance therefore also needs that state dropped.
+function resetSharedLoaderState(): void {
+  delete (globalThis as Record<symbol, unknown>)[
+    Symbol.for('module-federation.vite.ssrEntryLoader.state')
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -47,6 +55,7 @@ function expectFetchNotCalled(fetch: ReturnType<typeof vi.fn>, url: string): voi
 
 async function freshLoaderModule() {
   vi.resetModules();
+  resetSharedLoaderState();
   vi.mock('path', () => ({
     default: {
       join: (...p: string[]) => p.join('/'),
@@ -1735,6 +1744,7 @@ async function freshLoaderWithRunner(
   ) => { import: (id: string) => Promise<unknown>; clearCache?: () => void } | null
 ) {
   vi.resetModules();
+  resetSharedLoaderState();
   const runnerModule = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ModuleRunner: vi.fn(function (this: any, options: RunnerOptions) {
@@ -2055,6 +2065,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';
     vi.resetModules();
+    resetSharedLoaderState();
     try {
       const failingRunner = { import: vi.fn().mockRejectedValue(new Error('runner failed')) };
       vi.doMock('vite/module-runner', () => ({
@@ -2118,6 +2129,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';
     vi.resetModules();
+    resetSharedLoaderState();
     try {
       // Simulate Vite < 8 — dev-mode SSR is not supported on older Vite versions.
       vi.doMock('vite/module-runner', () => {
@@ -2176,6 +2188,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     vi.resetModules();
+    resetSharedLoaderState();
     vi.doMock('vite/module-runner', () => {
       throw new Error('module not found');
     });
@@ -2234,6 +2247,7 @@ describe('ssrEntryLoaderPlugin — revalidation', () => {
   // with doMock per test here so the loader (and the fs assertions) see mocks.
   async function freshMockedLoaderModule() {
     vi.resetModules();
+    resetSharedLoaderState();
     vi.doMock('path', () => ({
       default: {
         join: (...p: string[]) => p.join('/'),
@@ -2319,6 +2333,60 @@ describe('ssrEntryLoaderPlugin — revalidation', () => {
 
     const writes = (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls;
     expect(writes.length).toBeGreaterThanOrEqual(2);
+    expect(String(writes[writes.length - 1][1])).toContain('v2');
+  });
+
+  it('revalidate() from a separately bundled copy clears the caches the runtime plugin uses', async () => {
+    // Vite + Nitro emits this module twice: the injected runtime plugin uses
+    // one copy, app server routes import `revalidate` from another.
+    const responses = makeResponses('1.0.0', 'export const marker = "v1";');
+    const fetch = makeFetchMock(responses);
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+    const pluginCopy = await freshMockedLoaderModule();
+    const fsMock = await import('fs');
+    const plugin = pluginCopy.default();
+
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    // A second, independent module instance (no shared module-level state).
+    vi.resetModules();
+    const appCopy = await import('../ssrEntryLoader');
+    expect(appCopy).not.toBe(pluginCopy);
+    expect(appCopy.revalidate).not.toBe(pluginCopy.revalidate);
+
+    Object.assign(responses, makeResponses('2.0.0', 'export const marker = "v2";'));
+    // Without revalidation the plugin keeps serving its cached release.
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+    const manifestFetchesBefore = fetch.mock.calls.filter(([url]) => url === manifestUrl).length;
+    const writesBefore = (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    appCopy.revalidate();
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    expect(fetch.mock.calls.filter(([url]) => url === manifestUrl).length).toBeGreaterThan(
+      manifestFetchesBefore
+    );
+    const writes = (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls;
+    expect(writes.length).toBeGreaterThan(writesBefore);
+    expect(String(writes[writes.length - 1][1])).toContain('v2');
+  });
+
+  it('scoped revalidate(url) from a separately bundled copy clears that remote', async () => {
+    const responses = makeResponses('1.0.0', 'export const marker = "v1";');
+    global.fetch = makeFetchMock(responses) as unknown as typeof globalThis.fetch;
+    const pluginCopy = await freshMockedLoaderModule();
+    const fsMock = await import('fs');
+    const plugin = pluginCopy.default();
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    vi.resetModules();
+    const appCopy = await import('../ssrEntryLoader');
+
+    Object.assign(responses, makeResponses('2.0.0', 'export const marker = "v2";'));
+    appCopy.revalidate(entryUrl);
+    await plugin.loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    const writes = (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls;
     expect(String(writes[writes.length - 1][1])).toContain('v2');
   });
 

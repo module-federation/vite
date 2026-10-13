@@ -61,6 +61,62 @@ const isNodeServer = (): boolean => {
 };
 
 // ---------------------------------------------------------------------------
+// Shared loader state
+// ---------------------------------------------------------------------------
+
+/**
+ * All mutable loader state lives on one object stored on `globalThis`.
+ *
+ * Server bundlers can emit this module more than once (e.g. Vite + Nitro: the
+ * injected runtime plugin lives in the SSR environment chunk while app server
+ * routes import `@module-federation/vite/ssrEntryLoader` from a separate
+ * library chunk). With module-level maps each copy would own its own caches,
+ * so `revalidate()` called from app code could not reach the caches the
+ * runtime plugin actually uses. A well-known `Symbol.for` key makes every copy
+ * share — and invalidate — the same state.
+ */
+interface SsrEntryLoaderState {
+  runnerCache: Map<string, { remoteOrigin: string; promise: Promise<CachedModuleRunner | null> }>;
+  unversionedGenerations: Map<string, number>;
+  unversionedGlobalGeneration: number;
+  ssrEntryCache: Map<string, SsrEntryCacheRecord>;
+  manifestFetchCache: Map<string, Promise<Manifest | null>>;
+  tempFileCache: Map<string, Promise<string>>;
+  tempFilePathCache: Map<string, Promise<string>>;
+  tempFileRecords: Map<string, TempFileRecord>;
+  scheduledTempFileCleanup: Set<string>;
+  requireShimCache: Map<string, Promise<string>>;
+  ssrCacheDirPromise: Promise<string> | undefined;
+  warnedVmUnavailable: boolean;
+  vmStrategyModulePromise: Promise<typeof import('./ssrVmStrategy')> | undefined;
+}
+
+const SSR_ENTRY_LOADER_STATE_KEY = Symbol.for('module-federation.vite.ssrEntryLoader.state');
+
+function getLoaderState(): SsrEntryLoaderState {
+  const holder = globalThis as typeof globalThis & {
+    [SSR_ENTRY_LOADER_STATE_KEY]?: Partial<SsrEntryLoaderState>;
+  };
+  const state = (holder[SSR_ENTRY_LOADER_STATE_KEY] ??= {});
+  // Fill fields individually so a copy from a different package version that
+  // created the object first cannot leave a field this copy relies on unset.
+  state.runnerCache ??= new Map();
+  state.unversionedGenerations ??= new Map();
+  state.unversionedGlobalGeneration ??= 0;
+  state.ssrEntryCache ??= new Map();
+  state.manifestFetchCache ??= new Map();
+  state.tempFileCache ??= new Map();
+  state.tempFilePathCache ??= new Map();
+  state.tempFileRecords ??= new Map();
+  state.scheduledTempFileCleanup ??= new Set();
+  state.requireShimCache ??= new Map();
+  state.warnedVmUnavailable ??= false;
+  return state as SsrEntryLoaderState;
+}
+
+const loaderState = getLoaderState();
+
+// ---------------------------------------------------------------------------
 // Vite 8+ ModuleRunner path (dev mode only)
 // ---------------------------------------------------------------------------
 
@@ -73,10 +129,7 @@ type CachedModuleRunner = {
   clearCache?: () => void;
 };
 
-const runnerCache = new Map<
-  string,
-  { remoteOrigin: string; promise: Promise<CachedModuleRunner | null> }
->();
+const runnerCache = loaderState.runnerCache;
 
 function getSortedRecordEntries(record: Record<string, string>): [string, string][] {
   return Object.entries(record).sort(([left], [right]) => left.localeCompare(right));
@@ -292,11 +345,10 @@ function parseRunnerInvokeResult(
  * advance a process-local generation so the next import is fresh.
  */
 const UNVERSIONED = 'unversioned';
-const unversionedGenerations = new Map<string, number>();
-let unversionedGlobalGeneration = 0;
+const unversionedGenerations = loaderState.unversionedGenerations;
 
 function getUnversionedVersionKey(remoteEntryUrl: string): string {
-  return `${UNVERSIONED}-${unversionedGlobalGeneration}-${unversionedGenerations.get(remoteEntryUrl) ?? 0}`;
+  return `${UNVERSIONED}-${loaderState.unversionedGlobalGeneration}-${unversionedGenerations.get(remoteEntryUrl) ?? 0}`;
 }
 
 function bumpUnversionedGeneration(remoteEntryUrl: string): void {
@@ -327,9 +379,9 @@ interface SsrEntryCacheRecord {
 
 // Process-level cache: remote entry URL → resolved SSR entry (+ resolution time
 // so `maxAgeMs` can trigger revalidation against the remote's manifest).
-const ssrEntryCache = new Map<string, SsrEntryCacheRecord>();
+const ssrEntryCache = loaderState.ssrEntryCache;
 // Dedupe manifest fetches when multiple entry URLs resolve to the same manifest.
-const manifestFetchCache = new Map<string, Promise<Manifest | null>>();
+const manifestFetchCache = loaderState.manifestFetchCache;
 
 function makeUrlCacheKey(url: string, fetchTimeoutMs: number, fetchMaxBytes: number): string {
   return `${fetchTimeoutMs}::${fetchMaxBytes}::${url}`;
@@ -678,8 +730,8 @@ function invalidateRemoteCaches(remoteEntryUrl: string): Promise<void> {
  * static import cycle between the two SSR strategies.
  */
 function scheduleVmCacheCleanup(remoteEntryUrl?: string): void {
-  if (!vmStrategyModulePromise) return;
-  void vmStrategyModulePromise
+  if (!loaderState.vmStrategyModulePromise) return;
+  void loaderState.vmStrategyModulePromise
     .then(({ clearVmStrategyCaches }) => clearVmStrategyCaches(remoteEntryUrl))
     .catch(() => {
       // VM cache cleanup is best-effort, like temp-file cleanup.
@@ -770,7 +822,7 @@ export function revalidate(remoteEntryUrl?: string): void {
     }
     void invalidateRemoteCaches(remoteEntryUrl);
   } else {
-    unversionedGlobalGeneration += 1;
+    loaderState.unversionedGlobalGeneration += 1;
     ssrEntryCache.clear();
     manifestFetchCache.clear();
     invalidateAllRemoteCaches();
@@ -794,8 +846,8 @@ export function revalidate(remoteEntryUrl?: string): void {
 // Recursive HTTP → temp-file fetcher
 // ---------------------------------------------------------------------------
 
-const tempFileCache = new Map<string, Promise<string>>();
-const tempFilePathCache = new Map<string, Promise<string>>();
+const tempFileCache = loaderState.tempFileCache;
+const tempFilePathCache = loaderState.tempFilePathCache;
 const TEMP_FILE_CLEANUP_DELAY_MS = 30_000;
 
 type TempFileRecord = {
@@ -807,8 +859,8 @@ type TempFileRecord = {
 
 // Keep generated files independent from the in-memory cache so invalidation can
 // retire the files that belonged to an old remote generation as well.
-const tempFileRecords = new Map<string, TempFileRecord>();
-const scheduledTempFileCleanup = new Set<string>();
+const tempFileRecords = loaderState.tempFileRecords;
+const scheduledTempFileCleanup = loaderState.scheduledTempFileCleanup;
 
 function scheduleTempFileCleanup(records: TempFileRecord[]): void {
   for (const record of records) {
@@ -852,7 +904,7 @@ async function cleanupTempFileRecord(record: TempFileRecord): Promise<void> {
 }
 
 // Temp dir + transform context → `node:module` shim file URL (see getRequireShimUrl).
-const requireShimCache = new Map<string, Promise<string>>();
+const requireShimCache = loaderState.requireShimCache;
 
 /**
  * `resolvedShared` rewrites import/export specifiers only. Bundled CommonJS in a
@@ -909,10 +961,9 @@ function getSsrTransformContextKey(
 }
 
 // Lazily initialised on the server only — avoids evaluating Node APIs in browser.
-let ssrCacheDirPromise: Promise<string> | undefined;
 async function getSSRCacheDir(): Promise<string> {
-  if (!ssrCacheDirPromise) {
-    ssrCacheDirPromise = (async () => {
+  if (!loaderState.ssrCacheDirPromise) {
+    loaderState.ssrCacheDirPromise = (async () => {
       const { join } = await _path();
       const { rmSync } = await _fs();
       // Use process.cwd() (the running app's root) rather than the plugin
@@ -934,7 +985,7 @@ async function getSSRCacheDir(): Promise<string> {
       return dir;
     })();
   }
-  return ssrCacheDirPromise;
+  return loaderState.ssrCacheDirPromise;
 }
 
 /**
@@ -1236,14 +1287,11 @@ async function importTempModule(
   };
 }
 
-let warnedVmUnavailable = false;
-let vmStrategyModulePromise: Promise<typeof import('./ssrVmStrategy')> | undefined;
-
 function getVmStrategyModule(): Promise<typeof import('./ssrVmStrategy')> {
-  if (!vmStrategyModulePromise) {
-    vmStrategyModulePromise = import('./ssrVmStrategy');
+  if (!loaderState.vmStrategyModulePromise) {
+    loaderState.vmStrategyModulePromise = import('./ssrVmStrategy');
   }
-  return vmStrategyModulePromise;
+  return loaderState.vmStrategyModulePromise;
 }
 
 /**
@@ -1271,8 +1319,8 @@ async function tryVmStrategy(
   const { loadViaVmStrategy, isVmStrategyAvailable } = await getVmStrategyModule();
 
   if (!(await isVmStrategyAvailable())) {
-    if (!warnedVmUnavailable) {
-      warnedVmUnavailable = true;
+    if (!loaderState.warnedVmUnavailable) {
+      loaderState.warnedVmUnavailable = true;
       mfWarn(
         'SSR entry loader: strategy "vm" requires vm.SourceTextModule ' +
           '(run Node with --experimental-vm-modules); falling back to the temp-file strategy.'
