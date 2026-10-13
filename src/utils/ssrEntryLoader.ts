@@ -87,7 +87,7 @@ interface SsrEntryLoaderState {
   vmStrategyModulePromise: Promise<typeof import('./ssrVmStrategy')> | undefined;
 }
 
-const SSR_ENTRY_LOADER_STATE_KEY = Symbol.for('module-federation.vite.ssrEntryLoader.state');
+export const SSR_ENTRY_LOADER_STATE_KEY = Symbol.for('module-federation.vite.ssrEntryLoader.state');
 
 function getLoaderState(): SsrEntryLoaderState {
   const holder = globalThis as typeof globalThis & {

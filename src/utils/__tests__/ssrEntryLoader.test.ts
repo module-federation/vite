@@ -7,13 +7,12 @@
  */
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SSR_ENTRY_LOADER_STATE_KEY } from '../ssrEntryLoader';
 
 // The loader keeps its state on globalThis so separately bundled copies share
 // it; a fresh module instance therefore also needs that state dropped.
 function resetSharedLoaderState(): void {
-  delete (globalThis as Record<symbol, unknown>)[
-    Symbol.for('module-federation.vite.ssrEntryLoader.state')
-  ];
+  delete (globalThis as Record<symbol, unknown>)[SSR_ENTRY_LOADER_STATE_KEY];
 }
 
 // ---------------------------------------------------------------------------
