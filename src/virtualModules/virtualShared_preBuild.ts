@@ -475,9 +475,6 @@ function resolveReExportModule(
   }
 }
 
-/** Marks a template-literal frame whose text (not its interpolation) is being scanned. */
-const TEMPLATE_TEXT = Symbol('templateText');
-
 function getAdditionalTopLevelDeclaratorNames(
   source: string,
   start: number,
@@ -485,119 +482,27 @@ function getAdditionalTopLevelDeclaratorNames(
 ): string[] | undefined {
   const names: string[] = [];
   let depth = 0;
-  let quote: string | undefined;
-  let escaped = false;
-  let canStartRegex = true;
-  // Template literals cannot be treated as plain quoted strings: a nested
-  // template inside a `${...}` interpolation would close the outer one early,
-  // after which real template text is scanned as code. That desync miscounts
-  // brace depth and lets constructs like `</Tag>` be read as a regex, so the
-  // scan reports a phantom top-level comma. Track template text and
-  // interpolations explicitly instead. Entries are either TEMPLATE_TEXT or the
-  // brace depth at which an interpolation opened.
-  const templateFrames: (typeof TEMPLATE_TEXT | number)[] = [];
-  const inTemplateText = () => templateFrames[templateFrames.length - 1] === TEMPLATE_TEXT;
 
   for (let index = start; index < source.length; index++) {
     const char = source[index];
-    if (inTemplateText()) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === '$' && source[index + 1] === '{') {
-        templateFrames.push(depth);
-        index++;
-        canStartRegex = true;
-      } else if (char === '`') {
-        templateFrames.pop();
-        canStartRegex = false;
-      }
-      continue;
-    }
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (char === '`') {
-      templateFrames.push(TEMPLATE_TEXT);
-      canStartRegex = false;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      canStartRegex = false;
-      continue;
-    }
+    // Strings, templates (with their interpolations), regex literals and
+    // comments are masked by the shared code map, so commas, braces and
+    // `export` inside them never reach the declarator scan.
+    if (!codePositions[index]) continue;
     if (char === '<' && source[index + 1] === '/') {
       const jsxClosingTag = source
         .slice(index)
         .match(/^<\/\s*(?:[$_\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}.:-]*\s*)?>/u);
       if (jsxClosingTag) {
         index += jsxClosingTag[0].length - 1;
-        canStartRegex = false;
         continue;
       }
-    }
-    if (char === '/' && source[index + 1] === '/') {
-      index = source.indexOf('\n', index + 2);
-      if (index === -1) return names;
-      continue;
-    }
-    if (char === '/' && source[index + 1] === '*') {
-      const commentEnd = source.indexOf('*/', index + 2);
-      if (commentEnd === -1) return undefined;
-      index = commentEnd + 1;
-      continue;
-    }
-    if (char === '/' && canStartRegex) {
-      let regexEscaped = false;
-      let inCharacterClass = false;
-      let closed = false;
-      for (index++; index < source.length; index++) {
-        const regexChar = source[index];
-        if (regexEscaped) {
-          regexEscaped = false;
-          continue;
-        }
-        if (regexChar === '\\') {
-          regexEscaped = true;
-          continue;
-        }
-        if (regexChar === '[') {
-          inCharacterClass = true;
-          continue;
-        }
-        if (regexChar === ']' && inCharacterClass) {
-          inCharacterClass = false;
-          continue;
-        }
-        if (regexChar === '/' && !inCharacterClass) {
-          closed = true;
-          while (/[$_\p{ID_Continue}]/u.test(source[index + 1] || '')) index++;
-          break;
-        }
-        if (regexChar === '\n' || regexChar === '\r') return undefined;
-      }
-      if (!closed) return undefined;
-      canStartRegex = false;
-      continue;
-    }
-    if (char === '/') {
-      canStartRegex = true;
-      continue;
     }
     if (/[$_\p{ID_Start}]/u.test(char)) {
       const tokenStart = index;
       while (/[$_\u200C\u200D\p{ID_Continue}]/u.test(source[index + 1] || '')) index++;
       const token = source.slice(tokenStart, index + 1);
-      if (depth === 0 && templateFrames.length === 0 && token === 'export') {
+      if (depth === 0 && token === 'export') {
         let previous = tokenStart - 1;
         while (/\s/.test(source[previous] || '')) previous--;
         if (
@@ -609,54 +514,28 @@ function getAdditionalTopLevelDeclaratorNames(
           return names;
         }
       }
-      canStartRegex =
-        /^(?:await|case|delete|in|instanceof|new|return|throw|typeof|void|yield)$/.test(token);
       continue;
     }
     if (/\d/.test(char)) {
       while (/[\w.]/.test(source[index + 1] || '')) index++;
-      canStartRegex = false;
-      continue;
-    }
-    if ((char === '+' || char === '-') && source[index + 1] === char) {
-      index++;
-      continue;
-    }
-    if (char === '!' && source[index + 1] !== '=') {
       continue;
     }
     if (char === '<') {
       const typeArgumentEnd = findLikelyTypeArgumentEnd(source, index, codePositions);
       if (typeArgumentEnd !== undefined) {
         index = typeArgumentEnd;
-        canStartRegex = false;
         continue;
       }
     }
     if (char === '(' || char === '[' || char === '{') {
       depth++;
-      canStartRegex = true;
       continue;
     }
     if (char === ')' || char === ']' || char === '}') {
-      // A `}` closing a `${...}` interpolation returns to the template text it
-      // was opened from rather than unwinding the surrounding brace depth.
-      if (
-        char === '}' &&
-        templateFrames.length > 0 &&
-        templateFrames[templateFrames.length - 1] === depth
-      ) {
-        templateFrames.pop();
-        canStartRegex = false;
-        continue;
-      }
       depth = Math.max(0, depth - 1);
-      canStartRegex = false;
       continue;
     }
-    // Commas and semicolons inside an interpolation belong to that expression,
-    // not to the declarator list, even when the brace depth happens to be 0.
-    if (templateFrames.length === 0 && depth === 0 && char === ',') {
+    if (depth === 0 && char === ',') {
       let bindingStart = index + 1;
       while (/\s/.test(source[bindingStart] || '')) bindingStart++;
       const binding = source
@@ -665,13 +544,9 @@ function getAdditionalTopLevelDeclaratorNames(
       if (!binding || !isValidEsmExportName(binding[1])) return undefined;
       names.push(binding[1]);
       index = bindingStart + binding[1].length - 1;
-      canStartRegex = false;
       continue;
     }
-    if (templateFrames.length === 0 && depth === 0 && char === ';') return names;
-    if (!/\s/.test(char)) {
-      canStartRegex = char !== '.';
-    }
+    if (depth === 0 && char === ';') return names;
   }
 
   return names;

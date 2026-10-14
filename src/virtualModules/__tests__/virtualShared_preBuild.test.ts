@@ -798,6 +798,7 @@ export const buttonBase = 1;`;
         'export const injectedHtml = `${`<div>`}${body}${`</div>`}`;',
         "const text = `${`'`}`;",
         'export const answer = text.length;',
+        'export const guarded = `${(() => { if (true) /"/.test("x"); })()}`, afterGuard = 2;',
       ].join('\n');
     }
     if (filePath.endsWith('node_modules/mock-package-export-method-call/index.js')) {
@@ -3225,10 +3226,14 @@ describe('writeLoadShareModule', () => {
     expect(getSharedNamedExports('mock-package-nested-template-literal')).toEqual([
       'injectedHtml',
       'answer',
+      'guarded',
+      'afterGuard',
     ]);
     expect(getSharedNamedExports('mock-package-nested-template-literal')).toEqual([
       'injectedHtml',
       'answer',
+      'guarded',
+      'afterGuard',
     ]);
 
     expect(
