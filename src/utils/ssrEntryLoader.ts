@@ -1490,11 +1490,6 @@ interface SsrEntryLoaderOptions extends SsrEntryLoaderConfig {
    * Defaults to `'default'`.
    */
   shareScopeName?: string;
-  /**
-   * @internal Set by the Vite plugin for `vite build` output: re-resolve
-   * `resolvedShared` from the running server instead of build-machine paths.
-   */
-  rebaseSharedAtRuntime?: boolean;
 }
 
 interface ResolvedLoaderOptions {
@@ -1569,7 +1564,8 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
       // Only intercept on the server — browser should use the normal path.
       if (!isNodeServer()) return;
 
-      if (options.rebaseSharedAtRuntime) {
+      // Internal flag the Vite plugin sets for `vite build` output only.
+      if ((options as { rebaseSharedAtRuntime?: boolean }).rebaseSharedAtRuntime) {
         rebased ??= rebaseResolvedShared(resolved.resolvedShared).then(
           (map) => {
             resolved.resolvedShared = map;
