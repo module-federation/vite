@@ -40,4 +40,56 @@ describe('createCodePositionMap', () => {
     expect(comments).toEqual(['/* block\ncomment */', '// line']);
     expect(positions).toEqual(createCodePositionMap(source));
   });
+
+  it.each([
+    ['single quotes', "const text = `${`'`}`;"],
+    ['double quotes', 'const text = `${`"`}`;'],
+    ['multiple nesting levels', "const text = `${`${`'`}`}`;"],
+    ['object braces', 'const text = `${({ value: `"` }).value}`;'],
+    ['regex braces', 'const text = `${/}/.test("}") ? `"` : ""}`;'],
+    ['block comments', 'const text = `${/* } */ `"`}`;'],
+    ['line comments', 'const text = `${// }\n`"`}`;'],
+  ])('keeps exports after nested template expressions containing %s', (_name, prefix) => {
+    const source = `${prefix} export const answer = 1;`;
+    const positions = createCodePositionMap(source);
+
+    expect(positions[source.indexOf('export')]).toBe(true);
+    expect(positions.slice(prefix.indexOf('`'), prefix.lastIndexOf('`') + 1)).not.toContain(true);
+  });
+
+  it('masks export-like text inside nested templates', () => {
+    const source = "const text = `${`'export const phantom = 1'`}`; export const answer = 1;";
+    const positions = createCodePositionMap(source);
+
+    expect(positions[source.indexOf('export')]).toBe(false);
+    expect(positions[source.lastIndexOf('export')]).toBe(true);
+  });
+
+  it.each([
+    'if (true)',
+    'if ((check(true)))',
+    'if /* condition */ (true)',
+    'while (false)',
+    'for (; false;)',
+    'for (const item of [])',
+    'for await (const item of [])',
+  ])('preserves exports after a template containing a regex following %s', (condition) => {
+    const prefix = 'const text = `${ (async () => { ' + condition + ' /"/.test("x"); })() }`;';
+    const source = `${prefix} export const answer = 1;`;
+    const positions = createCodePositionMap(source);
+
+    expect(positions[source.indexOf('export')]).toBe(true);
+    expect(positions.slice(prefix.indexOf('`'), prefix.lastIndexOf('`') + 1)).not.toContain(true);
+  });
+
+  it.each(['check()', '(value)', 'object.if()', 'object?.while()', 'object./* method */for()'])(
+    'keeps division after %s distinct from a regex',
+    (expression) => {
+      const source = `const value = ${expression} / divisor; export const answer = value / 2;`;
+      const positions = createCodePositionMap(source);
+
+      expect(positions[source.indexOf('export')]).toBe(true);
+      expect(positions[source.indexOf('/ divisor')]).toBe(true);
+    }
+  );
 });
