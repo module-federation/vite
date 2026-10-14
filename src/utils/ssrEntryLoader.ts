@@ -1490,6 +1490,11 @@ interface SsrEntryLoaderOptions extends SsrEntryLoaderConfig {
    * Defaults to `'default'`.
    */
   shareScopeName?: string;
+  /**
+   * @internal Set by the Vite plugin for `vite build` output: re-resolve
+   * `resolvedShared` from the running server instead of build-machine paths.
+   */
+  rebaseSharedAtRuntime?: boolean;
 }
 
 interface ResolvedLoaderOptions {
@@ -1521,7 +1526,7 @@ interface ResolvedLoaderOptions {
 async function rebaseResolvedShared(
   resolvedShared: Record<string, string>
 ): Promise<Record<string, string>> {
-  const { createRequire } = (await nodeImport('node:module')) as typeof import('node:module');
+  const { createRequire } = await _module();
   const { realpathSync } = await _fs();
   const { join } = await _path();
   const requires: NodeJS.Require[] = [];
@@ -1564,11 +1569,15 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
       // Only intercept on the server — browser should use the normal path.
       if (!isNodeServer()) return;
 
-      // Internal flag the Vite plugin sets for `vite build` output only.
-      if ((options as { rebaseSharedAtRuntime?: boolean }).rebaseSharedAtRuntime) {
-        rebased ??= rebaseResolvedShared(resolved.resolvedShared).then((map) => {
-          resolved.resolvedShared = map;
-        });
+      if (options.rebaseSharedAtRuntime) {
+        rebased ??= rebaseResolvedShared(resolved.resolvedShared).then(
+          (map) => {
+            resolved.resolvedShared = map;
+          },
+          () => {
+            // Node APIs unavailable: keep the build-time paths.
+          }
+        );
         await rebased;
       }
 
