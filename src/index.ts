@@ -1085,6 +1085,8 @@ export default __mfShared.default ?? __mfShared;`,
           ssrEntryLoaderSpecifier,
           {
             resolvedShared,
+            // Build-time paths go stale once the server output moves.
+            ...(config.command === 'build' && { rebaseSharedAtRuntime: true }),
             ...options.ssrEntryLoader,
           },
         ]);
