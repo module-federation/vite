@@ -26,7 +26,9 @@ import type { Plugin } from 'vite';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
 import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
+import { isRemoteSpecifier } from '../utils/hostProvidesAllShared';
 import { getInstalledPackageEntry } from '../utils/packageUtils';
+import { isNodeModulePath } from '../utils/pathNormalization';
 import { collectRemoteDependencies, type RemoteDependencyCache } from '../utils/remoteDependencies';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import {
@@ -582,8 +584,6 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
   const waitsAtDynamicImports = options.shareStrategy === 'loaded-first';
   let remoteDependencyCache: RemoteDependencyCache = new Map();
   let root = process.cwd();
-  const isNodeModulesId = (id: string) =>
-    id.includes('/node_modules/') || id.includes('\\node_modules\\');
 
   function isRemoteImport(source: string, importerId: string): boolean {
     return (
@@ -592,7 +592,7 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
         if (source !== name) return false;
         // Mirror pluginProxyRemotes: a bare remote name inside node_modules only
         // resolves to a real package when one with that name is installed.
-        return !isNodeModulesId(importerId) || !getInstalledPackageEntry(source, { cwd: root });
+        return !isNodeModulePath(importerId) || !getInstalledPackageEntry(source, { cwd: root });
       }) || source.includes(LOAD_REMOTE_TAG)
     );
   }
@@ -613,7 +613,7 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
       // Only process JS-like files to avoid parsing CSS/JSON/etc.
       if (!JS_EXTENSIONS_RE.test(id)) return;
       const collectLocalDynamic =
-        waitsAtDynamicImports && !isNodeModulesId(id) && /\bimport\s*\(/.test(code);
+        waitsAtDynamicImports && !isNodeModulePath(id) && /\bimport\s*\(/.test(code);
       // Quick bail-out: does the source mention any remote name?
       if (!collectLocalDynamic && !remoteNames.some((name) => code.includes(name))) return;
       const descriptors = findModuleImportDescriptors(code);
@@ -658,7 +658,7 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
         localImport.remotes = await collectRemoteDependencies(
           this,
           resolved.id,
-          (source) => remoteNames.some((name) => source === name || source.startsWith(name + '/')),
+          (source) => isRemoteSpecifier(source, remoteNames),
           { followDynamicImports: false, cache: remoteDependencyCache }
         );
       }

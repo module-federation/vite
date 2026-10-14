@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { findModuleImportDescriptors, getScannableModuleSource } from './htmlEntryUtils';
+import { isNodeModulePath } from './pathNormalization';
 
 interface ResolveContext {
   resolve(source: string, importer?: string): Promise<{ id?: string } | null | undefined>;
@@ -27,9 +28,9 @@ function collectImportSources(code: string): Array<{ source: string; dynamic: bo
   );
 }
 
-export function shouldScanResolvedImport(id: string): boolean {
+function shouldScanResolvedImport(id: string): boolean {
   if (!id || id.includes('\0')) return false;
-  if (id.includes('/node_modules/') || id.includes('\\node_modules\\')) return false;
+  if (isNodeModulePath(id)) return false;
   return /\.(?:[cm]?[jt]sx?|vue|svelte)(?:\?|$)/.test(id);
 }
 

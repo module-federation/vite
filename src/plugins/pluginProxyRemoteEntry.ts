@@ -10,6 +10,7 @@ import {
 } from '../utils/cssModuleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { isRemoteSpecifier } from '../utils/hostProvidesAllShared';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
 import { collectRemoteDependencies } from '../utils/remoteDependencies';
@@ -64,9 +65,7 @@ export default function ({
   const isSsrBuild = (context: unknown): boolean => isServerBuildContext(context, viteConfig);
 
   function isRemoteImport(source: string): boolean {
-    return Object.keys(options.remotes).some(
-      (name) => source === name || source.startsWith(name + '/')
-    );
+    return isRemoteSpecifier(source, Object.keys(options.remotes));
   }
 
   async function refreshExposeRemoteDependencies(ctx: { resolve: Plugin['resolveId'] }) {
