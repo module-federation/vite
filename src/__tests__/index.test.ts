@@ -4522,7 +4522,7 @@ describe('ssrEntryLoader strategy injection', () => {
     const injected = injectSsrEntryLoader();
     expect(injected).toEqual([
       '@module-federation/vite/ssrEntryLoader',
-      { resolvedShared: expect.any(Object) },
+      { resolvedShared: expect.any(Object), rebaseSharedAtRuntime: true },
     ]);
     expect((injected as [string, Record<string, unknown>])[1]).not.toHaveProperty('strategy');
   });
@@ -4533,6 +4533,7 @@ describe('ssrEntryLoader strategy injection', () => {
       '@module-federation/vite/ssrEntryLoader',
       {
         resolvedShared: expect.any(Object),
+        rebaseSharedAtRuntime: true,
         strategy: 'vm',
       },
     ]);
@@ -4544,6 +4545,7 @@ describe('ssrEntryLoader strategy injection', () => {
       '@module-federation/vite/ssrEntryLoader',
       {
         resolvedShared: expect.any(Object),
+        rebaseSharedAtRuntime: true,
         strategy: 'temp-file',
       },
     ]);
@@ -4562,6 +4564,7 @@ describe('ssrEntryLoader strategy injection', () => {
       '@module-federation/vite/ssrEntryLoader',
       {
         resolvedShared: expect.any(Object),
+        rebaseSharedAtRuntime: true,
         strategy: 'vm',
         maxAgeMs: 5_000,
         fetchTimeoutMs: 0,
