@@ -16,6 +16,7 @@ import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
 import pluginExternalRuntimeCore from './plugins/pluginExternalRuntimeCore';
 import pluginLazyConsumeOnlyShares from './plugins/pluginLazyConsumeOnlyShares';
+import pluginAssetRequestContextImports from './plugins/pluginAssetRequestContextImports';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd, { createModuleParseController } from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
@@ -1792,6 +1793,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       getParsePromise: () => moduleParseController.parsePromise,
     }),
     pluginLazyConsumeOnlyShares(options),
+    pluginAssetRequestContextImports(options),
     {
       // Vite bundledDev bundles the client graph in serve too; without these
       // groups a loadShare wrapper shares a chunk with its consumers, so

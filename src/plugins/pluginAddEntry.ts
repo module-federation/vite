@@ -215,8 +215,10 @@ function appendRemoteEntryWarmup(bundle: Rollup.OutputBundle, entryFileName: str
     .filter((file) => file !== entryFileName)
     .map((file) => rebaseImport(file, entryDir));
   if (files.length === 0) return;
+  // An entry fetched through a consumer's assetRequestContext.request (its url has a blob
+  // loader context) is skipped: modulepreload links cannot carry the headers.
   entryChunk.code += `
-if (typeof document !== 'undefined' && document.head) {
+if (typeof document !== 'undefined' && document.head && !globalThis.__mfDynImport?.blobLoaderContexts?.has(import.meta.url)) {
   try {
     for (const __mfWarmupPath of ${JSON.stringify(files)}) {
       const __mfWarmupLink = document.createElement('link');

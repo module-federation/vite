@@ -18,6 +18,7 @@ import {
   packageNameEncode,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
+import { getAssetRequestContextRuntimePath } from '../utils/assetRequestContextRuntimePath';
 import { getCommonSharedSubpaths } from '../utils/pathNormalization';
 import { REACT_DOM_CLIENT_SHARE } from '../utils/reactShares';
 import { filterRuntimePluginsForTarget } from '../utils/runtimePluginSpecifier';
@@ -1409,6 +1410,9 @@ export function generateRemoteEntry(
     (share) => !!share?.shareConfig.treeShaking
   );
   const hasMultipleShareScopes = Array.isArray(options.shareScope);
+  // Browser containers register the assetRequestContext producer plugin and accept
+  // a context from their consumer in init().
+  const acceptsAssetRequestContext = !isSsrBuild;
   const guardHostAutoInit =
     command === 'build' && isRemoteContainer(options) && hasRemotes(options);
   const materializedShareBatches = toSafeJsLiteral(getShareBatches(options, false));
@@ -1488,6 +1492,12 @@ export function generateRemoteEntry(
     .join('\n')}
   import __mfExposesMap from "${virtualExposesId}"
   ${
+    acceptsAssetRequestContext
+      ? `import { assetRequestContextProducerPlugin as __mfAssetRequestContextProducerPlugin, registerProducerModule as __mfRegisterProducerModule } from ${JSON.stringify(getAssetRequestContextRuntimePath())};
+  __mfRegisterProducerModule(import.meta.url);`
+      : ''
+  }
+  ${
     command === 'build'
       ? getRuntimeInitResolveBootstrapCode(false, getRuntimeInitStatusImportId(options)) +
         '\n  const { initReject } = __mfResolveState;'
@@ -1550,6 +1560,19 @@ export function generateRemoteEntry(
   }
 
   async function init(shared = {}, initScope = [], remoteEntryInitOptions = {}) {
+    ${
+      acceptsAssetRequestContext
+        ? `// The producer plugin installs the consumer's context in beforeInit. Run that
+    // before the first chunk request below, so the request already goes through it.
+    if (remoteEntryInitOptions?.assetRequestContext) {
+      runtimeInit({
+        name: mfName,
+        plugins: [__mfAssetRequestContextProducerPlugin()],
+        assetRequestContext: remoteEntryInitOptions.assetRequestContext,
+      });
+    }`
+        : ''
+    }
     ${sharedCacheHelperCode}
     const getShareScope = (scopeName) => remoteEntryInitOptions.shareScopeMap?.[scopeName] ?? (${hasMultipleShareScopes} ? (shared?.[scopeName] || {}) : shared);
     const getShareScopeNames = (share) => {
@@ -1742,7 +1765,7 @@ export function generateRemoteEntry(
       name: mfName,
       remotes: ${options.shareStrategy === 'loaded-first' ? '[]' : 'usedRemotes'},
       shared: usedShared,
-      plugins: [__mfSharePinLifecyclePlugin(), __mfRealNameSnapshotPlugin(), ${hasTreeShakingShared ? '__mfTreeShakingSnapshotPlugin(),' : ''} ...__browserPlugins, ...__ssrPlugins],
+      plugins: [__mfSharePinLifecyclePlugin(), __mfRealNameSnapshotPlugin(), ${hasTreeShakingShared ? '__mfTreeShakingSnapshotPlugin(),' : ''} ${acceptsAssetRequestContext ? '__mfAssetRequestContextProducerPlugin(),' : ''} ...__browserPlugins, ...__ssrPlugins],
       ${options.shareStrategy ? `shareStrategy: '${options.shareStrategy}'` : ''}
     });
     ${

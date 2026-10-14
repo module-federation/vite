@@ -336,6 +336,69 @@ const RemoteMFE = defineAsyncComponent( 👈
 </template>
 ```
 
+## Remotes behind authentication (`assetRequestContext`)
+
+When a remote's files are only served with an `Authorization` header (or other request headers), write a runtime plugin for the host that sends the remote's requests through your own `request` function:
+
+```ts
+// host/src/authPlugin.ts
+import type { ModuleFederationRuntimePlugin } from '@module-federation/runtime/types';
+import { loadEntryWithRequest } from '@module-federation/vite/assetRequestContext';
+
+const REMOTE_ORIGIN = 'https://remote.example';
+
+const context = {
+  consumerId: 'host',
+  // Called for every request, so the token can be refreshed.
+  request: async (url: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers);
+    if (new URL(url).origin === REMOTE_ORIGIN) {
+      headers.set('Authorization', `Bearer ${await getToken()}`);
+    }
+    return fetch(url, { ...init, headers });
+  },
+};
+
+export default function authPlugin(): ModuleFederationRuntimePlugin {
+  return {
+    name: 'auth-plugin',
+    // mf-manifest.json
+    fetch(url, init) {
+      return context.request(url, init);
+    },
+    // The remote entry. Omit this hook when the entry file is public.
+    async loadEntry({ remoteInfo, remoteEntryExports }) {
+      if (remoteEntryExports) return remoteEntryExports;
+      if (remoteInfo.type !== 'esm' && remoteInfo.type !== 'module') return undefined;
+      return loadEntryWithRequest({
+        entry: remoteInfo.entry,
+        name: remoteInfo.name,
+        request: context.request,
+      });
+    },
+    // The remote's own chunks and CSS: the remote container receives the context in init().
+    beforeInitContainer(args) {
+      args.remoteEntryInitOptions.assetRequestContext ??= context;
+      return args;
+    },
+  };
+}
+```
+
+```ts
+federation({
+  name: 'host',
+  remotes: {
+    remote: { name: 'remote', entry: 'https://remote.example/mf-manifest.json', type: 'module' },
+  },
+  runtimePlugins: ['./src/authPlugin.ts'],
+});
+```
+
+With the runtime API, pass the same plugin object instead: `createInstance({ name: 'host', remotes, plugins: [authPlugin()] })`.
+
+The remote has to be a production build (not the dev server) of a `module`/`esm` remote. `request` receives every URL, so it should only add credentials for origins it trusts.
+
 ## Shared Tree Shaking
 
 Shared Tree Shaking reduces shared dependency bundles to the exports used by the application.

@@ -5,6 +5,7 @@ import {
   normalizeModuleFederationOptions,
   type ModuleFederationOptions,
 } from '../src/utils/normalizeModuleFederationOptions';
+import { getAssetRequestContextRuntimePath } from '../src/utils/assetRequestContextRuntimePath';
 import { sharedCacheHelperCode } from '../src/utils/packageUtils';
 import VirtualModule from '../src/utils/VirtualModule';
 import { generateRemoteEntry } from '../src/virtualModules/virtualRemoteEntry';
@@ -66,6 +67,12 @@ async function importTestRemote(exposesSource: string): Promise<GeneratedRemoteM
   const runtimeStub = dataUrl(
     'export function init() {}\nexport function loadRemote() { return Promise.resolve(); }'
   );
+  const assetRequestContextStub = dataUrl(
+    [
+      'export function assetRequestContextProducerPlugin() { return { name: "stub-producer" }; }',
+      'export function registerProducerModule() {}',
+    ].join('\n')
+  );
   const exposesImport = remoteGenerated.match(
     /import __mfExposesMap from "(virtual:mf-exposes:[^"]+)"/
   )?.[1];
@@ -75,6 +82,10 @@ async function importTestRemote(exposesSource: string): Promise<GeneratedRemoteM
     dataUrl(
       remoteGenerated
         .replace('from "@module-federation/runtime"', `from ${JSON.stringify(runtimeStub)}`)
+        .replace(
+          `from ${JSON.stringify(getAssetRequestContextRuntimePath())}`,
+          `from ${JSON.stringify(assetRequestContextStub)}`
+        )
         .replace(
           `import __mfExposesMap from ${JSON.stringify(exposesImport)}`,
           `import __mfExposesMap from ${JSON.stringify(dataUrl(exposesSource))}`

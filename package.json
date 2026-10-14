@@ -19,6 +19,10 @@
       "types": "./lib/utils/injectExternalRuntimeCorePlugin.d.ts",
       "default": "./lib/utils/injectExternalRuntimeCorePlugin.js"
     },
+    "./assetRequestContext": {
+      "types": "./lib/utils/assetRequestContext.d.ts",
+      "default": "./lib/utils/assetRequestContext.js"
+    },
     "./package.json": "./package.json"
   },
   "engines": {
@@ -78,6 +82,7 @@
   },
   "dependencies": {
     "@module-federation/dts-plugin": "2.9.2",
+    "@module-federation/error-codes": "2.9.2",
     "@module-federation/runtime": "2.9.2",
     "@module-federation/sdk": "2.9.2"
   },

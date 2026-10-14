@@ -1,4 +1,5 @@
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import { getAssetRequestContextRuntimePath } from '../utils/assetRequestContextRuntimePath';
 import { generateReactIslandBrowserDefinition } from '../utils/reactIsland';
 import { getRemoteVirtualModule } from './virtualRemotes';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
@@ -22,7 +23,14 @@ export function generateExposes(
   reactIslandExposes: ReadonlySet<string> = new Set()
 ) {
   return `
-    const cssAssetMap = ${JSON.stringify(options.bundleAllCSS ? EXPOSES_CSS_MAP_PLACEHOLDER : {})};
+    import { hasAssetRequestContext, loadCssWithAssetRequestContext, registerProducerModule } from ${JSON.stringify(getAssetRequestContextRuntimePath())};
+    registerProducerModule(import.meta.url);
+
+    // Replaced at build time with expose -> css asset paths. Without bundleAllCSS
+    // the map is only used when an assetRequestContext is installed: Vite's own
+    // <link> for an expose's CSS cannot carry its headers.
+    const cssAssetMap = ${JSON.stringify(EXPOSES_CSS_MAP_PLACEHOLDER)};
+    const bundleAllCSS = ${JSON.stringify(!!options.bundleAllCSS)};
     const injectedCssHrefs = new Set();
     const exposeLoadPromises = new Map();
 
@@ -47,8 +55,10 @@ export function generateExposes(
       if (typeof document === "undefined") {
         return;
       }
+      if (!bundleAllCSS && !hasAssetRequestContext()) {
+        return;
+      }
 
-      // Replaced at build time with expose -> css asset paths.
       const cssAssets = cssAssetMap[exposeKey] || [];
 
       await Promise.all(
@@ -60,6 +70,14 @@ export function generateExposes(
             return Promise.resolve();
           }
           injectedCssHrefs.add(href);
+
+          const loadWithOptions = loadCssWithAssetRequestContext(href);
+          if (loadWithOptions) {
+            return loadWithOptions.catch((error) => {
+              injectedCssHrefs.delete(href);
+              throw error;
+            });
+          }
 
           // Check for any existing stylesheet with the same href, not just
           // MF-injected ones. This prevents duplicate <link> tags when Vite's

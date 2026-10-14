@@ -6,8 +6,24 @@ import {
 } from '../virtualExposes';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
 
-function toRunnableModule(code: string) {
+type AssetRequestContextRuntimeStub = {
+  hasAssetRequestContext: () => boolean;
+  loadCssWithAssetRequestContext: (href: string) => Promise<void> | undefined;
+  registerProducerModule: (url: string) => void;
+};
+
+const noAssetRequestContext: AssetRequestContextRuntimeStub = {
+  hasAssetRequestContext: () => false,
+  loadCssWithAssetRequestContext: () => undefined,
+  registerProducerModule: () => {},
+};
+
+function toRunnableModule(code: string, assetRequestContextRuntime = noAssetRequestContext) {
   const transformed = code
+    .replace(
+      /^\s*import \{ hasAssetRequestContext, loadCssWithAssetRequestContext, registerProducerModule \} from .*;$/m,
+      ''
+    )
     .replace('export default', 'return')
     .split('import.meta.url')
     .join('__importMetaUrl')
@@ -18,15 +34,33 @@ function toRunnableModule(code: string) {
     'URL',
     '__dynamicImport',
     '__importMetaUrl',
+    'hasAssetRequestContext',
+    'loadCssWithAssetRequestContext',
+    'registerProducerModule',
     `return (async () => {${transformed}\n})();`
   ) as (
     document: any,
     URLCtor: typeof URL,
     dynamicImport: (id: string) => Promise<unknown>,
-    importMetaUrl: string
+    importMetaUrl: string,
+    ...runtime: AssetRequestContextRuntimeStub[keyof AssetRequestContextRuntimeStub][]
   ) => Promise<Record<string, () => Promise<unknown>>>;
 
-  return factory;
+  return (
+    document: any,
+    URLCtor: typeof URL,
+    dynamicImport: (id: string) => Promise<unknown>,
+    importMetaUrl: string
+  ) =>
+    factory(
+      document,
+      URLCtor,
+      dynamicImport,
+      importMetaUrl,
+      assetRequestContextRuntime.hasAssetRequestContext,
+      assetRequestContextRuntime.loadCssWithAssetRequestContext,
+      assetRequestContextRuntime.registerProducerModule
+    );
 }
 
 async function flushMicrotasks() {
@@ -44,7 +78,7 @@ describe('virtualExposes', () => {
     ).toBe('virtual:mf-exposes:__mfe_internal___scope_remote_app__nested_remoteEntry_js_x_1');
   });
 
-  it('emits css placeholder only when bundleAllCSS is enabled', () => {
+  it('always emits the css placeholder and gates plain <link> injection on bundleAllCSS', () => {
     const noCssBundleCode = generateExposes(
       getDefaultMockOptions({
         exposes: {
@@ -62,8 +96,11 @@ describe('virtualExposes', () => {
       })
     );
 
-    expect(noCssBundleCode).toContain('const cssAssetMap = {};');
-    expect(cssBundleCode).toContain(`const cssAssetMap = "${getExposesCssMapPlaceholder()}";`);
+    for (const code of [noCssBundleCode, cssBundleCode]) {
+      expect(code).toContain(`const cssAssetMap = "${getExposesCssMapPlaceholder()}";`);
+    }
+    expect(noCssBundleCode).toContain('const bundleAllCSS = false;');
+    expect(cssBundleCode).toContain('const bundleAllCSS = true;');
   });
 
   it('adds a lazy browser hydration capability without changing the default export', async () => {
@@ -98,7 +135,12 @@ describe('virtualExposes', () => {
     };
     await module.__mf_island.hydrate(root, { fromClient: true });
     expect(hydrateRoot).toHaveBeenCalledWith(root, 'element');
-    expect(code.trimStart()).toMatch(/^const\s/);
+    // The island adds no static imports; the only one is the assetRequestContext runtime.
+    expect(code.match(/^\s*import\s.*$/gm)).toEqual([
+      expect.stringContaining(
+        'import { hasAssetRequestContext, loadCssWithAssetRequestContext, registerProducerModule }'
+      ),
+    ]);
   });
 
   it('injects css once and evaluates independent exposes concurrently', async () => {

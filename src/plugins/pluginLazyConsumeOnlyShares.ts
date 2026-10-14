@@ -89,7 +89,7 @@ function buildLazyShareGraph(
 
 // `import("./x.js")`, allowing comments (`/* webpackChunkName */`, `/* @vite-ignore */`) around the literal.
 const COMMENTS = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*`;
-const DYNAMIC_IMPORT_REGEX = new RegExp(
+export const DYNAMIC_IMPORT_REGEX = new RegExp(
   String.raw`\bimport\(${COMMENTS}(["'` +
     '`' +
     String.raw`])([^"'` +
