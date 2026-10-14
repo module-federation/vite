@@ -15,6 +15,9 @@
  *   import("remote/xxx")
  *     → import("remote/xxx").then(…)  // spreads __moduleExports into namespace
  *
+ *   import("./page")  // loaded-first, when ./page's static graph imports remote/xxx
+ *     → Promise.all([import("./page"), import("remote/xxx").then(…pending)]).then(…)
+ *
  * NOTE: `export * from "remote/xxx"` is not supported — Rolldown cannot
  * statically resolve the set of exported names from a federated remote at
  * build time.  Use explicit named re-exports instead.
@@ -24,6 +27,7 @@ import { createCodePositionMap } from '../utils/codePositionMap';
 import { CodeRewriter, type SourceMapLike } from '../utils/codeRewriter';
 import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
 import { getInstalledPackageEntry } from '../utils/packageUtils';
+import { collectRemoteDependencies, type RemoteDependencyCache } from '../utils/remoteDependencies';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import {
   LOAD_REMOTE_TAG,
@@ -69,7 +73,24 @@ interface DynamicImportInfo {
   originalText: string;
 }
 
-type ImportInfo = StaticImportInfo | ReexportInfo | ExportAllInfo | DynamicImportInfo;
+// A local `import()` whose target statically imports remotes. Under loaded-first nothing
+// else waits for those remotes, so their named bindings are still undefined when the
+// promise resolves unless the import waits for them.
+interface LocalDynamicImportInfo {
+  kind: 'local-dynamic';
+  source: string;
+  start: number;
+  end: number;
+  originalText: string;
+  remotes: string[];
+}
+
+type ImportInfo =
+  | StaticImportInfo
+  | ReexportInfo
+  | ExportAllInfo
+  | DynamicImportInfo
+  | LocalDynamicImportInfo;
 type NamedSpecifierKind = 'import' | 'export';
 type ParsedNamedSpecifier<T extends NamedSpecifierKind> = T extends 'import'
   ? { imported: string; local: string }
@@ -284,6 +305,21 @@ function applyRewrites(
         changed = true;
         break;
       }
+
+      case 'local-dynamic': {
+        if (imp.remotes.length === 0) break;
+        const ready = imp.remotes.map(
+          (remote) =>
+            `import(${JSON.stringify(remote)}).then(function(__mf_m__) { return __mf_m__.__mf_remote_pending; })`
+        );
+        ms.overwrite(
+          imp.start,
+          imp.end,
+          `Promise.all([${imp.originalText}, ${ready.join(', ')}]).then(function(__mf_r__) { return __mf_r__[0]; })`
+        );
+        changed = true;
+        break;
+      }
     }
   }
 
@@ -306,7 +342,8 @@ function applyRewrites(
 async function collectFromAST(
   ast: any,
   code: string,
-  isRemoteImport: (source: string) => boolean
+  isRemoteImport: (source: string) => boolean,
+  collectLocalDynamic: boolean
 ): Promise<ImportInfo[]> {
   const result: ImportInfo[] = [];
 
@@ -399,15 +436,26 @@ async function collectFromAST(
               : undefined
             : source.value;
 
-        if (!value || !isRemoteImport(value)) return;
-
-        result.push({
-          kind: 'dynamic',
-          source: value,
-          start: node.start,
-          end: node.end,
-          originalText: code.slice(node.start, node.end),
-        });
+        if (!value) return;
+        const originalText = code.slice(node.start, node.end);
+        if (isRemoteImport(value)) {
+          result.push({
+            kind: 'dynamic',
+            source: value,
+            start: node.start,
+            end: node.end,
+            originalText,
+          });
+        } else if (collectLocalDynamic) {
+          result.push({
+            kind: 'local-dynamic',
+            source: value,
+            start: node.start,
+            end: node.end,
+            originalText,
+            remotes: [],
+          });
+        }
       }
     },
   });
@@ -424,7 +472,8 @@ async function collectFromAST(
 
 function collectFromRegex(
   code: string,
-  isRemoteImport: (source: string) => boolean
+  isRemoteImport: (source: string) => boolean,
+  collectLocalDynamic: boolean
 ): ImportInfo[] | undefined {
   const result: ImportInfo[] = [];
   const codePositions = createCodePositionMap(code);
@@ -515,15 +564,12 @@ function collectFromRegex(
   for (const match of code.matchAll(dynamicRe)) {
     const [full, , source] = match;
     if (!codePositions[match.index!]) continue;
-    if (!isRemoteImport(source)) continue;
-
-    result.push({
-      kind: 'dynamic',
-      source,
-      start: match.index!,
-      end: match.index! + full.length,
-      originalText: full,
-    });
+    const position = { source, start: match.index!, end: match.index! + full.length };
+    if (isRemoteImport(source)) {
+      result.push({ kind: 'dynamic', ...position, originalText: full });
+    } else if (collectLocalDynamic) {
+      result.push({ kind: 'local-dynamic', ...position, originalText: full, remotes: [] });
+    }
   }
 
   return result.length > 0 ? result : undefined;
@@ -533,6 +579,8 @@ function collectFromRegex(
 
 export function pluginRemoteNamedExports(options: NormalizedModuleFederationOptions): Plugin {
   const remoteNames = Object.keys(options.remotes);
+  const waitsAtDynamicImports = options.shareStrategy === 'loaded-first';
+  let remoteDependencyCache: RemoteDependencyCache = new Map();
   let root = process.cwd();
   const isNodeModulesId = (id: string) =>
     id.includes('/node_modules/') || id.includes('\\node_modules\\');
@@ -555,14 +603,19 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
     configResolved(config) {
       root = config.root || process.cwd();
     },
+    watchChange() {
+      remoteDependencyCache = new Map();
+    },
     async transform(code: string, id: string) {
       if (remoteNames.length === 0) return;
       // Skip federation internal modules
       if (id.includes(LOAD_REMOTE_TAG) || id.includes(LOAD_SHARE_TAG)) return;
       // Only process JS-like files to avoid parsing CSS/JSON/etc.
       if (!JS_EXTENSIONS_RE.test(id)) return;
+      const collectLocalDynamic =
+        waitsAtDynamicImports && !isNodeModulesId(id) && /\bimport\s*\(/.test(code);
       // Quick bail-out: does the source mention any remote name?
-      if (!remoteNames.some((name) => code.includes(name))) return;
+      if (!collectLocalDynamic && !remoteNames.some((name) => code.includes(name))) return;
       const descriptors = findModuleImportDescriptors(code);
       // Leave specifiers another plugin resolved elsewhere (e.g. a `pre` stub) untouched.
       const resolvedElsewhere = new Set<string>();
@@ -583,16 +636,32 @@ export function pluginRemoteNamedExports(options: NormalizedModuleFederationOpti
 
       try {
         const ast = this.parse(code);
-        imports = await collectFromAST(ast, code, matchesRemoteImport);
+        imports = await collectFromAST(ast, code, matchesRemoteImport, collectLocalDynamic);
       } catch {
         if ((id.includes('.vue') || id.includes('.svelte')) && /^\s*</.test(code)) return;
         // this.parse() delegates to acorn which does not support TypeScript
         // syntax (import type, interfaces, generics, etc.). Fall back to a
         // targeted scanner so TS/TSX consumer files are still transformed.
-        imports = collectFromRegex(code, matchesRemoteImport);
+        imports = collectFromRegex(code, matchesRemoteImport, collectLocalDynamic);
       }
 
       if (!imports) return;
+      for (const localImport of imports) {
+        if (localImport.kind !== 'local-dynamic') continue;
+        let resolved: { id?: string } | null | undefined;
+        try {
+          resolved = await this.resolve(localImport.source, id);
+        } catch {
+          continue;
+        }
+        if (!resolved?.id) continue;
+        localImport.remotes = await collectRemoteDependencies(
+          this,
+          resolved.id,
+          (source) => remoteNames.some((name) => source === name || source.startsWith(name + '/')),
+          { followDynamicImports: false, cache: remoteDependencyCache }
+        );
+      }
       for (const remoteImport of imports) {
         if (remoteImport.kind === 'dynamic') markDynamicRemote(remoteImport.source, options);
       }

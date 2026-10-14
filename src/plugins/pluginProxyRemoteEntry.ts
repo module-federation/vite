@@ -1,9 +1,7 @@
 import * as path from 'node:path';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 import type { Plugin } from 'vite';
 import { normalizePathForImport, resolveHashPlaceholderFileName } from '../utils/buildPaths';
-import { findModuleImportDescriptors, getScannableModuleSource } from '../utils/htmlEntryUtils';
 import {
   addCssAssetsToAllExports,
   collectCssAssets,
@@ -14,6 +12,7 @@ import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap'
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
+import { collectRemoteDependencies } from '../utils/remoteDependencies';
 import { isServerBuildContext } from '../utils/remoteConsumerTarget';
 import { formatDevServerHostForOrigin } from '../utils/devServerHost';
 import { ensureTrailingSlash, filterId, resolvePublicPath } from '../utils/pathNormalization';
@@ -70,66 +69,6 @@ export default function ({
     );
   }
 
-  function collectImportSources(code: string): Array<{ source: string; dynamic: boolean }> {
-    const sources = new Map<string, boolean>();
-
-    for (const { source, kind, syntax, typeOnly } of findModuleImportDescriptors(code)) {
-      if (syntax !== 'import' || typeOnly) continue;
-      const dynamic = kind === 'dynamic';
-      sources.set(source, (sources.get(source) ?? true) && dynamic);
-    }
-
-    return Array.from(sources, ([source, dynamic]) => ({ source, dynamic })).sort((a, b) =>
-      a.source.localeCompare(b.source)
-    );
-  }
-
-  function shouldScanResolvedImport(id: string): boolean {
-    if (!id || id.includes('\0')) return false;
-    if (id.includes('/node_modules/') || id.includes('\\node_modules\\')) return false;
-    return /\.(?:[cm]?[jt]sx?|vue|svelte)(?:\?|$)/.test(id);
-  }
-
-  async function collectRemoteDependencies(
-    ctx: { resolve: Plugin['resolveId'] },
-    id: string,
-    seen = new Set<string>()
-  ): Promise<string[]> {
-    if (seen.has(id) || !shouldScanResolvedImport(id)) return [];
-    seen.add(id);
-
-    let code: string;
-    try {
-      code = getScannableModuleSource(id, readFileSync(id, 'utf8'));
-    } catch {
-      return [];
-    }
-
-    const dependencies = new Set<string>();
-    for (const { source, dynamic } of collectImportSources(code)) {
-      if (isRemoteImport(source)) {
-        if (!dynamic) dependencies.add(source);
-        continue;
-      }
-
-      // Value-style type imports (`import { JsonValue } from 'type-fest'`) never reach the bundler,
-      // and Vite throws for packages without a runtime entry or a missing `exports` subpath. An
-      // import that cannot be resolved cannot be a remote.
-      let resolved: { id?: string } | null | undefined;
-      try {
-        resolved = await (ctx as any).resolve(source, id);
-      } catch {
-        continue;
-      }
-      if (!resolved?.id || !shouldScanResolvedImport(resolved.id)) continue;
-      for (const dependency of await collectRemoteDependencies(ctx, resolved.id, seen)) {
-        dependencies.add(dependency);
-      }
-    }
-
-    return Array.from(dependencies).sort();
-  }
-
   async function refreshExposeRemoteDependencies(ctx: { resolve: Plugin['resolveId'] }) {
     if (!exposeRemoteDependenciesDirty) return;
     if (!refreshPromise) {
@@ -138,7 +77,9 @@ export default function ({
         const next: Record<string, string[]> = {};
         for (const [exposeKey, expose] of Object.entries(options.exposes)) {
           const resolved = await (ctx as any).resolve(expose.import);
-          next[exposeKey] = resolved?.id ? await collectRemoteDependencies(ctx, resolved.id) : [];
+          next[exposeKey] = resolved?.id
+            ? await collectRemoteDependencies(ctx as any, resolved.id, isRemoteImport)
+            : [];
         }
         exposeRemoteDependencies = next;
         if (refreshVersion === dependencyInvalidationVersion) {

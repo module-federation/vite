@@ -126,6 +126,96 @@ describe('loaded-first static remote browser bootstrap', () => {
     60_000
   );
 
+  it('resolves a local dynamic import after the remotes its chunk imports statically', async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), 'mf-loaded-first-browser-boundary-'));
+    let remoteServer: StaticServer | undefined;
+    let hostServer: StaticServer | undefined;
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      const remoteOutDir = path.join(workspace, 'remote');
+      const hostOutDir = path.join(workspace, 'host');
+      await buildFixtureTo('basic-remote', remoteOutDir, remoteOptions);
+      remoteServer = await serveDirectory(remoteOutDir);
+      await buildFixtureTo(
+        'loaded-first-dynamic-boundary-host',
+        hostOutDir,
+        hostOptions(`${remoteServer.origin}/remoteEntry.js`)
+      );
+      hostServer = await serveDirectory(hostOutDir);
+
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+
+      await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(
+        () => document.querySelector('#app')?.textContent !== '',
+        undefined,
+        {
+          timeout: 15_000,
+        }
+      );
+
+      expect(await page.locator('#app').textContent()).toBe('remoteApp');
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser?.close();
+      await hostServer?.close();
+      await remoteServer?.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects a local dynamic import when a remote its chunk imports statically fails', async () => {
+    const workspace = await mkdtemp(
+      path.join(tmpdir(), 'mf-loaded-first-browser-boundary-failure-')
+    );
+    let remoteServer: StaticServer | undefined;
+    let hostServer: StaticServer | undefined;
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      const remoteOutDir = path.join(workspace, 'remote');
+      const hostOutDir = path.join(workspace, 'host');
+      await buildFixtureTo('basic-remote', remoteOutDir, remoteOptions);
+      remoteServer = await serveDirectory(remoteOutDir);
+      const remoteEntry = `${remoteServer.origin}/remoteEntry.js`;
+      await remoteServer.close();
+      remoteServer = undefined;
+
+      await buildFixtureTo(
+        'loaded-first-dynamic-boundary-host',
+        hostOutDir,
+        hostOptions(remoteEntry)
+      );
+      hostServer = await serveDirectory(hostOutDir);
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      await page.addInitScript(() => {
+        (window as typeof window & { __mfUnhandled?: string[] }).__mfUnhandled = [];
+        window.addEventListener('unhandledrejection', (event) => {
+          const target = window as typeof window & { __mfUnhandled: string[] };
+          target.__mfUnhandled.push(String(event.reason));
+        });
+      });
+
+      await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => (window as any).__mfUnhandled.length > 0, undefined, {
+        timeout: 15_000,
+      });
+
+      expect(await page.locator('#app').textContent()).toBe('');
+      const unhandled = await page.evaluate(() => (window as any).__mfUnhandled as string[]);
+      expect(unhandled.join('\n')).toMatch(/Failed to load script resources|RUNTIME-008/);
+    } finally {
+      await browser?.close();
+      await hostServer?.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('does not evaluate the host entry when a static remote fails', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'mf-loaded-first-browser-failure-'));
     let remoteServer: StaticServer | undefined;

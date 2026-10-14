@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseAst } from 'rollup/parseAst';
 
 const { getIsRolldownMock, getInstalledPackageEntryMock } = vi.hoisted(() => ({
@@ -299,6 +302,65 @@ describe('pluginRemoteNamedExports', () => {
   });
 
   // ── re-exports ───────────────────────────────────────────────
+
+  describe('local dynamic imports', () => {
+    const LOADED_FIRST = { ...OPTIONS, shareStrategy: 'loaded-first' } as any;
+    let dir: string;
+
+    beforeEach(() => {
+      dir = mkdtempSync(path.join(tmpdir(), 'mf-named-exports-'));
+    });
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    function writeFiles(files: Record<string, string>) {
+      for (const [name, code] of Object.entries(files)) writeFileSync(path.join(dir, name), code);
+    }
+
+    async function transformEntry(code: string, options = LOADED_FIRST) {
+      const plugin = pluginRemoteNamedExports(options);
+      const ctx = {
+        ...createContext(),
+        async resolve(source: string, importer: string) {
+          return source.startsWith('.')
+            ? { id: path.resolve(path.dirname(importer), source) }
+            : null;
+        },
+      };
+      const result = await (plugin as any).transform.call(ctx, code, path.join(dir, 'entry.js'));
+      return result?.code as string | undefined;
+    }
+
+    it('waits for remotes the target imports statically, transitively', async () => {
+      writeFiles({
+        'page.js': 'import "./widget.js";\nexport const render = () => {};',
+        'widget.js': 'import { foo } from "remoteApp/utils";\nexport const widget = foo;',
+      });
+      const result = await transformEntry('import("./page.js").then((m) => m.render());');
+      expect(result).toContain(
+        'Promise.all([import("./page.js"), import("remoteApp/utils").then(function(__mf_m__) { return __mf_m__.__mf_remote_pending; })]).then(function(__mf_r__) { return __mf_r__[0]; })'
+      );
+    });
+
+    it('does not wait for remotes behind a nested dynamic import', async () => {
+      writeFiles({
+        'page.js': 'export const load = () => import("./widget.js");',
+        'widget.js': 'import { foo } from "remoteApp/utils";\nexport const widget = foo;',
+      });
+      expect(await transformEntry('import("./page.js");')).toBeUndefined();
+    });
+
+    it('leaves targets without remote imports untouched', async () => {
+      writeFiles({ 'page.js': 'export const render = () => {};' });
+      expect(await transformEntry('import("./page.js");')).toBeUndefined();
+    });
+
+    it('does not rewrite under version-first, which preloads these remotes', async () => {
+      writeFiles({ 'page.js': 'import { foo } from "remoteApp/utils";\nexport const page = foo;' });
+      expect(await transformEntry('import("./page.js");', OPTIONS)).toBeUndefined();
+    });
+  });
 
   describe('re-exports', () => {
     it('rewrites named re-export', async () => {
