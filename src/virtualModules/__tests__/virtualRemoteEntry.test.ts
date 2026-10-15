@@ -316,6 +316,7 @@ vi.mock('../../utils/VirtualModule', () => {
 
 vi.mock('../../utils/packageUtils', () => {
   return {
+    resolveOwnEntryPath: (specifier: string) => specifier,
     getSharedCacheDescriptor: (
       pkg: string,
       shareItem: {

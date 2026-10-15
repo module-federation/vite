@@ -343,28 +343,31 @@ When a remote's files are only served with an `Authorization` header (or other r
 ```ts
 // host/src/authPlugin.ts
 import type { ModuleFederationRuntimePlugin } from '@module-federation/runtime/types';
-import { loadEntryWithRequest } from '@module-federation/vite/assetRequestContext';
+import {
+  loadEntryWithRequest,
+  type AssetRequestContext,
+} from '@module-federation/vite/assetRequestContext';
 
 const REMOTE_ORIGIN = 'https://remote.example';
 
-const context = {
-  consumerId: 'host',
-  // Called for every request, so the token can be refreshed.
-  request: async (url: string, init: RequestInit = {}) => {
-    const headers = new Headers(init.headers);
-    if (new URL(url).origin === REMOTE_ORIGIN) {
-      headers.set('Authorization', `Bearer ${await getToken()}`);
-    }
-    return fetch(url, { ...init, headers });
-  },
-};
+// Called for every request, so the token can be refreshed.
+async function request(url: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  if (new URL(url).origin === REMOTE_ORIGIN) {
+    headers.set('Authorization', `Bearer ${await getToken()}`);
+  }
+  return fetch(url, { ...init, headers });
+}
+
+// A remote loaded by several hosts keeps the context of the first one.
+const context: AssetRequestContext = { consumerId: 'host', request };
 
 export default function authPlugin(): ModuleFederationRuntimePlugin {
   return {
     name: 'auth-plugin',
     // mf-manifest.json
     fetch(url, init) {
-      return context.request(url, init);
+      return request(url, init);
     },
     // The remote entry. Omit this hook when the entry file is public.
     async loadEntry({ remoteInfo, remoteEntryExports }) {
@@ -373,12 +376,16 @@ export default function authPlugin(): ModuleFederationRuntimePlugin {
       return loadEntryWithRequest({
         entry: remoteInfo.entry,
         name: remoteInfo.name,
-        request: context.request,
+        request,
       });
     },
     // The remote's own chunks and CSS: the remote container receives the context in init().
     beforeInitContainer(args) {
-      args.remoteEntryInitOptions.assetRequestContext ??= context;
+      // Not declared yet by the runtime's RemoteEntryInitOptions type.
+      const initOptions = args.remoteEntryInitOptions as {
+        assetRequestContext?: AssetRequestContext;
+      };
+      initOptions.assetRequestContext ??= context;
       return args;
     },
   };

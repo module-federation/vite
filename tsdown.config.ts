@@ -14,9 +14,5 @@ export default defineConfig({
   clean: true,
   deps: {
     onlyBundle: false,
-    // Remote entries import utils/assetRequestContext.js from the Vite dev server.
-    // A bare import there would be found by the dep optimizer only after start-up,
-    // which re-optimizes and reloads the page.
-    alwaysBundle: ["@module-federation/error-codes"],
   },
 });

@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { Plugin } from 'vite';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import { CodeRewriter } from '../utils/codeRewriter';
+import { toIdentifierSuffix } from '../utils/jsIdentifier';
 import {
   collectStaticChunks,
   stripKnownJsExtension,
@@ -109,7 +110,7 @@ const QUOTES = ['"', "'", '`'];
 export function pluginLazyConsumeOnlyShares(options: NormalizedModuleFederationOptions): Plugin {
   let viteConfig: { root?: string; build?: { ssr?: boolean | string } } | undefined;
   const graphs = new WeakMap<object, LazyShareGraph>();
-  const helperName = `__mfLoadLazyShares_${options.internalName.replace(/[^A-Za-z0-9_$]/g, '_')}`;
+  const helperName = `__mfLoadLazyShares_${toIdentifierSuffix(options.internalName)}`;
 
   return {
     name: 'module-federation:lazy-consume-only-shares',

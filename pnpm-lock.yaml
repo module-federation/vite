@@ -23,9 +23,6 @@ importers:
       '@module-federation/dts-plugin':
         specifier: 2.9.2
         version: 2.9.2(typescript@7.0.2)
-      '@module-federation/error-codes':
-        specifier: 2.9.2
-        version: 2.9.2
       '@module-federation/runtime':
         specifier: 2.9.2
         version: 2.9.2

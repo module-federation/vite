@@ -6,17 +6,44 @@ import { build } from 'vite';
 import { federation } from '../../src';
 import { FIXTURES } from './build';
 
+export type ServedRequest = { path: string; authorization?: string; status: number };
+
 export type StaticServer = {
   origin: string;
+  requests: ServedRequest[];
   close: () => Promise<void>;
 };
 
-export async function serveDirectory(root: string): Promise<StaticServer> {
+/**
+ * Serves `root`. With `authorization`, any request without that exact
+ * Authorization header gets a 401.
+ */
+export async function serveDirectory(
+  root: string,
+  { authorization }: { authorization?: string } = {}
+): Promise<StaticServer> {
+  const requests: ServedRequest[] = [];
+  const cors = {
+    'access-control-allow-origin': '*',
+    ...(authorization ? { 'access-control-allow-headers': 'authorization' } : {}),
+  };
   const server = createServer(async (request, response) => {
+    if (authorization && request.method === 'OPTIONS') {
+      response.writeHead(204, cors).end();
+      return;
+    }
     const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    const reply = (status: number, headers: Record<string, string> = {}, content?: Buffer) => {
+      requests.push({ path: pathname, authorization: request.headers.authorization, status });
+      response.writeHead(status, { ...cors, ...headers }).end(content);
+    };
+    if (authorization && request.headers.authorization !== authorization) {
+      reply(401);
+      return;
+    }
     // Chrome asks for this on every navigation; a 404 would show up as a console error.
     if (pathname === '/favicon.ico') {
-      response.writeHead(204).end();
+      reply(204);
       return;
     }
 
@@ -24,7 +51,7 @@ export async function serveDirectory(root: string): Promise<StaticServer> {
     const filePath = path.resolve(root, relativePath);
 
     if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) {
-      response.writeHead(403).end();
+      reply(403);
       return;
     }
 
@@ -34,14 +61,12 @@ export async function serveDirectory(root: string): Promise<StaticServer> {
         ? 'text/html'
         : filePath.endsWith('.js')
           ? 'application/javascript'
-          : 'application/octet-stream';
-      response.writeHead(200, {
-        'access-control-allow-origin': '*',
-        'content-type': contentType,
-      });
-      response.end(content);
+          : filePath.endsWith('.css')
+            ? 'text/css'
+            : 'application/octet-stream';
+      reply(200, { 'content-type': contentType }, content);
     } catch {
-      response.writeHead(404).end();
+      reply(404);
     }
   });
 
@@ -54,6 +79,7 @@ export async function serveDirectory(root: string): Promise<StaticServer> {
 
   return {
     origin: `http://127.0.0.1:${address.port}`,
+    requests,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

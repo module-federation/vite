@@ -1,5 +1,4 @@
 /// <reference lib="dom" />
-import { getShortErrorMsg, RUNTIME_008, runtimeDescMap } from '@module-federation/error-codes';
 import type { RemoteEntryExports } from '@module-federation/runtime/types';
 
 export interface BlobDep {
@@ -199,7 +198,7 @@ function importBlobUrl(blobUrl: string): Promise<any> {
 // installs (identical callback + capture is a no-op per the DOM spec).
 const ignoreVitePreloadError = (e: Event) => e.preventDefault();
 
-function installMFDynImportShim(): void {
+export function installMFDynImportShim(): void {
   // Ensure the single global __mfDynImport shim (and its shared contexts map) exists.
   // createOrGetBlobLoaderContexts() is idempotent: it installs the shim on first use and never
   // clobbers one already installed by another bundled copy of the SDK.
@@ -226,16 +225,13 @@ export async function loadEsmEntryWithFetch({
     const blobUrl = await loadModule(entry, { fetchOptions, customFetch });
     return await importBlobUrl(blobUrl);
   } catch (loadError) {
-    // Wrap blob load import failures as RUNTIME_008 so the retry recovery can be run
-    // runtime-core's error() helper, which this package does not have: the same
-    // message, thrown with the runtime's log prefix.
+    // runtime-core retries loadEntryError only when the message contains "RUNTIME-008".
+    const original = loadError instanceof Error ? loadError.message : String(loadError);
     throw new Error(
-      `[ Federation Runtime ]: ${getShortErrorMsg(
-        RUNTIME_008,
-        runtimeDescMap,
-        { remoteName: name, resourceUrl: entry },
-        loadError instanceof Error ? loadError.message : String(loadError)
-      )}`
+      `[ Federation Runtime ]: Failed to load script resources. #RUNTIME-008\n` +
+        `args: ${JSON.stringify({ remoteName: name, resourceUrl: entry })}\n` +
+        `View the docs to see how to solve: https://module-federation.io/guide/troubleshooting/runtime#runtime-008\n` +
+        `Original Error Message:\n ${original}`
     );
   }
 }

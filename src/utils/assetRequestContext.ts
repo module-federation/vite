@@ -20,6 +20,7 @@ import type {
 } from '@module-federation/runtime/types';
 import {
   createOrGetBlobLoaderContexts,
+  installMFDynImportShim,
   loadCssWithFetch,
   loadEsmEntryWithFetch,
   type BlobLoaderContext,
@@ -54,11 +55,6 @@ function toBlobLoaderContext(context: AssetRequestContext): BlobLoaderContext {
   return { customFetch: context.request };
 }
 
-// The vite preload helper adds native <link> preloads for a chunk's dependencies.
-// Those cannot carry headers, so their failures are ignored; the chunks themselves
-// are fetched through assetRequestContext.request.
-const ignoreVitePreloadError = (e: Event) => e.preventDefault();
-
 /**
  * Called at the top level of the remote entry and exposes modules with their own
  * `import.meta.url`. Dynamic imports in those chunks go through the blob loader
@@ -86,11 +82,11 @@ export function installAssetRequestContext(
     return producerContext;
   }
   producerContext = context;
+  // Also ignores the native <link> preload failures of Vite's preload helper: those
+  // cannot carry headers, and the chunks themselves go through the context.
+  installMFDynImportShim();
   const contexts = createOrGetBlobLoaderContexts();
   for (const url of producerModuleUrls) contexts.set(url, toBlobLoaderContext(context));
-  if (typeof window !== 'undefined') {
-    window.addEventListener('vite:preloadError', ignoreVitePreloadError);
-  }
   return producerContext;
 }
 

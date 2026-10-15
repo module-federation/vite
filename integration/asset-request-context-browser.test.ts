@@ -1,5 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { createServer } from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -13,60 +12,6 @@ import {
 import { FIXTURES } from './helpers/build';
 
 const TOKEN = 'Bearer secret-token';
-
-type AuthServer = StaticServer & {
-  requests: Array<{ path: string; authorization?: string; status: number }>;
-};
-
-/** Serves `root`, answering 401 to any request without the expected Authorization header. */
-async function serveWithAuth(root: string): Promise<AuthServer> {
-  const requests: AuthServer['requests'] = [];
-  const server = createServer(async (request, response) => {
-    const cors = {
-      'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'authorization',
-    };
-    if (request.method === 'OPTIONS') {
-      response.writeHead(204, cors).end();
-      return;
-    }
-    const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
-    const authorization = request.headers.authorization;
-    if (authorization !== TOKEN) {
-      requests.push({ path: pathname, authorization, status: 401 });
-      response.writeHead(401, cors).end();
-      return;
-    }
-    const filePath = path.resolve(root, pathname.replace(/^\//, ''));
-    if (!filePath.startsWith(`${root}${path.sep}`)) {
-      response.writeHead(403, cors).end();
-      return;
-    }
-    try {
-      const content = await readFile(filePath);
-      const contentType = filePath.endsWith('.css') ? 'text/css' : 'application/javascript';
-      requests.push({ path: pathname, authorization, status: 200 });
-      response.writeHead(200, { ...cors, 'content-type': contentType }).end(content);
-    } catch {
-      requests.push({ path: pathname, authorization, status: 404 });
-      response.writeHead(404, cors).end();
-    }
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Auth server did not bind');
-  return {
-    origin: `http://127.0.0.1:${address.port}`,
-    requests,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      }),
-  };
-}
 
 const remoteOptions = {
   name: 'remoteApp',
@@ -99,7 +44,7 @@ describe('assetRequestContext in the browser', () => {
     'loads an authenticated remote from %s: every file is served with the header',
     async (hostEntry) => {
       const workspace = await mkdtemp(path.join(tmpdir(), 'mf-asset-request-context-browser-'));
-      let remoteServer: AuthServer | undefined;
+      let remoteServer: StaticServer | undefined;
       let hostServer: StaticServer | undefined;
       let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
 
@@ -107,7 +52,7 @@ describe('assetRequestContext in the browser', () => {
         const remoteOutDir = path.join(workspace, 'remote');
         const hostOutDir = path.join(workspace, 'host');
         await buildFixtureTo('asset-request-context-remote', remoteOutDir, remoteOptions);
-        remoteServer = await serveWithAuth(remoteOutDir);
+        remoteServer = await serveDirectory(remoteOutDir, { authorization: TOKEN });
         await buildFixtureTo(
           'asset-request-context-host',
           hostOutDir,
@@ -189,7 +134,7 @@ describe('assetRequestContext in the browser', () => {
     const workspace = await mkdtemp(
       path.join(tmpdir(), 'mf-asset-request-context-browser-control-')
     );
-    let remoteServer: AuthServer | undefined;
+    let remoteServer: StaticServer | undefined;
     let hostServer: StaticServer | undefined;
     let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
 
@@ -197,7 +142,7 @@ describe('assetRequestContext in the browser', () => {
       const remoteOutDir = path.join(workspace, 'remote');
       const hostOutDir = path.join(workspace, 'host');
       await buildFixtureTo('asset-request-context-remote', remoteOutDir, remoteOptions);
-      remoteServer = await serveWithAuth(remoteOutDir);
+      remoteServer = await serveDirectory(remoteOutDir, { authorization: TOKEN });
       await buildFixtureTo(
         'asset-request-context-host',
         hostOutDir,

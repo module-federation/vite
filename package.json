@@ -82,7 +82,6 @@
   },
   "dependencies": {
     "@module-federation/dts-plugin": "2.9.2",
-    "@module-federation/error-codes": "2.9.2",
     "@module-federation/runtime": "2.9.2",
     "@module-federation/sdk": "2.9.2"
   },

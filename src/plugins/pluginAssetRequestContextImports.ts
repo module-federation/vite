@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import { CodeRewriter } from '../utils/codeRewriter';
+import { toIdentifierSuffix } from '../utils/jsIdentifier';
 import type { OutputChunkWithViteMetadata } from '../utils/cssModuleHelpers';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { isServerBuildContext } from '../utils/remoteConsumerTarget';
@@ -29,7 +30,7 @@ export function pluginAssetRequestContextImports(
   options: NormalizedModuleFederationOptions
 ): Plugin {
   let viteConfig: { build?: { ssr?: boolean | string } } | undefined;
-  const helperName = `__mfAssetRequestContextImport_${options.internalName.replace(/[^A-Za-z0-9_$]/g, '_')}`;
+  const helperName = `__mfAssetRequestContextImport_${toIdentifierSuffix(options.internalName)}`;
   const producerModuleIds = new Set([getRemoteEntryId(options), getVirtualExposesId(options)]);
 
   return {
