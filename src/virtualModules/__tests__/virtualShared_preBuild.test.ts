@@ -796,6 +796,9 @@ export const buttonBase = 1;`;
       return [
         "const body = 'text';",
         'export const injectedHtml = `${`<div>`}${body}${`</div>`}`;',
+        "const text = `${`'`}`;",
+        'export const answer = text.length;',
+        'export const guarded = `${(() => { if (true) /"/.test("x"); })()}`, afterGuard = 2;',
       ].join('\n');
     }
     if (filePath.endsWith('node_modules/mock-package-export-method-call/index.js')) {
@@ -3220,8 +3223,18 @@ describe('writeLoadShareModule', () => {
     const readFileSyncMock = vi.mocked(readFileSync);
     readFileSyncMock.mockClear();
 
-    expect(getSharedNamedExports('mock-package-nested-template-literal')).toEqual(['injectedHtml']);
-    expect(getSharedNamedExports('mock-package-nested-template-literal')).toEqual(['injectedHtml']);
+    expect(getSharedNamedExports('mock-package-nested-template-literal')).toEqual([
+      'injectedHtml',
+      'answer',
+      'guarded',
+      'afterGuard',
+    ]);
+    expect(getSharedNamedExports('mock-package-nested-template-literal')).toEqual([
+      'injectedHtml',
+      'answer',
+      'guarded',
+      'afterGuard',
+    ]);
 
     expect(
       readFileSyncMock.mock.calls.filter(([filePath]) =>

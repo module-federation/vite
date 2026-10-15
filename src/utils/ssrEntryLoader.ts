@@ -1503,6 +1503,49 @@ interface ResolvedLoaderOptions {
   federationInstance?: object;
 }
 
+/**
+ * Build-time `resolvedShared` paths point into the build machine's
+ * node_modules. A traced or relocated server output imports shared packages
+ * from its own copy, so pinning remotes to the build paths loads a second
+ * instance (two Reacts: invalid hook call) or, once the build directory is
+ * gone, nothing at all (ERR_MODULE_NOT_FOUND).
+ *
+ * Each specifier takes the first hit of a fixed order, independent of import
+ * order or timing:
+ *  1. resolved from the real path of the server entry (`process.argv[1]`),
+ *     which is where Node resolves the host's own bare imports from;
+ *  2. resolved from `process.cwd()`, for launchers whose `argv[1]` is not the
+ *     server entry or is missing;
+ *  3. the build-time path.
+ */
+async function rebaseResolvedShared(
+  resolvedShared: Record<string, string>
+): Promise<Record<string, string>> {
+  const { createRequire } = await _module();
+  const { realpathSync } = await _fs();
+  const { join } = await _path();
+  const requires: NodeJS.Require[] = [];
+  try {
+    if (process.argv[1]) requires.push(createRequire(realpathSync(process.argv[1])));
+  } catch {
+    // No resolvable entry path; continue with cwd.
+  }
+  requires.push(createRequire(join(process.cwd(), 'noop.js')));
+  const rebased: Record<string, string> = {};
+  for (const [specifier, buildPath] of Object.entries(resolvedShared)) {
+    rebased[specifier] = buildPath;
+    for (const require of requires) {
+      try {
+        rebased[specifier] = require.resolve(specifier);
+        break;
+      } catch {
+        // Try the next base.
+      }
+    }
+  }
+  return rebased;
+}
+
 // Default export so the module can be referenced as a runtimePlugin path string.
 export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}) {
   const resolved: ResolvedLoaderOptions = {
@@ -1514,11 +1557,25 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
     fetchMaxBytes: options.fetchMaxBytes ?? DEFAULT_SSR_FETCH_MAX_BYTES,
     cacheContext: {},
   };
+  let rebased: Promise<void> | undefined;
   return {
     name: 'mf-vite:ssr-entry-loader',
     async loadEntry({ remoteInfo, origin }: { remoteInfo: RemoteInfo; origin?: object }) {
       // Only intercept on the server — browser should use the normal path.
       if (!isNodeServer()) return;
+
+      // Internal flag the Vite plugin sets for `vite build` output only.
+      if ((options as { rebaseSharedAtRuntime?: boolean }).rebaseSharedAtRuntime) {
+        rebased ??= rebaseResolvedShared(resolved.resolvedShared).then(
+          (map) => {
+            resolved.resolvedShared = map;
+          },
+          () => {
+            // Node APIs unavailable: keep the build-time paths.
+          }
+        );
+        await rebased;
+      }
 
       // The runtime supplies the owning ModuleFederation instance as `origin`.
       // Its identity is the VM graph's true share-resolution boundary. Keep a
