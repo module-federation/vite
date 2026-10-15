@@ -336,6 +336,82 @@ const RemoteMFE = defineAsyncComponent( 👈
 </template>
 ```
 
+## Remotes behind authentication
+
+Browsers cannot add headers (e.g. `Authorization`) to `import()`, `<link>` or `<img>` requests, so a remote whose files require them cannot be loaded directly. Add the headers with a service worker in the host: it sees every request for the remote's files (manifest, entry, chunks, CSS, images, fonts) and asks the page for the headers, so the token can come from your app and be refreshed.
+
+```js
+// host/public/remote-auth-sw.js
+const REMOTE_ORIGINS = ['https://remote.example'];
+
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+// After a hard reload (Shift+Reload) the page is not controlled until it asks to be claimed.
+self.addEventListener('message', (event) => {
+  if (event.data === 'claim') event.waitUntil(self.clients.claim());
+});
+
+// Asks the page that made the request for the headers.
+async function getHeaders(clientId, url) {
+  const client = clientId && (await self.clients.get(clientId));
+  if (!client) return {};
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = (event) => resolve(event.data);
+    client.postMessage({ type: 'remote-auth-headers', url }, [channel.port2]);
+  });
+}
+
+self.addEventListener('fetch', (event) => {
+  const { request } = event;
+  if (request.method !== 'GET' || !REMOTE_ORIGINS.includes(new URL(request.url).origin)) return;
+  event.respondWith(
+    getHeaders(event.clientId, request.url).then((extraHeaders) => {
+      const headers = new Headers(request.headers);
+      for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value);
+      // `mode: 'cors'` lets <img> and CSS url() requests carry the headers too.
+      return fetch(request.url, { headers, mode: 'cors', credentials: 'omit' });
+    })
+  );
+});
+```
+
+```ts
+// host/src/main.ts
+navigator.serviceWorker.addEventListener('message', async (event) => {
+  if (event.data?.type !== 'remote-auth-headers') return;
+  event.ports[0].postMessage({ Authorization: `Bearer ${await getToken()}` });
+});
+
+async function registerRemoteAuth() {
+  await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}remote-auth-sw.js`);
+  const { active } = await navigator.serviceWorker.ready;
+  if (navigator.serviceWorker.controller) return;
+  const controlled = new Promise((resolve) =>
+    navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true })
+  );
+  active?.postMessage('claim');
+  await controlled;
+}
+
+// Start the app, and with it every remote import, once the worker controls the page.
+registerRemoteAuth().then(() => import('./bootstrap'));
+```
+
+```ts
+// host/vite.config.ts
+federation({
+  name: 'host',
+  remotes: { remote: { name: 'remote', entry: 'https://remote.example/remoteEntry.js', type: 'module' } },
+  shareStrategy: 'loaded-first',
+});
+```
+
+- `shareStrategy: 'loaded-first'` is required: with `version-first` the host downloads the remote entries before your code runs, so before the service worker can add the headers.
+- The remote server must answer the CORS preflight: `Access-Control-Allow-Origin` and `Access-Control-Allow-Headers: Authorization`.
+- A scope has one service worker: if the host already has one (e.g. a PWA), add this code to it.
+- Service workers need HTTPS (or `localhost`) and only run in the browser, not during SSR.
+
 ## Shared Tree Shaking
 
 Shared Tree Shaking reduces shared dependency bundles to the exports used by the application.
