@@ -119,6 +119,27 @@ describe('getInstalledPackageJson', () => {
     );
   });
 
+  it('reuses one pnpm store index for different package names', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-pnpm-index-'));
+    const packageRoot = path.join(root, 'node_modules/.pnpm');
+    const writeStorePackage = (name: string, version: string) => {
+      const dir = path.join(packageRoot, `${name}@${version}`, 'node_modules', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version }));
+    };
+    tempDirs.push(root);
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeStorePackage('mf-test-index-a', '1.0.0');
+    writeStorePackage('mf-test-index-b', '1.0.0');
+
+    const first = getInstalledPackageJson('mf-test-index-a', { cwd: root });
+    expect(first?.packageJson.version).toBe('1.0.0');
+
+    rmSync(packageRoot, { recursive: true, force: true });
+    const second = getInstalledPackageJson('mf-test-index-b', { cwd: root });
+    expect(second?.packageJson.version).toBe('1.0.0');
+  });
+
   it('returns undefined for a Node core module instead of walking up from its bare specifier', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-core-module-'));
     tempDirs.push(root);
