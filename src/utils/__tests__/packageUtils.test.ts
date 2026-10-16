@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { tmpdir } from 'os';
@@ -117,6 +117,57 @@ describe('getInstalledPackageJson', () => {
     expect(normalizePathForImport(installed?.path || '')).toContain(
       `/node_modules/.pnpm/${packageName}@0.27.0/node_modules/${packageName}/package.json`
     );
+  });
+
+  it('reuses one pnpm store index for different package names', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-pnpm-index-'));
+    const packageRoot = path.join(root, 'node_modules/.pnpm');
+    const writeStorePackage = (name: string, version: string) => {
+      const dir = path.join(
+        packageRoot,
+        `${name.replace('/', '+')}@${version}`,
+        'node_modules',
+        name
+      );
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version }));
+    };
+    tempDirs.push(root);
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeStorePackage('mf-test-index-a', '1.0.0');
+    writeStorePackage('@mf-test/index-b', '2.0.0');
+
+    expect(getInstalledPackageJson('mf-test-index-a', { cwd: root })?.packageJson.version).toBe(
+      '1.0.0'
+    );
+    expect(getInstalledPackageJson('@mf-test/index-b', { cwd: root })?.packageJson.version).toBe(
+      '2.0.0'
+    );
+
+    // Added after the store was indexed, so the cached index does not list it.
+    writeStorePackage('mf-test-index-c', '1.0.0');
+    expect(getInstalledPackageJson('mf-test-index-c', { cwd: root })).toBeUndefined();
+  });
+
+  it('finds a package the pnpm store only links into a store entry', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-pnpm-link-'));
+    tempDirs.push(root);
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+    const linkTargets = {
+      'mf-test-linked': path.join(root, 'packages/linked'),
+      '@mf-test/linked': path.join(root, 'packages/scoped-linked'),
+    };
+    const storeModules = path.join(root, 'node_modules/.pnpm/consumer@1.0.0/node_modules');
+    mkdirSync(path.join(storeModules, '@mf-test'), { recursive: true });
+    for (const [name, dir] of Object.entries(linkTargets)) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version: '3.0.0' }));
+      symlinkSync(dir, path.join(storeModules, name), 'dir');
+    }
+
+    for (const name of Object.keys(linkTargets)) {
+      expect(getInstalledPackageJson(name, { cwd: root })?.packageJson.version).toBe('3.0.0');
+    }
   });
 
   it('returns undefined for a Node core module instead of walking up from its bare specifier', () => {

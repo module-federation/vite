@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, realpathSync } from 'fs';
+import { type Dirent, existsSync, readFileSync, readdirSync, realpathSync } from 'fs';
 import { createRequire } from 'module';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
@@ -34,6 +34,11 @@ const installedPackageJsonCache = new Map<string, InstalledPackageJson | undefin
 const dependentsLookupCache = new Map<string, InstalledPackageJson | undefined>();
 // Per project: every name installed under some package the dependents walk can reach.
 const reachableDependencyNames = new Map<string, Set<string>>();
+// Index the pnpm store once per detection root. A shared dependency graph can
+// ask for many package names that are absent from the project root, and scanning
+// every store entry once per name is still quadratic in a large workspace. Only
+// candidate package.json paths are kept, in scan order, and read on lookup.
+const pnpmStorePackageIndexCache = new Map<string, Map<string, string[]>>();
 
 export function setPackageDetectionCwd(cwd: string) {
   packageDetectionCwd = cwd;
@@ -684,22 +689,6 @@ function resolveInstalledPackageJson(
   packageName: string,
   opts?: PackageEntryConditions
 ): InstalledPackageJson | undefined {
-  const findPackageInPnpmStore = (startDir: string): InstalledPackageJson | undefined => {
-    for (const dir of ancestorDirs(startDir)) {
-      const pnpmStoreDir = path.join(dir, 'node_modules', '.pnpm');
-      if (!existsSync(pnpmStoreDir)) continue;
-      try {
-        for (const entry of readdirSync(pnpmStoreDir, { withFileTypes: true })) {
-          if (!entry.isDirectory()) continue;
-          const candidate = tryReadPackageJson(
-            path.join(pnpmStoreDir, entry.name, 'node_modules', packageName, 'package.json')
-          );
-          if (candidate?.packageJson.name === packageName) return candidate;
-        }
-      } catch {}
-    }
-  };
-
   let resolvedPath: string | undefined;
   try {
     const rootPackageJson = path.join(cwd, 'package.json');
@@ -734,7 +723,68 @@ function resolveInstalledPackageJson(
     if (directCandidate) return directCandidate;
   }
 
-  return findPackageInDependents(packageName, cwd) ?? findPackageInPnpmStore(cwd);
+  return findPackageInDependents(packageName, cwd) ?? findPackageInPnpmStore(packageName, cwd);
+}
+
+function readDirEntries(dir: string) {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+// pnpm links dependencies (and `link:` workspace packages) as symlinks, which
+// `Dirent.isDirectory()` does not follow.
+function isDirOrLink(entry: Dirent) {
+  return entry.isDirectory() || entry.isSymbolicLink();
+}
+
+function getPnpmStorePackageIndex(startDir: string): Map<string, string[]> {
+  const cached = pnpmStorePackageIndexCache.get(startDir);
+  if (cached) return cached;
+
+  const index = new Map<string, string[]>();
+  const add = (name: string, packageJsonPath: string) => {
+    const paths = index.get(name);
+    if (paths) paths.push(packageJsonPath);
+    else index.set(name, [packageJsonPath]);
+  };
+  for (const dir of ancestorDirs(startDir)) {
+    const pnpmStoreDir = path.join(dir, 'node_modules', '.pnpm');
+    for (const entry of readDirEntries(pnpmStoreDir)) {
+      if (!entry.isDirectory()) continue;
+      const storeNodeModules = path.join(pnpmStoreDir, entry.name, 'node_modules');
+      for (const packageEntry of readDirEntries(storeNodeModules)) {
+        if (!isDirOrLink(packageEntry)) continue;
+        const entryDir = path.join(storeNodeModules, packageEntry.name);
+        if (!packageEntry.name.startsWith('@')) {
+          add(packageEntry.name, path.join(entryDir, 'package.json'));
+          continue;
+        }
+        for (const scopedEntry of readDirEntries(entryDir)) {
+          if (!isDirOrLink(scopedEntry)) continue;
+          add(
+            `${packageEntry.name}/${scopedEntry.name}`,
+            path.join(entryDir, scopedEntry.name, 'package.json')
+          );
+        }
+      }
+    }
+  }
+  pnpmStorePackageIndexCache.set(startDir, index);
+  return index;
+}
+
+function findPackageInPnpmStore(
+  packageName: string,
+  startDir: string
+): InstalledPackageJson | undefined {
+  for (const packageJsonPath of getPnpmStorePackageIndex(startDir).get(packageName) ?? []) {
+    const candidate = tryReadPackageJson(packageJsonPath, packageName);
+    if (candidate) return candidate;
+  }
+  return undefined;
 }
 
 /**
