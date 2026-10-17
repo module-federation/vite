@@ -236,6 +236,22 @@ export async function loadEsmEntryWithFetch({
   }
 }
 
+// Make relative url() and @import references absolute, since the stylesheet
+// is applied from a blob url and would otherwise resolve them against it.
+export function rewriteCssUrls(css: string, href: string): string {
+  const resolve = (spec: string) =>
+    /^([a-z][a-z\d+.-]*:|\/\/|#)/i.test(spec) ? spec : new URL(spec, href).href;
+  return css
+    .replace(
+      /url\(\s*(['"]?)([^'")]+)\1\s*\)/g,
+      (_m, quote: string, spec: string) => `url(${quote}${resolve(spec.trim())}${quote})`
+    )
+    .replace(
+      /@import\s+(['"])([^'"]+)\1/g,
+      (_m, quote: string, spec: string) => `@import ${quote}${resolve(spec)}${quote}`
+    );
+}
+
 export function loadCssWithFetch({
   href,
   fetchOptions,
@@ -248,7 +264,7 @@ export function loadCssWithFetch({
   const cached = cssCache.get(href);
   if (cached) return cached;
   const promise = (async () => {
-    const text = await fetchText(href, { fetchOptions, customFetch });
+    const text = rewriteCssUrls(await fetchText(href, { fetchOptions, customFetch }), href);
     const blob = URL.createObjectURL(new Blob([text], { type: 'text/css' }));
     const link = document.createElement('link');
     link.rel = 'stylesheet';

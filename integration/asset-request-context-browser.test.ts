@@ -113,7 +113,14 @@ describe('assetRequestContext in the browser', () => {
         // lists. Their 401s are ignored, and every one of those files is loaded
         // through assetRequestContext.request as well.
         const servedPaths = new Set(served.map((request) => request.path));
-        const rejected = remoteServer.requests.filter((request) => request.status !== 200);
+        // widget.css references ./logo.svg. The stylesheet is applied from a blob
+        // url, so the reference must have been made absolute to reach the remote.
+        // Images are requested by the browser itself, without the header.
+        const isLogo = (request: { path: string }) => /^\/assets\/logo-.*\.svg$/.test(request.path);
+        expect(remoteServer.requests.some(isLogo)).toBe(true);
+        const rejected = remoteServer.requests.filter(
+          (request) => request.status !== 200 && !isLogo(request)
+        );
         for (const request of rejected) {
           expect(request.authorization).toBeUndefined();
           expect(servedPaths.has(request.path)).toBe(true);

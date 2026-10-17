@@ -5,6 +5,7 @@ import {
   loadEsmEntryWithFetch,
   loadCssWithFetch,
   resolveSpec,
+  rewriteCssUrls,
   rewriteModuleCode,
 } from '../blobLoad';
 
@@ -184,6 +185,36 @@ describe('loadModule', () => {
   });
 });
 
+describe('rewriteCssUrls', () => {
+  const href = 'https://cdn.example/remote/assets/widget.css';
+
+  it('makes relative and root-relative url() references absolute', () => {
+    expect(
+      rewriteCssUrls(
+        '.a{background:url(./logo.svg)}.b{src:url("../fonts/x.woff2")}.c{background:url( \'/img/y.png\' )}',
+        href
+      )
+    ).toBe(
+      '.a{background:url(https://cdn.example/remote/assets/logo.svg)}' +
+        '.b{src:url("https://cdn.example/remote/fonts/x.woff2")}' +
+        ".c{background:url('https://cdn.example/img/y.png')}"
+    );
+  });
+
+  it('makes relative @import references absolute', () => {
+    expect(rewriteCssUrls('@import "./base.css";', href)).toBe(
+      '@import "https://cdn.example/remote/assets/base.css";'
+    );
+  });
+
+  it('leaves absolute, protocol-relative, data and fragment references alone', () => {
+    const css =
+      '.a{background:url(https://other.example/a.png)}.b{background:url(//other.example/b.png)}' +
+      '.c{background:url(data:image/png;base64,AAAA)}.d{filter:url(#f)}';
+    expect(rewriteCssUrls(css, href)).toBe(css);
+  });
+});
+
 describe('loadCssWithFetch', () => {
   beforeEach(() => {
     globalThis.fetch = vi.fn().mockResolvedValue({
@@ -209,6 +240,20 @@ describe('loadCssWithFetch', () => {
     expect(links.length).toBe(1);
     expect(links[0].rel).toBe('stylesheet');
     expect(links[0].href).toContain('blob:css');
+  });
+
+  it('rewrites relative url() references against the stylesheet url', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('.a{background:url(./logo.svg)}'),
+    }) as any;
+    let blob: Blob | undefined;
+    URL.createObjectURL = vi.fn((value: Blob) => {
+      blob = value;
+      return 'blob:css';
+    }) as any;
+    await loadCssWithFetch({ href: 'https://b.com/assets/d.css' });
+    expect(await blob!.text()).toBe('.a{background:url(https://b.com/assets/logo.svg)}');
   });
 
   it('dedupes concurrent loads of the same href (single fetch, single link)', async () => {
