@@ -1,0 +1,331 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  fetchText,
+  loadModule,
+  loadEsmEntryWithFetch,
+  loadCssWithFetch,
+  resolveSpec,
+  rewriteCssUrls,
+  rewriteModuleCode,
+} from '../blobLoad';
+
+const fetchMock = () => globalThis.fetch as ReturnType<typeof vi.fn>;
+
+// This repo runs vitest without a DOM; the css cases only need <head> and <link>.
+type FakeLink = { rel?: string; href?: string };
+const fakeDocument = {
+  head: {
+    links: [] as FakeLink[],
+    appendChild(link: FakeLink) {
+      this.links.push(link);
+    },
+    getElementsByTagName(_tag: 'link') {
+      return this.links;
+    },
+    set innerHTML(_html: '') {
+      this.links = [];
+    },
+  },
+  createElement: (_tag: 'link'): FakeLink => ({}),
+};
+beforeAll(() => {
+  (globalThis as Record<string, unknown>).document = fakeDocument;
+});
+afterAll(() => {
+  delete (globalThis as Record<string, unknown>).document;
+});
+
+describe('resolveSpec', () => {
+  it('returns absolute urls untouched', () => {
+    expect(resolveSpec('https://x.com/a.js', 'https://b.com/')).toBe('https://x.com/a.js');
+    expect(resolveSpec('blob:abc', 'https://b.com/')).toBe('blob:abc');
+    expect(resolveSpec('data:text/js,1', 'https://b.com/')).toBe('data:text/js,1');
+  });
+
+  it('resolves relative and absolute-path specifiers against the base', () => {
+    expect(resolveSpec('./dep.js', 'https://b.com/app/entry.js')).toBe('https://b.com/app/dep.js');
+    expect(resolveSpec('/root.js', 'https://b.com/app/entry.js')).toBe('https://b.com/root.js');
+  });
+
+  it('throws on bare specifiers', () => {
+    expect(() => resolveSpec('react', 'https://b.com/')).toThrow('bare specifier');
+  });
+});
+
+describe('rewriteModuleCode', () => {
+  const url = 'https://b.com/app/entry.js';
+
+  it('pins import.meta.url to the module url', () => {
+    const { code } = rewriteModuleCode('const u = import.meta.url;', url);
+    expect(code).toBe(`const u = ${JSON.stringify(url)};`);
+  });
+
+  it('routes dynamic import() through __mfDynImport with the base url', () => {
+    const { code } = rewriteModuleCode('const m = import("./x.js");', url);
+    expect(code).toBe(`const m = __mfDynImport(${JSON.stringify(url)},"./x.js");`);
+  });
+
+  it('collects static relative/absolute deps and leaves bare imports alone', () => {
+    const src = `import a from "./a.js";\nexport { b } from "/b.js";\nimport c from "react";`;
+    const { deps } = rewriteModuleCode(src, url);
+    expect(deps.map((d) => d.spec).sort()).toEqual(['./a.js', '/b.js']);
+
+    const aDep = deps.find((d) => d.spec === './a.js')!;
+    expect(aDep.depUrl).toBe('https://b.com/app/a.js');
+    expect(aDep.original).toBe('from "./a.js"');
+    expect(aDep.quote).toBe('"');
+  });
+
+  it('collects side-effect imports', () => {
+    const { deps } = rewriteModuleCode('import "./side.js";', url);
+    expect(deps.map((d) => d.spec)).toEqual(['./side.js']);
+  });
+});
+
+describe('fetchText', () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as any;
+  });
+
+  it('merges fetchOptions headers and returns response text', async () => {
+    fetchMock().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('CODE'),
+    });
+    const text = await fetchText('https://b.com/e.js', {
+      fetchOptions: { headers: { Authorization: 'Bearer t' } },
+    });
+    expect(text).toBe('CODE');
+    const requestInit = fetchMock().mock.calls[0][1];
+    expect(requestInit.headers).toEqual({ Authorization: 'Bearer t' });
+  });
+
+  it('prefers customFetch when it returns a Response', async () => {
+    const customFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('HOOKED'),
+    } as any);
+    const text = await fetchText('https://b.com/e.js', { customFetch });
+    expect(customFetch).toHaveBeenCalled();
+    expect(text).toBe('HOOKED');
+    expect(fetchMock()).not.toHaveBeenCalled();
+  });
+
+  it('throws a descriptive error on non-ok responses', async () => {
+    fetchMock().mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      text: () => Promise.resolve(''),
+    });
+    await expect(fetchText('https://b.com/e.js', {})).rejects.toThrow(
+      'BlobLoaderNetworkError: 401'
+    );
+  });
+
+  it('normalizes a Headers instance into the request init', async () => {
+    fetchMock().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('CODE'),
+    });
+    await fetchText('https://b.com/e.js', {
+      fetchOptions: { headers: new Headers({ Authorization: 'Bearer t' }) },
+    });
+    const init = fetchMock().mock.calls[0][1];
+    expect(init.headers).toEqual({ authorization: 'Bearer t' });
+  });
+});
+
+describe('loadModule', () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn() as any;
+    URL.createObjectURL = vi.fn(() => `blob:`) as any;
+    loadModule.clearCache();
+  });
+
+  it('rewrites a static dep to a recursively-loaded blob url and caches by url', async () => {
+    const files: Record<string, string> = {
+      'https://b.com/entry.js': `import dep from "./dep.js";`,
+      'https://b.com/dep.js': `export default 1;`,
+    };
+    fetchMock().mockImplementation((url: string) =>
+      Promise.resolve({ ok: true, text: () => Promise.resolve(files[url]) })
+    );
+    const blobUrl = await loadModule('https://b.com/entry.js', {});
+    expect(blobUrl).toMatch(/^blob:/);
+    // recursively loads all dependencies
+    expect(
+      fetchMock()
+        .mock.calls.map((c) => c[0])
+        .sort()
+    ).toEqual(['https://b.com/dep.js', 'https://b.com/entry.js']);
+    // only fetches once and caches them, reload does not invoke more fetches
+    await loadModule('https://b.com/entry.js', {});
+    expect(fetchMock().mock.calls.length).toBe(2);
+  });
+
+  it('evicts a failed load from the cache so a later call retries', async () => {
+    fetchMock()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Unavailable',
+        text: () => Promise.resolve(''),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve('export default 1;'),
+      });
+    await expect(loadModule('https://b.com/x.js', {})).rejects.toThrow(
+      'BlobLoaderNetworkError: 503'
+    );
+    const blobUrl = await loadModule('https://b.com/x.js', {});
+    expect(blobUrl).toMatch(/^blob:/);
+    expect(fetchMock().mock.calls.length).toBe(2);
+  });
+});
+
+describe('rewriteCssUrls', () => {
+  const href = 'https://cdn.example/remote/assets/widget.css';
+
+  it('makes relative and root-relative url() references absolute', () => {
+    expect(
+      rewriteCssUrls(
+        '.a{background:url(./logo.svg)}.b{src:url("../fonts/x.woff2")}.c{background:url( \'/img/y.png\' )}',
+        href
+      )
+    ).toBe(
+      '.a{background:url(https://cdn.example/remote/assets/logo.svg)}' +
+        '.b{src:url("https://cdn.example/remote/fonts/x.woff2")}' +
+        ".c{background:url('https://cdn.example/img/y.png')}"
+    );
+  });
+
+  it('makes relative @import references absolute', () => {
+    expect(rewriteCssUrls('@import "./base.css";', href)).toBe(
+      '@import "https://cdn.example/remote/assets/base.css";'
+    );
+  });
+
+  it('leaves absolute, protocol-relative, data and fragment references alone', () => {
+    const css =
+      '.a{background:url(https://other.example/a.png)}.b{background:url(//other.example/b.png)}' +
+      '.c{background:url(data:image/png;base64,AAAA)}.d{filter:url(#f)}';
+    expect(rewriteCssUrls(css, href)).toBe(css);
+  });
+});
+
+describe('loadCssWithFetch', () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('.a{}'),
+    }) as any;
+    URL.createObjectURL = vi.fn(() => 'blob:css') as any;
+    loadModule.clearCache();
+    document.head.innerHTML = '';
+  });
+
+  it('fetches css with headers and injects a single stylesheet, deduping repeat calls', async () => {
+    await loadCssWithFetch({
+      href: 'https://b.com/a.css',
+      fetchOptions: { headers: { Authorization: 'Bearer t' } },
+    });
+    await loadCssWithFetch({
+      href: 'https://b.com/a.css',
+      fetchOptions: { headers: { Authorization: 'Bearer t' } },
+    });
+    expect(fetchMock().mock.calls.length).toBe(1);
+    const links = document.head.getElementsByTagName('link');
+    expect(links.length).toBe(1);
+    expect(links[0].rel).toBe('stylesheet');
+    expect(links[0].href).toContain('blob:css');
+  });
+
+  it('rewrites relative url() references against the stylesheet url', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('.a{background:url(./logo.svg)}'),
+    }) as any;
+    let blob: Blob | undefined;
+    URL.createObjectURL = vi.fn((value: Blob) => {
+      blob = value;
+      return 'blob:css';
+    }) as any;
+    await loadCssWithFetch({ href: 'https://b.com/assets/d.css' });
+    expect(await blob!.text()).toBe('.a{background:url(https://b.com/assets/logo.svg)}');
+  });
+
+  it('dedupes concurrent loads of the same href (single fetch, single link)', async () => {
+    let resolveFetch: (v: any) => void;
+    globalThis.fetch = vi.fn().mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolveFetch = r;
+        })
+    ) as any;
+    URL.createObjectURL = vi.fn(() => 'blob:css') as any;
+    loadModule.clearCache();
+    document.head.innerHTML = '';
+    const p1 = loadCssWithFetch({ href: 'https://b.com/c.css' });
+    const p2 = loadCssWithFetch({ href: 'https://b.com/c.css' });
+    resolveFetch!({ ok: true, text: () => Promise.resolve('.c{}') });
+    await Promise.all([p1, p2]);
+    expect(fetchMock().mock.calls.length).toBe(1);
+    expect(document.head.getElementsByTagName('link').length).toBe(1);
+  });
+});
+
+describe('cross-instance dynamic-import context', () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(''),
+    }) as any;
+    URL.createObjectURL = vi.fn(() => 'blob:m') as any;
+    loadModule.clearCache();
+  });
+
+  it('stores load contexts on the shared __mfDynImport shim', async () => {
+    const ctx = { fetchOptions: { headers: { Authorization: 'Bearer t' } } };
+    await loadModule('https://b.com/entry.js', ctx);
+    // The registry hangs off the single global __mfDynImport function, so a
+    // second bundled copy reading the same shim keeps the fetch context
+    // regardless of which copy's shim is installed.
+    const shim = (globalThis as Record<string, any>)['__mfDynImport'];
+    expect(typeof shim).toBe('function');
+    expect(shim.blobLoaderContexts).toBeInstanceOf(Map);
+    expect(shim.blobLoaderContexts.get('https://b.com/entry.js')).toBe(ctx);
+  });
+
+  it('does not clobber a __mfDynImport shim already installed by another copy', async () => {
+    const existing = vi.fn();
+    (globalThis as Record<string, unknown>)['__mfDynImport'] = existing;
+    // The shim installs synchronously before the (jsdom-unsupported) blob
+    // import, so swallow the import rejection; we only assert the shim survived.
+    await loadEsmEntryWithFetch({
+      entry: 'https://b.com/e.js',
+      name: 'a',
+    }).catch(() => undefined);
+    expect((globalThis as Record<string, unknown>)['__mfDynImport']).toBe(existing);
+    delete (globalThis as Record<string, unknown>)['__mfDynImport'];
+  });
+});
+
+describe('loadEsmEntryWithFetch errors', () => {
+  beforeEach(() => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      text: () => Promise.resolve(''),
+    }) as any;
+    loadModule.clearCache();
+  });
+
+  it('reports a failed entry as RUNTIME-008 so loadEntryError can recover it', async () => {
+    await expect(
+      loadEsmEntryWithFetch({ entry: 'https://b.com/remoteEntry.js', name: 'remote' })
+    ).rejects.toThrow(/#RUNTIME-008[\s\S]*BlobLoaderNetworkError: 401/);
+  });
+});

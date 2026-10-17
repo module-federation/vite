@@ -19,6 +19,10 @@
       "types": "./lib/utils/injectExternalRuntimeCorePlugin.d.ts",
       "default": "./lib/utils/injectExternalRuntimeCorePlugin.js"
     },
+    "./assetRequestContext": {
+      "types": "./lib/utils/assetRequestContext.d.ts",
+      "default": "./lib/utils/assetRequestContext.js"
+    },
     "./package.json": "./package.json"
   },
   "engines": {

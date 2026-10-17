@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
-import { pathToFileURL, fileURLToPath } from 'url';
+import { pathToFileURL } from 'url';
 import type {
   ConfigEnv,
   EnvironmentOptions,
@@ -16,6 +16,7 @@ import { checkAliasConflicts } from './plugins/pluginCheckAliasConflicts';
 import pluginDevRemoteHmr, { shouldIgnoreFile } from './plugins/pluginDevRemoteHmr';
 import pluginExternalRuntimeCore from './plugins/pluginExternalRuntimeCore';
 import pluginLazyConsumeOnlyShares from './plugins/pluginLazyConsumeOnlyShares';
+import pluginAssetRequestContextImports from './plugins/pluginAssetRequestContextImports';
 import pluginManifest from './plugins/pluginMFManifest';
 import pluginModuleParseEnd, { createModuleParseController } from './plugins/pluginModuleParseEnd';
 import pluginProxyRemoteEntry from './plugins/pluginProxyRemoteEntry';
@@ -78,6 +79,7 @@ import {
   hasPackageDependency,
   resolveImportPath,
   resolveModulePath,
+  resolveOwnEntryPath,
   setPackageDetectionCwd,
   supportsCodeSplittingGroupDebugName,
 } from './utils/packageUtils';
@@ -1165,19 +1167,10 @@ function hasInjectExternalRuntimeCorePlugin(
 }
 
 function resolveInjectExternalRuntimeCorePlugin(): string {
-  try {
-    return normalizePathForImport(resolveImportPath(INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN));
-  } catch {
-    // Dev/test before `lib/` exists: resolve the source/companion file beside this module.
-    for (const rel of [
-      './utils/injectExternalRuntimeCorePlugin.js',
-      './utils/injectExternalRuntimeCorePlugin.ts',
-    ]) {
-      const candidate = fileURLToPath(new URL(rel, import.meta.url));
-      if (existsSync(candidate)) return normalizePathForImport(candidate);
-    }
-    return INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN;
-  }
+  return resolveOwnEntryPath(INJECT_EXTERNAL_RUNTIME_CORE_PLUGIN, [
+    new URL('./utils/injectExternalRuntimeCorePlugin.js', import.meta.url),
+    new URL('./utils/injectExternalRuntimeCorePlugin.ts', import.meta.url),
+  ]);
 }
 
 function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOptions): void {
@@ -1794,6 +1787,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       getParsePromise: () => moduleParseController.parsePromise,
     }),
     pluginLazyConsumeOnlyShares(options),
+    pluginAssetRequestContextImports(options),
     {
       // Vite bundledDev bundles the client graph in serve too; without these
       // groups a loadShare wrapper shares a chunk with its consumers, so

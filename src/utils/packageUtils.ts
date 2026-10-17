@@ -61,6 +61,23 @@ export function resolveImportPath(specifier: string): string {
   return filePath;
 }
 
+/**
+ * Import path of one of this package's own entry points. Before `lib/` exists
+ * (dev/test) the export cannot resolve, so the first existing `fallbacks` file
+ * is used, else the bare specifier.
+ */
+export function resolveOwnEntryPath(specifier: string, fallbacks: URL[]): string {
+  try {
+    return normalizePathForImport(resolveImportPath(specifier));
+  } catch {
+    for (const url of fallbacks) {
+      const candidate = fileURLToPath(url);
+      if (existsSync(candidate)) return normalizePathForImport(candidate);
+    }
+    return specifier;
+  }
+}
+
 export type InstalledPackageJson = {
   path: string;
   dir: string;

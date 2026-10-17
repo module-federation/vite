@@ -5,6 +5,7 @@ export default defineConfig({
     "src/index.ts",
     "src/utils/ssrEntryLoader.ts",
     "src/utils/injectExternalRuntimeCorePlugin.ts",
+    "src/utils/assetRequestContext.ts",
   ],
   format: ["esm"],
   outDir: "lib",

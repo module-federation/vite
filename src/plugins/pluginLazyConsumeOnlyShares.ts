@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { Plugin } from 'vite';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import { CodeRewriter } from '../utils/codeRewriter';
+import { toIdentifierSuffix } from '../utils/jsIdentifier';
 import {
   collectStaticChunks,
   stripKnownJsExtension,
@@ -89,7 +90,7 @@ function buildLazyShareGraph(
 
 // `import("./x.js")`, allowing comments (`/* webpackChunkName */`, `/* @vite-ignore */`) around the literal.
 const COMMENTS = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*`;
-const DYNAMIC_IMPORT_REGEX = new RegExp(
+export const DYNAMIC_IMPORT_REGEX = new RegExp(
   String.raw`\bimport\(${COMMENTS}(["'` +
     '`' +
     String.raw`])([^"'` +
@@ -109,7 +110,7 @@ const QUOTES = ['"', "'", '`'];
 export function pluginLazyConsumeOnlyShares(options: NormalizedModuleFederationOptions): Plugin {
   let viteConfig: { root?: string; build?: { ssr?: boolean | string } } | undefined;
   const graphs = new WeakMap<object, LazyShareGraph>();
-  const helperName = `__mfLoadLazyShares_${options.internalName.replace(/[^A-Za-z0-9_$]/g, '_')}`;
+  const helperName = `__mfLoadLazyShares_${toIdentifierSuffix(options.internalName)}`;
 
   return {
     name: 'module-federation:lazy-consume-only-shares',
