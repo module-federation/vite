@@ -192,11 +192,23 @@ function importBlobUrl(blobUrl: string): Promise<any> {
   return import(/* webpackIgnore: true */ /* @vite-ignore */ blobUrl);
 }
 
-// The vite preload helper creates native <link> preloads (no auth header) as a
-// perf hint; those 401 errors should be ignored instead of throwing — real
-// loads go via __mfDynImport. A stable handler ref lets addEventListener dedupe repeat
-// installs (identical callback + capture is a no-op per the DOM spec).
-const ignoreVitePreloadError = (e: Event) => e.preventDefault();
+// Ignore only Vite's CSS preload errors for remotes loaded through the blob loader:
+// that <link> cannot carry the headers. Other preload errors still reject.
+const CSS_PRELOAD_ERROR = /^Unable to preload CSS for (.+)$/;
+
+function isBlobLoaderAsset(href: string): boolean {
+  for (const [url, ctx] of createOrGetBlobLoaderContexts()) {
+    if (!ctx.customFetch && !ctx.fetchOptions) continue;
+    if (href.startsWith(url.slice(0, url.lastIndexOf('/') + 1))) return true;
+  }
+  return false;
+}
+
+const ignoreVitePreloadError = (e: Event) => {
+  const payload = (e as Event & { payload?: unknown }).payload;
+  const href = payload instanceof Error ? CSS_PRELOAD_ERROR.exec(payload.message)?.[1] : undefined;
+  if (href && isBlobLoaderAsset(href)) e.preventDefault();
+};
 
 export function installMFDynImportShim(): void {
   // Ensure the single global __mfDynImport shim (and its shared contexts map) exists.

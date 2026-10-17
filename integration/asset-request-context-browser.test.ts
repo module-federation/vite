@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -126,6 +126,7 @@ describe('assetRequestContext in the browser', () => {
           expect(servedPaths.has(request.path)).toBe(true);
         }
         expect(served.every((request) => request.authorization === TOKEN)).toBe(true);
+        expect(await page.locator('#app').getAttribute('data-host-chunk')).toBe('loaded');
         expect(pageErrors).toEqual([]);
       } finally {
         await browser?.close();
@@ -136,6 +137,50 @@ describe('assetRequestContext in the browser', () => {
     },
     60_000
   );
+
+  it('still rejects a failed import of a host chunk unrelated to the remote', async () => {
+    const workspace = await mkdtemp(
+      path.join(tmpdir(), 'mf-asset-request-context-browser-host-chunk-')
+    );
+    let remoteServer: StaticServer | undefined;
+    let hostServer: StaticServer | undefined;
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      const remoteOutDir = path.join(workspace, 'remote');
+      const hostOutDir = path.join(workspace, 'host');
+      await buildFixtureTo('asset-request-context-remote', remoteOutDir, remoteOptions);
+      remoteServer = await serveDirectory(remoteOutDir, { authorization: TOKEN });
+      await buildFixtureTo(
+        'asset-request-context-host',
+        hostOutDir,
+        hostOptions(`${remoteServer.origin}/remoteEntry.js`)
+      );
+      // A deploy that removed the chunk: its import() gets a 404.
+      const assetsDir = path.join(hostOutDir, 'assets');
+      const hostChunks = (await readdir(assetsDir)).filter((file) => file.startsWith('hostChunk-'));
+      expect(hostChunks).toHaveLength(1);
+      await rm(path.join(assetsDir, hostChunks[0]));
+      hostServer = await serveDirectory(hostOutDir);
+
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(
+        () => (document.querySelector('#app') as HTMLElement | null)?.dataset.hostChunk,
+        undefined,
+        { timeout: 15_000 }
+      );
+
+      expect(await page.locator('#app').textContent()).toBe('widget loaded lazily');
+      expect(await page.locator('#app').getAttribute('data-host-chunk')).toBe('rejected');
+    } finally {
+      await browser?.close();
+      await hostServer?.close();
+      await remoteServer?.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it('cannot load the same remote without assetRequestContext', async () => {
     const workspace = await mkdtemp(
