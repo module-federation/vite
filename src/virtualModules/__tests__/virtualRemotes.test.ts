@@ -106,7 +106,8 @@ function runGeneratedRemoteModule(
   moduleCache: { remote: Record<string, unknown>; share: Record<string, unknown> } = {
     remote: {},
     share: {},
-  }
+  },
+  ssr = false
 ) {
   const start = code.indexOf('function __mfStartRemoteLoad()');
   expect(start).toBeGreaterThanOrEqual(0);
@@ -114,8 +115,8 @@ function runGeneratedRemoteModule(
   const moduleCode = code
     .slice(start)
     // The Function-based harness runs outside Vite's ESM transform. Model the
-    // client environment that these assertions exercise.
-    .replaceAll('import.meta.env.SSR', 'false')
+    // consumer environment that each assertion exercises.
+    .replaceAll('import.meta.env.SSR', String(ssr))
     .replace(
       'export { exportModule as __moduleExports };',
       'Object.defineProperty(__exports, "__moduleExports", { enumerable: true, get: () => exportModule });'
@@ -290,6 +291,138 @@ describe('generateRemotes', () => {
     expect(runnerValue.default).toBe(remoteDefault);
   });
 
+  describe.each(['serve', 'build'])('loaded-first retries (%s)', (command) => {
+    beforeEach(() => {
+      mockOptions.shareStrategy = 'loaded-first';
+    });
+
+    it.each(['client', 'unified'] as const)(
+      'retries a failed lazy %s load and caches success',
+      async (consumer) => {
+        const failure = new Error('remote offline');
+        const remote = { default: 'recovered' };
+        const runtime = {
+          registerRemotes: vi.fn(),
+          loadRemote: vi.fn().mockRejectedValueOnce(failure).mockResolvedValue(remote),
+        };
+        const code = generateRemotes('remote/Button', command, false, consumer);
+        const exports = runGeneratedRemoteModule(code, runtime);
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(runtime.loadRemote).not.toHaveBeenCalled();
+        await expect(Promise.resolve(exports.__mf_remote_pending)).rejects.toBe(failure);
+        await expect(Promise.resolve(exports.__mf_remote_pending)).resolves.toBe(remote);
+        await expect(Promise.resolve(exports.__mf_remote_pending)).resolves.toBe(remote);
+        expect(runtime.loadRemote).toHaveBeenCalledTimes(2);
+        expect(exports.default).toBe('recovered');
+      }
+    );
+
+    it.each(['client', 'unified'] as const)(
+      'recovers with SSR init enabled for %s',
+      async (consumer) => {
+        const failure = new Error('remote offline');
+        const remote = { default: 'recovered' };
+        const runtime = {
+          registerRemotes: vi.fn(),
+          loadRemote: vi.fn().mockRejectedValueOnce(failure).mockResolvedValue(remote),
+        };
+        const exports = runGeneratedRemoteModule(
+          generateRemotes('remote/Button', command, true, consumer),
+          runtime,
+          { remote: {}, share: {} },
+          consumer === 'unified'
+        );
+        await expect(Promise.resolve(exports.__mf_remote_pending)).rejects.toBe(failure);
+        await expect(Promise.resolve(exports.__mf_remote_pending)).resolves.toBe(remote);
+        expect(runtime.loadRemote).toHaveBeenCalledTimes(2);
+      }
+    );
+
+    it('shares each attempt between concurrent awaits without loading at evaluation', async () => {
+      const failure = new Error('remote offline');
+      const remote = { default: 'recovered' };
+      let rejectFirst!: (reason: unknown) => void;
+      const first = new Promise<unknown>((_resolve, reject) => {
+        rejectFirst = reject;
+      });
+      const runtime = {
+        registerRemotes: vi.fn(),
+        loadRemote: vi.fn().mockReturnValueOnce(first).mockResolvedValue(remote),
+      };
+      const exports = runGeneratedRemoteModule(
+        generateRemotes('remote/Button', command, false, 'client'),
+        runtime
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(runtime.loadRemote).not.toHaveBeenCalled();
+
+      const attempts = Promise.allSettled([
+        Promise.resolve(exports.__mf_remote_pending),
+        Promise.resolve(exports.__mf_remote_pending),
+      ]);
+      await vi.waitFor(() => expect(runtime.loadRemote).toHaveBeenCalledTimes(1));
+      rejectFirst(failure);
+      expect(await attempts).toEqual([
+        { status: 'rejected', reason: failure },
+        { status: 'rejected', reason: failure },
+      ]);
+      await expect(
+        Promise.all([exports.__mf_remote_pending, exports.__mf_remote_pending])
+      ).resolves.toEqual([remote, remote]);
+      expect(runtime.loadRemote).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a failed proxy load and handles an unawaited attempt', async () => {
+      const failure = new Error('remote offline');
+      const runtime = {
+        registerRemotes: vi.fn(),
+        loadRemote: vi.fn().mockRejectedValueOnce(failure).mockResolvedValue({ answer: 42 }),
+      };
+      const exports = runGeneratedRemoteModule(
+        generateRemotes('remote/Button', command, false, 'client'),
+        runtime
+      );
+      const proxy = exports.__moduleExports;
+      // Reading default starts a load without throwing a promise to an awaiter.
+      void proxy.default;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      let pending: unknown;
+      try {
+        void proxy.answer;
+      } catch (error) {
+        pending = error;
+      }
+      await expect(Promise.resolve(pending)).resolves.toEqual({ answer: 42 });
+      expect(proxy.answer).toBe(42);
+      expect(runtime.loadRemote).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not evict a newer shared pending entry when an older attempt fails', async () => {
+      const failure = new Error('remote offline');
+      let rejectFirst!: (reason: unknown) => void;
+      const first = new Promise<unknown>((_resolve, reject) => {
+        rejectFirst = reject;
+      });
+      const runtime = { registerRemotes: vi.fn(), loadRemote: vi.fn(() => first) };
+      const cache = { remote: {} as Record<string, unknown>, share: {} };
+      const exports = runGeneratedRemoteModule(
+        generateRemotes('remote/Button', command, false, 'client'),
+        runtime,
+        cache
+      );
+      const attempt = Promise.resolve(exports.__mf_remote_pending);
+      const rejection = expect(attempt).rejects.toBe(failure);
+      await vi.waitFor(() => expect(runtime.loadRemote).toHaveBeenCalledTimes(1));
+      const key = Object.keys(cache.remote).find((key) => key.startsWith('__mf_pending__'))!;
+      const newer = Promise.resolve({ default: 'newer' });
+      cache.remote[key] = newer;
+      rejectFirst(failure);
+      await rejection;
+      expect(cache.remote[key]).toBe(newer);
+    });
+  });
+
   it('keeps default-only imports live until the remote resolves', async () => {
     const remoteDefault = { kind: 'default' };
     const runtime = {
@@ -348,9 +481,9 @@ describe('generateRemotes', () => {
       /process\.versions\.node[\s\S]*?} else \{\s*__mfRemotePending = __mfStartRemoteLoad\(\)/
     );
     expect(code).not.toContain('Promise.resolve(exportModule)');
-    expect(code).toContain('export const __mf_remote_pending = __mfRemotePending ?? {');
+    expect(code).toContain('export const __mf_remote_pending = {');
     expect(code).toContain(
-      '__mfRemotePending ??= __mfStartRemoteLoad().then(__mfAssignRemoteModule)'
+      '__mfRemotePending = __mfStartRemoteLoad().then(__mfAssignRemoteModule)'
     );
   });
 
@@ -387,7 +520,7 @@ describe('generateRemotes', () => {
       expect(code).toContain('import("/virtual/hostInit.js")');
       expect(code).not.toContain('await ');
       expect(code).not.toContain('Promise.resolve(exportModule)');
-      expect(code).toContain('export const __mf_remote_pending = __mfRemotePending ?? {');
+      expect(code).toContain('export const __mf_remote_pending = {');
     });
 
     it('server wrapper resolves the real remote without proxy helpers', () => {
@@ -420,7 +553,7 @@ describe('generateRemotes', () => {
     const code = generateRemotes('remote/Button', 'serve');
 
     expect(code).toContain('exportModule = __mfCreateDeferredRemoteProxy();');
-    expect(code).toContain('pendingPromise ||= __mfStartRemoteLoad();');
+    expect(code).toContain('pendingPromise = __mfStartRemoteLoad();');
     expect(code).toContain('runtime.registerRemotes([');
     expect(code).not.toMatch(
       /process\.versions\.node[\s\S]*?} else \{\s*__mfRemotePending = __mfStartRemoteLoad\(\)/
@@ -558,7 +691,7 @@ describe('generateRemotes', () => {
       expect(code).toContain('__mfCreateDeferredRemoteProxy()');
       expect(code).not.toContain('__mfRemotePending = __mfStartRemoteLoad();');
       expect(code).not.toContain('await ');
-      expect(code).toContain('export const __mf_remote_pending = __mfRemotePending ?? {');
+      expect(code).toContain('export const __mf_remote_pending = {');
     });
 
     it('resolves the real remote for SSR build output', () => {
