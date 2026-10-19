@@ -77,7 +77,10 @@ export function generateExposes(
             link.rel = "stylesheet";
             link.href = href;
             link.onload = () => resolve();
-            link.onerror = () => reject(new Error(\`[Module Federation] Failed to load CSS asset: \${href}\`));
+            link.onerror = () => {
+              injectedCssHrefs.delete(href);
+              reject(new Error(\`[Module Federation] Failed to load CSS asset: \${href}\`));
+            };
             document.head.appendChild(link);
           });
         })

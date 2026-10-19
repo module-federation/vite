@@ -316,4 +316,49 @@ describe('virtualExposes', () => {
     );
     expect(dynamicImport).not.toHaveBeenCalled();
   });
+
+  it('allows a failed css asset to be retried on a later expose load', async () => {
+    const code = generateExposes(
+      getDefaultMockOptions({
+        exposes: {
+          './one': { import: './one.js' } as any,
+        },
+        bundleAllCSS: true as any,
+      })
+    ).replace(
+      `"${getExposesCssMapPlaceholder()}"`,
+      JSON.stringify({
+        './one': ['./retry.css'],
+      })
+    );
+
+    let appendCount = 0;
+    const document = {
+      head: {
+        appendChild: vi.fn((link: any) => {
+          appendCount += 1;
+          queueMicrotask(() => (appendCount === 1 ? link.onerror() : link.onload()));
+        }),
+      },
+      querySelector: vi.fn(() => null),
+      createElement: vi.fn(() => ({
+        setAttribute(name: string, value: string) {
+          (this as any)[name] = value;
+        },
+      })),
+    };
+    const dynamicImport = vi.fn(() => Promise.resolve({ default: './one.js' }));
+
+    const exposes = await toRunnableModule(code)(
+      document,
+      URL,
+      dynamicImport,
+      'file:///repo/remoteEntry.js'
+    );
+
+    await expect(exposes['./one']()).rejects.toThrow('Failed to load CSS asset');
+    await expect(exposes['./one']()).resolves.toMatchObject({ default: './one.js' });
+    expect(document.head.appendChild).toHaveBeenCalledTimes(2);
+    expect(dynamicImport).toHaveBeenCalledTimes(1);
+  });
 });
