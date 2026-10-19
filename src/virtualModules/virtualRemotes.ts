@@ -311,12 +311,16 @@ function getDeferredProxyHelper(remoteCacheKey: string) {
     function __mfCreateDeferredRemoteProxy() {
       let pendingPromise;
       const ensurePending = () => {
-        pendingPromise ||= __mfStartRemoteLoad();
+        if (!pendingPromise) {
+          pendingPromise = __mfStartRemoteLoad();
+          // Property reads can start a load without an awaiter to handle failure.
+          pendingPromise.then(undefined, () => { pendingPromise = undefined; });
+        }
         return pendingPromise;
       };
       const getModule = () => __mfModuleCache.remote[${JSON.stringify(remoteCacheKey)}];
       const proxyTarget = function (...args) {
-        pendingPromise ||= __mfStartRemoteLoad();
+        ensurePending();
         const mod = getModule();
         const fn = mod && (mod.default ?? mod);
         if (fn !== undefined && fn !== null) {
@@ -335,7 +339,7 @@ function getDeferredProxyHelper(remoteCacheKey: string) {
           if (mod) {
             return prop in mod ? mod[prop] : mod.default?.[prop];
           }
-          pendingPromise ||= __mfStartRemoteLoad();
+          ensurePending();
           if (prop === "default") return proxyTarget;
           throw ensurePending();
         },
@@ -376,9 +380,22 @@ function getDeferredProxyHelper(remoteCacheKey: string) {
 }
 
 function getLazyRemotePendingExport() {
-  return `export const __mf_remote_pending = __mfRemotePending ?? {
+  // Keep the export lazy and stable across attempts. Failed loads (including
+  // an initial SSR/dev preload) must not pin the wrapper to a rejected promise;
+  // awaiting that attempt still rejects, and the next await starts a new load.
+  return `function __mfResetFailedRemotePending(pending) {
+  pending.then(undefined, () => {
+    if (__mfRemotePending === pending) __mfRemotePending = undefined;
+  });
+}
+if (__mfRemotePending) __mfResetFailedRemotePending(__mfRemotePending);
+export const __mf_remote_pending = {
   then(onFulfilled, onRejected) {
-    return (__mfRemotePending ??= __mfStartRemoteLoad().then(__mfAssignRemoteModule)).then(onFulfilled, onRejected);
+    if (!__mfRemotePending) {
+      __mfRemotePending = __mfStartRemoteLoad().then(__mfAssignRemoteModule);
+      __mfResetFailedRemotePending(__mfRemotePending);
+    }
+    return __mfRemotePending.then(onFulfilled, onRejected);
   },
 };`;
 }
@@ -496,21 +513,11 @@ export function generateRemotes(
     ${devHostInitLine}`;
   const remoteLoadRuntimePromise = command === 'build' ? '__mfHostInitPromise()' : 'initPromise';
   const remoteCacheKey = `${getRuntimeRemoteCachePrefix(options)}${id}`;
-  const remoteLoadFailureHandler =
-    command === 'build'
-      ? `.catch((error) => {
-            delete __mfModuleCache.remote[pendingKey];
-            throw error;
-          })`
-      : `.catch((error) => {
-            delete __mfModuleCache.remote[pendingKey];
-            throw error;
-          })`;
   const startRemoteLoadCode = `
       const remoteCacheKey = ${JSON.stringify(remoteCacheKey)};
       const pendingKey = "__mf_pending__" + remoteCacheKey;
       if (!__mfModuleCache.remote[pendingKey]) {
-        __mfModuleCache.remote[pendingKey] = ${remoteLoadRuntimePromise}
+        const pending = ${remoteLoadRuntimePromise}
           .then((runtime) => {
             ${registerRemoteCode}
             const moduleCacheKey = Symbol.for(${JSON.stringify(MODULE_CACHE_SHARE_SCOPE_KEY)});
@@ -527,7 +534,13 @@ export function generateRemotes(
             delete __mfModuleCache.remote[pendingKey];
             return mod;
           })
-          ${remoteLoadFailureHandler};
+          .catch((error) => {
+            if (__mfModuleCache.remote[pendingKey] === pending) {
+              delete __mfModuleCache.remote[pendingKey];
+            }
+            throw error;
+          });
+        __mfModuleCache.remote[pendingKey] = pending;
       }
       return __mfModuleCache.remote[pendingKey];`;
   const remoteLoadCode = `

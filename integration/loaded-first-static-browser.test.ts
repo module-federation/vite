@@ -38,6 +38,78 @@ function hostOptions(remoteEntry: string) {
 }
 
 describe('loaded-first static remote browser bootstrap', () => {
+  it('retries a failed deferred remote import without reloading the page', async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), 'mf-loaded-first-browser-retry-'));
+    let hostServer: StaticServer | undefined;
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      const hostOutDir = path.join(workspace, 'host');
+      const remoteEntry = 'http://localhost:4174/retry-remote.js';
+      const options = hostOptions(remoteEntry);
+      await buildFixtureTo('loaded-first-retry-host', hostOutDir, {
+        ...options,
+        remotes: {
+          remote1: {
+            ...options.remotes.remote1,
+            type: 'var',
+            entryGlobalName: 'retryRemote',
+          },
+        },
+      });
+      hostServer = await serveDirectory(hostOutDir);
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+      let available = false;
+      let entryRequests = 0;
+      // Use a script container so the browser's failed ESM import cache does
+      // not independently prevent the runtime from retrying the request.
+      await page.route(remoteEntry, async (route) => {
+        entryRequests++;
+        await route.fulfill({
+          status: available ? 200 : 503,
+          contentType: 'application/javascript',
+          body: available
+            ? `globalThis.retryRemote = {
+                init() {},
+                get() {
+                  return () => ({ REMOTE_NAME: 'recovered' });
+                },
+              };`
+            : '',
+        });
+      });
+
+      await page.goto(hostServer.origin);
+      await page.waitForFunction(() => typeof (window as any).loadRemote === 'function');
+      expect(entryRequests).toBe(0);
+      const firstError = await page.evaluate(() =>
+        (window as any).loadRemote().then(
+          () => null,
+          (error: Error) => error.message
+        )
+      );
+      expect(firstError).toMatch(/Failed to load script resources|RUNTIME-008/);
+      expect(entryRequests).toBe(1);
+
+      available = true;
+      await expect(
+        page.evaluate(() => (window as any).loadRemote().then((mod: any) => mod.REMOTE_NAME))
+      ).resolves.toBe('recovered');
+      await expect(
+        page.evaluate(() => (window as any).loadRemote().then((mod: any) => mod.REMOTE_NAME))
+      ).resolves.toBe('recovered');
+      expect(entryRequests).toBe(2);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser?.close();
+      await hostServer?.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it.each([
     ['named', 'loaded-first-static-host'],
     ['namespace', 'loaded-first-namespace-host'],
