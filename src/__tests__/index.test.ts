@@ -3468,6 +3468,18 @@ describe('vite:module-federation-early-init', () => {
     expect(config.define.FEDERATION_OPTIMIZE_NO_SNAPSHOT_PLUGIN).toBe('true');
   });
 
+  it("keeps Vite's default build target on Vite 8, so build.cssTarget stays at Vite's default", () => {
+    const plugin = getModuleFederationVitePlugin();
+    const config: any = { root: process.cwd(), define: {}, resolve: { alias: [] } };
+
+    runConfig(plugin, { meta: { viteVersion: '8.0.0' } } as ConfigPluginContext, config, {
+      command: 'build',
+      mode: 'test',
+    });
+
+    expect(config.build?.target).toBeUndefined();
+  });
+
   it('maps runtime capability options to build-time defines', () => {
     const plugin = getModuleFederationVitePluginWithOptions({
       disableRemote: true,

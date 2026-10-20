@@ -2172,12 +2172,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           }
         });
 
-        if (isRolldown) {
-          // Vite 8+: virtual modules use ESM.
-          config.build ??= {};
-          config.build.target ??= 'esnext';
-        }
-
         // Under `experimental.bundledDev` the host bootstrap reaches the app entry
         // through a dynamic import, so Rolldown lazy-compiles it. Lazy compilation
         // registers every module as a synchronous factory, which turns any
