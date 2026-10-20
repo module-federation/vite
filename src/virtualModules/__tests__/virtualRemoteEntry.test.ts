@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const AsyncFunction = async function () {}.constructor as FunctionConstructor;
+
 const {
   hasPackageDependencyMock,
   isPackageExportAvailableMock,
@@ -2052,7 +2054,7 @@ describe('virtualRemoteEntry', () => {
       };
       ((globalThis as any).__FEDERATION__ ||= {}).__INSTANCES__ = [...instances, runtime];
       const cache: Record<string, unknown> = {};
-      await new Function(
+      await new AsyncFunction(
         'usedShared',
         'runtime',
         '__mfModuleCache',
@@ -2062,7 +2064,7 @@ describe('virtualRemoteEntry', () => {
         '__mfWriteSharedCache',
         '__mfNormalizeRuntimeShare',
         'runtimeShare',
-        `return (async () => { ${loopCode} })();`
+        loopCode
       )(
         { 'shared-lib': share },
         runtime,
@@ -2196,7 +2198,7 @@ describe('virtualRemoteEntry', () => {
       };
       ((globalThis as any).__FEDERATION__ ||= {}).__INSTANCES__ = [sibling, runtimeRef];
       const cache: Record<string, unknown> = {};
-      await new Function(
+      await new AsyncFunction(
         'usedShared',
         'runtime',
         '__mfModuleCache',
@@ -2206,7 +2208,7 @@ describe('virtualRemoteEntry', () => {
         '__mfWriteSharedCache',
         '__mfNormalizeRuntimeShare',
         'runtimeShare',
-        `return (async () => { ${loopCode} })();`
+        loopCode
       )(
         { 'shared-lib': consumeOnly },
         runtimeRef,
@@ -2961,7 +2963,7 @@ describe('virtualRemoteEntry', () => {
       },
     };
 
-    const run = new Function(
+    const run = new AsyncFunction(
       'usedShared',
       'runtime',
       '__mfModuleCache',
@@ -2970,7 +2972,7 @@ describe('virtualRemoteEntry', () => {
       '__mfReadSharedCacheOwner',
       '__mfWriteSharedCache',
       '__mfNormalizeRuntimeShare',
-      `return (async () => { ${loopCode} })();`
+      loopCode
     );
 
     const donePromise = run(

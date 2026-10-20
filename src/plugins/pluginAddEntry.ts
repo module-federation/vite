@@ -302,7 +302,7 @@ function renameBundledDevRuntime(
   res: { end: (...args: any[]) => unknown },
   remoteName: string
 ) {
-  if (!req.url || !stripQueryAndHash(req.url).endsWith('.js')) return;
+  if (!req.url || !/\.m?js$/.test(stripQueryAndHash(req.url))) return;
   const hash = createHash('sha256').update(remoteName).digest('hex');
   const runtimeGlobal = `__mf_rt_${hash.slice(0, ROLLDOWN_RUNTIME_GLOBAL.length - 10)}__`;
   const end = res.end;
@@ -1149,7 +1149,15 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
               output.type === 'chunk' && output.isEntry && output.facadeModuleId === getEntryPath()
           );
           if (remoteEntryChunk?.type === 'chunk') {
-            const code = `export { ${remoteEntryChunk.exports.join(', ')} } from ${JSON.stringify(
+            // Vite >= 8.3 defines the dev runtime in its HTML-injected client
+            // instead of a chunk; a host page never loads the remote's HTML.
+            const definesRuntime = Object.values(bundle).some(
+              (output) => output.type === 'chunk' && output.code.includes('new ViteDevRuntime(')
+            );
+            const runtimeImport = definesRuntime
+              ? ''
+              : `import ${JSON.stringify(`${viteConfig.base}bundledDevClient.mjs`)};\n`;
+            const code = `${runtimeImport}export { ${remoteEntryChunk.exports.join(', ')} } from ${JSON.stringify(
               `./${remoteEntryChunk.fileName}`
             )};\n`;
             bundledDevRemoteEntryCode = Promise.resolve(code);
