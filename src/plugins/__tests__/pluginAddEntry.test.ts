@@ -2560,7 +2560,16 @@ describe('pluginAddEntry', () => {
       'assets/chunk-index.B_.js': {
         type: 'chunk',
         name: 'index',
+        isEntry: true,
         fileName: 'assets/chunk-index.B_.js',
+      },
+      // A lazy route whose facade module is an `index.tsx` file is also named
+      // 'index' by Rollup, but it is not the app entry.
+      'assets/chunk-index.Lz.js': {
+        type: 'chunk',
+        name: 'index',
+        isEntry: false,
+        fileName: 'assets/chunk-index.Lz.js',
       },
       'assets/index.AA.css': {
         type: 'asset',
@@ -2614,6 +2623,7 @@ describe('pluginAddEntry', () => {
     // Remote wrappers are only needed by the pages that render that remote (#1291)
     expect(html).not.toContain('chunk-_virtual_mf___app__loadRemote__widget__loadRemote__.js');
     expect(html.match(/chunk-index\.B_\.js/g)?.length).toBe(1);
+    expect(html).not.toContain('chunk-index.Lz.js');
     expect(html).not.toContain('index.AA.css');
   });
 

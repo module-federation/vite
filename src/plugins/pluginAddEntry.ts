@@ -87,8 +87,14 @@ const HOST_INIT_PRELOAD_CHUNKS: ReadonlyArray<(name: string) => boolean> = [
   (name) => name === 'hostInit',
   (name) => name === 'remoteEntry',
   isPreloadableVirtualMfChunk,
-  (name) => name === 'index',
 ];
+
+// The app entry is the HTML entry chunk, not any chunk named 'index': Rollup
+// also names a lazy chunk 'index' when its facade module is an `index.tsx`
+// file, and preloading those defeats code splitting. MF's own entry chunks
+// are already marked non-entry by `mf:normalize-entry-chunks`.
+const isHostInitPreloadSeed = (chunk: Rollup.OutputChunk) =>
+  chunk.isEntry || HOST_INIT_PRELOAD_CHUNKS.some((match) => match(chunk.name));
 
 // Chunks the generated remote entry warms for its consumers as soon as it
 // evaluates: everything its own container init/get path needs. Deliberately
@@ -161,9 +167,7 @@ function injectHostInitPreloads(
     hrefs.push(href);
   }
   const chunksByFileName = getChunksByFileName(bundle);
-  const seeds = Array.from(chunksByFileName.values()).filter((chunk) =>
-    HOST_INIT_PRELOAD_CHUNKS.some((match) => match(chunk.name))
-  );
+  const seeds = Array.from(chunksByFileName.values()).filter(isHostInitPreloadSeed);
   for (const fileName of collectPreloadChunkFiles(chunksByFileName, seeds)) {
     const href = resolvePath(fileName);
     if (existingHrefs.has(href)) continue;
