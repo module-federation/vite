@@ -158,6 +158,51 @@ describe('pluginProxyRemoteEntry', () => {
     expect(generated).not.toContain('__loadRemote__remoteB_mf_1_heavy');
   });
 
+  it.each([
+    ['loaded-first', false],
+    ['version-first', true],
+  ] as const)(
+    'under %s, preflights remotes behind a local import() only when the lazy chunk cannot wait for them itself',
+    async (shareStrategy, preflightsLazyRemote) => {
+      const expose = resolve('integration/fixtures/nested-remote-transitive/lazy-route-expose.js');
+      const page = resolve('integration/fixtures/nested-remote-transitive/lazy-page.js');
+      const plugin = pluginProxyRemoteEntry({
+        options: getDefaultMockOptions({
+          shareStrategy,
+          exposes: { './route': { import: expose } as any },
+          remotes: {
+            remoteA: {
+              name: 'remoteA',
+              entry: 'http://localhost:3001/remoteEntry.js',
+              type: 'module',
+            },
+          },
+        }),
+        remoteEntryId: 'virtual:mf-remote-entry',
+        virtualExposesId: 'virtual:mf-exposes',
+      });
+      const context = {
+        resolve: async (source: string) => {
+          if (source === expose) return { id: expose };
+          if (source === './lazy-page.js') return { id: page };
+          return undefined;
+        },
+      } as any;
+
+      callHook(
+        plugin.config,
+        {} as ConfigPluginContext,
+        {},
+        { command: 'serve', mode: 'development' }
+      );
+      const generated = await callHook(plugin.load, context, 'virtual:mf-exposes');
+
+      const lazyRemote = '__loadRemote__remoteA_mf_1_shared_mf_1_helpers';
+      if (preflightsLazyRemote) expect(generated).toContain(lazyRemote);
+      else expect(generated).not.toContain(lazyRemote);
+    }
+  );
+
   it('does not resolve type-only imports while collecting remote dependencies', async () => {
     const expose = resolve('integration/fixtures/nested-remote-transitive/type-only-import.ts');
     const resolvedSources: string[] = [];

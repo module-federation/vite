@@ -13,7 +13,7 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 import { isRemoteSpecifier } from '../utils/hostProvidesAllShared';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
-import { collectRemoteDependencies } from '../utils/remoteDependencies';
+import { collectRemoteDependencies, type RemoteDependencyCache } from '../utils/remoteDependencies';
 import { isServerBuildContext } from '../utils/remoteConsumerTarget';
 import { formatDevServerHostForOrigin } from '../utils/devServerHost';
 import { ensureTrailingSlash, filterId, resolvePublicPath } from '../utils/pathNormalization';
@@ -74,10 +74,17 @@ export default function ({
       const refreshVersion = dependencyInvalidationVersion;
       refreshPromise = (async () => {
         const next: Record<string, string[]> = {};
+        const cache: RemoteDependencyCache = new Map();
+        // Under loaded-first, pluginRemoteNamedExports makes each local import() wait for its
+        // own chunk's remotes, so the expose only waits for its static graph.
+        const followDynamicImports = options.shareStrategy !== 'loaded-first';
         for (const [exposeKey, expose] of Object.entries(options.exposes)) {
           const resolved = await (ctx as any).resolve(expose.import);
           next[exposeKey] = resolved?.id
-            ? await collectRemoteDependencies(ctx as any, resolved.id, isRemoteImport)
+            ? await collectRemoteDependencies(ctx as any, resolved.id, isRemoteImport, {
+                followDynamicImports,
+                cache,
+              })
             : [];
         }
         exposeRemoteDependencies = next;
