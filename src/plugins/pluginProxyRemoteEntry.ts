@@ -78,7 +78,13 @@ export default function ({
         // Under loaded-first, pluginRemoteNamedExports makes each local import() wait for its
         // own chunk's remotes, so the expose only waits for its static graph.
         const followDynamicImports = options.shareStrategy !== 'loaded-first';
+        // Without remotes there is no remote import to find, so skip walking each expose's graph.
+        const hasRemotes = Object.keys(options.remotes).length > 0;
         for (const [exposeKey, expose] of Object.entries(options.exposes)) {
+          if (!hasRemotes) {
+            next[exposeKey] = [];
+            continue;
+          }
           const resolved = await (ctx as any).resolve(expose.import);
           next[exposeKey] = resolved?.id
             ? await collectRemoteDependencies(ctx as any, resolved.id, isRemoteImport, {

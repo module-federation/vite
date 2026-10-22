@@ -239,6 +239,36 @@ describe('pluginProxyRemoteEntry', () => {
     expect(resolvedSources).not.toContain('@graphql-typed-document-node/core');
   });
 
+  it('does not scan expose dependencies when no remotes are configured', async () => {
+    const expose = resolve('integration/fixtures/nested-remote-transitive/type-only-import.ts');
+    const resolvedSources: string[] = [];
+    const plugin = pluginProxyRemoteEntry({
+      options: getDefaultMockOptions({
+        exposes: { './document': { import: expose } as any },
+        remotes: {},
+      }),
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+    const context = {
+      resolve: async (source: string) => {
+        resolvedSources.push(source);
+        return source === expose ? { id: expose } : undefined;
+      },
+    } as any;
+
+    callHook(
+      plugin.config,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    const generated = await callHook(plugin.load, context, 'virtual:mf-exposes');
+
+    expect(generated).not.toContain('__loadRemote__');
+    expect(resolvedSources).toStrictEqual([]);
+  });
+
   it('skips imports the resolver throws on while collecting remote dependencies', async () => {
     const expose = resolve(
       'integration/fixtures/nested-remote-transitive/value-style-type-only-import.ts'
