@@ -146,6 +146,58 @@ describe('pluginModuleParseEnd', () => {
     expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
   });
 
+  it('does not wait for imports of a module only preloaded by this.load', async () => {
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = {} as any;
+    const parsed = (id: string, isEntry: boolean, imports: string[] = []) =>
+      callHook(parseEnd.moduleParsed, ctx, {
+        id,
+        isEntry,
+        importedIds: imports,
+        dynamicallyImportedIds: [],
+        importedIdResolutions: imports.map((child) => ({ id: child, external: false })),
+        dynamicallyImportedIdResolutions: [],
+      } as never);
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    parsed('/src/main.ts', true);
+    // Rollup's CommonJS plugin preloads a CJS file to inspect it; Rollup never
+    // loads that file's imports unless a graph module imports the file.
+    callHook(parseStart.load, ctx, '/nm/react/jsx-dev-runtime.js');
+    parsed('/nm/react/jsx-dev-runtime.js', false, [
+      '\0/nm/react/jsx-dev-runtime.js?commonjs-module',
+    ]);
+
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
+  });
+
+  it('waits for imports of a preloaded module once the graph imports it', async () => {
+    const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
+    const ctx = {} as any;
+    const parsed = (id: string, isEntry: boolean, imports: string[] = []) =>
+      callHook(parseEnd.moduleParsed, ctx, {
+        id,
+        isEntry,
+        importedIds: imports,
+        dynamicallyImportedIds: [],
+        importedIdResolutions: imports.map((child) => ({ id: child, external: false })),
+        dynamicallyImportedIdResolutions: [],
+      } as never);
+
+    callHook(parseStart.buildStart, ctx, undefined as never);
+    callHook(parseStart.load, ctx, '/nm/lib.js');
+    parsed('/nm/lib.js', false, ['/nm/lib-dep.js']);
+    callHook(parseStart.load, ctx, '/src/main.ts');
+    parsed('/src/main.ts', true, ['/nm/lib.js']);
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(false);
+
+    callHook(parseStart.load, ctx, '/nm/lib-dep.js');
+    parsed('/nm/lib-dep.js', false);
+
+    expect(await resolvesQuickly(controller.parsePromise)).toBe(true);
+  });
+
   it('tracks resolved imported ids when resolution metadata is unavailable', async () => {
     const { controller, parseStart, parseEnd } = getParsePlugins(() => false);
     const ctx = {

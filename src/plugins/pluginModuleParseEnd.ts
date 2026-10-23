@@ -33,6 +33,12 @@ export function createModuleParseController() {
     // Ids already sent through `this.resolve` to determine externality, so each
     // one is probed at most once per build.
     resolutionProbed: new Set<string>(),
+    // Modules the build graph reaches from an entry. Rollup's `this.load` (the
+    // CommonJS plugin calls it to inspect every possible CJS import) parses a
+    // module without loading its imports, so its imports only count once a
+    // reached module imports it; until then they wait in `deferredImports`.
+    reached: new Set<string>(),
+    deferredImports: new Map<string, () => void>(),
     lastLoadedModule: '',
     lastParsedModule: '',
   };
@@ -61,6 +67,8 @@ function resetParseState(controller: ModuleParseController) {
   controller.parseEndSet = new Set();
   controller.externalSet = new Set();
   controller.resolutionProbed = new Set();
+  controller.reached = new Set();
+  controller.deferredImports = new Map();
   controller.discardWarned = false;
   controller.lastLoadedModule = '';
   controller.lastParsedModule = '';
@@ -200,6 +208,7 @@ export default function (
           const resolved = await this.resolve(importSource);
           if (resolved && !resolved.external && !excludeFn(resolved.id)) {
             controller.parseStartSet.add(resolved.id);
+            controller.reached.add(resolved.id);
           }
         }
       },
@@ -241,9 +250,9 @@ export default function (
           resolutions: Array<{ id: string; external?: boolean | 'absolute' }> | undefined
         ) => {
           for (const resolution of resolutions || []) {
-            if (!resolution.external && !excludeFn(resolution.id)) {
-              controller.parseStartSet.add(resolution.id);
-            }
+            if (resolution.external) continue;
+            if (excludeFn(resolution.id)) reach(resolution.id);
+            else addPending(resolution.id);
           }
         };
         // Rolldown returns ModuleInfo stubs for externals and exposes no field
@@ -277,24 +286,51 @@ export default function (
             // below or by probeExternal.
             if (
               controller.externalSet.has(pendingId) ||
-              matchesExternal(configuredExternal, pendingId, id) ||
-              excludeFn(pendingId)
+              matchesExternal(configuredExternal, pendingId, id)
             ) {
               continue;
             }
-            controller.parseStartSet.add(pendingId);
+            if (excludeFn(pendingId)) {
+              reach(pendingId);
+              continue;
+            }
+            addPending(pendingId);
             // Until the resolution answers, the id keeps the barrier open —
             // waiting is the safe direction.
             if (!controller.parseEndSet.has(pendingId)) probeExternal(pendingId);
           }
         };
-        addPendingResolutions(parsedModule.importedIdResolutions);
-        addPendingResolutions(parsedModule.dynamicallyImportedIdResolutions);
-        if (parsedModule.importedIdResolutions === undefined) {
-          addPendingIds(module.importedIds);
-        }
-        if (parsedModule.dynamicallyImportedIdResolutions === undefined) {
-          addPendingIds(module.dynamicallyImportedIds);
+        const seedImports = (
+          resolutions: typeof parsedModule.importedIdResolutions,
+          ids: string[]
+        ) => {
+          if (resolutions === undefined) addPendingIds(ids);
+          else addPendingResolutions(resolutions);
+        };
+        // A reached importer pulls in a module parsed earlier by `this.load`:
+        // its imports are now part of the graph and Rollup will load them.
+        const reach = (moduleId: string) => {
+          if (controller.reached.has(moduleId)) return;
+          controller.reached.add(moduleId);
+          const seedDeferred = controller.deferredImports.get(moduleId);
+          controller.deferredImports.delete(moduleId);
+          seedDeferred?.();
+        };
+        const addPending = (pendingId: string) => {
+          controller.parseStartSet.add(pendingId);
+          reach(pendingId);
+        };
+        const seedAllImports = () => {
+          seedImports(parsedModule.importedIdResolutions, module.importedIds);
+          seedImports(parsedModule.dynamicallyImportedIdResolutions, module.dynamicallyImportedIds);
+        };
+        // `isEntry` is only false on a real ModuleInfo; nothing reached imports
+        // this module yet, so it was parsed by `this.load` alone.
+        if (module.isEntry === false && !controller.reached.has(id)) {
+          controller.deferredImports.set(id, seedAllImports);
+        } else {
+          controller.reached.add(id);
+          seedAllImports();
         }
         if (!excludeFn(id)) {
           controller.parseEndSet.add(id);
