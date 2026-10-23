@@ -46,7 +46,6 @@ import {
   isFederationControlChunk,
   sanitizeFederationControlChunk,
 } from './utils/controlChunkSanitizer';
-import { isTestEnv } from './utils/isTestEnv';
 import { pluginHostProvidesAllSharedHost } from './plugins/pluginHostProvidesAllSharedHost';
 import { pluginHostProvidesAllSharedRemote } from './plugins/pluginHostProvidesAllSharedRemote';
 import { getIgnoredOptionWarning } from './utils/hostProvidesAllShared';
@@ -70,7 +69,6 @@ import {
   normalizeModuleFederationOptions,
   resolveSharedVersions,
 } from './utils/normalizeModuleFederationOptions';
-import normalizeOptimizeDepsPlugin from './utils/normalizeOptimizeDeps';
 import {
   getIsRolldown,
   getInstalledPackageEntry,
@@ -1185,7 +1183,15 @@ function applyExternalRuntimeExperiments(options: NormalizedModuleFederationOpti
 }
 
 function federation(mfUserOptions: ModuleFederationOptions): any[] {
-  if (isTestEnv()) return [];
+  // Federation is a no-op under test runners; set `MFE_VITE_NO_TEST_ENV_CHECK=true` to load it.
+  if (
+    process.env.MFE_VITE_NO_TEST_ENV_CHECK !== 'true' &&
+    (process.env.NODE_ENV === 'test' ||
+      process.env.VITEST != null ||
+      process.env.JEST_WORKER_ID != null)
+  ) {
+    return [];
+  }
   const options = normalizeModuleFederationOptions(mfUserOptions);
   if (!options.name) throw createModuleFederationError('name is required');
   // hostProvidesAllShared never touches the runtime pipeline below: a container with
@@ -1724,7 +1730,23 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     },
     aliasToArrayPlugin,
     checkAliasConflicts({ shared }),
-    normalizeOptimizeDepsPlugin,
+    {
+      name: 'normalizeOptimizeDeps',
+      // Later plugins may push into these arrays without creating them first.
+      config(config: UserConfig) {
+        config.optimizeDeps ||= {};
+        config.optimizeDeps.include ||= [];
+        config.optimizeDeps.exclude ||= [];
+        config.optimizeDeps.needsInterop ||= [];
+      },
+      configResolved(config: ResolvedConfig) {
+        const include = config.optimizeDeps?.include;
+        const exclude = config.optimizeDeps?.exclude;
+        if (!include?.length || !exclude?.length) return;
+        const included = new Set(include);
+        config.optimizeDeps.exclude = exclude.filter((dep) => !included.has(dep));
+      },
+    },
     ...loadPluginDts(options),
     pluginDevRemoteHmr(options),
     {

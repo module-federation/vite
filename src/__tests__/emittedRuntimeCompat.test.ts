@@ -31,7 +31,6 @@ const BROWSER_EMITTING_MODULES = [
   'plugins/pluginDevRemoteHmr.ts',
   'plugins/pluginExternalRuntimeCore.ts',
   'plugins/pluginProxyRemoteEntry.ts',
-  'plugins/pluginReactMixedModeGuard.ts',
   'plugins/pluginRemoteNamedExports.ts',
   'plugins/pluginVarRemoteEntry.ts',
   'utils/bundleHelpers.ts',

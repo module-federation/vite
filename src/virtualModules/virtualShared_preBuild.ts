@@ -13,7 +13,6 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
-import { createReactMixedModeRuntimeGuard } from '../plugins/pluginReactMixedModeGuard';
 import { createCodePositionMap } from '../utils/codePositionMap';
 import { mfWarn } from '../utils/logger';
 import {
@@ -2128,6 +2127,22 @@ export function isCoalescableLoadShareWrapper(
   return getSharedVirtualModuleStateForId(id, options).coalescableLoadShares.has(pkg);
 }
 
+/** Keeps runtime-shared React dispatchers usable when a mixed-mode remote swaps them in. */
+const REACT_MIXED_MODE_GUARD = `const __mfReactInternals = mod[${JSON.stringify(REACT_CLIENT_INTERNALS_KEY)}];
+if (__mfReactInternals && "A" in __mfReactInternals) {
+  let __mfReactDispatcher = __mfReactInternals.A;
+  Object.defineProperty(__mfReactInternals, "A", {
+    configurable: true,
+    enumerable: true,
+    get: () => __mfReactDispatcher,
+    set: (next) => {
+      if (next && typeof next.getOwner !== "function") next.getOwner = () => null;
+      __mfReactDispatcher = next;
+    },
+  });
+  __mfReactInternals.A = __mfReactDispatcher;
+}`;
+
 export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
@@ -2275,7 +2290,7 @@ export function writeLoadShareModule(
     !servesRemoteSingletonFallback &&
     (isConsumedByPeerSingleton || shareItem.shareConfig.eager === true);
   const usesDeferredTreeShakingFallback = hasCompleteExportCoverage && Boolean(treeShakingConsumer);
-  const reactMixedModeGuard = pkg === 'react' ? createReactMixedModeRuntimeGuard() : '';
+  const reactMixedModeGuard = pkg === 'react' ? REACT_MIXED_MODE_GUARD : '';
   let exportLine: string;
   let initBlock = '';
   if (usesDeferredTreeShakingFallback) {

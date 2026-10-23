@@ -356,13 +356,21 @@ describe('federation in test environment', () => {
     process.env = originalEnv;
   });
 
-  it('returns empty plugin array when in test environment', () => {
-    process.env.NODE_ENV = 'test';
+  it.each([
+    ['NODE_ENV', 'test'],
+    ['VITEST', 'true'],
+    ['JEST_WORKER_ID', '1'],
+  ])('returns empty plugin array when %s is set', (key, value) => {
+    process.env[key] = value;
     const plugins = federation({
       name: 'host',
       filename: 'remoteEntry.js',
     });
     expect(plugins).toEqual([]);
+  });
+
+  it('returns plugins outside a test environment', () => {
+    expect(federation({ name: 'host', filename: 'remoteEntry.js' }).length).toBeGreaterThan(0);
   });
 
   it('returns plugins when MFE_VITE_NO_TEST_ENV_CHECK is true', () => {
@@ -373,6 +381,18 @@ describe('federation in test environment', () => {
       filename: 'remoteEntry.js',
     });
     expect(plugins.length).toBeGreaterThan(0);
+  });
+});
+
+describe('normalizeOptimizeDeps', () => {
+  it('creates optimizeDeps include/exclude for later plugins', () => {
+    const config: UserConfig = {};
+    runConfig(getNormalizeOptimizeDepsPlugin(), {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps).toEqual({ include: [], exclude: [], needsInterop: [] });
   });
 });
 

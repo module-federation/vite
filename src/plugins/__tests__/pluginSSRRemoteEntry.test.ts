@@ -27,7 +27,6 @@ vi.mock('../../utils/packageUtils', () => ({
   packageNameDecode: vi.fn((s: string) => s),
   getInstalledPackageJson: vi.fn(),
   getInstalledPackageEntry: vi.fn(),
-  getExtFromNpmPackage: vi.fn(() => '.js'),
 }));
 
 vi.mock('../../virtualModules/virtualExposesSSR', () => ({
