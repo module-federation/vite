@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -98,7 +98,7 @@ async function application(
   );
   await writeFile(
     path.join(root, 'index.html'),
-    '<script type="module" src="/client.js"></script>'
+    '<link rel="icon" href="data:,"><script type="module" src="/client.js"></script>'
   );
   await writeFile(path.join(root, 'transformed.js'), `export { target } from 'products/value';`);
   const pkg = path.join(root, 'node_modules/products');
@@ -128,10 +128,24 @@ async function application(
   };
 }
 
-async function buildApplication(app: Application) {
+async function buildApplication(app: Application, format: 'es' | 'cjs' = 'es') {
   const output = (await build({
     ...app.config,
-    build: { ssr: path.join(app.root, 'probe.js'), minify: false, target: 'node20' },
+    build: {
+      ssr: path.join(app.root, 'probe.js'),
+      minify: false,
+      target: 'node20',
+      rollupOptions:
+        format === 'cjs'
+          ? {
+              output: {
+                format,
+                entryFileNames: '[name].cjs',
+                chunkFileNames: 'assets/[name]-[hash].cjs',
+              },
+            }
+          : undefined,
+    },
   })) as Rollup.RollupOutput;
   const entry = output.output.find(
     (chunk) => chunk.type === 'chunk' && chunk.exports.includes('probe')
@@ -204,6 +218,155 @@ function expectTopology(result: any, host: Application, parent: Application) {
 }
 
 describe('plain runtime API during SSR startup', () => {
+  it.runIf(Number(version.split('.')[0]) >= 8)(
+    'does not inject a bootstrap into unrelated dev SSR modules',
+    async () => {
+      const target = await remote('unused');
+      const app = await application(target.entry);
+      await writeFile(path.join(app.root, 'unrelated.js'), 'export const value = 42;');
+      const server = await createServer(app.config);
+      cleanup.push(() => server.close());
+      const transformed = await server.transformRequest('/unrelated.js', { ssr: true });
+      expect(transformed?.code).toBeDefined();
+      expect(transformed!.code).not.toContain('__H_A_I__');
+      expect(target.requests).toEqual([]);
+      const probe = await server.ssrLoadModule('/probe.js');
+      expect(probe.ownerAtEvaluation).toBe(app.name);
+      expect(probe.initCount()).toBe(1);
+    }
+  );
+
+  it('initializes an SSR entry without a runtime import', async () => {
+    const target = await remote('unused');
+    const app = await application(target.entry);
+    await writeFile(
+      path.join(app.root, 'probe.js'),
+      `
+      export function probe() { return globalThis.__mfTestInitCounts?.[${JSON.stringify(app.name)}] ?? 0; }
+    `
+    );
+    const url = await buildApplication(app);
+    const { stdout } = await promisify(execFile)(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      `const entry = await import(${JSON.stringify(url)}); console.log(entry.probe());`,
+    ]);
+    expect(stdout.trim()).toBe('1');
+    expect(target.requests).toEqual([]);
+  });
+
+  it('initializes a CommonJS SSR entry without top-level await', async () => {
+    const app = await application((await remote('cjs')).entry);
+    const url = await buildApplication(app, 'cjs');
+    const { stdout } = await promisify(execFile)(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      `const mod = await import(${JSON.stringify(url)}); const entry = mod.default ?? mod; console.log(JSON.stringify(await entry.probe()));`,
+    ]);
+    expect(JSON.parse(stdout.trim())).toMatchObject({
+      ownerAtEvaluation: app.name,
+      owner: app.name,
+      target: 'cjs',
+    });
+  });
+
+  it.each(['external', 'bundled'] as const)(
+    'keeps the runtime boundary explicit for a %s SSR dependency',
+    async (mode) => {
+      const app = await application((await remote('dependency')).entry);
+      const pkg = path.join(app.root, 'node_modules/runtime-consumer');
+      await mkdir(pkg, { recursive: true });
+      await writeFile(
+        path.join(pkg, 'package.json'),
+        JSON.stringify({
+          name: 'runtime-consumer',
+          type: 'module',
+          exports: './index.js',
+        })
+      );
+      await writeFile(
+        path.join(pkg, 'index.js'),
+        `
+        import { getInstance, loadRemote } from '@module-federation/runtime';
+        export const dependencyOwner = getInstance()?.name;
+        export async function dependencyProbe() {
+          return { owner: getInstance()?.name, target: (await loadRemote('products/value')).target };
+        }
+      `
+      );
+      await appendFile(
+        path.join(app.root, 'probe.js'),
+        `export { dependencyOwner, dependencyProbe } from 'runtime-consumer';`
+      );
+      if (mode === 'bundled') app.config.ssr = { noExternal: ['runtime-consumer'] };
+      const url = await buildApplication(app);
+      const { stdout } = await promisify(execFile)(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `
+        const entry = await import(${JSON.stringify(url)});
+        const result = await entry.dependencyProbe().then(value => ({ value }), error => ({ error: error.message }));
+        console.log(JSON.stringify({ owner: entry.ownerAtEvaluation, dependencyOwner: entry.dependencyOwner ?? null, ...result }));
+      `,
+      ]);
+      const result = JSON.parse(stdout.trim());
+      expect(result.owner).toBe(app.name);
+      if (mode === 'external') {
+        expect(result.dependencyOwner).toBeNull();
+        expect(result.error).toContain('RUNTIME-009');
+      } else {
+        expect(result).toEqual({
+          owner: app.name,
+          dependencyOwner: app.name,
+          value: { owner: app.name, target: 'dependency' },
+        });
+      }
+    }
+  );
+
+  it.each(['version-first', 'loaded-first'] as const)(
+    'reuses the application runtime when its SSR container initializes (%s)',
+    async (strategy) => {
+      const app = await application((await remote('child')).entry, strategy, true);
+      await appendFile(
+        path.join(app.root, 'probe.js'),
+        'export const runtimeAtEvaluation = getInstance();'
+      );
+      const url = await buildApplication(app);
+      const containerUrl = pathToFileURL(path.join(app.root, 'dist/remoteEntry.ssr.js')).href;
+      const { stdout } = await promisify(execFile)(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `
+        const app = await import(${JSON.stringify(url)});
+        const container = await import(${JSON.stringify(containerUrl)});
+        const provider = { version: '1.0.0', from: 'parent', get: () => () => ({ value: 'shared' }), loaded: true };
+        const shared = { 'parent-share': { '1.0.0': provider } };
+        const runtime = await container.init(shared);
+        const second = await container.init(shared);
+        const exposed = (await container.get('./probe'))();
+        console.log(JSON.stringify({ sameRuntime: runtime === app.runtimeAtEvaluation && second === runtime,
+          sameExpose: exposed.runtimeAtEvaluation === runtime, initCount: exposed.initCount(),
+          parentShare: runtime.shareScopeMap.default['parent-share']['1.0.0'] === provider,
+          probe: await exposed.probe() }));
+      `,
+      ]);
+      expect(JSON.parse(stdout.trim())).toEqual({
+        sameRuntime: true,
+        sameExpose: true,
+        initCount: 1,
+        parentShare: true,
+        probe: {
+          ownerAtEvaluation: app.name,
+          owner: app.name,
+          sameInstance: true,
+          target: 'child',
+          exposes: ['./value'],
+        },
+      });
+    }
+  );
+
   it.runIf(Number(version.split('.')[0]) >= 8).each(['virtual', 'workspace'] as const)(
     'initializes cold dev SSR from a %s entry before a top-level runtime call',
     async (kind) => {
@@ -291,7 +454,8 @@ describe('plain runtime API during SSR startup', () => {
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       page.on('console', (message) => {
-        if (message.type() === 'error') errors.push(message.text());
+        if (message.type() === 'error')
+          errors.push(`${message.text()} (${message.location().url})`);
       });
       await page.goto(origin);
       await page.waitForFunction('globalThis.runtimeProbe !== undefined');

@@ -1,5 +1,4 @@
-import { normalizePath, type Plugin, version as viteVersion } from 'vite';
-import { isAbsolute } from 'node:path';
+import { type Plugin, version as viteVersion } from 'vite';
 import { findModuleImportSources } from '../utils/htmlEntryUtils';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import {
@@ -7,7 +6,7 @@ import {
   type NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import { isServerContext } from '../utils/remoteConsumerTarget';
-import { getSsrCapabilities, SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
+import { getSsrCapabilities } from '../utils/ssrCapabilities';
 import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import { getRuntimePluginSpecifier } from '../utils/runtimePluginSpecifier';
 import {
@@ -24,7 +23,6 @@ import {
 export default function pluginSsrRuntimeInit(options: NormalizedModuleFederationOptions): Plugin[] {
   if (!hasRemotes(options)) return [];
   let command: 'serve' | 'build';
-  let root = '';
   let legacySsr = false;
   const supported = () =>
     getSsrCapabilities(parseInt(viteVersion, 10), command, true, true).enableSsrInitBootstrap;
@@ -39,7 +37,6 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
         command = env.command;
       },
       configResolved(config) {
-        root = normalizePath(config.root);
         legacySsr = Boolean(config.build.ssr);
       },
       resolveId: {
@@ -56,17 +53,15 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
         if (!server(this, transformOptions?.ssr)) return;
         if (isOwnedHostAutoInitId(id, options)) {
           const pluginImports = options.runtimePlugins
-            .map((plugin, index) =>
-              SSR_ONLY_RUNTIME_PLUGINS.has(getRuntimePluginSpecifier(plugin))
-                ? ''
-                : `import plugin${index} from ${toSafeJsLiteral(getRuntimePluginSpecifier(plugin))};`
+            .map(
+              (plugin, index) =>
+                `import plugin${index} from ${toSafeJsLiteral(getRuntimePluginSpecifier(plugin))};`
             )
             .join('\n');
           const plugins = options.runtimePlugins
-            .map((plugin, index) =>
-              SSR_ONLY_RUNTIME_PLUGINS.has(getRuntimePluginSpecifier(plugin))
-                ? `await import(${toSafeJsLiteral(getRuntimePluginSpecifier(plugin))}).then(mod => (mod.default ?? mod)(${Array.isArray(plugin) ? serializeRuntimeOptions(plugin[1]) : ''}))`
-                : `plugin${index}(${Array.isArray(plugin) ? serializeRuntimeOptions(plugin[1]) : ''})`
+            .map(
+              (plugin, index) =>
+                `plugin${index}(${Array.isArray(plugin) ? serializeRuntimeOptions(plugin[1]) : ''})`
             )
             .join(',');
           return {
@@ -91,13 +86,8 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
             map: null,
           };
         }
-        const file = normalizePath(id.split('?')[0]);
         if (
           !(command === 'build' && this.getModuleInfo(id)?.isEntry) &&
-          (!isAbsolute(file) ||
-            !file.startsWith(`${root}/`) ||
-            file.includes('/node_modules/') ||
-            !/\.[cm]?[jt]sx?$/.test(file)) &&
           !findModuleImportSources(code).includes('@module-federation/runtime')
         )
           return;

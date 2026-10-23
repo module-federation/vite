@@ -269,6 +269,8 @@ builds are supported on Vite 5–8.
 
 Dependencies externalized by Vite keep Node's own runtime resolution. Their runtime
 imports are not bound to the application's instance by this bootstrap.
+Include runtime-consuming dependencies in Vite's `ssr.noExternal` when they need
+to use the application's runtime instance.
 
 SSR hosts can choose how HTTP ESM remote entries are evaluated during build and preview:
 
