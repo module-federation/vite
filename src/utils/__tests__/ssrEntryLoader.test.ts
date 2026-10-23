@@ -1979,7 +1979,16 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     expectFetchCalled(fetch, 'http://localhost:4175/__mf_runner__');
   });
 
-  it('falls back to a host shared module when remote resolution fails', async () => {
+  it.each([
+    ['remote resolution fails', { error: { message: 'unresolved' } }],
+    [
+      'the remote shares the package',
+      {
+        result: { externalize: 'file:///remote/node_modules/react/index.js', type: 'commonjs' },
+        shared: true,
+      },
+    ],
+  ])('uses the host shared module when %s', async (_case, runnerResponse) => {
     const sharedFetchResults: unknown[] = [];
     const { factory } = await freshLoaderWithRunner((runnerOptions) => ({
       import: vi.fn(async () => {
@@ -2004,7 +2013,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
       },
       'http://localhost:4175/__mf_runner__': {
         ok: true,
-        json: { error: { message: 'unresolved' } },
+        json: runnerResponse,
       },
     });
     global.fetch = fetch as unknown as typeof globalThis.fetch;
