@@ -12,6 +12,7 @@ import {
   stripViteFsPrefix,
   VITE_FS_PREFIX,
 } from '../utils/pathNormalization';
+import { findSharedKey } from '../utils/sharedKeyMatcher';
 import { decodeViteId } from '../utils/VirtualModule';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
 import {
@@ -491,8 +492,12 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
                   }
                 }
               }
+              // Mark shared packages so the host can swap in its own copy.
+              const fetchedId = body.data.name === 'fetchModule' ? body.data.data[0] : undefined;
+              const shared =
+                typeof fetchedId === 'string' && !!findSharedKey(fetchedId, options.shared);
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify(result));
+              res.end(JSON.stringify(shared ? { ...result, shared } : result));
             } catch (e) {
               res.setHeader('Content-Type', 'application/json');
               res.end(

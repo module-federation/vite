@@ -237,10 +237,15 @@ async function getOrCreateRunner(
                 fetchTimeoutMs
               );
               const text = await readResponseTextBounded(res, fetchMaxBytes, runnerEndpoint);
-              const result = parseRunnerInvokeResult(JSON.parse(text));
-              // Let the remote transform configured shares and resolve local-only
-              // dependencies first. This preserves remote-owned React islands.
-              if ('error' in result && payload.data.name === 'fetchModule') {
+              const data = JSON.parse(text);
+              const result = parseRunnerInvokeResult(data);
+              // Remote-local dependencies keep the remote's resolution, which
+              // preserves remote-owned React islands. Packages the remote shares
+              // (or fails to resolve) use the host copy when it has one.
+              if (
+                ('error' in result || (isPlainObject(data) && data.shared === true)) &&
+                payload.data.name === 'fetchModule'
+              ) {
                 const sharedExternal = await resolveSharedExternal(
                   payload.data.data[0],
                   resolvedShared
