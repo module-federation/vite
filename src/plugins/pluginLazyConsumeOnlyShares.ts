@@ -170,7 +170,7 @@ export function pluginLazyConsumeOnlyShares(options: NormalizedModuleFederationO
       }
 
       const chunkDir = path.posix.dirname(renderedChunk.fileName);
-      let codePositions: boolean[] | undefined;
+      let codePositions: Uint8Array | undefined;
       let usesHelper = false;
       // The import map's get() importers run inside init() while it seeds this
       // container's own copies, before initPromise can resolve: waiting on it there

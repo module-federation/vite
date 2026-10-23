@@ -13,17 +13,60 @@ const REGEX_PREFIX_KEYWORDS = new Set([
 ]);
 const CONTROL_PAREN_KEYWORDS = new Set(['if', 'while', 'for', 'with', 'switch', 'catch']);
 
+// The scanner tests every character, so ASCII is answered by char code and only
+// other characters reach the equivalent Unicode regex.
+function isWhitespace(char: string | undefined): boolean {
+  if (char === undefined) return false;
+  const code = char.charCodeAt(0);
+  if (code < 128) return code === 32 || (code >= 9 && code <= 13);
+  return /\s/.test(char);
+}
+
+function isAsciiLetter(code: number): boolean {
+  return (code >= 97 && code <= 122) || (code >= 65 && code <= 90);
+}
+
+function isAsciiDigit(code: number): boolean {
+  return code >= 48 && code <= 57;
+}
+
+function isIdentifierStart(char: string): boolean {
+  const code = char.charCodeAt(0);
+  if (code < 128) return isAsciiLetter(code) || code === 36 || code === 95;
+  return /[$_\p{ID_Start}]/u.test(char);
+}
+
+function isIdentifierPart(char: string | undefined): boolean {
+  if (char === undefined) return false;
+  const code = char.charCodeAt(0);
+  if (code < 128) return isAsciiLetter(code) || isAsciiDigit(code) || code === 36 || code === 95;
+  return /[$_\u200C\u200D\p{ID_Continue}]/u.test(char);
+}
+
+function isRegexFlag(char: string | undefined): boolean {
+  if (char === undefined) return false;
+  const code = char.charCodeAt(0);
+  if (code < 128) return isAsciiLetter(code) || isAsciiDigit(code) || code === 36 || code === 95;
+  return /[$_\p{ID_Continue}]/u.test(char);
+}
+
+function isNumberPart(char: string | undefined): boolean {
+  if (char === undefined) return false;
+  const code = char.charCodeAt(0);
+  return isAsciiLetter(code) || isAsciiDigit(code) || code === 95 || code === 46;
+}
+
 function isJsxClosingTagSlash(code: string, slashIndex: number): boolean {
   if (code[slashIndex - 1] !== '<') return false;
 
   let cursor = slashIndex + 1;
-  while (/\s/.test(code[cursor] || '')) cursor++;
+  while (isWhitespace(code[cursor])) cursor++;
   if (code[cursor] === '>') return true;
 
   const tagStart = cursor;
   while (/[-:.$_\u200C\u200D\p{ID_Continue}]/u.test(code[cursor] || '')) cursor++;
   if (cursor === tagStart) return false;
-  while (/\s/.test(code[cursor] || '')) cursor++;
+  while (isWhitespace(code[cursor])) cursor++;
 
   return code[cursor] === '>';
 }
@@ -32,10 +75,10 @@ function isJsxClosingTagSlash(code: string, slashIndex: number): boolean {
 export function createCodePositionMap(
   code: string,
   onComment?: (start: number, end: number) => void
-): boolean[] {
-  const positions = Array<boolean>(code.length).fill(true);
+): Uint8Array {
+  const positions = new Uint8Array(code.length).fill(1);
   const mask = (start: number, end: number) => {
-    for (let index = start; index < end; index++) positions[index] = false;
+    positions.fill(0, start, end);
   };
   let canStartRegex = true;
   let pendingControlParen: string | undefined;
@@ -65,7 +108,7 @@ export function createCodePositionMap(
       continue;
     }
 
-    if (/\s/.test(char)) {
+    if (isWhitespace(char)) {
       index++;
       continue;
     }
@@ -110,8 +153,7 @@ export function createCodePositionMap(
       canStartRegex = false;
       continue;
     }
-    const closesJsxTag = isJsxClosingTagSlash(code, index);
-    if (char === '/' && canStartRegex && !closesJsxTag) {
+    if (char === '/' && canStartRegex && !isJsxClosingTagSlash(code, index)) {
       const start = index;
       let cursor = index + 1;
       let escaped = false;
@@ -138,7 +180,7 @@ export function createCodePositionMap(
         }
         if (regexChar === '/' && !inCharacterClass) {
           cursor++;
-          while (/[$_\p{ID_Continue}]/u.test(code[cursor] || '')) cursor++;
+          while (isRegexFlag(code[cursor])) cursor++;
           closed = true;
           break;
         }
@@ -150,13 +192,13 @@ export function createCodePositionMap(
         continue;
       }
     }
-    if (/[$_\p{ID_Start}]/u.test(char)) {
+    if (isIdentifierStart(char)) {
       const start = index++;
-      while (/[$_\u200C\u200D\p{ID_Continue}]/u.test(code[index] || '')) index++;
+      while (isIdentifierPart(code[index])) index++;
       const word = code.slice(start, index);
       if (CONTROL_PAREN_KEYWORDS.has(word)) {
         let previous = start - 1;
-        while (previous >= 0 && (/\s/.test(code[previous]) || !positions[previous])) previous--;
+        while (previous >= 0 && (isWhitespace(code[previous]) || !positions[previous])) previous--;
         // A method named `if`/`while`/etc. still ends an expression when called.
         if (code[previous] !== '.') pendingControlParen = word;
       } else if (word === 'await' && controlKeyword === 'for') {
@@ -165,9 +207,9 @@ export function createCodePositionMap(
       canStartRegex = REGEX_PREFIX_KEYWORDS.has(word);
       continue;
     }
-    if (/\d/.test(char)) {
+    if (isAsciiDigit(char.charCodeAt(0))) {
       index++;
-      while (/[\w.]/.test(code[index] || '')) index++;
+      while (isNumberPart(code[index])) index++;
       canStartRegex = false;
       continue;
     }

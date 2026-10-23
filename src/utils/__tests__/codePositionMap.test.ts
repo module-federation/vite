@@ -7,8 +7,8 @@ describe('createCodePositionMap', () => {
       'export function A(){return <div></div>} export function B(){return <span></span>}';
     const positions = createCodePositionMap(source);
 
-    expect(positions[source.indexOf('export')]).toBe(true);
-    expect(positions[source.lastIndexOf('export')]).toBe(true);
+    expect(positions[source.indexOf('export')]).toBe(1);
+    expect(positions[source.lastIndexOf('export')]).toBe(1);
   });
 
   it('masks export-like text in comments, strings, and regular expressions', () => {
@@ -16,17 +16,17 @@ describe('createCodePositionMap', () => {
       '// export const commentValue = 1\nconst text = "export const stringValue = 1"; const matcher = /export const regexValue/;';
     const positions = createCodePositionMap(source);
 
-    expect(positions[source.indexOf('export')]).toBe(false);
-    expect(positions[source.indexOf('export', source.indexOf('"'))]).toBe(false);
-    expect(positions[source.lastIndexOf('export')]).toBe(false);
+    expect(positions[source.indexOf('export')]).toBe(0);
+    expect(positions[source.indexOf('export', source.indexOf('"'))]).toBe(0);
+    expect(positions[source.lastIndexOf('export')]).toBe(0);
   });
 
   it('does not confuse a less-than comparison followed by a regex with JSX', () => {
     const source = 'const matches = value < /export const phantom/; export const real = 1;';
     const positions = createCodePositionMap(source);
 
-    expect(positions[source.indexOf('export')]).toBe(false);
-    expect(positions[source.lastIndexOf('export')]).toBe(true);
+    expect(positions[source.indexOf('export')]).toBe(0);
+    expect(positions[source.lastIndexOf('export')]).toBe(1);
   });
 
   it('reports only actual comment ranges, preserving the original position map', () => {
@@ -53,16 +53,16 @@ describe('createCodePositionMap', () => {
     const source = `${prefix} export const answer = 1;`;
     const positions = createCodePositionMap(source);
 
-    expect(positions[source.indexOf('export')]).toBe(true);
-    expect(positions.slice(prefix.indexOf('`'), prefix.lastIndexOf('`') + 1)).not.toContain(true);
+    expect(positions[source.indexOf('export')]).toBe(1);
+    expect(positions.slice(prefix.indexOf('`'), prefix.lastIndexOf('`') + 1)).not.toContain(1);
   });
 
   it('masks export-like text inside nested templates', () => {
     const source = "const text = `${`'export const phantom = 1'`}`; export const answer = 1;";
     const positions = createCodePositionMap(source);
 
-    expect(positions[source.indexOf('export')]).toBe(false);
-    expect(positions[source.lastIndexOf('export')]).toBe(true);
+    expect(positions[source.indexOf('export')]).toBe(0);
+    expect(positions[source.lastIndexOf('export')]).toBe(1);
   });
 
   it.each([
@@ -78,8 +78,8 @@ describe('createCodePositionMap', () => {
     const source = `${prefix} export const answer = 1;`;
     const positions = createCodePositionMap(source);
 
-    expect(positions[source.indexOf('export')]).toBe(true);
-    expect(positions.slice(prefix.indexOf('`'), prefix.lastIndexOf('`') + 1)).not.toContain(true);
+    expect(positions[source.indexOf('export')]).toBe(1);
+    expect(positions.slice(prefix.indexOf('`'), prefix.lastIndexOf('`') + 1)).not.toContain(1);
   });
 
   it.each(['check()', '(value)', 'object.if()', 'object?.while()', 'object./* method */for()'])(
@@ -88,8 +88,8 @@ describe('createCodePositionMap', () => {
       const source = `const value = ${expression} / divisor; export const answer = value / 2;`;
       const positions = createCodePositionMap(source);
 
-      expect(positions[source.indexOf('export')]).toBe(true);
-      expect(positions[source.indexOf('/ divisor')]).toBe(true);
+      expect(positions[source.indexOf('export')]).toBe(1);
+      expect(positions[source.indexOf('/ divisor')]).toBe(1);
     }
   );
 });

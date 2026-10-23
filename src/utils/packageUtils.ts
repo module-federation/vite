@@ -666,8 +666,8 @@ function tryReadPackageJson(
   packageJsonPath: string,
   expectedName?: string
 ): InstalledPackageJson | undefined {
-  if (!existsSync(packageJsonPath)) return undefined;
   try {
+    // A missing file throws like a malformed one; no separate existence check.
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as Record<
       string,
       unknown
@@ -884,12 +884,16 @@ function warnOnAmbiguousDependents(
   );
 }
 
+// One syscall instead of an lstat per path segment. Windows keeps the JS
+// implementation, which Vite also prefers there for subst and network drives.
+const realpath = process.platform === 'win32' ? realpathSync : realpathSync.native;
+
 /** The package Node's `node_modules` lookup finds from `fromDir`, read at its real path. */
 function findPackageFrom(packageName: string, fromDir: string): InstalledPackageJson | undefined {
   const entry = findNodeModulesEntry(packageName, fromDir);
   if (!entry) return undefined;
   try {
-    return tryReadPackageJson(path.join(realpathSync(entry), 'package.json'), packageName);
+    return tryReadPackageJson(path.join(realpath(entry), 'package.json'), packageName);
   } catch {
     return undefined;
   }
