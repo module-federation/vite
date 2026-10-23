@@ -10,6 +10,7 @@ import { getImportAnalysis } from '../utils/importAnalysis';
 import {
   getNormalizeModuleFederationOptions,
   hasRemotes,
+  isRemoteContainer,
   type NormalizedModuleFederationOptions,
   type NormalizedShared,
   type ShareItem,
@@ -756,7 +757,7 @@ export function proxySharedModule(options: {
         const isRolldown = getIsRolldown(this);
         const resolvedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
         const registerConfiguredShare =
-          _command === 'build' && Object.keys(resolvedOptions.exposes).length > 0
+          _command === 'build' && isRemoteContainer(resolvedOptions)
             ? addUsedShares
             : addConfiguredShare;
         Object.keys(shared).forEach((key) => {

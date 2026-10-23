@@ -1,6 +1,8 @@
 import type { UserConfig } from 'vite';
 import {
+  hasRemotes,
   hasShared,
+  isRemoteContainer,
   type NormalizedModuleFederationOptions,
 } from './normalizeModuleFederationOptions';
 
@@ -64,7 +66,7 @@ export function applyRuntimeCapabilityDefines(
   }
 
   if (!('FEDERATION_HAS_EXPOSES' in define)) {
-    define['FEDERATION_HAS_EXPOSES'] = JSON.stringify(Object.keys(options.exposes).length > 0);
+    define['FEDERATION_HAS_EXPOSES'] = JSON.stringify(isRemoteContainer(options));
   }
 }
 
@@ -73,7 +75,7 @@ export function getRuntimeCapabilityConfigurationWarnings(
 ): string[] {
   const warnings: string[] = [];
 
-  if (options.disableRemote && Object.keys(options.remotes).length > 0) {
+  if (options.disableRemote && hasRemotes(options)) {
     warnings.push(
       'disableRemote is true, but remotes are configured. Remote loading will be unavailable at runtime.'
     );

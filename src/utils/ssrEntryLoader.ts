@@ -1518,7 +1518,8 @@ interface ResolvedLoaderOptions {
  * Each specifier takes the first hit of a fixed order, independent of import
  * order or timing:
  *  1. resolved from the real path of the server entry (`process.argv[1]`),
- *     which is where Node resolves the host's own bare imports from;
+ *     which is where Node resolves the host's own bare imports from, unless
+ *     it is a CLI inside node_modules (e.g. `vite preview`);
  *  2. resolved from `process.cwd()`, for launchers whose `argv[1]` is not the
  *     server entry or is missing;
  *  3. the build-time path.
@@ -1531,7 +1532,10 @@ async function rebaseResolvedShared(
   const { join } = await _path();
   const requires: NodeJS.Require[] = [];
   try {
-    if (process.argv[1]) requires.push(createRequire(realpathSync(process.argv[1])));
+    const entry = process.argv[1] && realpathSync(process.argv[1]);
+    // A CLI launcher such as `vite preview` lives in node_modules; resolving from
+    // there picks whatever copy the package manager hoisted, not the host's.
+    if (entry && !/[\\/]node_modules[\\/]/.test(entry)) requires.push(createRequire(entry));
   } catch {
     // No resolvable entry path; continue with cwd.
   }

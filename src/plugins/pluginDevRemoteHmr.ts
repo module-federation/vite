@@ -1,5 +1,9 @@
 import type { HtmlTagDescriptor, Plugin, ViteDevServer } from 'vite';
-import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import {
+  hasRemotes,
+  isRemoteContainer,
+  type NormalizedModuleFederationOptions,
+} from '../utils/normalizeModuleFederationOptions';
 import { reactAdapter } from './hmr/react';
 import { vueAdapter } from './hmr/vue';
 import {
@@ -164,8 +168,8 @@ function collectHostTags(
 }
 
 export default function pluginDevRemoteHmr(options: NormalizedModuleFederationOptions): Plugin {
-  const isHost = Object.keys(options.remotes).length > 0;
-  const isRemote = Object.keys(options.exposes).length > 0;
+  const isHost = hasRemotes(options);
+  const isRemote = isRemoteContainer(options);
 
   // Resolved once in `configResolved` from `config.plugins`. Vite calls
   // `configResolved` before any other hook below, so these are populated by

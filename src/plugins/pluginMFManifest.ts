@@ -5,6 +5,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  isRemoteContainer,
   type NormalizedModuleFederationOptions,
   type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
@@ -293,7 +294,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         : undefined;
 
   let mfManifestStatsName = mfManifestName ? getStatsFileName(mfManifestName) : undefined;
-  const isConsumerProject = Object.keys(mfOptions.exposes).length === 0;
+  const isConsumerProject = !isRemoteContainer(mfOptions);
   let disableAssetsAnalyze = false;
 
   const getDefaultDisableAssetsAnalyze = (command: string | undefined) =>
@@ -342,7 +343,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
           const devRemoteEntryFile = resolveHashPlaceholderFileName(filename);
           if (
             devRemoteEntryFile !== filename &&
-            Object.keys(mfOptions.exposes).length > 0 &&
+            isRemoteContainer(mfOptions) &&
             req.url?.startsWith((viteConfig.base + devRemoteEntryFile).replace(/^\/?/, '/'))
           ) {
             req.url = req.url.replace(devRemoteEntryFile, filename);

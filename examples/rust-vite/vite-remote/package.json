@@ -17,6 +17,6 @@
   "devDependencies": {
     "@swc/core": "1.6.13",
     "@vitejs/plugin-react": "5.1.2",
-    "vite": "6.4.3"
+    "vite": "6.4.4"
   }
 }

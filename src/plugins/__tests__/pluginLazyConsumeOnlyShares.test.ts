@@ -7,7 +7,10 @@ const { getNormalizeShareItem, getUsedShares } = vi.hoisted(() => ({
   getUsedShares: vi.fn(),
 }));
 
-vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
+vi.mock('../../utils/normalizeModuleFederationOptions', async () => ({
+  ...(await vi.importActual<typeof import('../../utils/normalizeModuleFederationOptions')>(
+    '../../utils/normalizeModuleFederationOptions'
+  )),
   getNormalizeShareItem,
 }));
 

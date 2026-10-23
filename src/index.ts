@@ -65,6 +65,7 @@ import type {
 import {
   hasRemotes,
   hasShared,
+  isRemoteContainer,
   normalizeModuleFederationOptions,
   resolveSharedVersions,
 } from './utils/normalizeModuleFederationOptions';
@@ -743,7 +744,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
       // in the emitted localSharedImportMap chunk.
       // Register the remote key only — a configured alias is not an imported
       // root (`.`) expose. Actual modules are recorded when the app imports them.
-      if (remotes && Object.keys(remotes).length > 0) {
+      if (hasRemotes(options)) {
         for (const key of Object.keys(remotes)) {
           ensureUsedRemote(key, options);
         }
@@ -1200,10 +1201,9 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
   if (options.experiments.hostProvidesAllShared) {
     const ignored = getIgnoredOptionWarning(mfUserOptions);
     if (ignored) mfWarn(ignored);
-    const container =
-      Object.keys(options.exposes).length > 0
-        ? pluginHostProvidesAllSharedRemote(options)
-        : pluginHostProvidesAllSharedHost(options);
+    const container = isRemoteContainer(options)
+      ? pluginHostProvidesAllSharedRemote(options)
+      : pluginHostProvidesAllSharedHost(options);
     return [container, ...loadPluginDts(withoutDynamicRemoteTypeHints(options))];
   }
   applyExternalRuntimeExperiments(options);
@@ -1723,7 +1723,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         const ssrCapabilities = getSsrCapabilities(
           parseInt(viteVersion, 10),
           command as 'serve' | 'build',
-          Object.keys(options.remotes).length > 0,
+          hasRemotes(options),
           isSsrConfig(config)
         );
         resolveSharedVersions(shared, config.root);
@@ -1775,7 +1775,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       entryName: 'hostInit',
       entryPath: () => getHostAutoInitPath(options),
       inject: hostInitInjectLocation,
-      forceClientInjected: Object.keys(options.exposes).length > 0,
+      forceClientInjected: isRemoteContainer(options),
       skipTransformFor: Object.values(options.exposes).map((expose) => expose.import),
       federationOptions: options,
     }),
@@ -2294,7 +2294,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     ...(function () {
       let disablePreload = false;
 
-      return Object.keys(options.exposes).length > 0
+      return isRemoteContainer(options)
         ? [
             {
               name: 'module-federation-fix-preload',

@@ -2,7 +2,10 @@ import * as fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import * as path from 'node:path';
 import { Plugin, ResolvedConfig } from 'vite';
-import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import {
+  isRemoteContainer,
+  NormalizedModuleFederationOptions,
+} from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
 import {
@@ -270,7 +273,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
     const isLegacySsrBuild = Boolean(environment?.config?.build?.ssr ?? viteConfig?.build?.ssr);
 
     return (
-      Object.keys(options.exposes).length > 0 &&
+      isRemoteContainer(options) &&
       !(
         (hasSsrEnvironment && environmentName !== 'ssr') ||
         (!hasSsrEnvironment && !isLegacySsrBuild)
@@ -579,7 +582,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
             fileName: ssrOutputFilename,
             preserveSignature: 'strict',
           });
-        } else if (Object.keys(options.exposes).length > 0 && !isNuxtLike()) {
+        } else if (isRemoteContainer(options) && !isNuxtLike()) {
           // Rollup emits the SSR entry as an asset (see generateBundle), so its
           // `import("virtual:mf-exposes-ssr:…")` must point at a real chunk. Nuxt
           // bundles the exposes into its own server chunk; other SSR frameworks
