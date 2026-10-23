@@ -1243,10 +1243,15 @@ describe('module-federation-esm-shims', () => {
     const plugin = getEsmShimsPlugin();
     const config: any = { build: { rolldownOptions: { output: {} } } };
 
-    runConfig(plugin, { meta: { rolldownVersion: '1.2.10' } } as ConfigPluginContext, config, {
-      command: 'build',
-      mode: 'test',
-    });
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.2.10' } } as ConfigPluginContext,
+      config,
+      {
+        command: 'build',
+        mode: 'test',
+      }
+    );
 
     const groups = config.build.rolldownOptions.output.codeSplitting.groups;
     const federationGroup = groups.find((g: any) => typeof g?.name === 'function');
@@ -1257,10 +1262,15 @@ describe('module-federation-esm-shims', () => {
     const plugin = getEsmShimsPlugin();
     const config: any = { build: { rolldownOptions: { output: {} } } };
 
-    runConfig(plugin, { meta: { rolldownVersion: '1.2.9' } } as ConfigPluginContext, config, {
-      command: 'build',
-      mode: 'test',
-    });
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.2.9' } } as ConfigPluginContext,
+      config,
+      {
+        command: 'build',
+        mode: 'test',
+      }
+    );
 
     const groups = config.build.rolldownOptions.output.codeSplitting.groups;
     expect(groups.some((g: any) => 'debugName' in g)).toBe(false);
@@ -2171,7 +2181,7 @@ describe('vite:module-federation-early-init', () => {
     runConfig(
       plugin,
       {
-        meta: { rolldownVersion: '1.0.0' },
+        meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' },
       } as ConfigPluginContext,
       config,
       { command: 'serve', mode: 'test' }
@@ -2195,7 +2205,7 @@ describe('vite:module-federation-early-init', () => {
     runConfig(
       plugin,
       {
-        meta: { rolldownVersion: '1.0.0' },
+        meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' },
       } as ConfigPluginContext,
       config,
       { command: 'serve', mode: 'test' }
@@ -2217,10 +2227,15 @@ describe('vite:module-federation-early-init', () => {
   it('generates shared wrappers once per optimization pass and refreshes the next pass', () => {
     const plugin = getEarlyInitPluginWithReactShared();
     const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
-    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      config,
+      {
+        command: 'serve',
+        mode: 'test',
+      }
+    );
     const optimizer = config.optimizeDeps.rolldownOptions.plugins.find(
       (entry: { name: string }) => entry.name === 'module-federation:optimize-shared-resolver'
     );
@@ -2291,7 +2306,7 @@ describe('vite:module-federation-early-init', () => {
     const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
     runConfig(
       earlyInitPlugin,
-      { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' } } as ConfigPluginContext,
       config,
       { command: 'serve', mode: 'test' }
     );
@@ -2309,10 +2324,15 @@ describe('vite:module-federation-early-init', () => {
     if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
 
     const config: any = { root: process.cwd(), optimizeDeps: { include: [] } };
-    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      config,
+      {
+        command: 'serve',
+        mode: 'test',
+      }
+    );
     const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
       (entry: any) => entry.name === 'module-federation:optimize-shared-resolver'
     );
@@ -2348,10 +2368,15 @@ describe('vite:module-federation-early-init', () => {
       optimizeDeps: { include: [] },
     };
 
-    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      config,
+      {
+        command: 'serve',
+        mode: 'test',
+      }
+    );
 
     const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
       (entry: any) => entry.name === 'module-federation:optimize-shared-resolver'
@@ -2813,10 +2838,15 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      config,
+      {
+        command: 'serve',
+        mode: 'test',
+      }
+    );
 
     expect(config.optimizeDeps.exclude).toContain('remoteApp');
   });
@@ -2847,10 +2877,15 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      config,
+      {
+        command: 'serve',
+        mode: 'test',
+      }
+    );
 
     expect(config.optimizeDeps.exclude).toContain('scheduler');
     expect(config.optimizeDeps.include).not.toContain('/repo/node_modules/scheduler/index.js');
@@ -2865,10 +2900,15 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      config,
+      {
+        command: 'serve',
+        mode: 'test',
+      }
+    );
 
     const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
       (entry: { name: string }) => entry.name === 'module-federation:optimize-shared-resolver'
@@ -3541,10 +3581,15 @@ describe('vite:module-federation-early-init', () => {
   it('disables Rolldown lazy compilation under experimental.bundledDev in serve', () => {
     const plugin = getModuleFederationVitePluginWithOptions({});
     const run = (config: any, command: 'serve' | 'build') =>
-      runConfig(plugin, { meta: { rolldownVersion: '1.2.9' } } as ConfigPluginContext, config, {
-        command,
-        mode: 'test',
-      });
+      runConfig(
+        plugin,
+        { meta: { viteVersion: '8.0.0', rolldownVersion: '1.2.9' } } as ConfigPluginContext,
+        config,
+        {
+          command,
+          mode: 'test',
+        }
+      );
     const base = () => ({ root: process.cwd(), resolve: { alias: [] }, build: {} });
 
     const bundledDev: any = { ...base(), experimental: { bundledDev: true } };
@@ -3793,10 +3838,15 @@ describe('vite:module-federation-early-init', () => {
       },
     };
 
-    runConfig(plugin, { meta: { rolldownVersion: '1.0.0' } } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      config,
+      {
+        command: 'serve',
+        mode: 'test',
+      }
+    );
 
     expect(config.optimizeDeps.include).toContain('@module-federation/runtime');
     expect(config.optimizeDeps.include).not.toContain('__mf__virtual');

@@ -1000,14 +1000,11 @@ export function getInstalledPackageEntry(
   return path.join(installed.dir, explicitEntry);
 }
 
-/**
- * Detect whether the current runtime is Vite 8+ by checking for a Vite version flag
- * on the plugin hook context, with Rolldown metadata kept as a compatibility fallback.
- */
+/** Detect Vite 8+ (Rolldown) from the Vite version on the plugin hook context. */
 export function getIsRolldown(ctx: unknown): boolean {
   const viteVersion = (ctx as any)?.meta?.viteVersion;
   const viteMajor = Number(String(viteVersion ?? '').split('.')[0]);
-  return (Number.isFinite(viteMajor) && viteMajor >= 8) || !!(ctx as any)?.meta?.rolldownVersion;
+  return Number.isFinite(viteMajor) && viteMajor >= 8;
 }
 
 /**

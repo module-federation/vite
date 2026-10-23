@@ -2,9 +2,9 @@
 export type RemoteConsumerTarget = 'client' | 'server';
 
 /**
- * `unified` keeps a single wrapper with runtime `typeof window` checks (Vite 5–7
- * and other single-environment graphs). Split `client` / `server` when the
- * Environment API is active.
+ * `unified` keeps a single wrapper with runtime `typeof window` checks (Vite 5,
+ * and Vite 6+ builds without an SSR environment). Split `client` / `server` when
+ * an SSR environment exists.
  */
 export type RemoteConsumer = RemoteConsumerTarget | 'unified';
 
@@ -19,8 +19,8 @@ export function getPluginEnvironmentName(ctx: unknown): string | undefined {
 /**
  * Classify a plugin hook context's Vite environment. Environment names are
  * user-defined, so Vite's `config.consumer` is the semantic role; fall back to
- * the name only when it is missing (Vite 5–7). Returns `undefined` when the hook
- * has no environment context at all.
+ * the name only when it is missing. Returns `undefined` when the hook has no
+ * environment context at all (Vite 5).
  */
 export function resolveEnvironmentConsumerTarget(ctx: unknown): RemoteConsumerTarget | undefined {
   if (ctx == null || typeof ctx !== 'object') return undefined;
@@ -32,7 +32,7 @@ export function resolveEnvironmentConsumerTarget(ctx: unknown): RemoteConsumerTa
   return !envName || envName === 'client' ? 'client' : 'server';
 }
 
-/** Vite 5–7 hooks have no environment context and keep their client build behavior. */
+/** Hooks without an environment context (Vite 5) keep their client build behavior. */
 export function isClientEnvironment(ctx: unknown): boolean {
   return resolveEnvironmentConsumerTarget(ctx) !== 'server';
 }

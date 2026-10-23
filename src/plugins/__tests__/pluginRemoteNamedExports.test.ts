@@ -26,7 +26,7 @@ const OPTIONS = {
 
 function createContext(parseError = false) {
   return {
-    meta: { rolldownVersion: '1.0.0' },
+    meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' },
     parse(code: string) {
       if (parseError) throw new Error('Parse error');
       return parseAst(code);
