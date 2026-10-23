@@ -53,7 +53,6 @@ import { getIgnoredOptionWarning } from './utils/hostProvidesAllShared';
 import { createModuleFederationError, mfWarn } from './utils/logger';
 import { getSharedExportConditions } from './utils/sharedExportConditions';
 import { getSharedRequest, getSharedRuntimeKey } from './utils/sharedKeyMatcher';
-import { mergeOptimizeDepsEntries } from './utils/optimizeDepsEntries';
 import type {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -998,17 +997,25 @@ export default __mfShared.default ?? __mfShared;`,
         if (generatedEntries.length > 0) {
           config.optimizeDeps ??= {};
           const outDir = config.build?.outDir ?? 'dist';
-          config.optimizeDeps.entries = mergeOptimizeDepsEntries(
-            config.optimizeDeps.entries,
-            generatedEntries,
-            [
-              '**/*.html',
-              '!**/node_modules/**',
-              `!**/${outDir.replace(/\\/g, '/')}/**`,
-              '!**/__tests__/**',
-              '!**/coverage/**',
-            ]
-          );
+          const { entries } = config.optimizeDeps;
+          // include/exclude are left to Vite: since 5.1 its optimizer config hash
+          // dedupes and sorts them itself.
+          config.optimizeDeps.entries = [
+            ...new Set([
+              ...(entries === undefined
+                ? [
+                    '**/*.html',
+                    '!**/node_modules/**',
+                    `!**/${outDir.replace(/\\/g, '/')}/**`,
+                    '!**/__tests__/**',
+                    '!**/coverage/**',
+                  ]
+                : typeof entries === 'string'
+                  ? [entries]
+                  : entries),
+              ...generatedEntries,
+            ]),
+          ];
         }
       }
     },
