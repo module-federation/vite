@@ -204,6 +204,39 @@ function expectTopology(result: any, host: Application, parent: Application) {
 }
 
 describe('plain runtime API during SSR startup', () => {
+  it.runIf(Number(version.split('.')[0]) >= 8).each(['virtual', 'workspace'] as const)(
+    'initializes cold dev SSR from a %s entry before a top-level runtime call',
+    async (kind) => {
+      const target = await remote(kind);
+      const app = await application(target.entry);
+      const code = `
+        import { getInstance, loadRemote } from '@module-federation/runtime';
+        export const owner = getInstance()?.name;
+        export const value = (await loadRemote('products/value')).target;
+      `;
+      let entry = 'virtual:ssr-runtime-probe';
+      if (kind === 'virtual') {
+        app.config.plugins!.unshift({
+          name: 'ssr-runtime-probe',
+          resolveId(id) {
+            if (id === entry) return '\0' + entry;
+          },
+          load(id) {
+            if (id === '\0' + entry) return code;
+          },
+        });
+      } else {
+        entry = path.join(await directory(), 'probe.js');
+        await writeFile(entry, code);
+      }
+      const server = await createServer(app.config);
+      cleanup.push(() => server.close());
+      const result = await server.ssrLoadModule(entry);
+      expect(result.owner).toBe(app.name);
+      expect(result.value).toBe(kind);
+    }
+  );
+
   it.runIf(Number(version.split('.')[0]) >= 8)(
     'keeps two cold dev SSR owners independent',
     async () => {
@@ -283,10 +316,7 @@ describe('plain runtime API during SSR startup', () => {
       expect(
         output.output
           .filter((chunk) => chunk.type === 'chunk')
-          .some(
-            (chunk) =>
-              chunk.facadeModuleId?.includes('__H_A_I__') || chunk.code.includes('mf-ssr-runtime=')
-          )
+          .some((chunk) => Object.keys(chunk.modules).some((id) => id.includes('__H_A_I__')))
       ).toBe(false);
     }
   );

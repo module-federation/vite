@@ -259,13 +259,16 @@ The **moduleParseIdleTimeout** option is an alternative that resets the timer on
 
 ## SSR entry loading strategy
 
-Applications with configured remotes register their owning runtime before SSR
-application code runs, so plain `getInstance()` and `loadRemote()` from
-`@module-federation/runtime` also work on a cold server. Startup only registers
-remotes and shares; it does not fetch remote entries or manifests or request a
-root expose. Remote loading remains on demand, including with `loaded-first`.
-Apps without remotes do not receive this SSR bootstrap. Development SSR retains
-the existing Vite 8+ support requirement; independent SSR builds support Vite 5–8.
+For applications with configured remotes, SSR modules processed by Vite initialize
+their owning runtime before calling plain `getInstance()` or `loadRemote()` from
+`@module-federation/runtime`. Startup registers remotes and shares without fetching
+remote entries or manifests or requesting a root expose. Remote loading stays lazy,
+including with `loaded-first`. Apps without remotes receive no SSR host bootstrap.
+Cold development SSR follows the existing Vite 8+ support gate; independent SSR
+builds are supported on Vite 5–8.
+
+Dependencies externalized by Vite keep Node's own runtime resolution. Their runtime
+imports are not bound to the application's instance by this bootstrap.
 
 SSR hosts can choose how HTTP ESM remote entries are evaluated during build and preview:
 

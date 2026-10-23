@@ -1,5 +1,6 @@
 import { normalizePath, type Plugin, version as viteVersion } from 'vite';
 import { isAbsolute } from 'node:path';
+import { findModuleImportSources } from '../utils/htmlEntryUtils';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import {
   hasRemotes,
@@ -22,7 +23,6 @@ import {
 /** Register the SSR host before application evaluation, without preloading remotes. */
 export default function pluginSsrRuntimeInit(options: NormalizedModuleFederationOptions): Plugin[] {
   if (!hasRemotes(options)) return [];
-  const runtimeId = `${options.implementation}?mf-ssr-runtime=${encodeURIComponent(getHostAutoInitPath(options))}`;
   let command: 'serve' | 'build';
   let root = '';
   let legacySsr = false;
@@ -45,13 +45,10 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
       resolveId: {
         order: 'pre',
         handler(id, _importer, resolveOptions) {
-          if (
-            server(this, resolveOptions.ssr) &&
-            (id === options.implementation || id === runtimeId)
-          ) {
+          if (server(this, resolveOptions.ssr) && id === options.implementation) {
             // The runtime's singleton is module-local. Keep the implementation's
             // original exports, but give each server application its own module.
-            return { id: runtimeId, external: false };
+            return { id: options.implementation, external: false };
           }
         },
       },
@@ -74,7 +71,7 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
             .join(',');
           return {
             code: `
-            import { init } from ${toSafeJsLiteral(runtimeId)};
+            import { init } from ${toSafeJsLiteral(options.implementation)};
             import { usedShared, usedRemotes } from ${toSafeJsLiteral(getLocalSharedImportMapPath(options))};
             ${pluginImports}
             ${getRuntimeInitBootstrapCode(false, getRuntimeInitStatusImportId(options))}
@@ -100,7 +97,8 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
           (!isAbsolute(file) ||
             !file.startsWith(`${root}/`) ||
             file.includes('/node_modules/') ||
-            !/\.[cm]?[jt]sx?$/.test(file))
+            !/\.[cm]?[jt]sx?$/.test(file)) &&
+          !findModuleImportSources(code).includes('@module-federation/runtime')
         )
           return;
         const injection = `import ${toSafeJsLiteral(getHostAutoInitPath(options))};\n`;
