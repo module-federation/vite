@@ -53,7 +53,6 @@ import { getIgnoredOptionWarning } from './utils/hostProvidesAllShared';
 import { createModuleFederationError, mfWarn } from './utils/logger';
 import { getSharedExportConditions } from './utils/sharedExportConditions';
 import { getSharedRequest, getSharedRuntimeKey } from './utils/sharedKeyMatcher';
-import { createSharedOptimizerPlan } from './utils/sharedOptimizerPlan';
 import type {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -994,30 +993,29 @@ export default __mfShared.default ?? __mfShared;`,
         writeLocalSharedImportMap(options);
       }
       if (_command === 'serve') {
-        config.optimizeDeps ??= {};
-        const outDir = config.build?.outDir ?? 'dist';
         const generatedEntries = collectLinkedSharedEntries(shared, root, options.exposes);
-        const plan = createSharedOptimizerPlan({
-          user: {
-            include: config.optimizeDeps.include,
-            exclude: config.optimizeDeps.exclude,
-            entries: config.optimizeDeps.entries,
-          },
-          generated: {
-            entries: generatedEntries,
-          },
-          defaultEntries: [
-            '**/*.html',
-            '!**/node_modules/**',
-            `!**/${outDir.replace(/\\/g, '/')}/**`,
-            '!**/__tests__/**',
-            '!**/coverage/**',
-          ],
-        });
-        config.optimizeDeps.include = plan.include;
-        config.optimizeDeps.exclude = plan.exclude;
-        if (generatedEntries.length > 0 && plan.entries) {
-          config.optimizeDeps.entries = plan.entries;
+        if (generatedEntries.length > 0) {
+          config.optimizeDeps ??= {};
+          const outDir = config.build?.outDir ?? 'dist';
+          const { entries } = config.optimizeDeps;
+          // include/exclude are left to Vite: since 5.1 its optimizer config hash
+          // dedupes and sorts them itself.
+          config.optimizeDeps.entries = [
+            ...new Set([
+              ...(entries === undefined
+                ? [
+                    '**/*.html',
+                    '!**/node_modules/**',
+                    `!**/${outDir.replace(/\\/g, '/')}/**`,
+                    '!**/__tests__/**',
+                    '!**/coverage/**',
+                  ]
+                : typeof entries === 'string'
+                  ? [entries]
+                  : entries),
+              ...generatedEntries,
+            ]),
+          ];
         }
       }
     },
