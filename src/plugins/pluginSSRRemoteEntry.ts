@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { Plugin, ResolvedConfig } from 'vite';
 import {
   isRemoteContainer,
+  hasRemotes,
   NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
@@ -17,6 +18,7 @@ import {
 } from '../utils/pathNormalization';
 import { findSharedKey } from '../utils/sharedKeyMatcher';
 import { decodeViteId } from '../utils/VirtualModule';
+import { getHostAutoInitPath } from '../virtualModules/virtualRemoteEntry';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
 import {
   generateRemoteEntrySSR,
@@ -572,6 +574,17 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Emit only for an SSR environment or legacy `vite build --ssr`.
         if (!isSsrRemoteEntryBuild(environment)) return;
 
+        // Rollup emits the SSR container as an asset. Its host bootstrap must
+        // have a stable exported facade that this asset can import as well.
+        if (!isRolldown && hasRemotes(options)) {
+          this.emitFile({
+            type: 'chunk',
+            id: getHostAutoInitPath(options),
+            name: 'hostInit',
+            preserveSignature: 'strict',
+          });
+        }
+
         if (isRolldown) {
           // Vite 8+ (Rolldown): emit as a proper chunk. Rolldown handles multiple
           // entry chunks without code-splitting side effects on the browser entry.
@@ -608,6 +621,20 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           const exposesChunk = findNuxtExposesChunk(bundle) ?? findEmittedExposesChunk(bundle);
           if (!isRolldown && isSsrRemoteEntryBuild(environment)) {
             let source = getSsrRemoteEntrySource();
+            if (hasRemotes(options)) {
+              const hostInitId = getHostAutoInitPath(options);
+              const hostInitChunk = Object.values(bundle).find(
+                (file) => file.type === 'chunk' && file.facadeModuleId?.includes(hostInitId)
+              );
+              if (hostInitChunk) {
+                let hostInitImport = path.posix.relative(
+                  path.posix.dirname(ssrOutputFilename),
+                  hostInitChunk.fileName
+                );
+                if (!hostInitImport.startsWith('.')) hostInitImport = `./${hostInitImport}`;
+                source = source.replace(JSON.stringify(hostInitId), JSON.stringify(hostInitImport));
+              }
+            }
             if (exposesChunk) {
               // The entry may sit below the output root (`filename` or
               // `ssrFilename` with a directory), so import relative to it.

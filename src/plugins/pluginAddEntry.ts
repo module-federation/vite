@@ -10,7 +10,7 @@ import {
 } from '../utils/buildPaths';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
-import { isClientEnvironment } from '../utils/remoteConsumerTarget';
+import { isClientEnvironment, isServerBuildContext } from '../utils/remoteConsumerTarget';
 
 import {
   findModuleImportSources,
@@ -23,6 +23,7 @@ import type { NormalizedModuleFederationOptions } from '../utils/normalizeModule
 import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
+  hasRemotes,
   isRemoteContainer,
   isRemoteOnlyContainer,
 } from '../utils/normalizeModuleFederationOptions';
@@ -1114,6 +1115,13 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           }
         }
         if (_command === 'serve') return;
+        if (
+          entryName === 'hostInit' &&
+          federationOptions &&
+          !hasRemotes(federationOptions) &&
+          isServerBuildContext(this, viteConfig)
+        )
+          return;
         if (skipSvelteKitSsrBuild()) return;
         // Skip Nitro's "ssr" environment — it reads all emitted entry chunks to
         // detect the SSR request handler, and picks up hostInit / remoteEntry
@@ -1338,7 +1346,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
       load(id) {
         return virtualEntryCode.get(id);
       },
-      transform(code, id) {
+      transform(code, id, transformOptions) {
         if (skipSvelteKitSsrBuild()) return;
         // The remoteEntry chunk is emitted in buildStart and reached through a
         // dynamic import, so a build never needs the side-effect import in the
@@ -1357,7 +1365,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         // Only inject into client-side modules. In Vite 8 multi-environment mode
         // this transform also runs for ssr/server environments — injecting there
         // would set clientInjected=true and prevent the real client injection.
-        if (!isClientEnvironment(this)) return;
+        if (isServerBuildContext(this, viteConfig) || transformOptions?.ssr) return;
         const isVinext = hasPackageDependency('vinext');
         if (
           isVinext &&

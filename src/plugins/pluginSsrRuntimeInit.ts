@@ -1,0 +1,112 @@
+import { normalizePath, type Plugin, version as viteVersion } from 'vite';
+import { isAbsolute } from 'node:path';
+import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
+import {
+  hasRemotes,
+  type NormalizedModuleFederationOptions,
+} from '../utils/normalizeModuleFederationOptions';
+import { isServerContext } from '../utils/remoteConsumerTarget';
+import { getSsrCapabilities, SSR_ONLY_RUNTIME_PLUGINS } from '../utils/ssrCapabilities';
+import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
+import { getRuntimePluginSpecifier } from '../utils/runtimePluginSpecifier';
+import {
+  getHostAutoInitPath,
+  getLocalSharedImportMapPath,
+  isOwnedHostAutoInitId,
+} from '../virtualModules/virtualRemoteEntry';
+import {
+  getRuntimeInitBootstrapCode,
+  getRuntimeInitStatusImportId,
+} from '../virtualModules/virtualRuntimeInitStatus';
+
+/** Register the SSR host before application evaluation, without preloading remotes. */
+export default function pluginSsrRuntimeInit(options: NormalizedModuleFederationOptions): Plugin[] {
+  if (!hasRemotes(options)) return [];
+  const runtimeId = `${options.implementation}?mf-ssr-runtime=${encodeURIComponent(getHostAutoInitPath(options))}`;
+  let command: 'serve' | 'build';
+  let root = '';
+  let legacySsr = false;
+  const supported = () =>
+    getSsrCapabilities(parseInt(viteVersion, 10), command, true, true).enableSsrInitBootstrap;
+  const server = (ctx: unknown, ssr?: boolean) =>
+    supported() && isServerContext(ctx, ssr === true || legacySsr);
+
+  return [
+    {
+      name: 'module-federation-ssr-runtime-init',
+      enforce: 'post',
+      config(_config, env) {
+        command = env.command;
+      },
+      configResolved(config) {
+        root = normalizePath(config.root);
+        legacySsr = Boolean(config.build.ssr);
+      },
+      resolveId: {
+        order: 'pre',
+        handler(id, _importer, resolveOptions) {
+          if (
+            server(this, resolveOptions.ssr) &&
+            (id === options.implementation || id === runtimeId)
+          ) {
+            // The runtime's singleton is module-local. Keep the implementation's
+            // original exports, but give each server application its own module.
+            return { id: runtimeId, external: false };
+          }
+        },
+      },
+      transform(code, id, transformOptions) {
+        if (!server(this, transformOptions?.ssr)) return;
+        if (isOwnedHostAutoInitId(id, options)) {
+          const pluginImports = options.runtimePlugins
+            .map((plugin, index) =>
+              SSR_ONLY_RUNTIME_PLUGINS.has(getRuntimePluginSpecifier(plugin))
+                ? ''
+                : `import plugin${index} from ${toSafeJsLiteral(getRuntimePluginSpecifier(plugin))};`
+            )
+            .join('\n');
+          const plugins = options.runtimePlugins
+            .map((plugin, index) =>
+              SSR_ONLY_RUNTIME_PLUGINS.has(getRuntimePluginSpecifier(plugin))
+                ? `await import(${toSafeJsLiteral(getRuntimePluginSpecifier(plugin))}).then(mod => (mod.default ?? mod)(${Array.isArray(plugin) ? serializeRuntimeOptions(plugin[1]) : ''}))`
+                : `plugin${index}(${Array.isArray(plugin) ? serializeRuntimeOptions(plugin[1]) : ''})`
+            )
+            .join(',');
+          return {
+            code: `
+            import { init } from ${toSafeJsLiteral(runtimeId)};
+            import { usedShared, usedRemotes } from ${toSafeJsLiteral(getLocalSharedImportMapPath(options))};
+            ${pluginImports}
+            ${getRuntimeInitBootstrapCode(false, getRuntimeInitStatusImportId(options))}
+            globalThis[globalKey].ssrInitStarted = true;
+            const runtime = init({
+              name: ${toSafeJsLiteral(options.name)},
+              remotes: usedRemotes,
+              shared: usedShared,
+              plugins: [${plugins}],
+              shareStrategy: ${toSafeJsLiteral(options.shareStrategy)},
+            });
+            const hostInitPromise = Promise.resolve(runtime);
+            globalThis[globalKey].initResolve(runtime);
+            function initHost() { return hostInitPromise; }
+            export { initHost, hostInitPromise };
+          `,
+            map: null,
+          };
+        }
+        const file = normalizePath(id.split('?')[0]);
+        if (
+          !(command === 'build' && this.getModuleInfo(id)?.isEntry) &&
+          (!isAbsolute(file) ||
+            !file.startsWith(`${root}/`) ||
+            file.includes('/node_modules/') ||
+            !/\.[cm]?[jt]sx?$/.test(file))
+        )
+          return;
+        const injection = `import ${toSafeJsLiteral(getHostAutoInitPath(options))};\n`;
+        if (code.includes(injection.trim())) return;
+        return mapCodeToCodeWithSourcemap(injection + code);
+      },
+    },
+  ];
+}

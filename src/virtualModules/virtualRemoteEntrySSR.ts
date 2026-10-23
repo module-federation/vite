@@ -1,11 +1,12 @@
 import {
+  hasRemotes,
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import { resolveHashPlaceholderFileName } from '../utils/buildPaths';
 import { getSharedRequest, getSharedRuntimeKey } from '../utils/sharedKeyMatcher';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
-import { expandSharedPrefixKey, getUsedShares } from './virtualRemoteEntry';
+import { expandSharedPrefixKey, getUsedShares, getHostAutoInitPath } from './virtualRemoteEntry';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
 import { MODULE_CACHE_SHARE_SCOPE_KEY } from './virtualRuntimeInitStatus';
 
@@ -82,7 +83,11 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
   const sharedSingletons = getSsrSharedSingletons(options);
 
   return `
-  import { init as runtimeInit } from "@module-federation/runtime";
+  ${
+    hasRemotes(options)
+      ? `import { hostInitPromise } from ${JSON.stringify(getHostAutoInitPath(options))};`
+      : 'import { init as runtimeInit } from "@module-federation/runtime";'
+  }
 
   const sharedSingletons = ${JSON.stringify(sharedSingletons)};
   const moduleCacheKey = Symbol.for(${JSON.stringify(MODULE_CACHE_SHARE_SCOPE_KEY)});
@@ -112,11 +117,15 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
    * to set up a minimal runtime instance for the remote container.
    */
   async function init(shared = {}, initScope = []) {
-    const initRes = runtimeInit({
+    const initRes = ${
+      hasRemotes(options)
+        ? 'await hostInitPromise'
+        : `runtimeInit({
       name: ${JSON.stringify(options.name)},
       remotes: [],
       shared: {},
-    });
+    })`
+    };
     if (initScope.indexOf(initToken) >= 0) return;
     initScope.push(initToken);
     const shareScopeNames = Array.isArray(${JSON.stringify(options.shareScope)})
