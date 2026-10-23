@@ -35,7 +35,10 @@ const {
   getPreBuildLibImportId: vi.fn((shareKey: string) => shareKey),
 }));
 
-vi.mock('../../utils/normalizeModuleFederationOptions', () => ({
+vi.mock('../../utils/normalizeModuleFederationOptions', async () => ({
+  ...(await vi.importActual<typeof import('../../utils/normalizeModuleFederationOptions')>(
+    '../../utils/normalizeModuleFederationOptions'
+  )),
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
 }));

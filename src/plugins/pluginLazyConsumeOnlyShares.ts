@@ -10,6 +10,7 @@ import {
 } from '../utils/cssModuleHelpers';
 import {
   getNormalizeShareItem,
+  isRemoteContainer,
   type NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import { getIsRolldown } from '../utils/packageUtils';
@@ -120,7 +121,7 @@ export function pluginLazyConsumeOnlyShares(options: NormalizedModuleFederationO
     renderChunk(code, chunk, _outputOptions, meta) {
       const renderedChunk = chunk as unknown as OutputChunkWithViteMetadata;
       const chunks = (meta as { chunks?: RenderedChunks } | undefined)?.chunks;
-      if (!chunks || Object.keys(options.exposes).length === 0) return null;
+      if (!chunks || !isRemoteContainer(options)) return null;
       if (isServerBuildContext(this, viteConfig)) return null;
 
       let graph = graphs.get(chunks);
