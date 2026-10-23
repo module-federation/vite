@@ -14,6 +14,7 @@ import {
   isNuxtClientBase,
   stripQueryAndHash,
   stripViteFsPrefix,
+  toRelativeImport,
   VITE_FS_PREFIX,
 } from '../utils/pathNormalization';
 import { findSharedKey } from '../utils/sharedKeyMatcher';
@@ -627,25 +628,18 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
                 (file) => file.type === 'chunk' && file.facadeModuleId?.includes(hostInitId)
               );
               if (hostInitChunk) {
-                let hostInitImport = path.posix.relative(
-                  path.posix.dirname(ssrOutputFilename),
-                  hostInitChunk.fileName
+                source = source.replace(
+                  JSON.stringify(hostInitId),
+                  JSON.stringify(toRelativeImport(ssrOutputFilename, hostInitChunk.fileName))
                 );
-                if (!hostInitImport.startsWith('.')) hostInitImport = `./${hostInitImport}`;
-                source = source.replace(JSON.stringify(hostInitId), JSON.stringify(hostInitImport));
               }
             }
             if (exposesChunk) {
               // The entry may sit below the output root (`filename` or
               // `ssrFilename` with a directory), so import relative to it.
-              let exposesImport = path.posix.relative(
-                path.posix.dirname(ssrOutputFilename),
-                exposesChunk
-              );
-              if (!exposesImport.startsWith('.')) exposesImport = `./${exposesImport}`;
               source = source.replace(
                 /import\("virtual:mf-exposes-ssr:[^"]+"\)/g,
-                `import("${exposesImport}")`
+                `import("${toRelativeImport(ssrOutputFilename, exposesChunk)}")`
               );
             }
             // Vite removes SSR assets when `ssrEmitAssets` is false. Emit after its

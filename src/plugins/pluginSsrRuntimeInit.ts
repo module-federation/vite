@@ -6,7 +6,7 @@ import {
   type NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import { isServerContext } from '../utils/remoteConsumerTarget';
-import { getSsrCapabilities } from '../utils/ssrCapabilities';
+import { getSsrCapabilities, isSsrConfig } from '../utils/ssrCapabilities';
 import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import { getRuntimePluginSpecifier } from '../utils/runtimePluginSpecifier';
 import {
@@ -24,10 +24,9 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
   if (!hasRemotes(options)) return [];
   let command: 'serve' | 'build';
   let legacySsr = false;
-  const supported = () =>
-    getSsrCapabilities(parseInt(viteVersion, 10), command, true, true).enableSsrInitBootstrap;
+  let supported = false;
   const server = (ctx: unknown, ssr?: boolean) =>
-    supported() && isServerContext(ctx, ssr === true || legacySsr);
+    supported && isServerContext(ctx, ssr === true || legacySsr);
 
   return [
     {
@@ -38,6 +37,12 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
       },
       configResolved(config) {
         legacySsr = Boolean(config.build.ssr);
+        supported = getSsrCapabilities(
+          parseInt(viteVersion, 10),
+          command,
+          true,
+          isSsrConfig(config)
+        ).enableSsrInitBootstrap;
       },
       resolveId: {
         order: 'pre',

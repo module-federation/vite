@@ -1,4 +1,4 @@
-import { stripQueryAndHash } from '../utils/pathNormalization';
+import { stripQueryAndHash, toRelativeImport } from '../utils/pathNormalization';
 import * as fs from 'fs';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
@@ -426,11 +426,6 @@ const __mfCurrentScript = document.currentScript;
 
   function walkHtmlFiles(dir: string): string[] {
     return walkFiles(dir, (fileName) => fileName.endsWith('.html'));
-  }
-
-  function toRelativeImport(fromFile: string, targetFile: string) {
-    const relative = normalizePathForImport(path.relative(path.dirname(fromFile), targetFile));
-    return relative.startsWith('.') ? relative : `./${relative}`;
   }
 
   function patchSvelteKitStaticHtml() {
