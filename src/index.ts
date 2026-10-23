@@ -508,6 +508,42 @@ function collectLinkedSharedEntries(
   return [...additions];
 }
 
+type SharedOptimizerConfig = {
+  include?: string[];
+  exclude?: string[];
+  entries?: string | string[];
+};
+
+function applySharedOptimizerPlan(
+  optimizeDeps: SharedOptimizerConfig,
+  generatedEntries: readonly string[],
+  outDir: string
+): void {
+  const plan = createSharedOptimizerPlan({
+    user: {
+      include: optimizeDeps.include,
+      exclude: optimizeDeps.exclude,
+      entries: optimizeDeps.entries,
+    },
+    generated: {
+      entries: generatedEntries,
+    },
+    defaultEntries: [
+      '**/*.html',
+      '!**/node_modules/**',
+      `!**/${outDir.replace(/\\/g, '/')}/**`,
+      '!**/__tests__/**',
+      '!**/coverage/**',
+    ],
+  });
+
+  optimizeDeps.include = plan.include;
+  optimizeDeps.exclude = plan.exclude;
+  if (generatedEntries.length > 0 && plan.entries) {
+    optimizeDeps.entries = plan.entries;
+  }
+}
+
 function isFile(candidate: string): boolean {
   try {
     return statSync(candidate).isFile();
@@ -996,32 +1032,20 @@ export default __mfShared.default ?? __mfShared;`,
         config.optimizeDeps ??= {};
         const outDir = config.build?.outDir ?? 'dist';
         const generatedEntries = collectLinkedSharedEntries(shared, root, options.exposes);
-        const plan = createSharedOptimizerPlan({
-          user: {
-            include: config.optimizeDeps.include,
-            exclude: config.optimizeDeps.exclude,
-            entries: config.optimizeDeps.entries,
-          },
-          generated: {
-            entries: generatedEntries,
-          },
-          defaultEntries: [
-            '**/*.html',
-            '!**/node_modules/**',
-            `!**/${outDir.replace(/\\/g, '/')}/**`,
-            '!**/__tests__/**',
-            '!**/coverage/**',
-          ],
-        });
-        config.optimizeDeps.include = plan.include;
-        config.optimizeDeps.exclude = plan.exclude;
-        if (generatedEntries.length > 0 && plan.entries) {
-          config.optimizeDeps.entries = plan.entries;
-        }
+        applySharedOptimizerPlan(config.optimizeDeps, generatedEntries, outDir);
       }
     },
 
     configResolved(config) {
+      if (config.command === 'serve' && config.optimizeDeps) {
+        const generatedEntries = collectLinkedSharedEntries(shared, config.root, options.exposes);
+        applySharedOptimizerPlan(
+          config.optimizeDeps,
+          generatedEntries,
+          config.build?.outDir ?? 'dist'
+        );
+      }
+
       if (hasClientJsxSource) {
         const automaticJsxRuntime = getAutomaticJsxRuntime(config);
         if (automaticJsxRuntime && materializeAutomaticJsxRuntime(options, automaticJsxRuntime)) {
