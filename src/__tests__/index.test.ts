@@ -3171,6 +3171,38 @@ describe('vite:module-federation-early-init', () => {
     expect(config.optimizeDeps.entries).toContain('custom-entry.ts');
   });
 
+  it('preserves default optimizer entries when linked shared entries are generated', () => {
+    const plugin = (
+      federation({
+        name: 'host',
+        filename: 'remoteEntry.js',
+        shared: {
+          '@vite-vite/shared-lib': { singleton: true },
+        },
+      }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = {
+      root: REACT_EXAMPLE_ROOT,
+      optimizeDeps: { include: [], exclude: [] },
+    };
+
+    runConfig(plugin, {} as ConfigPluginContext, config, {
+      command: 'serve',
+      mode: 'test',
+    });
+
+    expect(config.optimizeDeps.entries).toEqual([
+      '**/*.html',
+      '!**/node_modules/**',
+      '!**/dist/**',
+      '!**/__tests__/**',
+      '!**/coverage/**',
+      path.join(REACT_EXAMPLE_ROOT, '..', 'shared-lib', 'src', 'index.tsx'),
+    ]);
+  });
+
   it('preserves optimizeDeps exclusion for linked shared source', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'mf-linked-shared-'));
     try {
