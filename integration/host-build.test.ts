@@ -54,7 +54,7 @@ describe('host build', () => {
     expect(getAllChunkCode(output)).not.toContain('@module-federation/vite/ssrEntryLoader');
   });
 
-  it('emits SSR loader chunks for an SSR build with remotes', async () => {
+  it('includes the SSR loader and VM strategy for an SSR build with remotes', async () => {
     const output = await buildFixture({
       fixture: 'basic-host',
       mfOptions: HOST_BASE_MF_OPTIONS,
@@ -68,9 +68,7 @@ describe('host build', () => {
       },
     });
 
-    expect(getChunkNames(output).some((fileName) => fileName.includes('ssrEntryLoader'))).toBe(
-      true
-    );
+    expect(getAllChunkCode(output)).toContain('mf-vite:ssr-entry-loader');
     expect(getChunkNames(output).some((fileName) => fileName.includes('ssrVmStrategy'))).toBe(true);
   });
 

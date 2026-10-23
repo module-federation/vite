@@ -57,9 +57,8 @@ describe('SSR entry loader build output', () => {
 
     const names = getChunkNames(output).join('\n');
     const code = getAllChunkCode(output);
-    expect(names).toMatch(/ssrEntryLoader/);
+    expect(code).toContain('mf-vite:ssr-entry-loader');
     expect(names).toMatch(/ssrVmStrategy/);
-    expect(code.includes('ssrEntryLoader-')).toBe(true);
     expect(code.includes('ssrVmStrategy-')).toBe(true);
   });
 
@@ -96,9 +95,8 @@ describe('SSR entry loader build output', () => {
         }
         expect(getChunkNames(client).join('\n')).not.toMatch(/ssrEntryLoader|ssrVmStrategy/);
         expect(/ssrEntryLoader|ssrVmStrategy/.test(getAllChunkCode(client))).toBe(false);
-        expect(getChunkNames(server).join('\n')).toMatch(/ssrEntryLoader/);
+        expect(getAllChunkCode(server)).toContain('mf-vite:ssr-entry-loader');
         expect(getChunkNames(server).join('\n')).toMatch(/ssrVmStrategy/);
-        expect(getAllChunkCode(server).includes('ssrEntryLoader-')).toBe(true);
       }
     }
   );

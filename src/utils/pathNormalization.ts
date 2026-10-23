@@ -1,3 +1,5 @@
+import * as path from 'node:path';
+import { normalizePathForImport } from './buildPaths';
 import type { NormalizedModuleFederationOptions } from './normalizeModuleFederationOptions';
 
 export const COMMON_SHARED_SUBPATHS: Record<string, string[]> = {
@@ -163,4 +165,10 @@ export function resolvePublicPath(
 
   // Fallback to auto if no base is specified
   return 'auto';
+}
+
+/** Relative `./`-prefixed import specifier from `fromFile` to `targetFile`. */
+export function toRelativeImport(fromFile: string, targetFile: string): string {
+  const relative = normalizePathForImport(path.relative(path.dirname(fromFile), targetFile));
+  return relative.startsWith('.') ? relative : `./${relative}`;
 }

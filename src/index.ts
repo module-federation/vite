@@ -30,6 +30,7 @@ import {
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
 import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
+import pluginSsrRuntimeInit from './plugins/pluginSsrRuntimeInit';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
 import { escapeRegExp } from './utils/regexEscape';
 import { isServerContext } from './utils/remoteConsumerTarget';
@@ -2227,6 +2228,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     },
     ...pluginManifest(options),
     ...pluginSSRRemoteEntry(options),
+    ...pluginSsrRuntimeInit(options),
     ...pluginVarRemoteEntry(options),
     {
       name: 'module-federation-vinext-fix-rsc-preload-as',
