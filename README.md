@@ -257,6 +257,21 @@ You can specify the place the host initialization file is injected with the **ho
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
 
+## SSR runtime initialization
+
+For applications with configured remotes, SSR entries and modules importing
+`@module-federation/runtime` initialize the owning runtime before plain
+`getInstance()` or `loadRemote()` calls run. Startup registers remotes and shares
+without fetching remote entries or manifests, or requesting a root expose. Remote
+loading stays lazy, including with `loaded-first`. Apps without remotes receive no
+SSR host bootstrap. Cold development SSR follows the existing Vite 8+ support gate;
+independent SSR builds are supported on Vite 5–8.
+
+Dependencies externalized by Vite keep Node's own runtime resolution. Their runtime
+imports are not bound to the application's instance by this bootstrap.
+Include runtime-consuming dependencies in Vite's `ssr.noExternal` when they need
+to use the application's runtime instance.
+
 ## SSR entry loading strategy
 
 SSR hosts can choose how HTTP ESM remote entries are evaluated during build and preview:
