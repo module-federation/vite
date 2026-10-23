@@ -257,6 +257,66 @@ You can specify the place the host initialization file is injected with the **ho
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
 
+## Application runtime access for integration plugins
+
+The `module-federation-vite` plugin exposes a `ModuleFederationPluginApi` through
+`plugin.api`. From `configResolved` onward, integrations can obtain the owning
+application's host bootstrap import ID without resolving a remote module:
+
+```ts
+import type { Plugin } from "vite";
+import type { ModuleFederationPluginApi } from "@module-federation/vite";
+
+function applicationRuntime(): Plugin {
+  const id = "virtual:application-runtime";
+  let hostInitId: string;
+  return {
+    name: "application-runtime",
+    configResolved(config) {
+      const api = config.plugins.find(p => p.name === "module-federation-vite")
+        ?.api as ModuleFederationPluginApi | undefined;
+      if (!api) throw new Error("Federation runtime plugin is required");
+      hostInitId = api.moduleFederation.getHostInitImportId();
+    },
+    resolveId(source) {
+      if (source === id) return `\0${id}`;
+    },
+    load(source) {
+      if (source !== `\0${id}`) return;
+      return `export async function loadApplicationRemote(request) {
+        const bootstrap = await import(${JSON.stringify(hostInitId)});
+        await bootstrap.__tla;
+        const runtime = await bootstrap.hostInitPromise;
+        return runtime.loadRemote(request);
+      }`;
+    },
+  };
+}
+```
+
+Register this integration alongside `federation(...)`. Application code can then
+import `loadApplicationRemote` from `virtual:application-runtime` and pass a
+computed request such as `"products/App"`; no static remote import is required.
+
+`getHostInitImportId()` returns the same opaque import specifier used by the
+plugin's own host-init entry. Calling it does not record remote module usage or
+load any remotes. Generate a literal import as above; do not reconstruct the ID,
+treat it as a filesystem path or URL, or reuse it across Vite runs. With multiple
+federation instances, select the specific owning plugin instead of the first match.
+
+The bootstrap's supported `hostInitPromise` export resolves to that application's
+original Federation runtime. Awaiting optional `__tla` accommodates plugins that
+lower top-level await. Importing the bootstrap starts normal host initialization;
+it does not introduce additional module requests for discovery.
+
+The loader above uses the default `version-first` strategy, which registers
+configured remotes during initialization. With `loaded-first`, the integration
+must register its remote with `runtime.registerRemotes(...)` before loading it,
+as the normal remote wrappers do. Existing SSR requirements still apply: automatic
+development SSR loading requires Vite 8+, while independent SSR builds use the
+SSR entry loader. `experiments.hostProvidesAllShared` bypasses the runtime pipeline
+and does not expose this API.
+
 ## SSR entry loading strategy
 
 SSR hosts can choose how HTTP ESM remote entries are evaluated during build and preview:

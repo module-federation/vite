@@ -156,6 +156,15 @@ import {
 } from './virtualModules/virtualShared_preBuild';
 
 const patchedManualChunks = new WeakSet<Function>();
+
+/** Build-time metadata for the owning federation plugin instance. */
+export interface ModuleFederationPluginApi {
+  moduleFederation: {
+    /** Opaque host bootstrap import ID; available from configResolved onward. */
+    getHostInitImportId(): string;
+  };
+}
+
 // Plugin-created codeSplitting groups, tracked by object identity so a user group
 // that happens to share a federation group's name (e.g. `vite-preload-helper`)
 // isn't mistaken for one of ours and dropped.
@@ -2119,6 +2128,11 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     {
       name: 'module-federation-vite',
       enforce: 'post',
+      api: {
+        moduleFederation: {
+          getHostInitImportId: () => getHostAutoInitPath(options),
+        },
+      } satisfies ModuleFederationPluginApi,
       // used to expose plugin options: https://github.com/rolldown/rolldown/discussions/2577#discussioncomment-11137593
       _options: options,
       config(config: UserConfig, { command: _command }: { command: string }) {
