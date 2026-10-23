@@ -1,15 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseAst } from 'vite';
+import { parseAst, parseSync } from 'vite';
 import { getImportAnalysis } from '../importAnalysis';
 import { collectTreeShakingImports } from '../treeShaking';
 import { normalizeModuleFederationOptions } from '../normalizeModuleFederationOptions';
 
 vi.mock('vite', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vite')>();
-  return { ...actual, parseAst: vi.fn(actual.parseAst) };
+  return {
+    ...actual,
+    parseAst: vi.fn(actual.parseAst),
+    ...(actual.parseSync ? { parseSync: vi.fn(actual.parseSync) } : {}),
+  };
 });
 
 beforeEach(() => vi.clearAllMocks());
+
+// Vite 8 reads the module record through parseSync; other inputs parse an AST.
+const parses = () =>
+  vi.mocked(parseAst).mock.calls.length + (parseSync ? vi.mocked(parseSync).mock.calls.length : 0);
 
 const code = 'import { value } from "library";';
 
@@ -22,7 +30,7 @@ describe('import analysis', () => {
     expect(getImportAnalysis(build).analyze(code)).toEqual([
       { source: 'library', usedExports: ['value'] },
     ]);
-    expect(parseAst).toHaveBeenCalledTimes(1);
+    expect(parses()).toBe(1);
   });
 
   it('keeps separate builds independent when one cache is cleared', () => {
@@ -32,9 +40,9 @@ describe('import analysis', () => {
     server.analyze(code);
     client.clear();
     server.analyze(code);
-    expect(parseAst).toHaveBeenCalledTimes(2);
+    expect(parses()).toBe(2);
     client.analyze(code);
-    expect(parseAst).toHaveBeenCalledTimes(3);
+    expect(parses()).toBe(3);
   });
 
   it('analyzes changed source and starts fresh after a rebuild', () => {
@@ -42,10 +50,10 @@ describe('import analysis', () => {
     analysis.analyze(code);
     const changed = 'import { updated } from "library";';
     expect(analysis.analyze(changed)).toEqual([{ source: 'library', usedExports: ['updated'] }]);
-    expect(parseAst).toHaveBeenCalledTimes(2);
+    expect(parses()).toBe(2);
     analysis.clear();
     expect(analysis.analyze(changed)).toEqual([{ source: 'library', usedExports: ['updated'] }]);
-    expect(parseAst).toHaveBeenCalledTimes(3);
+    expect(parses()).toBe(3);
   });
 
   it('reuses empty results and parse failures', () => {
@@ -54,7 +62,7 @@ describe('import analysis', () => {
       expect(analysis.analyze('export const value = 1;')).toEqual([]);
       expect(analysis.analyze('import {')).toBeNull();
     }
-    expect(parseAst).toHaveBeenCalledTimes(2);
+    expect(parses()).toBe(2);
   });
 
   it('retains side effects and nested dynamic imports and require calls', () => {
@@ -106,7 +114,7 @@ describe('import analysis', () => {
       unsafe,
       analysis
     );
-    expect(parseAst).toHaveBeenCalledTimes(1);
+    expect(parses()).toBe(1);
     expect(resolveFirst).toHaveBeenCalledWith('library', first.shared);
     expect(resolveSecond).toHaveBeenCalledWith('library', second.shared);
     expect(recordFirst).toHaveBeenCalledWith('first', ['value'], 'library');
@@ -146,7 +154,7 @@ describe('import analysis', () => {
       markSecond,
       analysis
     );
-    expect(parseAst).toHaveBeenCalledTimes(1);
+    expect(parses()).toBe(1);
     expect(markFirst).toHaveBeenCalledWith('first', '*');
     expect(markSecond).toHaveBeenCalledWith('second', '*');
     expect(resolve).not.toHaveBeenCalled();
@@ -173,7 +181,7 @@ describe('import analysis', () => {
         analysis
       );
     }
-    expect(parseAst).not.toHaveBeenCalled();
+    expect(parses()).toBe(0);
     analysis.analyze(code);
     await collectTreeShakingImports(
       code,
@@ -184,7 +192,7 @@ describe('import analysis', () => {
       unsafe,
       analysis
     );
-    expect(parseAst).toHaveBeenCalledTimes(1);
+    expect(parses()).toBe(1);
     expect(resolve).not.toHaveBeenCalled();
     expect(record).not.toHaveBeenCalled();
     expect(unsafe).not.toHaveBeenCalled();

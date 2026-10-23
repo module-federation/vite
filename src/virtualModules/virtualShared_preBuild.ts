@@ -152,7 +152,7 @@ function getSharedExportSource(source: string) {
   };
 }
 
-function hasCodeMatch(source: string, regex: RegExp, codePositions: boolean[]): boolean {
+function hasCodeMatch(source: string, regex: RegExp, codePositions: Uint8Array): boolean {
   regex.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(source)) !== null) {
@@ -166,7 +166,7 @@ function hasCodeMatch(source: string, regex: RegExp, codePositions: boolean[]): 
  * Local identifiers named `module` or `exports` (webpack/rspack helpers,
  * function parameters, etc.) must not override that module format.
  */
-function hasEsmModuleSyntax(source: string, codePositions: boolean[]): boolean {
+function hasEsmModuleSyntax(source: string, codePositions: Uint8Array): boolean {
   // `$` is not a word character, so `\b` alone would match `$export`.
   const keywordRegex = /(?<![$\w])(?:import|export)\b/g;
   let match: RegExpExecArray | null;
@@ -477,7 +477,7 @@ function resolveReExportModule(
 function getAdditionalTopLevelDeclaratorNames(
   source: string,
   start: number,
-  codePositions: boolean[]
+  codePositions: Uint8Array
 ): string[] | undefined {
   const names: string[] = [];
   let depth = 0;

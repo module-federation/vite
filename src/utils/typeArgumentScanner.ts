@@ -56,7 +56,7 @@ function updateTypeArgumentAngleDepth(
 function hasLikelyTypeArgumentFollower(
   source: string,
   end: number,
-  codePositions: boolean[],
+  codePositions: Uint8Array,
   followsNamedExpression: boolean
 ): boolean {
   let next = end + 1;
@@ -92,7 +92,7 @@ function isInvalidTypeArgumentTerminator(
 export function findLikelyTypeArgumentEnd(
   source: string,
   start: number,
-  codePositions: boolean[]
+  codePositions: Uint8Array
 ): number | undefined {
   const context = getTypeArgumentStartContext(source, start);
   if (!context) return undefined;

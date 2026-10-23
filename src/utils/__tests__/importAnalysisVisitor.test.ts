@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VisitorObject } from 'vite';
 import { getImportAnalysis } from '../importAnalysis';
 
-const visitor = vi.hoisted(() => ({ enabled: true, available: false, calls: 0 }));
+const visitor = vi.hoisted(() => ({
+  enabled: true,
+  available: false,
+  calls: 0,
+  moduleRecord: false,
+}));
 
 vi.mock('vite', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vite')>();
@@ -20,12 +25,17 @@ vi.mock('vite', async (importOriginal) => {
     get Visitor() {
       return visitor.enabled ? Visitor : undefined;
     },
+    // The module record answers most inputs first; these tests exercise the AST walk.
+    get parseSync() {
+      return visitor.moduleRecord ? actual.parseSync : undefined;
+    },
   };
 });
 
 beforeEach(() => {
   visitor.enabled = true;
   visitor.calls = 0;
+  visitor.moduleRecord = false;
 });
 
 const modules = [
@@ -80,6 +90,12 @@ describe('optional AST visitor', () => {
     visitor.enabled = true;
     expect(getImportAnalysis({}).analyze(code)).toEqual(expected);
     expect(visitor.calls).toBe(visitor.available ? 1 : 0);
+  });
+
+  it.each(modules)('reads the same imports from the module record for $name', ({ code }) => {
+    const expected = getImportAnalysis({}).analyze(code);
+    visitor.moduleRecord = true;
+    expect(getImportAnalysis({}).analyze(code)).toEqual(expected);
   });
 
   it('does not walk again when import analysis is cached', () => {

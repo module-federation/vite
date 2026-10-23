@@ -208,7 +208,107 @@ function collectReExport(
   record(names, source);
 }
 
+type ModuleRecordName = { kind: string; name: string | null; start: number | null };
+type ModuleRecord = {
+  staticImports: {
+    start: number;
+    moduleRequest: { value: string };
+    entries: { importName: ModuleRecordName; isType: boolean }[];
+  }[];
+  staticExports: {
+    start: number;
+    entries: {
+      moduleRequest: { value: string } | null;
+      importName: ModuleRecordName;
+      isType: boolean;
+    }[];
+  }[];
+  dynamicImports: { start: number; moduleRequest: { start: number; end: number } }[];
+};
+type ParseSync = (
+  filename: string,
+  code: string,
+  options: { lang: 'js'; preserveParens: boolean }
+) => { errors: unknown[]; module: ModuleRecord };
+
+// The module record has no `require()` calls, and it drops `export {} from`.
+// A comment after `require` also takes the AST path rather than guess.
+const NEEDS_AST_RE =
+  /\brequire\s*(?:\?\.\s*)?(?:\(|\/[*/])|\bexport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\n]*\n)*\{(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\n]*\n)*\}/;
+
+/**
+ * Vite 8 parses with oxc, whose module record lists static imports, re-exports
+ * and dynamic imports without materializing the AST. Same result as the AST
+ * walk below; `undefined` when this input needs the AST.
+ */
+function analyzeImportsFromModuleRecord(code: string): ImportAnalysisResult | undefined {
+  const parseSync = (vite as { parseSync?: ParseSync }).parseSync;
+  if (typeof parseSync !== 'function' || NEEDS_AST_RE.test(code)) return undefined;
+  // Same parser options as `vite.parseAst`.
+  const result = parseSync('file.js', code, { lang: 'js', preserveParens: false });
+  if (result.errors.length > 0) return null;
+  const { staticImports, staticExports, dynamicImports } = result.module;
+
+  const found: { start: number; usage: ImportUsage }[] = [];
+  const isStringName = (name: ModuleRecordName) =>
+    name.start !== null && (code[name.start] === '"' || code[name.start] === "'");
+  const add = (start: number, source: string, names: string[] | null) =>
+    found.push({ start, usage: { source, usedExports: names } });
+
+  for (const declaration of staticImports) {
+    const source = declaration.moduleRequest.value;
+    let names: string[] | null = declaration.entries.length === 0 ? null : [];
+    for (const { importName } of declaration.entries) {
+      if (importName.kind === 'Default') names?.push('default');
+      else if (importName.kind === 'Name' && importName.name && !isStringName(importName))
+        names?.push(importName.name);
+      else names = null;
+    }
+    add(declaration.start, source, names);
+  }
+  // Exporting an imported binding (`import { a } from 'x'; export { a }`) is
+  // reported with the import statement's span and request; only `export ... from`
+  // is a re-export.
+  const importStarts = new Set(staticImports.map((declaration) => declaration.start));
+  for (const declaration of staticExports) {
+    const request = declaration.entries[0]?.moduleRequest;
+    if (!request || importStarts.has(declaration.start)) continue;
+    const source = request.value;
+    let names: string[] | null = [];
+    for (const { importName } of declaration.entries) {
+      if (importName.kind === 'Name' && importName.name && !isStringName(importName))
+        names?.push(importName.name);
+      else names = null;
+    }
+    add(declaration.start, source, names);
+  }
+  // oxc can report one import() twice, for example inside a destructuring assignment.
+  const dynamicStarts = new Set<number>();
+  for (const { start, moduleRequest } of dynamicImports) {
+    if (dynamicStarts.has(start)) continue;
+    dynamicStarts.add(start);
+    const text = code.slice(moduleRequest.start, moduleRequest.end);
+    const quote = text[0];
+    if (
+      text.length >= 2 &&
+      (quote === '"' || quote === "'" || quote === '`') &&
+      text.at(-1) === quote &&
+      !text.includes('\\') &&
+      !text.slice(1, -1).includes(quote) &&
+      !(quote === '`' && text.includes('${'))
+    ) {
+      add(start, text.slice(1, -1), null);
+    } else if (text.includes('\\')) {
+      return undefined;
+    }
+  }
+  return found.sort((a, b) => a.start - b.start).map(({ usage }) => usage);
+}
+
 function analyzeImports(code: string): ImportAnalysisResult {
+  const fromModuleRecord = analyzeImportsFromModuleRecord(code);
+  if (fromModuleRecord !== undefined) return fromModuleRecord;
+
   let ast: ReturnType<typeof vite.parseAst>;
   try {
     ast = vite.parseAst(code);
