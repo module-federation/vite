@@ -1969,7 +1969,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
           if (!virtualModule?.code) return null;
           let code = virtualModule.code;
 
-          // Vite 5-7 SSR builds do not expose `this.environment`, so fall back to root
+          // Vite 5 SSR builds have no `this.environment`, so fall back to root
           // build.ssr to ensure SSR-only local fallback imports are still prepended.
           if (isServerContext(this, isSsrBuild)) {
             const withSsrImport = prependWorkspaceSingletonSsrImport(code);
