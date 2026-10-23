@@ -87,7 +87,11 @@ async function application(name: string, entry: string, nested = false) {
     path.join(root, 'runtime.js'),
     `export { loadApplicationRemote } from 'virtual:application-runtime';`
   );
-  await writeFile(path.join(root, 'index.html'), '<script type="module" src="/entry.js"></script>');
+  // Inline favicon so Chromium's /favicon.ico probe doesn't log a 404 console error.
+  await writeFile(
+    path.join(root, 'index.html'),
+    '<link rel="icon" href="data:,"><script type="module" src="/entry.js"></script>'
+  );
   // A bare resolver probe could pick up this package instead of the remote.
   const pkg = path.join(root, 'node_modules/products');
   await mkdir(pkg, { recursive: true });
