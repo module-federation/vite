@@ -9,7 +9,10 @@ import {
   processModuleAssets,
 } from '../utils/cssModuleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
-import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import {
+  hasRemotes,
+  type NormalizedModuleFederationOptions,
+} from '../utils/normalizeModuleFederationOptions';
 import { isRemoteSpecifier } from '../utils/hostProvidesAllShared';
 import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
@@ -71,10 +74,8 @@ export default function ({
   async function refreshExposeRemoteDependencies(ctx: { resolve: Plugin['resolveId'] }) {
     if (!exposeRemoteDependenciesDirty) return;
     // Without remotes there is no remote import to find, so skip walking each expose's graph.
-    if (Object.keys(options.remotes).length === 0) {
-      exposeRemoteDependencies = Object.fromEntries(
-        Object.keys(options.exposes).map((exposeKey) => [exposeKey, []])
-      );
+    if (!hasRemotes(options)) {
+      exposeRemoteDependencies = {};
       exposeRemoteDependenciesDirty = false;
       return;
     }
