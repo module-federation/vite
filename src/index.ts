@@ -1037,15 +1037,6 @@ export default __mfShared.default ?? __mfShared;`,
     },
 
     configResolved(config) {
-      if (config.command === 'serve' && config.optimizeDeps) {
-        const generatedEntries = collectLinkedSharedEntries(shared, config.root, options.exposes);
-        applySharedOptimizerPlan(
-          config.optimizeDeps,
-          generatedEntries,
-          config.build?.outDir ?? 'dist'
-        );
-      }
-
       if (hasClientJsxSource) {
         const automaticJsxRuntime = getAutomaticJsxRuntime(config);
         if (automaticJsxRuntime && materializeAutomaticJsxRuntime(options, automaticJsxRuntime)) {
