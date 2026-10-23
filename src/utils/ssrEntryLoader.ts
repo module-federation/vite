@@ -38,7 +38,6 @@ import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
 import { mfWarn } from './logger';
 import type { SsrEntryLoaderConfig } from './normalizeModuleFederationOptions';
-import { getUrlOrigin } from './url';
 
 // No static Node.js imports — this module is safe to import in the browser.
 // Node APIs are loaded on demand via dynamic import() which is tree-shaken
@@ -746,8 +745,11 @@ function scheduleVmCacheCleanup(remoteEntryUrl?: string): void {
 async function clearRunnerCaches(remoteEntryUrl?: string): Promise<void> {
   let remoteOrigin: string | undefined;
   if (remoteEntryUrl) {
-    remoteOrigin = getUrlOrigin(remoteEntryUrl);
-    if (!remoteOrigin) return;
+    try {
+      remoteOrigin = new URL(remoteEntryUrl).origin;
+    } catch {
+      return;
+    }
   }
 
   await Promise.all(

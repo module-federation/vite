@@ -12,7 +12,6 @@ import {
   getPackageExportSpecifiersForFile,
   getPackageNameFromNodeModulePath,
   getSharedCacheDescriptor,
-  getSharedCacheKey,
   isPackageExportAvailable,
   isPackageInstalled,
   packageNameDecode,
@@ -1097,33 +1096,33 @@ describe('getPackageNameFromNodeModulePath', () => {
   });
 });
 
-describe('getSharedCacheKey', () => {
+describe('getSharedCacheDescriptor', () => {
   it('prefixes singleton shared cache keys with share scope', () => {
     expect(
-      getSharedCacheKey('react', {
+      getSharedCacheDescriptor('react', {
         scope: 'react-18',
         version: '18.3.1',
         shareConfig: { singleton: true },
-      } as any)
+      } as any).canonical
     ).toBe('react-18:react');
   });
 
   it('prefixes versioned shared cache keys with share scope', () => {
     expect(
-      getSharedCacheKey('react', {
+      getSharedCacheDescriptor('react', {
         scope: 'react-19',
         version: '19.2.4',
         shareConfig: { singleton: false },
-      } as any)
+      } as any).canonical
     ).toBe('react-19:react@19.2.4');
   });
 
   it('falls back to default scope when scope is missing', () => {
     expect(
-      getSharedCacheKey('vue', {
+      getSharedCacheDescriptor('vue', {
         version: '3.5.0',
         shareConfig: { singleton: true },
-      } as any)
+      } as any).canonical
     ).toBe('default:vue');
   });
 

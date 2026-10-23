@@ -335,15 +335,6 @@ vi.mock('../../utils/packageUtils', () => {
         ...(scope === 'default' ? { aliases: [id] } : {}),
       };
     },
-    getSharedCacheKey: (
-      pkg: string,
-      shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
-    ) => {
-      const prefix = `${shareItem.scope || 'default'}:`;
-      return shareItem.shareConfig.singleton || !shareItem.version
-        ? `${prefix}${pkg}`
-        : `${prefix}${pkg}@${shareItem.version}`;
-    },
     sharedCacheHelperCode: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
             const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
             const scopeName = normalizedScope || "default";

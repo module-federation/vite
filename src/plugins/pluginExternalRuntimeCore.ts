@@ -179,11 +179,6 @@ export function buildExternalRuntimeCoreShimCode(exportShapes: RuntimeCoreExport
 
 let cachedExportShapes: RuntimeCoreExportShape[] | undefined;
 
-/** Test-only helper to clear the introspection cache between cases. */
-export function resetRuntimeCoreExportShapesCache(): void {
-  cachedExportShapes = undefined;
-}
-
 async function importRuntimeCoreForIntrospection(
   packageName: string
 ): Promise<Record<string, unknown>> {

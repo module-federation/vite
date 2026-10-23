@@ -460,10 +460,6 @@ export function getSharedCacheDescriptor(pkg: string, shareItem: ShareItem): Sha
   };
 }
 
-export function getSharedCacheKey(pkg: string, shareItem: ShareItem) {
-  return getSharedCacheDescriptor(pkg, shareItem).canonical;
-}
-
 export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
             const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
             const scopeName = normalizedScope || "default";
@@ -1002,19 +998,6 @@ export function getInstalledPackageEntry(
     (typeof packageJson.main === 'string' ? packageJson.main : undefined) ||
     'index.js';
   return path.join(installed.dir, explicitEntry);
-}
-
-/**
- * Extracts the file extension from the subpath portion of an npm package specifier.
- * @param {string} packageString - The package specifier, e.g., "@scope/pkg/file.js".
- * @returns {string | undefined} - The extension including the dot, or `undefined` when none is present.
- */
-export function getExtFromNpmPackage(packageString: string) {
-  const pkgName = getPackageName(packageString);
-  const subpath = packageString.replace(pkgName, '');
-  const parts = subpath.split('.');
-  const ext = parts.length > 1 ? '.' + parts.pop() : undefined;
-  return ext;
 }
 
 /**
