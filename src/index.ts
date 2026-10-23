@@ -52,6 +52,7 @@ import { getIgnoredOptionWarning } from './utils/hostProvidesAllShared';
 import { createModuleFederationError, mfWarn } from './utils/logger';
 import { getSharedExportConditions } from './utils/sharedExportConditions';
 import { getSharedRequest, getSharedRuntimeKey } from './utils/sharedKeyMatcher';
+import { createSharedOptimizerPlan } from './utils/sharedOptimizerPlan';
 import type {
   ModuleFederationOptions,
   NormalizedModuleFederationOptions,
@@ -471,28 +472,12 @@ function isBarePackageSubpath(specifier: string): boolean {
  * Vite then resolves the package's own dependency graph using its normal
  * scanner, preserving package and peer-dependency resolution semantics.
  */
-function includeLinkedSharedEntries(
-  optimizeDeps: NonNullable<UserConfig['optimizeDeps']>,
+function collectLinkedSharedEntries(
   shared: NormalizedModuleFederationOptions['shared'],
   projectRoot: string,
-  exposes: NormalizedModuleFederationOptions['exposes'],
-  outDir: string
-): void {
+  exposes: NormalizedModuleFederationOptions['exposes']
+): string[] {
   const additions = new Set<string>();
-
-  const entries = new Set(
-    Array.isArray(optimizeDeps.entries)
-      ? optimizeDeps.entries
-      : optimizeDeps.entries
-        ? [optimizeDeps.entries]
-        : [
-            '**/*.html',
-            '!**/node_modules/**',
-            `!**/${outDir.replace(/\\/g, '/')}/**`,
-            '!**/__tests__/**',
-            '!**/coverage/**',
-          ]
-  );
 
   for (const [packageName, share] of Object.entries(shared ?? {})) {
     if (share?.shareConfig?.import === false) continue;
@@ -520,15 +505,7 @@ function includeLinkedSharedEntries(
     }
   }
 
-  if (additions.size === 0) return;
-
-  for (const entry of additions) entries.add(entry);
-  optimizeDeps.entries = [...entries];
-}
-
-function stabilizeOptimizeDeps(optimizeDeps: NonNullable<UserConfig['optimizeDeps']>): void {
-  optimizeDeps.include = [...new Set(optimizeDeps.include ?? [])].sort();
-  optimizeDeps.exclude = [...new Set(optimizeDeps.exclude ?? [])].sort();
+  return [...additions];
 }
 
 function isFile(candidate: string): boolean {
@@ -1017,14 +994,30 @@ export default __mfShared.default ?? __mfShared;`,
       }
       if (_command === 'serve') {
         config.optimizeDeps ??= {};
-        includeLinkedSharedEntries(
-          config.optimizeDeps,
-          shared,
-          root,
-          options.exposes,
-          config.build?.outDir ?? 'dist'
-        );
-        stabilizeOptimizeDeps(config.optimizeDeps);
+        const outDir = config.build?.outDir ?? 'dist';
+        const generatedEntries = collectLinkedSharedEntries(shared, root, options.exposes);
+        const plan = createSharedOptimizerPlan({
+          user: {
+            include: config.optimizeDeps.include,
+            exclude: config.optimizeDeps.exclude,
+            entries: config.optimizeDeps.entries,
+          },
+          generated: {
+            entries: generatedEntries,
+          },
+          defaultEntries: [
+            '**/*.html',
+            '!**/node_modules/**',
+            `!**/${outDir.replace(/\\/g, '/')}/**`,
+            '!**/__tests__/**',
+            '!**/coverage/**',
+          ],
+        });
+        config.optimizeDeps.include = plan.include;
+        config.optimizeDeps.exclude = plan.exclude;
+        if (generatedEntries.length > 0 && plan.entries) {
+          config.optimizeDeps.entries = plan.entries;
+        }
       }
     },
 
