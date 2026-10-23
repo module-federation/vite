@@ -2,25 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { createSharedOptimizerPlan } from '../sharedOptimizerPlan';
 
 describe('createSharedOptimizerPlan', () => {
-  it('deduplicates and sorts include and exclude values', () => {
-    expect(
-      createSharedOptimizerPlan({
-        user: {
-          include: ['z-last', 'vue', 'z-last'],
-          exclude: ['vue', 'a-first', 'a-first'],
-        },
-        generated: {
-          include: ['react', 'vue'],
-          exclude: ['remoteApp', 'vue'],
-        },
-        defaultEntries: [],
-      })
-    ).toEqual({
-      include: ['react', 'vue', 'z-last'],
-      exclude: ['a-first', 'remoteApp', 'vue'],
-    });
-  });
-
   it('merges generated entries after explicit user entries', () => {
     const userEntries = ['custom-entry.ts', 'shared-entry.ts'];
     const generatedEntries = ['shared-entry.ts', '/workspace/shared/src/index.tsx'];
@@ -32,8 +13,6 @@ describe('createSharedOptimizerPlan', () => {
         defaultEntries: ['**/*.html'],
       })
     ).toEqual({
-      include: [],
-      exclude: [],
       entries: ['custom-entry.ts', 'shared-entry.ts', '/workspace/shared/src/index.tsx'],
     });
     expect(userEntries).toEqual(['custom-entry.ts', 'shared-entry.ts']);
@@ -57,22 +36,5 @@ describe('createSharedOptimizerPlan', () => {
         defaultEntries: ['**/*.html'],
       }).entries
     ).toBeUndefined();
-  });
-
-  it('produces the same plan for the same input', () => {
-    const input = {
-      user: {
-        include: ['vue', 'react'],
-        exclude: ['remoteApp'],
-        entries: ['custom-entry.ts'],
-      },
-      generated: {
-        include: ['react'],
-        entries: ['/workspace/shared/src/index.tsx'],
-      },
-      defaultEntries: ['**/*.html'],
-    } as const;
-
-    expect(createSharedOptimizerPlan(input)).toEqual(createSharedOptimizerPlan(input));
   });
 });

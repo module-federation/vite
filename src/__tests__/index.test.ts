@@ -2050,25 +2050,6 @@ describe('vite:module-federation-early-init', () => {
     }
   });
 
-  it('stabilizes optimizer inputs before dependency scanning', () => {
-    const plugin = getEarlyInitPlugin();
-    const config: any = {
-      root: process.cwd(),
-      optimizeDeps: {
-        include: ['z-last', 'vue', 'z-last'],
-        exclude: ['vue', 'a-first', 'a-first'],
-      },
-    };
-
-    runConfig(plugin, { meta: {} } as ConfigPluginContext, config, {
-      command: 'serve',
-      mode: 'test',
-    });
-
-    expect(config.optimizeDeps.include).toEqual([...new Set(config.optimizeDeps.include)].sort());
-    expect(config.optimizeDeps.exclude).toEqual(['a-first', 'remoteApp']);
-  });
-
   it('adds federation generated files to dev server watch ignores in serve', () => {
     const plugin = getEarlyInitPlugin();
     const customIgnored = '**/custom/**';

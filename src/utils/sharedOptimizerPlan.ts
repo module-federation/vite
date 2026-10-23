@@ -1,6 +1,4 @@
 export interface SharedOptimizerPlanSource {
-  include?: readonly string[];
-  exclude?: readonly string[];
   entries?: string | readonly string[];
 }
 
@@ -11,18 +9,12 @@ export interface SharedOptimizerPlanInput {
 }
 
 export interface SharedOptimizerPlan {
-  include: string[];
-  exclude: string[];
   entries?: string[];
 }
 
 function normalizeEntries(entries: string | readonly string[] | undefined): string[] {
   if (entries === undefined) return [];
   return typeof entries === 'string' ? [entries] : [...entries];
-}
-
-function uniqueSorted(values: readonly string[]): string[] {
-  return [...new Set(values)].sort();
 }
 
 function uniqueInOrder(values: readonly string[]): string[] {
@@ -45,6 +37,8 @@ function createEffectiveEntries(
   return uniqueInOrder([...defaultEntries, ...generated]);
 }
 
+// include/exclude are left to Vite: since 5.1 its optimizer config hash
+// dedupes and sorts them itself.
 export function createSharedOptimizerPlan({
   user,
   generated,
@@ -52,9 +46,5 @@ export function createSharedOptimizerPlan({
 }: SharedOptimizerPlanInput): SharedOptimizerPlan {
   const entries = createEffectiveEntries(user.entries, generated?.entries, defaultEntries);
 
-  return {
-    include: uniqueSorted([...(user.include ?? []), ...(generated?.include ?? [])]),
-    exclude: uniqueSorted([...(user.exclude ?? []), ...(generated?.exclude ?? [])]),
-    ...(entries === undefined ? {} : { entries }),
-  };
+  return entries === undefined ? {} : { entries };
 }
