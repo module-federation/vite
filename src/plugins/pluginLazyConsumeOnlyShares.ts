@@ -170,7 +170,7 @@ export function pluginLazyConsumeOnlyShares(options: NormalizedModuleFederationO
       }
 
       const chunkDir = path.posix.dirname(renderedChunk.fileName);
-      const codePositions = createCodePositionMap(code);
+      let codePositions: boolean[] | undefined;
       let usesHelper = false;
       // The import map's get() importers run inside init() while it seeds this
       // container's own copies, before initPromise can resolve: waiting on it there
@@ -179,10 +179,12 @@ export function pluginLazyConsumeOnlyShares(options: NormalizedModuleFederationO
       for (const match of isImportMapChunk ? [] : code.matchAll(DYNAMIC_IMPORT_REGEX)) {
         const [expression, , specifier] = match;
         const start = match.index!;
-        if (!codePositions[start]) continue;
         const target = path.posix.normalize(path.posix.join(chunkDir, specifier));
         const shares = graph.sharesByChunk.get(target);
         if (!shares || !renderedChunk.dynamicImports.includes(target)) continue;
+        // Built only for a candidate rewrite: it is linear in the chunk size.
+        codePositions ??= createCodePositionMap(code);
+        if (!codePositions[start]) continue;
         rewriter.overwrite(
           start,
           start + expression.length,
