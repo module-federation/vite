@@ -256,20 +256,6 @@ function getEagerDeferredClientInit() {
       exportModule = __mfCreateDeferredRemoteProxy();`;
 }
 
-function shouldIncludeDeferredProxy(
-  initMode: RemoteInitMode,
-  consumer: RemoteConsumer,
-  eagerLoadClientRemote: boolean,
-  deferRemoteLoad: boolean
-) {
-  if (eagerLoadClientRemote && consumer !== 'server') return true;
-  if (initMode === 'eager') {
-    return consumer !== 'server' && (consumer === 'unified' || !eagerLoadClientRemote);
-  }
-  if (consumer === 'client' && eagerLoadClientRemote) return false;
-  return deferRemoteLoad || consumer !== 'server';
-}
-
 /** Codegen shared by every remote virtual module (no top-level await). */
 function getRemoteModuleRuntimeHelpers() {
   return `
@@ -552,10 +538,7 @@ export function generateRemotes(
   const deferredClientInit = `exportModule = __mfCreateDeferredRemoteProxy();`;
   const eagerLoadClientRemote =
     id === remoteRegistration?.alias || shouldEagerLoadClientRemoteInDev(command, enableSsrInit);
-  const eagerClientInit = eagerLoadClientRemote ? getEagerDeferredClientInit() : deferredClientInit;
-  const loadedFirstClientInit = eagerLoadClientRemote
-    ? getEagerDeferredClientInit()
-    : deferredClientInit;
+  const clientInit = eagerLoadClientRemote ? getEagerDeferredClientInit() : deferredClientInit;
   const environmentSplitInit = (clientInit: string, serverInit: string) =>
     consumer === 'client'
       ? clientInit
@@ -566,17 +549,9 @@ export function generateRemotes(
     } else {
       ${clientInit}
     }`;
-  const initExportModule =
-    initMode === 'eager'
-      ? environmentSplitInit(eagerClientInit, realRemoteInit)
-      : environmentSplitInit(loadedFirstClientInit, realRemoteInit);
-
-  const includeProxyHelper = shouldIncludeDeferredProxy(
-    initMode,
-    consumer,
-    eagerLoadClientRemote,
-    deferRemoteLoad
-  );
+  const initExportModule = environmentSplitInit(clientInit, realRemoteInit);
+  // Proxies are invalid on the server; every browser-capable consumer may create one.
+  const includeProxyHelper = consumer !== 'server';
 
   const deferredProxyCode = getDeferredProxyHelper(remoteCacheKey);
 
