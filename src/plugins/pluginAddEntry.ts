@@ -627,7 +627,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
                   Boolean(getProjectResolvedImportPath(pkg)))
               );
             })
-            .map((pkg) => getLoadShareModulePath(pkg, false, federationOptions))
+            .map((pkg) => getLoadShareModulePath(pkg, federationOptions))
         : [];
     // Under Vite bundledDev there are no /@id/ URLs: the bundler must see the imports.
     const sharedPreloadBlock =

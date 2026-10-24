@@ -764,7 +764,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
           const preparedShares = new Map<string, ShareItem>();
           const writeSharedModules = (source: string, shareItem: ShareItem) => {
             if (preparedShares.get(source) === shareItem) return;
-            writeLoadShareModule(source, shareItem, _command, isRolldown, options);
+            writeLoadShareModule(source, shareItem, _command, options);
             if (shareItem.shareConfig?.import !== false) {
               writePreBuildLibPath(source, shareItem, options);
             }
@@ -783,7 +783,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 if (!id.startsWith(optimizedRequirePrefix)) return;
                 const sourcePackage = id.slice(optimizedRequirePrefix.length);
                 if (sourcePackage !== 'react' && sourcePackage !== 'react-dom') return;
-                const loadSharePath = getLoadShareModulePath(sourcePackage, isRolldown, options);
+                const loadSharePath = getLoadShareModulePath(sourcePackage, options);
                 // Keep the raw virtual id in Rolldown's generated optimized
                 // dependency. Vite runs import analysis over the emitted file;
                 // an already browser-encoded /@id/__x00__ specifier is treated
@@ -839,7 +839,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   writeSharedModules(source, shareItem);
                   return { id: `module-federation:optimized-require-${source}` };
                 }
-                const loadSharePath = getLoadShareModulePath(source, isRolldown, options);
+                const loadSharePath = getLoadShareModulePath(source, options);
                 writeSharedModules(source, shareItem);
                 return { id: loadSharePath, external: true };
               },
@@ -876,7 +876,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   addUsedShares(args.path, options);
                   if (args.kind === 'import-statement' || args.kind === 'dynamic-import') {
                     const shareItem = shared[key];
-                    const loadSharePath = getLoadShareModulePath(args.path, isRolldown, options);
+                    const loadSharePath = getLoadShareModulePath(args.path, options);
                     writeSharedModules(args.path, shareItem);
                     return { path: loadSharePath, external: true };
                   }
@@ -886,7 +886,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   const key = findSharedKey(args.path, shared);
                   if (!key) return;
                   const shareItem = shared[key];
-                  const loadSharePath = getLoadShareModulePath(args.path, isRolldown, options);
+                  const loadSharePath = getLoadShareModulePath(args.path, options);
                   writeSharedModules(args.path, shareItem);
                   return {
                     loader: 'js',
@@ -924,8 +924,8 @@ export default __mfShared.default ?? __mfShared;`,
             addConfiguredShare(runtimeKey, options);
             continue;
           }
-          getLoadShareModulePath(runtimeKey, isRolldown, options);
-          writeLoadShareModule(runtimeKey, shareItem, _command, isRolldown, options);
+          getLoadShareModulePath(runtimeKey, options);
+          writeLoadShareModule(runtimeKey, shareItem, _command, options);
           // Skip prebuild for shared deps with import: false — the host must
           // provide them, so no local fallback source is needed.
           if (shareItem.shareConfig?.import !== false) {
@@ -972,8 +972,8 @@ export default __mfShared.default ?? __mfShared;`,
                 optimizeDeps.exclude.push(subpath);
                 continue;
               }
-              getLoadShareModulePath(subpath, isRolldown, options);
-              writeLoadShareModule(subpath, shareItem, _command, isRolldown, options);
+              getLoadShareModulePath(subpath, options);
+              writeLoadShareModule(subpath, shareItem, _command, options);
               writePreBuildLibPath(subpath, shareItem, options);
               addConfiguredShare(subpath, options);
               if (canResolveSubpath) {
@@ -1323,13 +1323,12 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
     const key = findSharedKey(pkg, shared);
     if (!key) return 'not-applicable';
     const requestedModule = VirtualModule.findById(id);
-    const ownedModule = VirtualModule.findById(getLoadShareModulePath(pkg, false, options));
+    const ownedModule = VirtualModule.findById(getLoadShareModulePath(pkg, options));
     if (!requestedModule || requestedModule !== ownedModule) return 'not-owned';
     writeLoadShareModule(
       pkg,
       shared[key],
       command,
-      getIsRolldown(context),
       options,
       getLoadHookExportConditions(context, loadOptions),
       importFalseExportUsage
@@ -1603,7 +1602,6 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
             id,
             shared: options.shared,
             command,
-            isRolldown: getIsRolldown(this),
             findSharedKey,
             addUsedShares: (pkg) => addUsedShares(pkg, options),
             writeLocalSharedImportMap: () => writeLocalSharedImportMap(options),

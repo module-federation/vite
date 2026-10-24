@@ -55,15 +55,15 @@ describe('shared virtual module instance isolation', () => {
     const shareA = makeShareItem(false);
     const shareB = makeShareItem('react');
 
-    writeLoadShareModule('react', shareA, 'build', false, optionsA);
+    writeLoadShareModule('react', shareA, 'build', optionsA);
     writePreBuildLibPath('react', shareA, optionsA);
-    const loadShareA = getLoadShareModulePath('react', false, optionsA);
+    const loadShareA = getLoadShareModulePath('react', optionsA);
     const preBuildA = getPreBuildLibImportId('react', optionsA);
     const loadShareCodeA = VirtualModule.findById(loadShareA)?.code;
 
-    writeLoadShareModule('react', shareB, 'build', false, optionsB);
+    writeLoadShareModule('react', shareB, 'build', optionsB);
     writePreBuildLibPath('react', shareB, optionsB);
-    const loadShareB = getLoadShareModulePath('react', false, optionsB);
+    const loadShareB = getLoadShareModulePath('react', optionsB);
     const preBuildB = getPreBuildLibImportId('react', optionsB);
 
     expect(loadShareA).not.toBe(loadShareB);
@@ -78,13 +78,13 @@ describe('shared virtual module instance isolation', () => {
     const optionsB = makeOptions('same-name-host', 'secondaryRemoteEntry.js');
     const share = makeShareItem(false);
 
-    writeLoadShareModule('react', share, 'build', false, optionsA);
-    writeLoadShareModule('react', share, 'build', false, optionsB);
+    writeLoadShareModule('react', share, 'build', optionsA);
+    writeLoadShareModule('react', share, 'build', optionsB);
 
     const runtimeInitA = getRuntimeInitStatusImportId(optionsA);
     const runtimeInitB = getRuntimeInitStatusImportId(optionsB);
-    const codeA = VirtualModule.findById(getLoadShareModulePath('react', false, optionsA))?.code;
-    const codeB = VirtualModule.findById(getLoadShareModulePath('react', false, optionsB))?.code;
+    const codeA = VirtualModule.findById(getLoadShareModulePath('react', optionsA))?.code;
+    const codeB = VirtualModule.findById(getLoadShareModulePath('react', optionsB))?.code;
 
     expect(runtimeInitA).not.toBe(runtimeInitB);
     expect(codeA).toContain(`__mf_init__${runtimeInitA}__`);
@@ -96,14 +96,14 @@ describe('shared virtual module instance isolation', () => {
   it('keeps runtime init ids stable for equivalent configs', () => {
     const optionsA = makeOptions('stable-host');
     const share = makeShareItem(false);
-    writeLoadShareModule('react', share, 'serve', false, optionsA);
+    writeLoadShareModule('react', share, 'serve', optionsA);
     getRuntimeInitStatusImportId(makeOptions('unrelated-host'));
     const optionsB = makeOptions('stable-host');
-    writeLoadShareModule('react', share, 'serve', false, optionsB);
+    writeLoadShareModule('react', share, 'serve', optionsB);
 
     expect(getRuntimeInitStatusImportId(optionsA)).toBe(getRuntimeInitStatusImportId(optionsB));
-    expect(getLoadShareModulePath('react', false, optionsA)).toBe(
-      getLoadShareModulePath('react', false, optionsB)
+    expect(getLoadShareModulePath('react', optionsA)).toBe(
+      getLoadShareModulePath('react', optionsB)
     );
   });
 
@@ -142,12 +142,10 @@ describe('shared virtual module instance isolation', () => {
   it('uses the same scoped init barrier in serve loadShare and remoteEntry modules', () => {
     const options = makeOptions();
     const share = makeShareItem(false);
-    writeLoadShareModule('react', share, 'serve', false, options);
+    writeLoadShareModule('react', share, 'serve', options);
 
     const runtimeInit = getRuntimeInitStatusImportId(options);
-    const loadShareCode = VirtualModule.findById(
-      getLoadShareModulePath('react', false, options)
-    )?.code;
+    const loadShareCode = VirtualModule.findById(getLoadShareModulePath('react', options))?.code;
     const remoteEntryCode = generateRemoteEntry(options, 'virtual:exposes', 'serve');
 
     expect(loadShareCode).toContain(`__mf_init__${runtimeInit}__`);
@@ -264,8 +262,8 @@ describe('stale owner loadShare resolution', () => {
     const currentGen = makeOptions('stale-owner-host');
     const shared = makeShared('react');
 
-    writeLoadShareModule('react', shared['react'], 'serve', false, currentGen);
-    const currentId = getLoadShareModulePath('react', false, currentGen);
+    writeLoadShareModule('react', shared['react'], 'serve', currentGen);
+    const currentId = getLoadShareModulePath('react', currentGen);
     const staleId = toLegacyOwnerId(currentId, currentGen);
     expect(staleId).not.toBe(currentId);
 
@@ -277,22 +275,14 @@ describe('stale owner loadShare resolution', () => {
     const currentGen = makeOptions('stale-owner-host');
     const shared = makeShared('react-dom/client');
 
-    writeLoadShareModule(
-      'react-dom/client',
-      shared['react-dom/client'],
-      'serve',
-      false,
-      currentGen
-    );
+    writeLoadShareModule('react-dom/client', shared['react-dom/client'], 'serve', currentGen);
     const staleId = toLegacyOwnerId(
-      getLoadShareModulePath('react-dom/client', false, currentGen),
+      getLoadShareModulePath('react-dom/client', currentGen),
       currentGen
     );
 
     const healed = findCurrentLoadShareForStaleOwnerId(staleId, shared, findSharedKey, currentGen);
-    expect(healed?.getImportId()).toBe(
-      getLoadShareModulePath('react-dom/client', false, currentGen)
-    );
+    expect(healed?.getImportId()).toBe(getLoadShareModulePath('react-dom/client', currentGen));
   });
 
   it('does not reclaim ids minted by a different federation instance', () => {
@@ -300,9 +290,9 @@ describe('stale owner loadShare resolution', () => {
     const currentGen = makeOptions('stale-owner-host');
     const shared = makeShared('react');
 
-    writeLoadShareModule('react', shared['react'], 'serve', false, otherInstance);
-    writeLoadShareModule('react', shared['react'], 'serve', false, currentGen);
-    const foreignId = getLoadShareModulePath('react', false, otherInstance);
+    writeLoadShareModule('react', shared['react'], 'serve', otherInstance);
+    writeLoadShareModule('react', shared['react'], 'serve', currentGen);
+    const foreignId = getLoadShareModulePath('react', otherInstance);
 
     expect(findCurrentLoadShareForStaleOwnerId(foreignId, shared, findSharedKey, currentGen)).toBe(
       undefined
@@ -316,9 +306,9 @@ describe('stale owner loadShare resolution', () => {
     const primary = makeOptions('host');
     const shared = makeShared('react');
 
-    writeLoadShareModule('react', shared['react'], 'serve', false, secondary);
-    writeLoadShareModule('react', shared['react'], 'serve', false, primary);
-    const secondaryId = getLoadShareModulePath('react', false, secondary);
+    writeLoadShareModule('react', shared['react'], 'serve', secondary);
+    writeLoadShareModule('react', shared['react'], 'serve', primary);
+    const secondaryId = getLoadShareModulePath('react', secondary);
 
     expect(findCurrentLoadShareForStaleOwnerId(secondaryId, shared, findSharedKey, primary)).toBe(
       undefined
@@ -329,8 +319,8 @@ describe('stale owner loadShare resolution', () => {
     const previousGen = makeOptions('stale-owner-host');
     const currentGen = makeOptions('stale-owner-host');
 
-    writeLoadShareModule('react', makePkgShareItem('react'), 'serve', false, previousGen);
-    const staleId = getLoadShareModulePath('react', false, previousGen);
+    writeLoadShareModule('react', makePkgShareItem('react'), 'serve', previousGen);
+    const staleId = getLoadShareModulePath('react', previousGen);
 
     expect(
       findCurrentLoadShareForStaleOwnerId(staleId, makeShared('vue'), findSharedKey, currentGen)

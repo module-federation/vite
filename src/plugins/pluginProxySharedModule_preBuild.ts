@@ -24,7 +24,6 @@ import {
   getSharedRuntimeKey,
 } from '../utils/sharedKeyMatcher';
 import {
-  getIsRolldown,
   getInstalledPackageJson,
   type InstalledPackageJson,
   getInstalledPackageEntry,
@@ -547,7 +546,6 @@ export function proxySharedModule(options: {
     getImportAnalysis(environment ?? _config ?? options);
   let _command = 'serve';
   let useDirectReactImport = false;
-  let useRolldown = false;
   let isProduction = false;
   let rootResolveConditions: string[] | undefined;
   let ssrResolveConditions: string[] | undefined;
@@ -603,12 +601,7 @@ export function proxySharedModule(options: {
     conditions: getRuntimeDependencyConditions(context, resolveOptions),
   }));
   const refreshTreeShakingForEnvironment = (context: unknown) =>
-    refreshTreeShakingModules(
-      federationOptions,
-      _command,
-      getIsRolldown(context),
-      getEnvironmentConditions(context)
-    );
+    refreshTreeShakingModules(federationOptions, _command, getEnvironmentConditions(context));
 
   const normalizeTreeShakingOutputPath = (value: string) => {
     const normalized = normalizePathForImport(value);
@@ -728,9 +721,7 @@ export function proxySharedModule(options: {
         workspacePackageNameCache.clear();
         const isVinext = hasPackageDependency('vinext');
         const isAstro = hasPackageDependency('astro');
-        const isRolldown = getIsRolldown(this);
         _command = command;
-        useRolldown = isRolldown;
         useDirectReactImport = isVinext || isAstro;
         if (command === 'serve') {
           excludeSharedSubDependencies(shared);
@@ -754,7 +745,6 @@ export function proxySharedModule(options: {
         // is now prevented by adding prebuild IDs to optimizeDeps.include
         // in the config hook (createEarlyVirtualModulesPlugin), so Vite
         // pre-bundles them upfront without triggering re-optimization.
-        const isRolldown = getIsRolldown(this);
         const resolvedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
         const registerConfiguredShare =
           _command === 'build' && isRemoteContainer(resolvedOptions)
@@ -767,7 +757,7 @@ export function proxySharedModule(options: {
             registerConfiguredShare(runtimeKey, federationOptions);
             return;
           }
-          writeLoadShareModule(runtimeKey, shared[key], _command, isRolldown, federationOptions);
+          writeLoadShareModule(runtimeKey, shared[key], _command, federationOptions);
           // Skip prebuild for shared deps with import: false — the host must
           // provide them, so no local fallback source is needed.
           if (shared[key].shareConfig.import !== false) {
@@ -971,10 +961,10 @@ export function proxySharedModule(options: {
           // A sibling prebuild would re-enter Vite's CommonJS proxy on Vite 5–7.
           return tryResolveFromProjectRoot(localSource) || localSource;
         }
-        const loadSharePath = getLoadShareModulePath(shareSource, useRolldown, federationOptions);
+        const loadSharePath = getLoadShareModulePath(shareSource, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {
           materializedLoadShareSources.add(shareSource);
-          writeLoadShareModule(shareSource, shared[key], _command, useRolldown, federationOptions);
+          writeLoadShareModule(shareSource, shared[key], _command, federationOptions);
           if (shared[key].shareConfig.import !== false) {
             writePreBuildLibPath(shareSource, shared[key], federationOptions);
           }

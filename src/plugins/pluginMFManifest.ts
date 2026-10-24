@@ -18,7 +18,6 @@ import {
   TREE_SHAKING_GRAPH_QUERY,
   TREE_SHAKING_PROVIDER_TAG,
 } from '../virtualModules';
-import { getIsRolldown } from '../utils/packageUtils';
 
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import {
@@ -128,10 +127,7 @@ function collectImportedCss(chunks: OutputChunkWithViteMetadata[]): string[] {
  * dependency even though the expose statically imports it. Advertising it as a sync
  * asset makes a preloader fetch a provider the host is going to supply anyway.
  */
-function collectDeferredShareModules(
-  options: NormalizedModuleFederationOptions,
-  isRolldown: boolean
-): Set<string> {
+function collectDeferredShareModules(options: NormalizedModuleFederationOptions): Set<string> {
   const deferred = new Set<string>();
   for (const shareKey of getUsedShares(options)) {
     const shareConfig = getNormalizeShareItem(shareKey, options)?.shareConfig;
@@ -139,7 +135,7 @@ function collectDeferredShareModules(
     // A consume-only wrapper has no fallback and is not isolated into a chunk of its
     // own: it lives inside the consumer chunk, which must keep its own classification.
     if (shareConfig?.import === false) continue;
-    deferred.add(normalizeVirtualModuleId(getLoadShareModulePath(shareKey, isRolldown, options)));
+    deferred.add(normalizeVirtualModuleId(getLoadShareModulePath(shareKey, options)));
   }
   return deferred;
 }
@@ -166,12 +162,11 @@ function expandExposeAssets(
   exposeModules: string[],
   bundle: Record<string, OutputBundleItem>,
   remoteEntryFileName: string | undefined,
-  options: NormalizedModuleFederationOptions,
-  isRolldown: boolean
+  options: NormalizedModuleFederationOptions
 ): void {
   if (exposeModules.length === 0) return;
 
-  const deferredShareModules = collectDeferredShareModules(options, isRolldown);
+  const deferredShareModules = collectDeferredShareModules(options);
 
   const containerChunks = remoteEntryFileName
     ? collectStaticChunks(bundle, [remoteEntryFileName])
@@ -555,14 +550,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             },
             { root, stripKnownJsExtensions: true }
           );
-          expandExposeAssets(
-            filesMap,
-            exposesModules,
-            bundle,
-            foundRemoteEntryFile,
-            mfOptions,
-            getIsRolldown(this)
-          );
+          expandExposeAssets(filesMap, exposesModules, bundle, foundRemoteEntryFile, mfOptions);
 
           // Process shared modules
           const fileToShareKey = await buildFileToShareKeyMap(
