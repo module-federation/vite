@@ -3194,3 +3194,61 @@ describe('pluginAddEntry', () => {
     expect(patched).toContain('kit.start(app, element);');
   });
 });
+
+describe('pluginAddEntry HTML rewriting', () => {
+  it('keeps rewriting later HTML assets after a chunk whose file name ends in .html', () => {
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'html',
+    });
+    const buildPlugin = plugins[1];
+    const emitted: Rollup.EmittedFile[] = [];
+    const html =
+      '<html><head><script type="module" src="./src/main.tsx"></script></head><body></body></html>';
+    const bundle: any = {
+      'page.html': {
+        type: 'chunk',
+        name: 'page',
+        fileName: 'page.html',
+        isEntry: false,
+        code: '',
+        imports: [],
+        dynamicImports: [],
+      },
+      'index.html': { type: 'asset', source: html },
+    };
+
+    runConfigResolved(buildPlugin, {
+      root: '/repo/host',
+      base: '',
+      command: 'build',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      {
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'host-init-ref';
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'assets/hostInit-abc.js',
+        emitFile: (file: Rollup.EmittedFile) => {
+          emitted.push(file);
+          return 'bootstrap-ref-' + emitted.length;
+        },
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+
+    expect(bundle['index.html'].source).toContain('src="assets/hostInit-abc.js"');
+  });
+});

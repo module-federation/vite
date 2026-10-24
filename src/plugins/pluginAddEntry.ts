@@ -1252,7 +1252,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         // Process each HTML file
         for (const fileName of htmlFileNames) {
           let htmlAsset = bundle[fileName];
-          if (htmlAsset.type === 'chunk') return;
+          if (htmlAsset.type === 'chunk') continue;
 
           let htmlContent = htmlAsset.source.toString() || '';
           const initPath = resolvePath(file, fileName);

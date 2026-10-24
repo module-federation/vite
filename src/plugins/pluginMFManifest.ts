@@ -387,7 +387,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
                   types: resolveTypesMeta(mfOptions.dts),
                   globalName: name,
                   pluginVersion: packageJson.version,
-                  publicPath,
+                  ...(getPublicPath ? { getPublicPath } : { publicPath }),
                 },
               });
               res.end(JSON.stringify(manifest));
