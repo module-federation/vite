@@ -9,7 +9,7 @@
 <br />
 
 <a href="https://github.com/sponsors/gioboa">
-  <img src="./docs/sponsors.png" alt="Sponsors" />
+  <img src="./docs/sponsors.png" alt="Sponsors" width="677" />
 </a>
 
 ## Become a sponsor
