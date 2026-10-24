@@ -30,10 +30,11 @@ import {
   DEFAULT_SSR_FETCH_MAX_BYTES,
   DEFAULT_SSR_FETCH_TIMEOUT_MS,
   fetchWithTimeout,
+  getBodyPreview,
   isSsrFetchBodyTooLargeError,
   readResponseTextBounded,
 } from './fetchWithTimeout';
-import { EXTERNAL_URL_RE } from './buildPaths';
+import { EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
 import { mfWarn } from './logger';
@@ -413,10 +414,6 @@ export class SsrEntryHttpError extends Error {
     );
     this.name = 'SsrEntryHttpError';
   }
-}
-
-function getBodyPreview(body: string): string {
-  return body.slice(0, 240).replace(/\s+/g, ' ').trim();
 }
 
 function isSsrEntryHttpError(error: unknown): error is SsrEntryHttpError {
@@ -1092,8 +1089,7 @@ function transformSsrCode(
     const relativeUrl = isRelativeSpecifier(value) ? new URL(value, base).href : undefined;
     // Apply the temp-file map to both normalized relative imports and absolute
     // HTTP imports, while keeping the rewrite scoped to actual specifiers.
-    const absoluteHttpUrl =
-      value.startsWith('http://') || value.startsWith('https://') ? value : undefined;
+    const absoluteHttpUrl = isHttpUrl(value) ? value : undefined;
     const httpUrl = relativeUrl ?? absoluteHttpUrl;
     const tempFileUrl = httpUrl ? tempFileUrlMap?.get(httpUrl) : undefined;
     const replacement =
@@ -1191,27 +1187,25 @@ async function fetchEsmToTempFile(
     // Recursively fetch transitive HTTP imports and collect their temp paths.
     const subMap = new Map<string, string>();
     await Promise.all(
-      [...new Set(relImports)]
-        .filter((u) => u.startsWith('http://') || u.startsWith('https://'))
-        .map(async (u) => {
-          const tmpPath = await fetchEsmToTempFile(
-            u,
-            tmpDir,
-            visited,
-            pending,
-            sharedPkgMap,
-            versionKey,
-            fetchTimeoutMs,
-            contextKey,
-            fetchMaxBytes,
-            extension,
-            owner
-          );
-          // Keep every generated edge on the same versioned ESM URL as the
-          // root import. Without this query, a cycle back to the root resolves
-          // `file:///.../root.js` separately from `file:///.../root.js?v=...`.
-          subMap.set(u, getTempFileImportUrl(tmpPath, versionKey));
-        })
+      [...new Set(relImports)].filter(isHttpUrl).map(async (u) => {
+        const tmpPath = await fetchEsmToTempFile(
+          u,
+          tmpDir,
+          visited,
+          pending,
+          sharedPkgMap,
+          versionKey,
+          fetchTimeoutMs,
+          contextKey,
+          fetchMaxBytes,
+          extension,
+          owner
+        );
+        // Keep every generated edge on the same versioned ESM URL as the
+        // root import. Without this query, a cycle back to the root resolves
+        // `file:///.../root.js` separately from `file:///.../root.js?v=...`.
+        subMap.set(u, getTempFileImportUrl(tmpPath, versionKey));
+      })
     );
 
     // Transform code: absolute HTTP URLs → file:// paths for temp files,
@@ -1371,7 +1365,7 @@ async function loadSSRRemoteEntry(
   // that fetches fully-transformed module source from `/__mf_runner__`.
   // This is the correct mechanism for dev mode — it avoids serialisation
   // (which breaks React components) and gives us real Vite-transformed modules.
-  if (url.startsWith('http://') || url.startsWith('https://')) {
+  if (isHttpUrl(url)) {
     const urlObj = new URL(url);
     const isDevSsrEntry = urlObj.pathname.includes('/__mf_ssr__/');
     if (isDevSsrEntry) {

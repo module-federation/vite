@@ -53,6 +53,10 @@ export function normalizePathForImport(path: string): string {
 
 export const EXTERNAL_URL_RE = /^(?:[a-z]+:|\/\/)/i;
 
+export function isHttpUrl(value: string): boolean {
+  return value.startsWith('http://') || value.startsWith('https://');
+}
+
 export function isAbsoluteUrl(src: string): boolean {
   if (/^[a-z]:[\\/]/i.test(src)) return false;
   return EXTERNAL_URL_RE.test(src);
