@@ -67,6 +67,7 @@ import {
   hasShared,
   isRemoteContainer,
   normalizeModuleFederationOptions,
+  resolveDisableAssetsAnalyze,
   resolveSharedVersions,
 } from './utils/normalizeModuleFederationOptions';
 import {
@@ -2315,12 +2316,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               apply: 'build' as const,
               config() {
                 // Build-only plugin, so the serve-time default (disable when unset) never applies.
-                const manifest = options.manifest;
-                disablePreload =
-                  typeof manifest === 'object' &&
-                  manifest !== null &&
-                  Object.hasOwn(manifest, 'disableAssetsAnalyze') &&
-                  manifest.disableAssetsAnalyze === true;
+                disablePreload = resolveDisableAssetsAnalyze(options.manifest, false);
               },
               generateBundle(
                 _outputOptions: NormalizedOutputOptionsLike,

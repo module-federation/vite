@@ -6,6 +6,7 @@ import {
   getNormalizeModuleFederationOptions,
   getNormalizeShareItem,
   isRemoteContainer,
+  resolveDisableAssetsAnalyze,
   type NormalizedModuleFederationOptions,
   type RemoteObjectConfig,
 } from '../utils/normalizeModuleFederationOptions';
@@ -292,21 +293,6 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
   const isConsumerProject = !isRemoteContainer(mfOptions);
   let disableAssetsAnalyze = false;
 
-  const getDefaultDisableAssetsAnalyze = (command: string | undefined) =>
-    command === 'serve' &&
-    isConsumerProject &&
-    (typeof manifestOptions !== 'object' ||
-      !Object.hasOwn(manifestOptions, 'disableAssetsAnalyze'));
-
-  const getConfiguredDisableAssetsAnalyze = (command: string | undefined) => {
-    if (typeof manifestOptions === 'object' && manifestOptions !== null) {
-      if (Object.hasOwn(manifestOptions, 'disableAssetsAnalyze')) {
-        return manifestOptions.disableAssetsAnalyze === true;
-      }
-    }
-    return getDefaultDisableAssetsAnalyze(command);
-  };
-
   let root: string;
   let remoteEntryFile: string;
   let ssrRemoteEntryFile: string | undefined;
@@ -412,7 +398,11 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         if (!config.build.manifest) {
           config.build.manifest = config.build.manifest || !!mfManifestName;
         }
-        disableAssetsAnalyze = getConfiguredDisableAssetsAnalyze(command);
+        // Consumer dev servers skip asset analysis unless explicitly configured.
+        disableAssetsAnalyze = resolveDisableAssetsAnalyze(
+          manifestOptions,
+          command === 'serve' && isConsumerProject
+        );
         _originalConfigBase = config.base;
       },
       configResolved(config) {

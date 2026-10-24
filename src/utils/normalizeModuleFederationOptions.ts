@@ -597,6 +597,22 @@ export interface PluginManifestOptions {
     bundler: 'vite';
   }) => Promise<Record<string, unknown> | void> | Record<string, unknown> | void;
 }
+
+/** An explicit `manifest.disableAssetsAnalyze` wins; otherwise `fallback` applies. */
+export function resolveDisableAssetsAnalyze(
+  manifest: ModuleFederationOptions['manifest'],
+  fallback: boolean
+): boolean {
+  if (
+    typeof manifest === 'object' &&
+    manifest !== null &&
+    Object.hasOwn(manifest, 'disableAssetsAnalyze')
+  ) {
+    return manifest.disableAssetsAnalyze === true;
+  }
+  return fallback;
+}
+
 function normalizeManifest(manifest: ModuleFederationOptions['manifest']) {
   if (manifest === undefined) {
     return undefined;
