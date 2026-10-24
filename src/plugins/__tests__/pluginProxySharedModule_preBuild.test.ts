@@ -75,19 +75,12 @@ vi.mock('fs', async (importOriginal) => {
   };
 });
 
-// The shared-cache key format must come from the real module; copies here drift from it.
-async function importActualSharedCache() {
-  const actual = await vi.importActual<typeof import('../../utils/packageUtils')>(
-    '../../utils/packageUtils'
-  );
-  return {
-    getSharedCacheDescriptor: actual.getSharedCacheDescriptor,
-    sharedCacheHelperCode: actual.sharedCacheHelperCode,
-  };
-}
+type PackageUtils = typeof import('../../utils/packageUtils');
 
-vi.mock('../../utils/packageUtils', async () => ({
-  ...(await importActualSharedCache()),
+vi.mock('../../utils/packageUtils', async (importOriginal) => ({
+  // The shared-cache key format must come from the real module; copies here drift from it.
+  getSharedCacheDescriptor: (await importOriginal<PackageUtils>()).getSharedCacheDescriptor,
+  sharedCacheHelperCode: (await importOriginal<PackageUtils>()).sharedCacheHelperCode,
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: getInstalledPackageEntryMock,
   isPackageExportAvailable: () => true,
