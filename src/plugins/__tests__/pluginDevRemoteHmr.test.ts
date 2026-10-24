@@ -802,3 +802,59 @@ describe('pluginDevRemoteHmr', () => {
     });
   });
 });
+
+describe('pluginDevRemoteHmr reconnect', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    MockWebSocket.instances = [];
+  });
+
+  // Relays from earlier tests stay alive and retry through the stubbed fetch, so this
+  // test answers only its own remote's endpoint and counts only its own sockets.
+  const RECONNECT_WS_URL = 'ws://reconnect.example:4174/app?token=abc';
+  const ownSockets = () => MockWebSocket.instances.filter((ws) => ws.url === RECONNECT_WS_URL);
+
+  it('keeps reconnecting after more closes than the retry cap when each socket opened', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url !== 'http://reconnect.example/assets/__mf_hmr') throw new Error('unrelated');
+          return {
+            ok: true,
+            json: async () => ({ event: 'mf:remote-update', wsUrl: RECONNECT_WS_URL }),
+          };
+        })
+      );
+      vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket);
+
+      const { server, close } = createServer();
+      const plugin = pluginDevRemoteHmr(
+        normalizeModuleFederationOptions({
+          name: 'host-app',
+          dev: { remoteHmr: true },
+          exposes: {},
+          remotes: { remoteApp: 'remoteApp@http://reconnect.example/assets/remoteEntry.js' },
+          virtualModuleDir: '__mf__virtual',
+        })
+      );
+      runConfigureServer(plugin, server);
+      await vi.waitFor(() => expect(ownSockets()).toHaveLength(1));
+
+      // Each cycle is a healthy connection that later drops, so none of them is a failed attempt.
+      for (let cycle = 1; cycle <= 11; cycle++) {
+        const socket = ownSockets()[cycle - 1];
+        socket.onopen?.();
+        socket.onclose?.();
+        await vi.advanceTimersByTimeAsync(1000);
+        await vi.waitFor(() => expect(ownSockets()).toHaveLength(cycle + 1));
+      }
+
+      close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

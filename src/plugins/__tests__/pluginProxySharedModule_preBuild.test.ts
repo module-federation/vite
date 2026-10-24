@@ -229,14 +229,9 @@ vi.mock('../../virtualModules', async (importOriginal) => {
       refreshHostAutoInitMock();
       return actual.refreshHostAutoInit(options);
     },
-    writeLoadShareModule: (
-      pkg: string,
-      shareItem: NormalizedShared[string],
-      command: string,
-      useRolldown: boolean
-    ) => {
-      writeLoadShareModuleMock(pkg, shareItem, command, useRolldown);
-      return actual.writeLoadShareModule(pkg, shareItem, command, useRolldown);
+    writeLoadShareModule: (pkg: string, shareItem: NormalizedShared[string], command: string) => {
+      writeLoadShareModuleMock(pkg, shareItem, command);
+      return actual.writeLoadShareModule(pkg, shareItem, command);
     },
     writePreBuildLibPath: (pkg: string, shareItem?: NormalizedShared[string]) => {
       writePreBuildLibPathMock(pkg, shareItem);
@@ -2356,7 +2351,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     );
 
     expect(writeLoadShareModuleMock).toHaveBeenCalledTimes(1);
-    expect(writeLoadShareModuleMock).toHaveBeenCalledWith('vue', makeShared().vue, 'build', false);
+    expect(writeLoadShareModuleMock).toHaveBeenCalledWith('vue', makeShared().vue, 'build');
     expect(writePreBuildLibPathMock).toHaveBeenCalledTimes(1);
     expect(addUsedSharesMock).toHaveBeenCalledTimes(1);
     expect(writeLocalSharedImportMapMock).toHaveBeenCalledTimes(1);
@@ -2765,7 +2760,7 @@ describe('pluginProxySharedModule_preBuild', () => {
       );
 
       expect((resolution as { id: string }).id).toBeDefined();
-      expect(writeLoadShareModuleMock).toHaveBeenCalledWith(source, reactNamespace, 'build', false);
+      expect(writeLoadShareModuleMock).toHaveBeenCalledWith(source, reactNamespace, 'build');
       expect(addUsedSharesMock).toHaveBeenCalledWith(source);
       // import:false must not invent a local prebuild fallback.
       expect(preBuildShareItemMap.has(source)).toBe(false);

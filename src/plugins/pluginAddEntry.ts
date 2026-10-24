@@ -627,7 +627,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
                   Boolean(getProjectResolvedImportPath(pkg)))
               );
             })
-            .map((pkg) => getLoadShareModulePath(pkg, false, federationOptions))
+            .map((pkg) => getLoadShareModulePath(pkg, federationOptions))
         : [];
     // Under Vite bundledDev there are no /@id/ URLs: the bundler must see the imports.
     const sharedPreloadBlock =
@@ -1252,7 +1252,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         // Process each HTML file
         for (const fileName of htmlFileNames) {
           let htmlAsset = bundle[fileName];
-          if (htmlAsset.type === 'chunk') return;
+          if (htmlAsset.type === 'chunk') continue;
 
           let htmlContent = htmlAsset.source.toString() || '';
           const initPath = resolvePath(file, fileName);

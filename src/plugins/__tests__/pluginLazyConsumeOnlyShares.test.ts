@@ -22,11 +22,8 @@ vi.mock('../../virtualModules/virtualRemoteEntry', () => ({
 }));
 
 vi.mock('../../virtualModules/virtualShared_preBuild', () => ({
-  getLoadShareModulePath: (
-    pkg: string,
-    _isRolldown: boolean,
-    { internalName }: { internalName: string }
-  ) => `virtual:mf:${internalName}__loadShare__${pkg}__loadShare__.js`,
+  getLoadShareModulePath: (pkg: string, { internalName }: { internalName: string }) =>
+    `virtual:mf:${internalName}__loadShare__${pkg}__loadShare__.js`,
 }));
 
 vi.mock('../../virtualModules/virtualRuntimeInitStatus', () => ({
