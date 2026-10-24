@@ -75,53 +75,19 @@ vi.mock('fs', async (importOriginal) => {
   };
 });
 
-vi.mock('../../utils/packageUtils', () => ({
-  getSharedCacheDescriptor: (
-    pkg: string,
-    shareItem: {
-      version?: string;
-      scope?: string | string[];
-      shareConfig: { singleton?: boolean };
-    }
-  ) => {
-    const normalizedScope = Array.isArray(shareItem.scope) ? shareItem.scope[0] : shareItem.scope;
-    const scope = normalizedScope || 'default';
-    const id =
-      shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`;
-    return {
-      canonical: `${scope}:${id}`,
-      ...(scope === 'default' ? { aliases: [id] } : {}),
-    };
-  },
-  sharedCacheHelperCode: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
-            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
-            const scopeName = normalizedScope || "default";
-            const id = singleton || !version ? pkg : pkg + "@" + version;
-            const descriptor = { canonical: scopeName + ":" + id };
-            if (scopeName === "default") descriptor.aliases = [id];
-            return descriptor;
-          };
-          const __mfReadSharedCache = (cache, descriptor) => {
-            const value = cache[descriptor.canonical];
-            if (value !== undefined) return value;
-            const aliases = descriptor.aliases || [];
-            for (const alias of aliases) {
-              const aliasValue = cache[alias];
-              if (aliasValue !== undefined) {
-                cache[descriptor.canonical] = aliasValue;
-                return aliasValue;
-              }
-            }
-            return undefined;
-          };
-          const __mfWriteSharedCache = (cache, descriptor, value) => {
-            cache[descriptor.canonical] = value;
-            const aliases = descriptor.aliases || [];
-            for (const alias of aliases) {
-              if (cache[alias] === undefined) cache[alias] = value;
-            }
-            return value;
-          };`,
+// The shared-cache key format must come from the real module; copies here drift from it.
+async function importActualSharedCache() {
+  const actual = await vi.importActual<typeof import('../../utils/packageUtils')>(
+    '../../utils/packageUtils'
+  );
+  return {
+    getSharedCacheDescriptor: actual.getSharedCacheDescriptor,
+    sharedCacheHelperCode: actual.sharedCacheHelperCode,
+  };
+}
+
+vi.mock('../../utils/packageUtils', async () => ({
+  ...(await importActualSharedCache()),
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: getInstalledPackageEntryMock,
   isPackageExportAvailable: () => true,

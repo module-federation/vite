@@ -98,98 +98,19 @@ vi.mock('../../utils/logger', () => ({
   mfWarn: mfWarnSpy,
 }));
 
-vi.mock('../../utils/packageUtils', () => ({
-  getSharedCacheDescriptor: (
-    pkg: string,
-    shareItem: { version?: string; scope?: string; shareConfig: { singleton?: boolean } }
-  ) => {
-    const scope = shareItem.scope || 'default';
-    const id =
-      shareItem.shareConfig.singleton || !shareItem.version ? pkg : `${pkg}@${shareItem.version}`;
-    return {
-      canonical: `${scope}:${id}`,
-      ...(scope === 'default' ? { aliases: [id] } : {}),
-    };
-  },
-  sharedCacheHelperCode: `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
-            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
-            const scopeName = normalizedScope || "default";
-            const id = singleton || !version ? pkg : pkg + "@" + version;
-            const descriptor = { canonical: scopeName + ":" + id };
-            if (scopeName === "default") descriptor.aliases = [id];
-            return descriptor;
-          };
-          const __mfReadSharedCache = (cache, descriptor) => {
-            const value = cache[descriptor.canonical];
-            if (value !== undefined) return value;
-            const aliases = descriptor.aliases || [];
-            for (const alias of aliases) {
-              if (!Object.prototype.hasOwnProperty.call(cache, alias)) continue;
-              const aliasValue = cache[alias];
-              if (aliasValue !== undefined) {
-                cache[descriptor.canonical] = aliasValue;
-                return aliasValue;
-              }
-            }
-            return undefined;
-          };
-          const __mfSharedCacheListenersKey = Symbol.for("module-federation.shared-cache-listeners");
-          const __mfGetSharedCacheListeners = (cache) => {
-            let listeners = cache[__mfSharedCacheListenersKey];
-            if (listeners === undefined) {
-              listeners = Object.create(null);
-              Object.defineProperty(cache, __mfSharedCacheListenersKey, {
-                value: listeners,
-                enumerable: false,
-                configurable: false,
-                writable: false
-              });
-            }
-            return listeners;
-          };
-          const __mfSubscribeSharedCache = (cache, descriptor, listener) => {
-            const listeners = __mfGetSharedCacheListeners(cache);
-            (listeners[descriptor.canonical] ||= new Set()).add(listener);
-          };
-          const __mfSharedCacheOwnersKey = Symbol.for("module-federation.shared-cache-owners");
-          const __mfGetSharedCacheOwners = (cache) => {
-            let owners = cache[__mfSharedCacheOwnersKey];
-            if (owners === undefined) {
-              owners = Object.create(null);
-              Object.defineProperty(cache, __mfSharedCacheOwnersKey, {
-                value: owners,
-                enumerable: false,
-                configurable: false,
-                writable: false
-              });
-            }
-            return owners;
-          };
-          const __mfReadSharedCacheOwner = (cache, descriptor) =>
-            cache[__mfSharedCacheOwnersKey]?.[descriptor.canonical];
-          const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
-            cache[descriptor.canonical] = value;
-            const aliases = descriptor.aliases || [];
-            for (const alias of aliases) {
-              Object.defineProperty(cache, alias, {
-                value,
-                enumerable: true,
-                configurable: true,
-                writable: true
-              });
-            }
-            const owners = cache[__mfSharedCacheOwnersKey];
-            if (owner === undefined) {
-              if (owners) delete owners[descriptor.canonical];
-            } else {
-              __mfGetSharedCacheOwners(cache)[descriptor.canonical] = owner;
-            }
-            const listeners = cache[__mfSharedCacheListenersKey]?.[descriptor.canonical];
-            if (listeners) {
-              for (const listener of listeners) listener(value);
-            }
-            return value;
-          };`,
+// The shared-cache key format must come from the real module; copies here drift from it.
+async function importActualSharedCache() {
+  const actual = await vi.importActual<typeof import('../../utils/packageUtils')>(
+    '../../utils/packageUtils'
+  );
+  return {
+    getSharedCacheDescriptor: actual.getSharedCacheDescriptor,
+    sharedCacheHelperCode: actual.sharedCacheHelperCode,
+  };
+}
+
+vi.mock('../../utils/packageUtils', async () => ({
+  ...(await importActualSharedCache()),
   packageNameEncode: (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, '_'),
   hasPackageDependency: hasPackageDependencyMock,
   getPackageDetectionCwd: packageDetectionCwdMock,
