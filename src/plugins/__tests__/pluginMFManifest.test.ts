@@ -50,11 +50,8 @@ vi.mock('../../utils/treeShaking', () => ({
 vi.mock('../../virtualModules', () => ({
   getLocalSharedImportMapPath: ({ internalName }: { internalName: string }) =>
     `virtual:mf-localSharedImportMap:${internalName}__mf_owner__1`,
-  getLoadShareModulePath: (
-    pkg: string,
-    _isRolldown: boolean,
-    { internalName }: { internalName: string }
-  ) => `virtual:mf:${internalName}__loadShare__${pkg}__loadShare__.js`,
+  getLoadShareModulePath: (pkg: string, { internalName }: { internalName: string }) =>
+    `virtual:mf:${internalName}__loadShare__${pkg}__loadShare__.js`,
   getUsedRemotesMap,
   getUsedShares,
   getPreBuildLibImportId,

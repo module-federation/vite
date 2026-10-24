@@ -2811,7 +2811,7 @@ export function generatePendingSharesCode(
   }
   const pendingShareImports = pendingSharePkgs.map(
     (pkg) =>
-      `[${toSafeJsLiteral(pkg)}, () => import(${toSafeJsLiteral(getLoadShareModulePath(pkg, false, options))})]`
+      `[${toSafeJsLiteral(pkg)}, () => import(${toSafeJsLiteral(getLoadShareModulePath(pkg, options))})]`
   );
   return `
     ${getRuntimeModuleCacheBootstrapCode()}

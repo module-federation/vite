@@ -258,8 +258,8 @@ describe('pendingShareLoads lifecycle', () => {
       shared: { [pkg]: { import: false } },
       dts: false,
     });
-    const loadShareId = getLoadShareModulePath(pkg, false, options);
-    writeLoadShareModule(pkg, options.shared[pkg], 'build', false, options);
+    const loadShareId = getLoadShareModulePath(pkg, options);
+    writeLoadShareModule(pkg, options.shared[pkg], 'build', options);
     const generated = inlineSharedCacheHelpers(VirtualModule.findById(loadShareId)?.code);
     expect(generated).toBeTruthy();
     if (!generated) return;
@@ -336,8 +336,8 @@ describe('pendingShareLoads lifecycle', () => {
       },
       dts: false,
     });
-    const loadShareId = getLoadShareModulePath(pkg, false, options);
-    writeLoadShareModule(pkg, options.shared[pkg], 'build', false, options);
+    const loadShareId = getLoadShareModulePath(pkg, options);
+    writeLoadShareModule(pkg, options.shared[pkg], 'build', options);
     const generated = inlineSharedCacheHelpers(VirtualModule.findById(loadShareId)?.code);
     expect(generated).toBeTruthy();
     if (!generated) return;
@@ -405,8 +405,8 @@ describe('pendingShareLoads lifecycle', () => {
       },
       dts: false,
     });
-    const loadShareId = getLoadShareModulePath(pkg, false, options);
-    writeLoadShareModule(pkg, options.shared[pkg], 'build', false, options);
+    const loadShareId = getLoadShareModulePath(pkg, options);
+    writeLoadShareModule(pkg, options.shared[pkg], 'build', options);
     const generated = inlineSharedCacheHelpers(VirtualModule.findById(loadShareId)?.code);
     expect(generated).toBeTruthy();
     if (!generated) return;
@@ -504,8 +504,8 @@ describe('pendingShareLoads lifecycle', () => {
       },
       dts: false,
     });
-    const loadShareId = getLoadShareModulePath(pkg, false, options);
-    writeLoadShareModule(pkg, options.shared[pkg], 'build', false, options, exportConditions);
+    const loadShareId = getLoadShareModulePath(pkg, options);
+    writeLoadShareModule(pkg, options.shared[pkg], 'build', options, exportConditions);
     const generated = inlineSharedCacheHelpers(VirtualModule.findById(loadShareId)?.code);
     expect(generated).toBeTruthy();
     if (!generated) return;

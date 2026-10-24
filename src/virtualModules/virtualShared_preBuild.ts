@@ -1585,14 +1585,13 @@ export function writePreBuildLibPath(
 export function refreshTreeShakingModules(
   options?: NormalizedModuleFederationOptions,
   command = 'build',
-  isRolldown = false,
   exportConditions?: string[]
 ) {
   const { preBuildShareItemMap } = getSharedVirtualModuleState(options);
   for (const [pkg, shareItem] of Object.entries(preBuildShareItemMap)) {
     if (!shareItem?.shareConfig.treeShaking) continue;
     writePreBuildLibPath(pkg, shareItem, options, exportConditions);
-    writeLoadShareModule(pkg, shareItem, command, isRolldown, options, exportConditions);
+    writeLoadShareModule(pkg, shareItem, command, options, exportConditions);
   }
 }
 export function getPreBuildLibImportId(
@@ -1624,9 +1623,8 @@ export function getSharedImportSource(
 // *** __loadShare__
 export { LOAD_SHARE_TAG };
 
-export function getLoadShareImportId(
+export function getLoadShareModulePath(
   pkg: string,
-  _isRolldown: boolean,
   options?: NormalizedModuleFederationOptions
 ): string {
   const { loadShareCacheMap } = getSharedVirtualModuleState(options);
@@ -1634,16 +1632,6 @@ export function getLoadShareImportId(
     loadShareCacheMap[pkg] = createScopedSharedVirtualModule(pkg, LOAD_SHARE_TAG, options);
   }
   return loadShareCacheMap[pkg].getImportId();
-}
-export function getLoadShareModulePath(
-  pkg: string,
-  isRolldown: boolean,
-  options?: NormalizedModuleFederationOptions
-): string {
-  const { loadShareCacheMap } = getSharedVirtualModuleState(options);
-  if (!loadShareCacheMap[pkg]) getLoadShareImportId(pkg, isRolldown, options);
-  const filepath = loadShareCacheMap[pkg].getImportId();
-  return filepath;
 }
 
 function getCachedSharedVirtualPkg(id: string, tag: string): string | undefined {
@@ -1675,7 +1663,6 @@ export function materializeCachedLoadShareModule(options: {
   id: string;
   shared: NormalizedShared;
   command: string;
-  isRolldown: boolean;
   findSharedKey: (source: string, shared: NormalizedShared) => string | undefined;
   addUsedShares: (pkg: string) => void;
   writeLocalSharedImportMap: () => void;
@@ -1687,13 +1674,7 @@ export function materializeCachedLoadShareModule(options: {
   if (!key) return;
 
   const shareItem = options.shared[key];
-  writeLoadShareModule(
-    pkg,
-    shareItem,
-    options.command,
-    options.isRolldown,
-    options.federationOptions
-  );
+  writeLoadShareModule(pkg, shareItem, options.command, options.federationOptions);
   if (shareItem.shareConfig?.import !== false) {
     writePreBuildLibPath(pkg, shareItem, options.federationOptions);
   }
@@ -2147,7 +2128,6 @@ export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
   command: string,
-  _isRolldown: boolean,
   options?: NormalizedModuleFederationOptions,
   exportConditions?: string[],
   importFalseExportUsage?: TreeShakingExportUsage

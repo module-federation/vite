@@ -13,7 +13,6 @@ import {
   isRemoteContainer,
   type NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
-import { getIsRolldown } from '../utils/packageUtils';
 import { isServerBuildContext } from '../utils/remoteConsumerTarget';
 import { normalizeVirtualModuleId } from '../utils/VirtualModule';
 import {
@@ -126,14 +125,13 @@ export function pluginLazyConsumeOnlyShares(options: NormalizedModuleFederationO
 
       let graph = graphs.get(chunks);
       if (!graph) {
-        const isRolldown = getIsRolldown(this);
         const wrapperShares = new Map<string, string>();
         for (const shareKey of getUsedShares(options)) {
           const shareConfig = getNormalizeShareItem(shareKey, options)?.shareConfig;
           if (shareConfig?.import !== false || shareConfig.eager || shareConfig.treeShaking)
             continue;
           wrapperShares.set(
-            normalizeVirtualModuleId(getLoadShareModulePath(shareKey, isRolldown, options)),
+            normalizeVirtualModuleId(getLoadShareModulePath(shareKey, options)),
             shareKey
           );
         }
