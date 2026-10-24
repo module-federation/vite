@@ -2779,7 +2779,8 @@ describe('writeLoadShareModule', () => {
 
     expectLiveSingletonProxy(generatedCode, pkg, ['Fragment', 'jsx', 'jsxs']);
     expect(generatedCode).not.toContain('createElement');
-    expect(generatedCode).not.toContain('useState');
+    // The shared-cache helpers probe `candidate.useState`, so check the export binding only.
+    expect(generatedCode).not.toContain('mod["useState"]');
   });
 
   it('generates eager inherited subpath exports synchronously for remote builds', () => {
