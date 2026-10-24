@@ -2313,24 +2313,14 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
               name: 'module-federation-fix-preload',
               enforce: 'post' as const,
               apply: 'build' as const,
-              config(_config, { command }) {
+              config() {
+                // Build-only plugin, so the serve-time default (disable when unset) never applies.
                 const manifest = options.manifest;
-                const getDefaultDisableAssetsAnalyze = (cfgCommand: string | undefined) =>
-                  cfgCommand === 'serve' &&
-                  (typeof manifest !== 'object' ||
-                    !Object.hasOwn(manifest, 'disableAssetsAnalyze'));
-
-                const getConfiguredDisableAssetsAnalyze = (cfgCommand: string | undefined) => {
-                  if (typeof manifest === 'object' && manifest !== null) {
-                    if (Object.hasOwn(manifest, 'disableAssetsAnalyze')) {
-                      return manifest.disableAssetsAnalyze === true;
-                    }
-                  }
-
-                  return getDefaultDisableAssetsAnalyze(cfgCommand);
-                };
-
-                disablePreload = getConfiguredDisableAssetsAnalyze(command);
+                disablePreload =
+                  typeof manifest === 'object' &&
+                  manifest !== null &&
+                  Object.hasOwn(manifest, 'disableAssetsAnalyze') &&
+                  manifest.disableAssetsAnalyze === true;
               },
               generateBundle(
                 _outputOptions: NormalizedOutputOptionsLike,

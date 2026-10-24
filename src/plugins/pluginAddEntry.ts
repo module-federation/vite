@@ -361,12 +361,21 @@ const addEntry = ({
   let bundledDevRemoteEntryCode: Promise<string | undefined> | undefined;
   let resolveBundledDevRemoteEntryCode: ((code: string | undefined) => void) | undefined;
 
-  function skipSvelteKitSsrBuild() {
+  function isBuildCommand() {
+    return _command === 'build' || viteConfig?.command === 'build';
+  }
+
+  function isLoadedFirstClientBuildFor(shareStrategy: string | undefined) {
     return (
-      (_command === 'build' || viteConfig?.command === 'build') &&
-      viteConfig?.build?.ssr &&
-      hasPackageDependency('@sveltejs/kit')
+      isBuildCommand() &&
+      waitsForInit &&
+      !viteConfig?.build?.ssr &&
+      shareStrategy === 'loaded-first'
     );
+  }
+
+  function skipSvelteKitSsrBuild() {
+    return isBuildCommand() && viteConfig?.build?.ssr && hasPackageDependency('@sveltejs/kit');
   }
 
   function isSvelteKitServerModule(id: string) {
@@ -456,11 +465,7 @@ const __mfCurrentScript = document.currentScript;
   // after the bootstrap script downloads and evaluates.
   function getRemoteEntryPreloadUrls(): string[] {
     const normalizedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
-    const isLoadedFirstClientBuild =
-      (_command === 'build' || viteConfig?.command === 'build') &&
-      waitsForInit &&
-      !viteConfig?.build?.ssr &&
-      normalizedOptions.shareStrategy === 'loaded-first';
+    const isLoadedFirstClientBuild = isLoadedFirstClientBuildFor(normalizedOptions.shareStrategy);
     if (normalizedOptions.shareStrategy === 'loaded-first' && !isLoadedFirstClientBuild) return [];
     // Warm remote-entry URLs from registered remotes (keys), not imported
     // modules. Config registration must not loadRemote("."), but the entry
@@ -551,11 +556,7 @@ const __mfCurrentScript = document.currentScript;
       : importExpression(entrySrc);
 
     const normalizedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
-    const isLoadedFirstClientBuild =
-      (_command === 'build' || viteConfig?.command === 'build') &&
-      waitsForInit &&
-      !viteConfig?.build?.ssr &&
-      normalizedOptions.shareStrategy === 'loaded-first';
+    const isLoadedFirstClientBuild = isLoadedFirstClientBuildFor(normalizedOptions.shareStrategy);
 
     // `version-first` eagerly loads every used remote, while `loaded-first`
     // normally defers loading until an export is read. A static ESM import is
@@ -704,7 +705,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
     // Still-unseeded share wrappers are evaluated after the remote preloads and before the pendingShareLoads
     // barrier, from a virtual module of their own so hostInit stays free of wrapper references.
     const pendingSharesBlock =
-      waitsForInit && (_command === 'build' || viteConfig?.command === 'build')
+      waitsForInit && isBuildCommand()
         ? `
   const __mfPendingShares = await ${importExpression(options?.pendingSharesSrc ?? getPendingSharesPath(federationOptions))}.catch(() => undefined);
   if (__mfPendingShares && typeof __mfPendingShares.preloadPendingShares === "function") await __mfPendingShares.preloadPendingShares();`

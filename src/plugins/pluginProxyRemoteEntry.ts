@@ -67,6 +67,24 @@ export default function ({
 
   const isSsrBuild = (context: unknown): boolean => isServerBuildContext(context, viteConfig);
 
+  const loadRemoteEntryCode = (context: unknown) =>
+    getParsePromise().then((_) =>
+      generateRemoteEntry(
+        options,
+        virtualExposesId,
+        _command,
+        getEnvironmentConditions(context),
+        isSsrBuild(context)
+      )
+    );
+
+  const loadExposesCode = async (
+    context: Parameters<typeof refreshExposeRemoteDependencies>[0]
+  ) => {
+    await refreshExposeRemoteDependencies(context);
+    return generateExposes(options, exposeRemoteDependencies, _command, reactIslandExposes);
+  };
+
   function isRemoteImport(source: string): boolean {
     return isRemoteSpecifier(source, Object.keys(options.remotes));
   }
@@ -176,21 +194,8 @@ export default function ({
       }
     },
     async load(id: string) {
-      if (id === remoteEntryId) {
-        return getParsePromise().then((_) =>
-          generateRemoteEntry(
-            options,
-            virtualExposesId,
-            _command,
-            getEnvironmentConditions(this),
-            isSsrBuild(this)
-          )
-        );
-      }
-      if (id === virtualExposesId) {
-        await refreshExposeRemoteDependencies(this);
-        return generateExposes(options, exposeRemoteDependencies, _command, reactIslandExposes);
-      }
+      if (id === remoteEntryId) return loadRemoteEntryCode(this);
+      if (id === virtualExposesId) return loadExposesCode(this);
       if (_command === 'serve' && isHostAutoInitId(id)) {
         return id;
       }
@@ -198,21 +203,8 @@ export default function ({
     async transform(code: string, id: string) {
       const transformedCode = await (async () => {
         if (!filterId(id)) return;
-        if (id.includes(remoteEntryId)) {
-          return getParsePromise().then((_) =>
-            generateRemoteEntry(
-              options,
-              virtualExposesId,
-              _command,
-              getEnvironmentConditions(this),
-              isSsrBuild(this)
-            )
-          );
-        }
-        if (id === virtualExposesId) {
-          await refreshExposeRemoteDependencies(this);
-          return generateExposes(options, exposeRemoteDependencies, _command, reactIslandExposes);
-        }
+        if (id.includes(remoteEntryId)) return loadRemoteEntryCode(this);
+        if (id === virtualExposesId) return loadExposesCode(this);
         if (isHostAutoInitId(id)) {
           if (_command === 'serve') {
             const host = formatDevServerHostForOrigin(viteConfig.server?.host);
