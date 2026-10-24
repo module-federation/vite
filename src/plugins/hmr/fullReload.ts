@@ -253,9 +253,15 @@ export function setupHostFullReloadRelay(
         if (!message || message.event !== REMOTE_HMR_EVENT) return;
         server.ws.send({ type: 'full-reload' });
       };
-      ws.onopen = () => clearReconnectTimer(remoteName);
+      let opened = false;
+      ws.onopen = () => {
+        opened = true;
+        clearReconnectTimer(remoteName);
+      };
       ws.onerror = (error) => mfWarn(`Remote HMR socket error for "${remoteName}":`, error);
-      ws.onclose = () => scheduleReconnect(remoteName, remote, attempt, 'socket closed');
+      // A socket that opened was a successful attempt, so its drop starts a fresh retry budget.
+      ws.onclose = () =>
+        scheduleReconnect(remoteName, remote, opened ? 0 : attempt, 'socket closed');
 
       connections.push(ws);
     } catch (error) {
