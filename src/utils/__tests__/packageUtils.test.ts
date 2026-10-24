@@ -1702,6 +1702,33 @@ describe('getSharedCacheDescriptor', () => {
   });
 });
 
+describe('shared cache key parity', () => {
+  // The emitted runtime helper hand-copies the key format; both must agree on every input.
+  const runtimeDescriptor = new Function(
+    `${sharedCacheHelperCode}
+    return __mfGetSharedCacheDescriptor;`
+  )() as (pkg: string, singleton?: boolean, version?: string, scope?: string | string[]) => unknown;
+
+  const cases = ['react', '@scope/pkg'].flatMap((pkg) =>
+    [true, false, undefined].flatMap((singleton) =>
+      [undefined, '', '18.3.1'].flatMap((version) =>
+        [undefined, '', 'default', 'react-18', ['react-18', 'other'], ['default'], []].map(
+          (scope) => ({ pkg, singleton, version, scope })
+        )
+      )
+    )
+  );
+
+  it.each(cases)(
+    'matches getSharedCacheDescriptor for %j',
+    ({ pkg, singleton, version, scope }) => {
+      expect(runtimeDescriptor(pkg, singleton, version, scope)).toEqual(
+        getSharedCacheDescriptor(pkg, { scope, version, shareConfig: { singleton } } as any)
+      );
+    }
+  );
+});
+
 describe('supportsCodeSplittingGroupDebugName', () => {
   const ctx = (rolldownVersion?: string) => ({ meta: { rolldownVersion } });
 
