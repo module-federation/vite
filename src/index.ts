@@ -32,6 +32,7 @@ import { pluginSSRRemoteEntry } from './plugins/pluginSSRRemoteEntry';
 import pluginVarRemoteEntry from './plugins/pluginVarRemoteEntry';
 import pluginSsrRuntimeInit from './plugins/pluginSsrRuntimeInit';
 import aliasToArrayPlugin from './utils/aliasToArrayPlugin';
+import { watchFileEvents } from './utils/devServerHost';
 import { escapeRegExp } from './utils/regexEscape';
 import { isServerContext } from './utils/remoteConsumerTarget';
 import {
@@ -1591,9 +1592,7 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
       name: 'vite:module-federation-virtual-modules',
       enforce: 'pre',
       configureServer(server: ViteDevServer) {
-        server.watcher.on('change', invalidateSharedExportInspectionCache);
-        server.watcher.on('add', invalidateSharedExportInspectionCache);
-        server.watcher.on('unlink', invalidateSharedExportInspectionCache);
+        watchFileEvents(server.watcher, invalidateSharedExportInspectionCache);
       },
       resolveId(id: string) {
         if (id === SSR_ENTRY_LOADER_SPECIFIER) return resolveImportPath(id);

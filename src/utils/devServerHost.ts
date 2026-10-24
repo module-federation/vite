@@ -1,4 +1,5 @@
 import { isIPv6 } from 'node:net';
+import type { ViteDevServer } from 'vite';
 
 const UNSPECIFIED_HOSTS = new Set(['0.0.0.0', '::']);
 
@@ -17,4 +18,17 @@ export function formatDevServerHostForOrigin(host: unknown): string {
     return host;
   }
   return isIPv6(host) ? `[${host}]` : host;
+}
+
+const FILE_EVENTS = ['change', 'add', 'unlink'] as const;
+
+/** Runs `listener` on every file change, add, or unlink; returns a function that unsubscribes it. */
+export function watchFileEvents(
+  watcher: ViteDevServer['watcher'],
+  listener: (file: string) => void
+): () => void {
+  for (const event of FILE_EVENTS) watcher.on(event, listener);
+  return () => {
+    for (const event of FILE_EVENTS) watcher.off(event, listener);
+  };
 }
