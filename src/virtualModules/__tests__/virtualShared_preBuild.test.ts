@@ -5,6 +5,7 @@ import { parseAst } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../../utils/buildPaths';
 import {
+  getNormalizeModuleFederationOptions,
   normalizeModuleFederationOptions,
   ShareItem,
 } from '../../utils/normalizeModuleFederationOptions';
@@ -1335,7 +1336,6 @@ vi.mock('module', async (importOriginal) => {
 
 describe('writeLoadShareModule', () => {
   beforeEach(() => {
-    setTreeShakingBuildMode(false);
     writeSyncSpy.mockClear();
     mfWarnSpy.mockClear();
     hasPackageDependencyMock.mockReset();
@@ -1344,6 +1344,7 @@ describe('writeLoadShareModule', () => {
     packageDetectionCwdMock.mockReturnValue('/repo/apps/remote');
     createRequireSpy.mockClear();
     normalizeModuleFederationOptions({ name: 'test' });
+    setTreeShakingBuildMode(false, getNormalizeModuleFederationOptions());
   });
 
   it('should alias named exports instead of using bare identifiers to avoid syntax errors', () => {
@@ -4784,7 +4785,8 @@ describe('writeLoadShareModule', () => {
 
 describe('writePreBuildLibPath', () => {
   beforeEach(() => {
-    setTreeShakingBuildMode(false);
+    normalizeModuleFederationOptions({ name: 'test' });
+    setTreeShakingBuildMode(false, getNormalizeModuleFederationOptions());
     writeSyncSpy.mockClear();
   });
 
@@ -4803,7 +4805,7 @@ describe('writePreBuildLibPath', () => {
       scope: 'default',
     };
 
-    setTreeShakingBuildMode(true);
+    setTreeShakingBuildMode(true, getNormalizeModuleFederationOptions());
     try {
       writePreBuildLibPath(pkg, mockShareItem);
 
@@ -4832,7 +4834,7 @@ describe('writePreBuildLibPath', () => {
       expect(loadShareCode).toContain('pendingShareLoads');
       expect(loadShareCode).not.toContain('import * as __mfLocalShare');
     } finally {
-      setTreeShakingBuildMode(false);
+      setTreeShakingBuildMode(false, getNormalizeModuleFederationOptions());
     }
   });
 
@@ -4850,7 +4852,7 @@ describe('writePreBuildLibPath', () => {
       scope: 'default',
     };
 
-    setTreeShakingBuildMode(true);
+    setTreeShakingBuildMode(true, getNormalizeModuleFederationOptions());
     try {
       writePreBuildLibPath(pkg, mockShareItem);
       const optimizedContainer = writeSyncSpy.mock.calls
@@ -4860,7 +4862,7 @@ describe('writePreBuildLibPath', () => {
       expect(optimizedContainer).toContain('["__proto__"]: __mfTreeShaken_0');
       expect(optimizedContainer).not.toContain('"__proto__": __mfTreeShaken_0');
     } finally {
-      setTreeShakingBuildMode(false);
+      setTreeShakingBuildMode(false, getNormalizeModuleFederationOptions());
     }
   });
 

@@ -540,6 +540,7 @@ export function proxySharedModule(options: {
   getParsePromise?: () => Promise<unknown>;
 }): Plugin[] {
   const { shared = {}, federationOptions, getParsePromise = () => Promise.resolve() } = options;
+  const getTreeShakingOptions = () => federationOptions ?? getNormalizeModuleFederationOptions();
   let _config: ResolvedConfig | undefined;
   // Vite 5 has no environment object; its instances share the resolved config.
   const getBuildImportAnalysis = (environment?: Environment) =>
@@ -711,8 +712,8 @@ export function proxySharedModule(options: {
       config(config: UserConfig, { command }) {
         const root = config.root || process.cwd();
         setPackageDetectionCwd(root);
-        setTreeShakingBuildMode(command === 'build', federationOptions);
-        resetTreeShakingExports(federationOptions);
+        setTreeShakingBuildMode(command === 'build', getTreeShakingOptions());
+        resetTreeShakingExports(getTreeShakingOptions());
         emittedTreeShakingProviders.clear();
         sharedSourceResolver.clear();
         sharedDependencyCache.clear();
@@ -776,7 +777,7 @@ export function proxySharedModule(options: {
         patchRolldownResolveOptionKeys(this);
         if (_command !== 'build') return;
         if (hasAnalyzableShares) getBuildImportAnalysis(this.environment).clear();
-        resetTreeShakingExports(federationOptions);
+        resetTreeShakingExports(getTreeShakingOptions());
         emittedTreeShakingProviders.clear();
         refreshTreeShakingForEnvironment(this);
       },
@@ -803,9 +804,9 @@ export function proxySharedModule(options: {
             return request ? findSharedKey(request, shares) : undefined;
           },
           (sharedKey, exports, request) =>
-            recordTreeShakingExports(sharedKey, exports, request, federationOptions),
+            recordTreeShakingExports(sharedKey, exports, request, getTreeShakingOptions()),
           (sharedKey, request) =>
-            markTreeShakingPackageUnsafe(sharedKey, request, federationOptions),
+            markTreeShakingPackageUnsafe(sharedKey, request, getTreeShakingOptions()),
           getBuildImportAnalysis(this.environment)
         );
         refreshTreeShakingForEnvironment(this);

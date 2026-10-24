@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type {
+  NormalizedModuleFederationOptions,
   NormalizedShared,
   ShareItem,
   TreeShakingConfig,
@@ -28,6 +29,9 @@ function createShareItem(treeShaking?: TreeShakingConfig): ShareItem {
     },
   };
 }
+
+// Tree-shaking state is keyed by the options object; one instance stands in for a federation() call.
+const federationOptions = {} as NormalizedModuleFederationOptions;
 
 const antdShare = createShareItem({ mode: 'runtime-infer' });
 const lodashPrefixShare = createShareItem({ mode: 'runtime-infer' });
@@ -254,8 +258,8 @@ describe('collectTreeShakingImports', () => {
 
 describe('tree-shaking export usage state', () => {
   beforeEach(() => {
-    resetTreeShakingExports();
-    setTreeShakingBuildMode(true);
+    resetTreeShakingExports(federationOptions);
+    setTreeShakingBuildMode(true, federationOptions);
   });
 
   it('unions configured exports with inferred exports, deduplicates, and sorts them', () => {
@@ -263,9 +267,9 @@ describe('tree-shaking export usage state', () => {
       mode: 'runtime-infer',
       usedExports: ['Input', 'Button'],
     });
-    recordTreeShakingExports('antd', ['Button', 'Alert'], 'antd');
+    recordTreeShakingExports('antd', ['Button', 'Alert'], 'antd', federationOptions);
 
-    expect(getTreeShakingExportUsage('antd', shareItem, 'antd')).toEqual({
+    expect(getTreeShakingExportUsage('antd', shareItem, 'antd', federationOptions)).toEqual({
       kind: 'exports',
       usedExports: ['Alert', 'Button', 'Input'],
     });
@@ -276,93 +280,119 @@ describe('tree-shaking export usage state', () => {
       mode: 'runtime-infer',
       usedExports: ['Button'],
     });
-    recordTreeShakingExports('antd', ['Input'], 'antd');
-    markTreeShakingPackageUnsafe('antd', 'antd');
+    recordTreeShakingExports('antd', ['Input'], 'antd', federationOptions);
+    markTreeShakingPackageUnsafe('antd', 'antd', federationOptions);
 
-    expect(getTreeShakingExportUsage('antd', shareItem, 'antd')).toEqual({ kind: 'full' });
+    expect(getTreeShakingExportUsage('antd', shareItem, 'antd', federationOptions)).toEqual({
+      kind: 'full',
+    });
   });
 
   it('distinguishes an analyzed empty export list from unknown analysis', () => {
     const shareItem = createShareItem({ mode: 'runtime-infer' });
 
-    expect(getTreeShakingExportUsage('antd', shareItem, 'antd')).toEqual({
+    expect(getTreeShakingExportUsage('antd', shareItem, 'antd', federationOptions)).toEqual({
       kind: 'unknown',
     });
-    recordTreeShakingExports('antd', [], 'antd');
-    expect(getTreeShakingExportUsage('antd', shareItem, 'antd')).toEqual({
+    recordTreeShakingExports('antd', [], 'antd', federationOptions);
+    expect(getTreeShakingExportUsage('antd', shareItem, 'antd', federationOptions)).toEqual({
       kind: 'exports',
       usedExports: [],
     });
   });
 
   it('does not leak exports or unsafe state between concrete subpath requests', () => {
-    recordTreeShakingExports('lodash/', ['default'], 'lodash/get');
-    recordTreeShakingExports('lodash/', ['chunk'], 'lodash/chunk');
-    markTreeShakingPackageUnsafe('lodash/', 'lodash/debounce');
+    recordTreeShakingExports('lodash/', ['default'], 'lodash/get', federationOptions);
+    recordTreeShakingExports('lodash/', ['chunk'], 'lodash/chunk', federationOptions);
+    markTreeShakingPackageUnsafe('lodash/', 'lodash/debounce', federationOptions);
 
-    expect(getTreeShakingExportUsage('lodash/get', lodashPrefixShare, 'lodash/')).toEqual({
+    expect(
+      getTreeShakingExportUsage('lodash/get', lodashPrefixShare, 'lodash/', federationOptions)
+    ).toEqual({
       kind: 'exports',
       usedExports: ['default'],
     });
-    expect(getTreeShakingExportUsage('lodash/chunk', lodashPrefixShare, 'lodash/')).toEqual({
+    expect(
+      getTreeShakingExportUsage('lodash/chunk', lodashPrefixShare, 'lodash/', federationOptions)
+    ).toEqual({
       kind: 'exports',
       usedExports: ['chunk'],
     });
-    expect(getTreeShakingExportUsage('lodash/debounce', lodashPrefixShare, 'lodash/')).toEqual({
+    expect(
+      getTreeShakingExportUsage('lodash/debounce', lodashPrefixShare, 'lodash/', federationOptions)
+    ).toEqual({
       kind: 'full',
     });
-    expect(getTreeShakingExportUsage('lodash/map', lodashPrefixShare, 'lodash/')).toEqual({
+    expect(
+      getTreeShakingExportUsage('lodash/map', lodashPrefixShare, 'lodash/', federationOptions)
+    ).toEqual({
       kind: 'unknown',
     });
   });
 
   it('applies wildcard full-bundle state to every request under that share key', () => {
-    markTreeShakingPackageUnsafe('lodash/', '*');
+    markTreeShakingPackageUnsafe('lodash/', '*', federationOptions);
 
-    expect(getTreeShakingExportUsage('lodash/get', lodashPrefixShare, 'lodash/')).toEqual({
+    expect(
+      getTreeShakingExportUsage('lodash/get', lodashPrefixShare, 'lodash/', federationOptions)
+    ).toEqual({
       kind: 'full',
     });
-    expect(getTreeShakingExportUsage('lodash/chunk', lodashPrefixShare, 'lodash/')).toEqual({
+    expect(
+      getTreeShakingExportUsage('lodash/chunk', lodashPrefixShare, 'lodash/', federationOptions)
+    ).toEqual({
       kind: 'full',
     });
-    expect(getTreeShakingExportUsage('antd', antdShare)).toEqual({ kind: 'unknown' });
+    expect(getTreeShakingExportUsage('antd', antdShare, undefined, federationOptions)).toEqual({
+      kind: 'unknown',
+    });
   });
 
   it('can find a concrete request without an explicit share key for compatibility', () => {
-    recordTreeShakingExports('lodash/', ['default'], 'lodash/get');
-    expect(getTreeShakingExportUsage('lodash/get', lodashPrefixShare)).toEqual({
+    recordTreeShakingExports('lodash/', ['default'], 'lodash/get', federationOptions);
+    expect(
+      getTreeShakingExportUsage('lodash/get', lodashPrefixShare, undefined, federationOptions)
+    ).toEqual({
       kind: 'exports',
       usedExports: ['default'],
     });
   });
 
   it('returns no analysis outside build mode or without tree-shaking config', () => {
-    recordTreeShakingExports('antd', ['Button'], 'antd');
-    setTreeShakingBuildMode(false);
-    expect(getTreeShakingExportUsage('antd', antdShare, 'antd')).toBeUndefined();
+    recordTreeShakingExports('antd', ['Button'], 'antd', federationOptions);
+    setTreeShakingBuildMode(false, federationOptions);
+    expect(getTreeShakingExportUsage('antd', antdShare, 'antd', federationOptions)).toBeUndefined();
 
-    setTreeShakingBuildMode(true);
-    expect(getTreeShakingExportUsage('plain', notTreeShakenShare, 'plain')).toBeUndefined();
+    setTreeShakingBuildMode(true, federationOptions);
+    expect(
+      getTreeShakingExportUsage('plain', notTreeShakenShare, 'plain', federationOptions)
+    ).toBeUndefined();
   });
 
   it('exposes inferred usage for import:false without enabling provider tree shaking', () => {
-    recordTreeShakingExports('host-only', ['value2', 'value1'], 'host-only');
+    recordTreeShakingExports('host-only', ['value2', 'value1'], 'host-only', federationOptions);
 
-    expect(getSharedExportUsage('host-only', hostProvidedShare, 'host-only')).toEqual({
+    expect(
+      getSharedExportUsage('host-only', hostProvidedShare, 'host-only', federationOptions)
+    ).toEqual({
       kind: 'exports',
       usedExports: ['value1', 'value2'],
     });
-    expect(getTreeShakingExportUsage('host-only', hostProvidedShare, 'host-only')).toBeUndefined();
+    expect(
+      getTreeShakingExportUsage('host-only', hostProvidedShare, 'host-only', federationOptions)
+    ).toBeUndefined();
   });
 
   it('returns export usage for tree-shaken packages', () => {
-    recordTreeShakingExports('antd', ['Button'], 'antd');
-    expect(getTreeShakingExportUsage('antd', antdShare, 'antd')).toEqual({
+    recordTreeShakingExports('antd', ['Button'], 'antd', federationOptions);
+    expect(getTreeShakingExportUsage('antd', antdShare, 'antd', federationOptions)).toEqual({
       kind: 'exports',
       usedExports: ['Button'],
     });
 
-    markTreeShakingPackageUnsafe('antd', 'antd');
-    expect(getTreeShakingExportUsage('antd', antdShare, 'antd')).toEqual({ kind: 'full' });
+    markTreeShakingPackageUnsafe('antd', 'antd', federationOptions);
+    expect(getTreeShakingExportUsage('antd', antdShare, 'antd', federationOptions)).toEqual({
+      kind: 'full',
+    });
   });
 });

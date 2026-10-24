@@ -312,7 +312,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           ${toSafeJsLiteral(key)}: __mfConsumeOnly(${toSafeJsLiteral(key)}, ${toSafeJsLiteral(shareItem.version)}, ${toSafeJsLiteral(shareItem.scope)}, ${sharesToMaterialize.has(key)}, {singleton: ${shareItem.shareConfig.singleton}, requiredVersion: ${toSafeJsLiteral(shareItem.shareConfig.requiredVersion)}, strictVersion: ${shareItem.shareConfig.strictVersion}, eager: ${Boolean(shareItem.shareConfig.eager)}, ${shareItem.shareConfig.request !== undefined ? `request: ${toSafeJsLiteral(shareItem.shareConfig.request)},` : ''} ${shareItem.shareConfig.shareKey !== undefined ? `shareKey: ${toSafeJsLiteral(shareItem.shareConfig.shareKey)},` : ''}})`;
           }
           const treeShakingUsage = treeShakingConfig
-            ? getTreeShakingExportUsage(key, shareItem, shareItem.name, options)
+            ? getTreeShakingExportUsage(key, shareItem, shareItem.name, resolvedOptions)
             : undefined;
           const treeShakingProviderExports =
             treeShakingUsage?.kind === 'exports' ? treeShakingUsage.usedExports : [];

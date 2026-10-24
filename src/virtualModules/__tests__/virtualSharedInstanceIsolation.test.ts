@@ -23,7 +23,11 @@ import {
   getRuntimeRemoteAlias,
   writeRuntimeInitStatus,
 } from '../virtualRuntimeInitStatus';
-import { recordTreeShakingExports, setTreeShakingBuildMode } from '../../utils/treeShaking';
+import {
+  getTreeShakingExportUsage,
+  recordTreeShakingExports,
+  setTreeShakingBuildMode,
+} from '../../utils/treeShaking';
 import { getFederationScopeKey } from '../virtualModuleScope';
 
 function makeOptions(name = 'same-name-host', filename?: string) {
@@ -227,6 +231,27 @@ describe('shared virtual module instance isolation', () => {
     expect(providerA).not.toContain('useState as __mfTreeShaken_0');
     expect(providerB).toContain('useState as __mfTreeShaken_0');
     expect(providerB).not.toContain('createElement as __mfTreeShaken_0');
+  });
+
+  it('keeps tree-shaking build mode and inferred usage per federation instance', () => {
+    const optionsA = makeOptions('tree-shaking-a');
+    const optionsB = makeOptions('tree-shaking-b');
+    const share = makeShareItem('react');
+    share.shareConfig.treeShaking = { mode: 'runtime-infer' };
+
+    setTreeShakingBuildMode(true, optionsA);
+    recordTreeShakingExports('react', ['useState'], 'react', optionsA);
+
+    expect(getTreeShakingExportUsage('react', share, 'react', optionsA)).toEqual({
+      kind: 'exports',
+      usedExports: ['useState'],
+    });
+    // B never entered build mode and never recorded usage, so A's state must not leak into it.
+    expect(getTreeShakingExportUsage('react', share, 'react', optionsB)).toBeUndefined();
+    setTreeShakingBuildMode(true, optionsB);
+    expect(getTreeShakingExportUsage('react', share, 'react', optionsB)).toEqual({
+      kind: 'unknown',
+    });
   });
 });
 

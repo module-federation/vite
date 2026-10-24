@@ -1326,7 +1326,12 @@ function getConcreteTreeShakingExportUsage(
   shareItem?: ShareItem,
   options?: NormalizedModuleFederationOptions
 ) {
-  return getTreeShakingExportUsage(pkg, shareItem, shareItem?.name, options);
+  return getTreeShakingExportUsage(
+    pkg,
+    shareItem,
+    shareItem?.name,
+    options ?? getNormalizeModuleFederationOptions()
+  );
 }
 
 export function getTreeShakingSharedProviderName(
