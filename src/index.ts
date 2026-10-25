@@ -23,9 +23,9 @@ import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import {
   excludeSharedSubDependencies,
   findSharedKey,
-  getInstalledPackageExportsFromFile,
   getSharedPackageFromFile,
   isSharedPackageDependency,
+  keepsOwnPackageEdge,
   proxySharedModule,
 } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
@@ -815,17 +815,11 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 const reactDomSelfReference = isReactDomSelfReference(source, importer);
                 if (
                   !reactDomSelfReference &&
-                  (importerPackage === getPackageName(key) ||
+                  ((importerPackage === getPackageName(key) &&
+                    keepsOwnPackageEdge(importer, shared, root)) ||
                     (importerPackage && isSharedPackageDependency(key, importerPackage)))
-                ) {
-                  const specifiers = getInstalledPackageExportsFromFile(importer, root);
-                  if (
-                    specifiers.length === 0 ||
-                    specifiers.some((specifier) => findSharedKey(specifier, shared))
-                  ) {
-                    return;
-                  }
-                }
+                )
+                  return;
                 if (isAssetLikeImport(source)) return;
                 const shareItem = shared[key];
                 const isReactSingleton =
@@ -879,16 +873,10 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   const importerPackage = getSharedPackageFromFile(args.importer, shared, root);
                   if (
                     importerPackage === getPackageName(args.path) &&
-                    !isReactDomSelfReference(args.path, args.importer)
-                  ) {
-                    const specifiers = getInstalledPackageExportsFromFile(args.importer, root);
-                    if (
-                      specifiers.length === 0 ||
-                      specifiers.some((specifier) => findSharedKey(specifier, shared))
-                    ) {
-                      return;
-                    }
-                  }
+                    !isReactDomSelfReference(args.path, args.importer) &&
+                    keepsOwnPackageEdge(args.importer, shared, root)
+                  )
+                    return;
                   if (importerPackage && isSharedPackageDependency(key, importerPackage)) return;
                   addUsedShares(args.path, options);
                   if (args.kind === 'import-statement' || args.kind === 'dynamic-import') {

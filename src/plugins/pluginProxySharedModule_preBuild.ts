@@ -198,19 +198,27 @@ export function getSharedPackageFromFile(
   return sharedPackage ?? getWorkspacePackageNameFromFile(normalizedImporter);
 }
 
-export function getInstalledPackageExportsFromFile(
+/**
+ * Whether an import of its own package from `importer` keeps an ordinary module edge. Internal
+ * files and files of shared subpaths do; a file published only under an unshared subpath (e.g.
+ * `vue/sub` when only `vue` is shared) imports the shared root like any consumer.
+ */
+export function keepsOwnPackageEdge(
   importer: string | undefined,
+  shared: NormalizedShared,
   cwd = getPackageDetectionCwd()
-): string[] {
-  if (!importer || !isNodeModulePath(importer)) return [];
-  const nodeModulePackage = getPackageNameFromNodeModulePath(importer);
-  if (!nodeModulePackage) return [];
+): boolean {
+  const nodeModulePackage = importer && getPackageNameFromNodeModulePath(importer);
+  if (!nodeModulePackage) return true;
+  // Without `exports` every file is public at its own path, which never names a share key.
   const installed = getInstalledPackageJson(nodeModulePackage, { cwd });
-  if (installed?.packageJson.exports == null) return [];
-  const suffix = getNodeModulesSuffix(importer);
-  const packageSubpath = suffix?.slice(nodeModulePackage.length + 1);
-  if (!packageSubpath) return [];
-  return getPackageExportSpecifiersForFile(nodeModulePackage, packageSubpath, { cwd });
+  if (installed?.packageJson.exports == null) return true;
+  const packageSubpath = getNodeModulesSuffix(importer)?.slice(nodeModulePackage.length + 1);
+  if (!packageSubpath) return true;
+  const specifiers = getPackageExportSpecifiersForFile(nodeModulePackage, packageSubpath, { cwd });
+  return (
+    specifiers.length === 0 || specifiers.some((specifier) => findSharedKey(specifier, shared))
+  );
 }
 
 const workspacePackageNameCache = new Map<string, string | undefined>();
@@ -922,15 +930,8 @@ export function proxySharedModule(options: {
         // Compare package roots because `key` may be an explicit subpath or a
         // trailing-slash wildcard share key.
         const importerPackage = getSharedPackageFromFile(importer, shared);
-        if (importerPackage === getPackageName(key)) {
-          const specifiers = getInstalledPackageExportsFromFile(importer);
-          if (
-            specifiers.length === 0 ||
-            specifiers.some((specifier) => findSharedKey(specifier, shared))
-          ) {
-            return;
-          }
-        }
+        if (importerPackage === getPackageName(key) && keepsOwnPackageEdge(importer, shared))
+          return;
         // A dependency of the shared package that imports it back (a package-level
         // cycle) keeps its ordinary edge too. Proxying it would place the loadShare
         // glue inside the package's own evaluation cycle, where the glue's eager
