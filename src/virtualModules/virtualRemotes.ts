@@ -90,7 +90,7 @@ export function refreshRemoteModuleForEnvironment(
   );
   return true;
 }
-// remote1: {remote1/App, remote1, remote1/Button}
+// Per federation instance: { remote1: Set{remote1/App, remote1, remote1/Button} }
 const usedRemotesByOptions = new WeakMap<
   NormalizedModuleFederationOptions,
   Record<string, Set<string>>
@@ -99,15 +99,6 @@ const dynamicRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, S
 const staticRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 const preloadRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 const EMPTY_STATIC_REMOTES: ReadonlySet<string> = new Set();
-
-function getScopedUsedRemotesMap(options: NormalizedModuleFederationOptions) {
-  let scoped = usedRemotesByOptions.get(options);
-  if (!scoped) {
-    scoped = {};
-    usedRemotesByOptions.set(options, scoped);
-  }
-  return scoped;
-}
 
 function recordUsedRemote(
   map: Record<string, Set<string>>,
@@ -123,7 +114,7 @@ function ensureUsedRemoteKey(map: Record<string, Set<string>>, remoteKey: string
 }
 
 export function ensureUsedRemote(remoteKey: string, options: NormalizedModuleFederationOptions) {
-  ensureUsedRemoteKey(getScopedUsedRemotesMap(options), remoteKey);
+  ensureUsedRemoteKey(getUsedRemotesMap(options), remoteKey);
 }
 
 export function addUsedRemote(
@@ -131,10 +122,15 @@ export function addUsedRemote(
   remoteModule: string,
   options: NormalizedModuleFederationOptions
 ) {
-  recordUsedRemote(getScopedUsedRemotesMap(options), remoteKey, remoteModule);
+  recordUsedRemote(getUsedRemotesMap(options), remoteKey, remoteModule);
 }
 export function getUsedRemotesMap(options: NormalizedModuleFederationOptions) {
-  return getScopedUsedRemotesMap(options);
+  let usedRemotes = usedRemotesByOptions.get(options);
+  if (!usedRemotes) {
+    usedRemotes = {};
+    usedRemotesByOptions.set(options, usedRemotes);
+  }
+  return usedRemotes;
 }
 
 export function markDynamicRemote(remote: string, options: NormalizedModuleFederationOptions) {
