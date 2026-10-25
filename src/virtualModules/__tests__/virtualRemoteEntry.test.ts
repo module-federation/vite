@@ -490,9 +490,25 @@ vi.mock('../../utils/packageUtils', () => {
   };
 });
 
+// Tree-shaking state is keyed by the options object, so a test that sets the build
+// mode must see the same object the generators resolve.
+async function pinNormalizedOptions() {
+  const { getNormalizeModuleFederationOptions } =
+    await import('../../utils/normalizeModuleFederationOptions');
+  const federationOptions = getNormalizeModuleFederationOptions();
+  vi.mocked(getNormalizeModuleFederationOptions).mockReturnValue(federationOptions);
+  return federationOptions;
+}
+
+async function unpinNormalizedOptions() {
+  const { getNormalizeModuleFederationOptions } =
+    await import('../../utils/normalizeModuleFederationOptions');
+  vi.mocked(getNormalizeModuleFederationOptions).mockReset();
+}
+
 vi.mock('../../utils/normalizeModuleFederationOptions', () => {
   return {
-    getNormalizeModuleFederationOptions: () => ({
+    getNormalizeModuleFederationOptions: vi.fn(() => ({
       internalName: '__mfe_internal__host',
       name: 'host',
       filename: 'remoteEntry.js',
@@ -502,7 +518,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
       runtimePlugins: [],
       shareStrategy: optionsMock.shareStrategy,
       injectTreeShakingUsedExports: optionsMock.injectTreeShakingUsedExports,
-    }),
+    })),
     isExplicitSharedKey: (key: string) => key in normalizedSharedMock(),
     hasRemotes: (options: { remotes?: object }) => Object.keys(options?.remotes ?? {}).length > 0,
     hasShared: (options: { shared?: object }) => Object.keys(options?.shared ?? {}).length > 0,
@@ -1472,7 +1488,8 @@ describe('virtualRemoteEntry', () => {
 
   it('keeps the full getter and emits a separate runtime-infer provider getter', async () => {
     const { setTreeShakingBuildMode } = await import('../../utils/treeShaking');
-    setTreeShakingBuildMode(true);
+    const federationOptions = await pinNormalizedOptions();
+    setTreeShakingBuildMode(true, federationOptions);
     try {
       const mod = await import('../virtualRemoteEntry');
       mod.getUsedShares().clear();
@@ -1488,14 +1505,16 @@ describe('virtualRemoteEntry', () => {
       expect(code).toContain('return container.get();');
       expect(code).not.toContain('cacheKey:');
     } finally {
-      setTreeShakingBuildMode(false);
+      setTreeShakingBuildMode(false, federationOptions);
+      await unpinNormalizedOptions();
     }
   });
 
   it('falls back to the complete provider when runtime export injection is disabled', async () => {
-    const { setTreeShakingBuildMode } = await import('../../utils/treeShaking');
-    setTreeShakingBuildMode(true);
     optionsMock.injectTreeShakingUsedExports = false;
+    const { setTreeShakingBuildMode } = await import('../../utils/treeShaking');
+    const federationOptions = await pinNormalizedOptions();
+    setTreeShakingBuildMode(true, federationOptions);
     try {
       const mod = await import('../virtualRemoteEntry');
       mod.getUsedShares().clear();
@@ -1507,13 +1526,15 @@ describe('virtualRemoteEntry', () => {
       expect(code).not.toContain('virtual:tree-provider:tree-shared');
       expect(code).toContain('let pkg = await import("virtual:prebuild:tree-shared");');
     } finally {
-      setTreeShakingBuildMode(false);
+      setTreeShakingBuildMode(false, federationOptions);
+      await unpinNormalizedOptions();
     }
   });
 
   it('lets import:false runtime-infer consumers select a compatible host provider', async () => {
     const { setTreeShakingBuildMode } = await import('../../utils/treeShaking');
-    setTreeShakingBuildMode(true);
+    const federationOptions = await pinNormalizedOptions();
+    setTreeShakingBuildMode(true, federationOptions);
     optionsMock.treeSharedImportFalse = true;
     optionsMock.treeSharedProvider = false;
     try {
@@ -1527,7 +1548,8 @@ describe('virtualRemoteEntry', () => {
       expect(code).toContain('status: 1');
       expect(code).not.toContain('virtual:tree-provider:tree-shared');
     } finally {
-      setTreeShakingBuildMode(false);
+      setTreeShakingBuildMode(false, federationOptions);
+      await unpinNormalizedOptions();
     }
   });
 

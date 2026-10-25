@@ -540,6 +540,7 @@ export function proxySharedModule(options: {
   getParsePromise?: () => Promise<unknown>;
 }): Plugin[] {
   const { shared = {}, federationOptions, getParsePromise = () => Promise.resolve() } = options;
+  const getFederationOptions = () => federationOptions ?? getNormalizeModuleFederationOptions();
   let _config: ResolvedConfig | undefined;
   // Vite 5 has no environment object; its instances share the resolved config.
   const getBuildImportAnalysis = (environment?: Environment) =>
@@ -625,7 +626,7 @@ export function proxySharedModule(options: {
     const treeShaking = shareItem.shareConfig.treeShaking;
     if (!treeShaking) return undefined;
 
-    const normalizedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
+    const normalizedOptions = getFederationOptions();
     const outputDir = normalizedOptions.treeShakingDir
       ? normalizeTreeShakingOutputPath(normalizedOptions.treeShakingDir)
       : undefined;
@@ -711,8 +712,8 @@ export function proxySharedModule(options: {
       config(config: UserConfig, { command }) {
         const root = config.root || process.cwd();
         setPackageDetectionCwd(root);
-        setTreeShakingBuildMode(command === 'build', federationOptions);
-        resetTreeShakingExports(federationOptions);
+        setTreeShakingBuildMode(command === 'build', getFederationOptions());
+        resetTreeShakingExports(getFederationOptions());
         emittedTreeShakingProviders.clear();
         sharedSourceResolver.clear();
         sharedDependencyCache.clear();
@@ -745,7 +746,7 @@ export function proxySharedModule(options: {
         // is now prevented by adding prebuild IDs to optimizeDeps.include
         // in the config hook (createEarlyVirtualModulesPlugin), so Vite
         // pre-bundles them upfront without triggering re-optimization.
-        const resolvedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
+        const resolvedOptions = getFederationOptions();
         const registerConfiguredShare =
           _command === 'build' && isRemoteContainer(resolvedOptions)
             ? addUsedShares
@@ -776,7 +777,7 @@ export function proxySharedModule(options: {
         patchRolldownResolveOptionKeys(this);
         if (_command !== 'build') return;
         if (hasAnalyzableShares) getBuildImportAnalysis(this.environment).clear();
-        resetTreeShakingExports(federationOptions);
+        resetTreeShakingExports(getFederationOptions());
         emittedTreeShakingProviders.clear();
         refreshTreeShakingForEnvironment(this);
       },
@@ -803,9 +804,9 @@ export function proxySharedModule(options: {
             return request ? findSharedKey(request, shares) : undefined;
           },
           (sharedKey, exports, request) =>
-            recordTreeShakingExports(sharedKey, exports, request, federationOptions),
+            recordTreeShakingExports(sharedKey, exports, request, getFederationOptions()),
           (sharedKey, request) =>
-            markTreeShakingPackageUnsafe(sharedKey, request, federationOptions),
+            markTreeShakingPackageUnsafe(sharedKey, request, getFederationOptions()),
           getBuildImportAnalysis(this.environment)
         );
         refreshTreeShakingForEnvironment(this);
