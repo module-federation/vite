@@ -23,8 +23,10 @@ import {
   DEFAULT_SSR_FETCH_MAX_BYTES,
   DEFAULT_SSR_FETCH_TIMEOUT_MS,
   fetchWithTimeout,
+  getBodyPreview,
   readResponseTextBounded,
 } from './fetchWithTimeout';
+import { isHttpUrl } from './buildPaths';
 import { findSharedKey, type SharedKeyLookup } from './sharedKeyMatcher';
 
 interface VmStrategyOptions {
@@ -294,10 +296,6 @@ export function clearVmStrategyCaches(remoteEntryUrl?: string): void {
   clearOwnedVmCache(namespaceCache, namespaceCacheOwners, remoteEntryUrl);
 }
 
-function getBodyPreview(body: string): string {
-  return body.slice(0, 240).replace(/\s+/g, ' ').trim();
-}
-
 async function fetchModuleSource(
   url: string,
   fetchTimeoutMs?: number,
@@ -313,10 +311,6 @@ async function fetchModuleSource(
     throw new SsrEntryHttpError(url, res.status, res.statusText, getBodyPreview(text));
   }
   return neutralizeBrowserPreloadHelpers(text);
-}
-
-function isHttpUrl(value: string): boolean {
-  return value.startsWith('http://') || value.startsWith('https://');
 }
 
 /** Resolve a specifier against the referencing module's URL; null for bare specifiers. */

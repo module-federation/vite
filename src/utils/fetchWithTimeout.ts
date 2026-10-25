@@ -70,6 +70,11 @@ export function isSsrFetchBodyTooLargeError(error: unknown): error is SsrFetchBo
   return error instanceof SsrFetchBodyTooLargeError;
 }
 
+/** A short single-line excerpt of a response body for error messages. */
+export function getBodyPreview(body: string): string {
+  return body.slice(0, 240).replace(/\s+/g, ' ').trim();
+}
+
 /**
  * Read a response body as text, rejecting when it exceeds `maxBytes`.
  * Set `maxBytes` to 0 (or a non-finite value) to disable the limit.

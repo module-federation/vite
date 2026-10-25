@@ -13,7 +13,8 @@ import {
 import { rpc, type DTSManagerOptions } from '@module-federation/dts-plugin/core';
 import * as path from 'node:path';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
-import { normalizePathForImport } from '../utils/buildPaths';
+import { isHttpUrl, normalizePathForImport } from '../utils/buildPaths';
+import { watchFileEvents } from '../utils/devServerHost';
 import { DEFAULT_PUBLIC_TYPES_FOLDER } from '../utils/dtsConstants';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { hasPackageDependency, resolveImportPath } from '../utils/packageUtils';
@@ -217,7 +218,7 @@ export const resolveDtsPluginOptions = (
 };
 
 const getBasePath = (base: string): string => {
-  if (base.startsWith('http://') || base.startsWith('https://')) {
+  if (isHttpUrl(base)) {
     return new URL(base).pathname.replace(/\/$/, '') || '/';
   }
   return base.replace(/\/$/, '') || '/';
@@ -493,16 +494,12 @@ export default function pluginDts(options: NormalizedModuleFederationOptions): P
           clearTimeout(updateTimer);
           updateTimer = setTimeout(() => devWorker?.update(), UPDATE_DEBOUNCE_MS);
         };
-        server.watcher.on('change', update);
-        server.watcher.on('add', update);
-        server.watcher.on('unlink', update);
+        const stopWatching = watchFileEvents(server.watcher, update);
 
         server.httpServer?.once('close', () => {
           clearTimeout(updateTimer);
           devWorker?.exit();
-          server.watcher.off('change', update);
-          server.watcher.off('add', update);
-          server.watcher.off('unlink', update);
+          stopWatching();
         });
       };
 

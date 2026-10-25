@@ -1,5 +1,6 @@
 import type { ViteDevServer } from 'vite';
-import { formatDevServerHostForOrigin } from '../../utils/devServerHost';
+import { isHttpUrl } from '../../utils/buildPaths';
+import { formatDevServerHostForOrigin, watchFileEvents } from '../../utils/devServerHost';
 import { mfWarn } from '../../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 import { shouldIgnoreFile } from '../pluginDevRemoteHmr';
@@ -11,7 +12,7 @@ const REMOTE_HMR_CONNECT_MAX_RETRIES = 10;
 
 function getBasePath(base: string) {
   if (!base) return '/';
-  if (base.startsWith('http://') || base.startsWith('https://')) {
+  if (isHttpUrl(base)) {
     try {
       return new URL(base).pathname || '/';
     } catch {
@@ -160,15 +161,8 @@ export function setupRemoteBroadcast(
     });
   };
 
-  server.watcher.on('change', broadcast);
-  server.watcher.on('add', broadcast);
-  server.watcher.on('unlink', broadcast);
-
-  server.httpServer?.once('close', () => {
-    server.watcher.off('change', broadcast);
-    server.watcher.off('add', broadcast);
-    server.watcher.off('unlink', broadcast);
-  });
+  const stopWatching = watchFileEvents(server.watcher, broadcast);
+  server.httpServer?.once('close', stopWatching);
 }
 
 /**
@@ -295,9 +289,7 @@ export function setupHostFullReloadRelay(
     server.ws.send({ type: 'full-reload' });
   };
 
-  server.watcher.on('change', triggerHostReload);
-  server.watcher.on('add', triggerHostReload);
-  server.watcher.on('unlink', triggerHostReload);
+  watchFileEvents(server.watcher, triggerHostReload);
 
   server.httpServer?.once('close', teardown);
 }
