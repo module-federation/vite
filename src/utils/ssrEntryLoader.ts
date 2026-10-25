@@ -1107,15 +1107,6 @@ function getTempFileImportUrl(filePath: string, versionKey: string): string {
   return `file://${filePath}?v=${encodeURIComponent(versionKey)}`;
 }
 
-/**
- * Fetch an HTTP ESM module, transform it, write it to a temp file and
- * return the file path. Recursively does the same for HTTP transitive imports
- * so that `import('file:///...temp.mjs')` can resolve them.
- *
- * `versionKey` participates in both the cache key and the temp file name, so
- * a remote redeploy (new manifest → new key) produces new files and bypasses
- * Node's ESM module cache instead of serving the stale build.
- */
 type TempFileGraphOptions = {
   tmpDir: string;
   sharedPkgMap?: Map<string, string>;
@@ -1128,19 +1119,21 @@ type TempFileGraphOptions = {
 };
 
 /** Settings shared by every module of one graph walk, plus the walk's own bookkeeping. */
-type TempFileGraph = {
-  tmpDir: string;
-  sharedPkgMap?: Map<string, string>;
-  versionKey: string;
-  fetchTimeoutMs: number;
-  contextKey: string;
-  fetchMaxBytes: number;
-  extension: string;
-  owner?: string;
-  visited: Map<string, string>;
-  pending: Set<Promise<string>>;
-};
+type TempFileGraph = Required<Omit<TempFileGraphOptions, 'sharedPkgMap' | 'owner'>> &
+  Pick<TempFileGraphOptions, 'sharedPkgMap' | 'owner'> & {
+    visited: Map<string, string>;
+    pending: Set<Promise<string>>;
+  };
 
+/**
+ * Fetch an HTTP ESM module, transform it, write it to a temp file and
+ * return the file path. Recursively does the same for HTTP transitive imports
+ * so that `import('file:///...temp.mjs')` can resolve them.
+ *
+ * `versionKey` participates in both the cache key and the temp file name, so
+ * a remote redeploy (new manifest → new key) produces new files and bypasses
+ * Node's ESM module cache instead of serving the stale build.
+ */
 async function fetchEsmToTempFile(url: string, graph: TempFileGraph): Promise<string> {
   const {
     tmpDir,
