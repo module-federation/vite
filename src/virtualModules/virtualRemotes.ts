@@ -90,9 +90,7 @@ export function refreshRemoteModuleForEnvironment(
   );
   return true;
 }
-const usedRemotesMap: Record<string, Set<string>> = {
-  // remote1: {remote1/App, remote1, remote1/Button}
-};
+// Per federation instance: { remote1: Set{remote1/App, remote1, remote1/Button} }
 const usedRemotesByOptions = new WeakMap<
   NormalizedModuleFederationOptions,
   Record<string, Set<string>>
@@ -101,15 +99,6 @@ const dynamicRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, S
 const staticRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 const preloadRemotesByOptions = new WeakMap<NormalizedModuleFederationOptions, Set<string>>();
 const EMPTY_STATIC_REMOTES: ReadonlySet<string> = new Set();
-
-function getScopedUsedRemotesMap(options: NormalizedModuleFederationOptions) {
-  let scoped = usedRemotesByOptions.get(options);
-  if (!scoped) {
-    scoped = {};
-    usedRemotesByOptions.set(options, scoped);
-  }
-  return scoped;
-}
 
 function recordUsedRemote(
   map: Record<string, Set<string>>,
@@ -124,22 +113,24 @@ function ensureUsedRemoteKey(map: Record<string, Set<string>>, remoteKey: string
   return map[remoteKey];
 }
 
-export function ensureUsedRemote(remoteKey: string, options?: NormalizedModuleFederationOptions) {
-  ensureUsedRemoteKey(usedRemotesMap, remoteKey);
-  if (options) ensureUsedRemoteKey(getScopedUsedRemotesMap(options), remoteKey);
+export function ensureUsedRemote(remoteKey: string, options: NormalizedModuleFederationOptions) {
+  ensureUsedRemoteKey(getUsedRemotesMap(options), remoteKey);
 }
 
 export function addUsedRemote(
   remoteKey: string,
   remoteModule: string,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ) {
-  recordUsedRemote(usedRemotesMap, remoteKey, remoteModule);
-  if (options) recordUsedRemote(getScopedUsedRemotesMap(options), remoteKey, remoteModule);
+  recordUsedRemote(getUsedRemotesMap(options), remoteKey, remoteModule);
 }
-export function getUsedRemotesMap(options?: NormalizedModuleFederationOptions) {
-  if (options) return getScopedUsedRemotesMap(options);
-  return usedRemotesMap;
+export function getUsedRemotesMap(options: NormalizedModuleFederationOptions) {
+  let usedRemotes = usedRemotesByOptions.get(options);
+  if (!usedRemotes) {
+    usedRemotes = {};
+    usedRemotesByOptions.set(options, usedRemotes);
+  }
+  return usedRemotes;
 }
 
 export function markDynamicRemote(remote: string, options: NormalizedModuleFederationOptions) {

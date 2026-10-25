@@ -472,7 +472,7 @@ const __mfCurrentScript = document.currentScript;
     // still needs to download for version-first share negotiation.
     const remoteSources = isLoadedFirstClientBuild
       ? Array.from(getPreloadRemotes(normalizedOptions))
-      : Object.keys(getUsedRemotesMap(federationOptions));
+      : Object.keys(getUsedRemotesMap(normalizedOptions));
     return Array.from(
       new Set(
         remoteSources.flatMap((remote) => {
@@ -569,7 +569,7 @@ const __mfCurrentScript = document.currentScript;
 
     const remoteSources = isLoadedFirstClientBuild
       ? Array.from(getPreloadRemotes(normalizedOptions))
-      : Object.entries(getUsedRemotesMap(federationOptions))
+      : Object.entries(getUsedRemotesMap(normalizedOptions))
           .flatMap(([, remotes]) => Array.from(remotes))
           .filter(
             (remote) => !federationOptions || !isDynamicOnlyRemote(remote, federationOptions)

@@ -434,7 +434,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
         .filter((x) => x !== null)
         .join(',')}
     }
-      const usedRemotes = [${Object.keys(getUsedRemotesMap(options))
+      const usedRemotes = [${Object.keys(getUsedRemotesMap(resolvedOptions))
         .map((key) => {
           const remote = resolvedOptions.remotes[key];
           if (!remote) return null;

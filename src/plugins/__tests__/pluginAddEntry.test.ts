@@ -34,6 +34,16 @@ vi.mock('../../utils/packageUtils', async () => {
 const mockMfOptions = vi.hoisted(() => ({
   shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
 }));
+// One object for the whole file: used-remote state is keyed by the options object.
+const mockNormalizedOptions = vi.hoisted(() => ({
+  get shareStrategy() {
+    return mockMfOptions.shareStrategy;
+  },
+  shared: {},
+  remotes: {},
+  internalName: 'host',
+  name: 'host',
+}));
 
 vi.mock('../../utils/normalizeModuleFederationOptions', async () => {
   const actual = await vi.importActual<
@@ -41,13 +51,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', async () => {
   >('../../utils/normalizeModuleFederationOptions');
   return {
     ...actual,
-    getNormalizeModuleFederationOptions: () => ({
-      shareStrategy: mockMfOptions.shareStrategy,
-      shared: {},
-      remotes: {},
-      internalName: 'host',
-      name: 'host',
-    }),
+    getNormalizeModuleFederationOptions: () => mockNormalizedOptions,
   };
 });
 
@@ -61,6 +65,7 @@ import {
   markStaticRemote,
 } from '../../virtualModules/virtualRemotes';
 import { addUsedShares } from '../../virtualModules/virtualRemoteEntry';
+import type { NormalizedModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 import addEntry from '../pluginAddEntry';
 
 type AddEntryPlugin = ReturnType<typeof addEntry>[number];
@@ -144,8 +149,12 @@ function runGenerateBundle(
   callHook(plugin.generateBundle, ctx, outputOptions, bundle, isWrite);
 }
 
+function hostOptions() {
+  return mockNormalizedOptions as unknown as NormalizedModuleFederationOptions;
+}
+
 function clearUsedRemotes() {
-  const usedRemotesMap = getUsedRemotesMap();
+  const usedRemotesMap = getUsedRemotesMap(hostOptions());
   for (const remoteKey of Object.keys(usedRemotesMap)) {
     delete usedRemotesMap[remoteKey];
   }
@@ -1434,8 +1443,8 @@ describe('pluginAddEntry', () => {
       ].join('\n')
     );
     // Config registration records the remote key; only imported modules preload.
-    ensureUsedRemote('@scope/remote');
-    addUsedRemote('@scope/remote', '@scope/remote/Button');
+    ensureUsedRemote('@scope/remote', hostOptions());
+    addUsedRemote('@scope/remote', '@scope/remote/Button', hostOptions());
 
     const plugins = addEntry({
       entryName: 'hostInit',
@@ -1490,7 +1499,7 @@ describe('pluginAddEntry', () => {
         '</html>',
       ].join('\n')
     );
-    addUsedRemote('@scope/remote', '@scope/remote');
+    addUsedRemote('@scope/remote', '@scope/remote', hostOptions());
 
     const plugins = addEntry({
       entryName: 'hostInit',
@@ -1657,7 +1666,7 @@ describe('pluginAddEntry', () => {
         '</html>',
       ].join('\n')
     );
-    addUsedRemote('employees', 'employees/staff');
+    addUsedRemote('employees', 'employees/staff', hostOptions());
     mockMfOptions.shareStrategy = 'loaded-first';
 
     const plugins = addEntry({
