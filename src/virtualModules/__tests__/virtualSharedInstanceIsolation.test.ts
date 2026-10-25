@@ -16,7 +16,12 @@ import {
   writePreBuildLibPath,
 } from '../virtualShared_preBuild';
 import { generateRemoteEntry } from '../virtualRemoteEntry';
-import { generateRemotes } from '../virtualRemotes';
+import {
+  addUsedRemote,
+  ensureUsedRemote,
+  generateRemotes,
+  getUsedRemotesMap,
+} from '../virtualRemotes';
 import { initVirtualModules } from '../index';
 import {
   getRuntimeInitStatusImportId,
@@ -252,6 +257,18 @@ describe('shared virtual module instance isolation', () => {
     expect(getTreeShakingExportUsage('react', share, 'react', optionsB)).toEqual({
       kind: 'unknown',
     });
+  });
+
+  it('keeps used remotes per federation instance', () => {
+    const optionsA = makeOptions('used-remotes-a');
+    const optionsB = makeOptions('used-remotes-b');
+
+    ensureUsedRemote('remoteA', optionsA);
+    addUsedRemote('remoteA', 'remoteA/Button', optionsA);
+    addUsedRemote('remoteB', 'remoteB/Card', optionsB);
+
+    expect(getUsedRemotesMap(optionsA)).toEqual({ remoteA: new Set(['remoteA/Button']) });
+    expect(getUsedRemotesMap(optionsB)).toEqual({ remoteB: new Set(['remoteB/Card']) });
   });
 });
 

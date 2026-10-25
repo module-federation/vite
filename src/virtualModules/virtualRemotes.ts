@@ -90,9 +90,7 @@ export function refreshRemoteModuleForEnvironment(
   );
   return true;
 }
-const usedRemotesMap: Record<string, Set<string>> = {
-  // remote1: {remote1/App, remote1, remote1/Button}
-};
+// remote1: {remote1/App, remote1, remote1/Button}
 const usedRemotesByOptions = new WeakMap<
   NormalizedModuleFederationOptions,
   Record<string, Set<string>>
@@ -124,22 +122,19 @@ function ensureUsedRemoteKey(map: Record<string, Set<string>>, remoteKey: string
   return map[remoteKey];
 }
 
-export function ensureUsedRemote(remoteKey: string, options?: NormalizedModuleFederationOptions) {
-  ensureUsedRemoteKey(usedRemotesMap, remoteKey);
-  if (options) ensureUsedRemoteKey(getScopedUsedRemotesMap(options), remoteKey);
+export function ensureUsedRemote(remoteKey: string, options: NormalizedModuleFederationOptions) {
+  ensureUsedRemoteKey(getScopedUsedRemotesMap(options), remoteKey);
 }
 
 export function addUsedRemote(
   remoteKey: string,
   remoteModule: string,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ) {
-  recordUsedRemote(usedRemotesMap, remoteKey, remoteModule);
-  if (options) recordUsedRemote(getScopedUsedRemotesMap(options), remoteKey, remoteModule);
+  recordUsedRemote(getScopedUsedRemotesMap(options), remoteKey, remoteModule);
 }
-export function getUsedRemotesMap(options?: NormalizedModuleFederationOptions) {
-  if (options) return getScopedUsedRemotesMap(options);
-  return usedRemotesMap;
+export function getUsedRemotesMap(options: NormalizedModuleFederationOptions) {
+  return getScopedUsedRemotesMap(options);
 }
 
 export function markDynamicRemote(remote: string, options: NormalizedModuleFederationOptions) {
