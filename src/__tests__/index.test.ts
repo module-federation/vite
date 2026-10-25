@@ -2348,6 +2348,41 @@ describe('vite:module-federation-early-init', () => {
     );
   });
 
+  it('keeps a Rolldown edge from a public entry of a shared package dependency', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-shared-dep-cycle-'));
+    onTestFinished(() => rmSync(root, { recursive: true, force: true }));
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(root);
+    onTestFinished(() => cwdSpy.mockRestore());
+    const writePackage = (name: string, manifest: Record<string, unknown>) => {
+      const dir = path.join(root, 'node_modules', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, ...manifest }));
+      writeFileSync(path.join(dir, 'index.js'), 'export {};\n');
+    };
+    writePackage('cycle-shared', { dependencies: { 'cycle-dep': '1.0.0' } });
+    writePackage('cycle-dep', { exports: { '.': './index.js' } });
+
+    const plugin = (
+      federation({ name: 'host', shared: { 'cycle-shared': { singleton: true } } }) as Plugin[]
+    ).find((entry) => entry.name === 'vite:module-federation-early-init');
+    if (!plugin) throw new Error('vite:module-federation-early-init plugin not found');
+
+    const config: any = { root, optimizeDeps: { include: [] } };
+    runConfig(
+      plugin,
+      { meta: { viteVersion: '8.0.0', rolldownVersion: '1.0.0' } } as ConfigPluginContext,
+      config,
+      { command: 'serve', mode: 'test' }
+    );
+    const resolver = config.optimizeDeps.rolldownOptions.plugins.find(
+      (entry: any) => entry.name === 'module-federation:optimize-shared-resolver'
+    );
+
+    expect(
+      resolver.resolveId('cycle-shared', path.join(root, 'node_modules/cycle-dep/index.js'))
+    ).toBeUndefined();
+  });
+
   it('excludes asset imports from Rolldown optimizeDeps shared proxy', () => {
     const plugin = (
       federation({

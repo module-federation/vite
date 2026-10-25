@@ -25,6 +25,7 @@ import {
   findSharedKey,
   getSharedPackageFromFile,
   isSharedPackageDependency,
+  keepsOwnPackageEdge,
   proxySharedModule,
 } from './plugins/pluginProxySharedModule_preBuild';
 import { pluginRemoteNamedExports } from './plugins/pluginRemoteNamedExports';
@@ -814,7 +815,8 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                 const reactDomSelfReference = isReactDomSelfReference(source, importer);
                 if (
                   !reactDomSelfReference &&
-                  (importerPackage === getPackageName(key) ||
+                  ((importerPackage === getPackageName(key) &&
+                    keepsOwnPackageEdge(importer, shared, root)) ||
                     (importerPackage && isSharedPackageDependency(key, importerPackage)))
                 )
                   return;
@@ -871,7 +873,8 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   const importerPackage = getSharedPackageFromFile(args.importer, shared, root);
                   if (
                     importerPackage === getPackageName(args.path) &&
-                    !isReactDomSelfReference(args.path, args.importer)
+                    !isReactDomSelfReference(args.path, args.importer) &&
+                    keepsOwnPackageEdge(args.importer, shared, root)
                   )
                     return;
                   if (importerPackage && isSharedPackageDependency(key, importerPackage)) return;
