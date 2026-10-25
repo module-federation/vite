@@ -1107,6 +1107,24 @@ function getTempFileImportUrl(filePath: string, versionKey: string): string {
   return `file://${filePath}?v=${encodeURIComponent(versionKey)}`;
 }
 
+type TempFileGraphOptions = {
+  tmpDir: string;
+  sharedPkgMap?: Map<string, string>;
+  versionKey?: string;
+  fetchTimeoutMs?: number;
+  contextKey?: string;
+  fetchMaxBytes?: number;
+  extension?: string;
+  owner?: string;
+};
+
+/** Settings shared by every module of one graph walk, plus the walk's own bookkeeping. */
+type TempFileGraph = Required<Omit<TempFileGraphOptions, 'sharedPkgMap' | 'owner'>> &
+  Pick<TempFileGraphOptions, 'sharedPkgMap' | 'owner'> & {
+    visited: Map<string, string>;
+    pending: Set<Promise<string>>;
+  };
+
 /**
  * Fetch an HTTP ESM module, transform it, write it to a temp file and
  * return the file path. Recursively does the same for HTTP transitive imports
@@ -1116,19 +1134,19 @@ function getTempFileImportUrl(filePath: string, versionKey: string): string {
  * a remote redeploy (new manifest → new key) produces new files and bypasses
  * Node's ESM module cache instead of serving the stale build.
  */
-async function fetchEsmToTempFile(
-  url: string,
-  tmpDir: string,
-  visited: Map<string, string>,
-  pending: Set<Promise<string>>,
-  sharedPkgMap?: Map<string, string>,
-  versionKey: string = UNVERSIONED,
-  fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
-  contextKey = 'default',
-  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES,
-  extension = '.mjs',
-  owner?: string
-): Promise<string> {
+async function fetchEsmToTempFile(url: string, graph: TempFileGraph): Promise<string> {
+  const {
+    tmpDir,
+    visited,
+    pending,
+    sharedPkgMap,
+    versionKey,
+    fetchTimeoutMs,
+    contextKey,
+    fetchMaxBytes,
+    extension,
+    owner,
+  } = graph;
   const cacheKey = JSON.stringify([
     fetchTimeoutMs,
     fetchMaxBytes,
@@ -1188,19 +1206,7 @@ async function fetchEsmToTempFile(
     const subMap = new Map<string, string>();
     await Promise.all(
       [...new Set(relImports)].filter(isHttpUrl).map(async (u) => {
-        const tmpPath = await fetchEsmToTempFile(
-          u,
-          tmpDir,
-          visited,
-          pending,
-          sharedPkgMap,
-          versionKey,
-          fetchTimeoutMs,
-          contextKey,
-          fetchMaxBytes,
-          extension,
-          owner
-        );
+        const tmpPath = await fetchEsmToTempFile(u, graph);
         // Keep every generated edge on the same versioned ESM URL as the
         // root import. Without this query, a cycle back to the root resolves
         // `file:///.../root.js` separately from `file:///.../root.js?v=...`.
@@ -1242,29 +1248,26 @@ async function fetchEsmToTempFile(
 
 async function fetchEsmGraphToTempFile(
   url: string,
-  tmpDir: string,
-  sharedPkgMap?: Map<string, string>,
-  versionKey: string = UNVERSIONED,
-  fetchTimeoutMs: number = DEFAULT_SSR_FETCH_TIMEOUT_MS,
-  contextKey = 'default',
-  fetchMaxBytes: number = DEFAULT_SSR_FETCH_MAX_BYTES,
-  extension = '.mjs',
-  owner?: string
+  {
+    versionKey = UNVERSIONED,
+    fetchTimeoutMs = DEFAULT_SSR_FETCH_TIMEOUT_MS,
+    contextKey = 'default',
+    fetchMaxBytes = DEFAULT_SSR_FETCH_MAX_BYTES,
+    extension = '.mjs',
+    ...rest
+  }: TempFileGraphOptions
 ): Promise<string> {
   const pending = new Set<Promise<string>>();
-  const rootFile = await fetchEsmToTempFile(
-    url,
-    tmpDir,
-    new Map(),
-    pending,
-    sharedPkgMap,
+  const rootFile = await fetchEsmToTempFile(url, {
+    ...rest,
     versionKey,
     fetchTimeoutMs,
     contextKey,
     fetchMaxBytes,
     extension,
-    owner
-  );
+    visited: new Map(),
+    pending,
+  });
   // Circular edges return their reserved path immediately. Wait for every
   // discovered writer before importing the root so all referenced files exist.
   await Promise.all(pending);
@@ -1433,17 +1436,16 @@ async function loadSSRRemoteEntry(
     const extension = isCommonJs ? '.cjs' : '.mjs';
 
     try {
-      const tmpFile = await fetchEsmGraphToTempFile(
-        url,
-        cacheDir,
+      const tmpFile = await fetchEsmGraphToTempFile(url, {
+        tmpDir: cacheDir,
         sharedPkgMap,
         versionKey,
-        options.fetchTimeoutMs,
-        getSsrTransformContextKey(resolvedShared, options.shareScopeName),
-        options.fetchMaxBytes,
+        fetchTimeoutMs: options.fetchTimeoutMs,
+        contextKey: getSsrTransformContextKey(resolvedShared, options.shareScopeName),
+        fetchMaxBytes: options.fetchMaxBytes,
         extension,
-        rootEntryUrl
-      );
+        owner: rootEntryUrl,
+      });
       // Node's require returns the container (`module.exports`), not an ES
       // namespace, and bypasses Vite's dev module runner, which evaluates
       // every file as an ES module.

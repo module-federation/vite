@@ -2471,4 +2471,29 @@ describe('ssrEntryLoaderPlugin — revalidation', () => {
       delete (globalThis as Record<string, unknown>).__FEDERATION__;
     }
   });
+
+  it('carries the manifest version key to every module of a temp-file graph', async () => {
+    const responses = makeResponses(
+      '3.1.4',
+      'import "./assets/cycle.js"; export async function init() {}'
+    );
+    responses['http://localhost:5001/assets/cycle.js'] = {
+      ok: true,
+      headers: { 'content-type': 'application/javascript' },
+      text: 'import "../remoteEntry.ssr.js"; export const cycle = true;',
+    };
+    global.fetch = makeFetchMock(responses) as unknown as typeof globalThis.fetch;
+    const { default: factory } = await freshMockedLoaderModule();
+    const fsMock = await import('fs');
+
+    await factory().loadEntry!({ remoteInfo: { name: 'r', entry: entryUrl } });
+
+    const written = (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mock.calls.map(([, code]) =>
+      String(code)
+    );
+    // The transitive module's edge back to the root must use the same version
+    // query as the root, or the cycle evaluates a second copy of the root.
+    expect(written).toHaveLength(2);
+    expect(written.every((code) => code.includes('?v=3.1.4-'))).toBe(true);
+  });
 });
