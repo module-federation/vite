@@ -15,7 +15,11 @@ import {
   type NormalizedShared,
   type ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
-import { isNodeModulePath, isAssetLikeImport } from '../utils/pathNormalization';
+import {
+  getNodeModulesSuffix,
+  isNodeModulePath,
+  isAssetLikeImport,
+} from '../utils/pathNormalization';
 import {
   findSharedKey,
   getSharedRequest,
@@ -28,6 +32,7 @@ import {
   type InstalledPackageJson,
   getInstalledPackageEntry,
   getPackageDetectionCwd,
+  getPackageExportSpecifiersForFile,
   getPackageName,
   getPackageNameFromNodeModulePath,
   hasPackageDependency,
@@ -191,6 +196,21 @@ export function getSharedPackageFromFile(
   // into the fallback of the share that depends on it, so its import of another share must be judged
   // the same way as an import from inside `node_modules` (which resolves to a package name above).
   return sharedPackage ?? getWorkspacePackageNameFromFile(normalizedImporter);
+}
+
+export function getInstalledPackageExportsFromFile(
+  importer: string | undefined,
+  cwd = getPackageDetectionCwd()
+): string[] {
+  if (!importer || !isNodeModulePath(importer)) return [];
+  const nodeModulePackage = getPackageNameFromNodeModulePath(importer);
+  if (!nodeModulePackage) return [];
+  const installed = getInstalledPackageJson(nodeModulePackage, { cwd });
+  if (installed?.packageJson.exports == null) return [];
+  const suffix = getNodeModulesSuffix(importer);
+  const packageSubpath = suffix?.slice(nodeModulePackage.length + 1);
+  if (!packageSubpath) return [];
+  return getPackageExportSpecifiersForFile(nodeModulePackage, packageSubpath, { cwd });
 }
 
 const workspacePackageNameCache = new Map<string, string | undefined>();
@@ -902,7 +922,15 @@ export function proxySharedModule(options: {
         // Compare package roots because `key` may be an explicit subpath or a
         // trailing-slash wildcard share key.
         const importerPackage = getSharedPackageFromFile(importer, shared);
-        if (importerPackage === getPackageName(key)) return;
+        if (importerPackage === getPackageName(key)) {
+          const specifiers = getInstalledPackageExportsFromFile(importer);
+          if (
+            specifiers.length === 0 ||
+            specifiers.some((specifier) => findSharedKey(specifier, shared))
+          ) {
+            return;
+          }
+        }
         // A dependency of the shared package that imports it back (a package-level
         // cycle) keeps its ordinary edge too. Proxying it would place the loadShare
         // glue inside the package's own evaluation cycle, where the glue's eager

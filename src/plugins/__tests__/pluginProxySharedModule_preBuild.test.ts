@@ -25,6 +25,7 @@ const {
   writeLocalSharedImportMapMock,
   writePreBuildLibPathMock,
   getInstalledPackageEntryMock,
+  getPackageExportSpecifiersForFileMock,
   hasTreeShakingSharedProviderMock,
   getTreeShakingSharedProviderImportIdMock,
   getTreeShakingSharedProviderNameMock,
@@ -53,6 +54,18 @@ const {
       }
     ) => string | undefined
   >(() => undefined),
+  getPackageExportSpecifiersForFileMock: vi.fn<
+    (
+      pkg: string,
+      relFilePath: string,
+      opts?: {
+        cwd?: string;
+        packageName?: string;
+        conditions?: string[];
+        resolveSubpathWithRequire?: boolean;
+      }
+    ) => string[]
+  >(() => []),
   hasTreeShakingSharedProviderMock: vi.fn<(pkg: string, shareItem?: unknown) => boolean>(
     () => false
   ),
@@ -85,7 +98,7 @@ vi.mock('../../utils/packageUtils', async (importOriginal) => ({
   getInstalledPackageEntry: getInstalledPackageEntryMock,
   isPackageExportAvailable: () => true,
   isPackageInstalled: () => true,
-  getPackageExportSpecifiersForFile: () => [],
+  getPackageExportSpecifiersForFile: getPackageExportSpecifiersForFileMock,
   getInstalledPackageJson: vi.fn((pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     const packageName = match ? match[0] : pkg;
@@ -653,6 +666,8 @@ describe('pluginProxySharedModule_preBuild', () => {
     writePreBuildLibPathMock.mockReset();
     getInstalledPackageEntryMock.mockReset();
     getInstalledPackageEntryMock.mockReturnValue(undefined);
+    getPackageExportSpecifiersForFileMock.mockReset();
+    getPackageExportSpecifiersForFileMock.mockReturnValue([]);
     hasTreeShakingSharedProviderMock.mockReset();
     hasTreeShakingSharedProviderMock.mockReturnValue(false);
     getTreeShakingSharedProviderImportIdMock.mockClear();
@@ -2221,6 +2236,97 @@ describe('pluginProxySharedModule_preBuild', () => {
       'legacy-pkg/sub',
       'side-effect',
     ]);
+  });
+
+  it('proxies imports from an unshared public subpath of the same package', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    getPackageExportSpecifiersForFileMock.mockImplementation((pkg, p) => {
+      if (pkg === 'vue' && p === 'dist/sub/index.js') return ['vue/sub'];
+      else if (pkg === 'vue' && p === 'dist/index.js') return ['vue'];
+      return [];
+    });
+    existsSyncMock.mockImplementation(
+      (p: string) => p === '/repo/apps/remote/node_modules/vue/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p.endsWith('/vue/package.json')) {
+        return '{"exports":{".":"./dist/index.js","./sub":"./dist/sub/index.js"}}';
+      }
+      return '{}';
+    });
+
+    const plugins = proxySharedModule({ shared: makeShared() });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/apps/remotes/node_modules/vue/dist/sub/index.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeDefined();
+    expect(writeLoadShareModuleMock).toHaveBeenCalled();
+  });
+
+  it('does not proxy imports from another shared public subpath of the same package', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    getPackageExportSpecifiersForFileMock.mockImplementation((pkg, p) => {
+      if (pkg === 'vue' && p === 'dist/sub/index.js') return ['vue/sub'];
+      else if (pkg === 'vue' && p === 'dist/index.js') return ['vue'];
+      return [];
+    });
+    existsSyncMock.mockImplementation(
+      (p: string) => p === '/repo/apps/remote/node_modules/vue/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) => {
+      if (p.endsWith('/vue/package.json')) {
+        return '{"exports":{".":"./dist/index.js","./sub":"./dist/sub/index.js"}}';
+      }
+      return '{}';
+    });
+
+    const explicitlyShared = makeShared();
+    explicitlyShared['vue/sub'] = {
+      ...explicitlyShared.vue,
+      name: 'vue/sub',
+    };
+    const plugins = proxySharedModule({ shared: explicitlyShared });
+    const proxyPlugin = getProxyPlugin(plugins);
+    const sharedResolvePlugin = getSharedResolvePlugin(plugins);
+
+    callHook(
+      proxyPlugin.config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    const resolution = await callHook(
+      sharedResolvePlugin.resolveId,
+      { resolve: async (id: string) => ({ id: `/resolved/${id}` }) } as any,
+      'vue',
+      '/repo/apps/remotes/node_modules/vue/dist/sub/index.js',
+      { isEntry: false }
+    );
+
+    expect(resolution).toBeUndefined();
+    expect(writeLoadShareModuleMock).not.toHaveBeenCalled();
   });
 
   it('keeps walking the dependency tree past an unresolvable optional peer when detecting cycles', async () => {

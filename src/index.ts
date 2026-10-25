@@ -23,6 +23,7 @@ import pluginProxyRemotes from './plugins/pluginProxyRemotes';
 import {
   excludeSharedSubDependencies,
   findSharedKey,
+  getInstalledPackageExportsFromFile,
   getSharedPackageFromFile,
   isSharedPackageDependency,
   proxySharedModule,
@@ -816,8 +817,15 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   !reactDomSelfReference &&
                   (importerPackage === getPackageName(key) ||
                     (importerPackage && isSharedPackageDependency(key, importerPackage)))
-                )
-                  return;
+                ) {
+                  const specifiers = getInstalledPackageExportsFromFile(importer, root);
+                  if (
+                    specifiers.length === 0 ||
+                    specifiers.some((specifier) => findSharedKey(specifier, shared))
+                  ) {
+                    return;
+                  }
+                }
                 if (isAssetLikeImport(source)) return;
                 const shareItem = shared[key];
                 const isReactSingleton =
@@ -872,8 +880,15 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
                   if (
                     importerPackage === getPackageName(args.path) &&
                     !isReactDomSelfReference(args.path, args.importer)
-                  )
-                    return;
+                  ) {
+                    const specifiers = getInstalledPackageExportsFromFile(args.importer, root);
+                    if (
+                      specifiers.length === 0 ||
+                      specifiers.some((specifier) => findSharedKey(specifier, shared))
+                    ) {
+                      return;
+                    }
+                  }
                   if (importerPackage && isSharedPackageDependency(key, importerPackage)) return;
                   addUsedShares(args.path, options);
                   if (args.kind === 'import-statement' || args.kind === 'dynamic-import') {
