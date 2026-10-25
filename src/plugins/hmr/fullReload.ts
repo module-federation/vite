@@ -1,4 +1,5 @@
 import type { ViteDevServer } from 'vite';
+import { isHttpUrl } from '../../utils/buildPaths';
 import { formatDevServerHostForOrigin, watchFileEvents } from '../../utils/devServerHost';
 import { mfWarn } from '../../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
@@ -11,7 +12,7 @@ const REMOTE_HMR_CONNECT_MAX_RETRIES = 10;
 
 function getBasePath(base: string) {
   if (!base) return '/';
-  if (base.startsWith('http://') || base.startsWith('https://')) {
+  if (isHttpUrl(base)) {
     try {
       return new URL(base).pathname || '/';
     } catch {

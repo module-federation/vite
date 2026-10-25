@@ -13,7 +13,7 @@ import {
 import { rpc, type DTSManagerOptions } from '@module-federation/dts-plugin/core';
 import * as path from 'node:path';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
-import { normalizePathForImport } from '../utils/buildPaths';
+import { isHttpUrl, normalizePathForImport } from '../utils/buildPaths';
 import { watchFileEvents } from '../utils/devServerHost';
 import { DEFAULT_PUBLIC_TYPES_FOLDER } from '../utils/dtsConstants';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
@@ -218,7 +218,7 @@ export const resolveDtsPluginOptions = (
 };
 
 const getBasePath = (base: string): string => {
-  if (base.startsWith('http://') || base.startsWith('https://')) {
+  if (isHttpUrl(base)) {
     return new URL(base).pathname.replace(/\/$/, '') || '/';
   }
   return base.replace(/\/$/, '') || '/';

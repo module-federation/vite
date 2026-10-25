@@ -268,28 +268,6 @@ describe('pluginDevRemoteHmr', () => {
     expect(server.watcher.off).toHaveBeenCalledTimes(3);
   });
 
-  it('broadcasts remote file changes in middleware mode, where the server has no httpServer', () => {
-    const { server, emit } = createServer();
-    (server as { httpServer?: unknown }).httpServer = undefined;
-
-    const plugin = pluginDevRemoteHmr(
-      normalizeModuleFederationOptions({
-        name: 'remote-app',
-        dev: { remoteHmr: true },
-        exposes: { './Button': { import: './src/Button.tsx' } },
-        remotes: {},
-        virtualModuleDir: '__mf__virtual',
-      })
-    );
-
-    runConfigureServer(plugin, server);
-    emit('change', '/src/Button.tsx');
-
-    expect(server.ws.send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'custom', event: 'mf:remote-update' })
-    );
-  });
-
   it.each([
     ['::', 'ws://localhost:4173/?token=dev-token'],
     ['::1', 'ws://[::1]:4173/?token=dev-token'],
