@@ -410,7 +410,11 @@ describe('cssModuleHelpers', () => {
         })),
       }));
 
-      const result = await buildFileToShareKeyMap(shareKeys, resolveFn);
+      const result = await buildFileToShareKeyMap(
+        shareKeys,
+        resolveFn,
+        normalizeModuleFederationOptions({ name: 'test-app' })
+      );
       expect(result.get('path/to/react.js')).toBe('react');
     });
   });

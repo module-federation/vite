@@ -1002,7 +1002,7 @@ export function proxySharedModule(options: {
           }
           addUsedShares(shareSource, federationOptions);
           writeLocalSharedImportMap(federationOptions);
-          refreshHostAutoInit(getFederationOptions());
+          refreshHostAutoInit(resolvedOptions);
         }
         return this.resolve(loadSharePath, importer, { skipSelf: true });
       },

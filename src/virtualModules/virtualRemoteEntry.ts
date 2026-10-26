@@ -140,7 +140,7 @@ function shouldUseDirectReactImport() {
 function getLocalSharedPackagePath(
   pkg: string,
   shareItem: ShareItem,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ) {
   const useDirectReactImport = shouldUseDirectReactImport();
   if (useDirectReactImport && pkg === 'react') return 'react';
@@ -183,7 +183,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
         return '';
       }
       return `import * as __mfEagerShare_${index} from ${toSafeJsLiteral(
-        getLocalSharedPackagePath(pkg, shareItem, options)
+        getLocalSharedPackagePath(pkg, shareItem, resolvedOptions)
       )};`;
     })
     .filter(Boolean)
@@ -273,7 +273,7 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
             shareItem?.shareConfig.eager
               ? `let pkg = __mfEagerShare_${index};
             return pkg;`
-              : `let pkg = await import(${toSafeJsLiteral(getLocalSharedPackagePath(pkg, shareItem, options))});
+              : `let pkg = await import(${toSafeJsLiteral(getLocalSharedPackagePath(pkg, shareItem, resolvedOptions))});
             return pkg;`
           }
         }

@@ -1306,15 +1306,10 @@ export function addTreeShakingGraphQuery(id: string, token: string): string {
 
 function getConcreteTreeShakingExportUsage(
   pkg: string,
-  shareItem?: ShareItem,
-  options?: NormalizedModuleFederationOptions
+  shareItem: ShareItem | undefined,
+  options: NormalizedModuleFederationOptions
 ) {
-  return getTreeShakingExportUsage(
-    pkg,
-    shareItem,
-    shareItem?.name,
-    options ?? getNormalizeModuleFederationOptions()
-  );
+  return getTreeShakingExportUsage(pkg, shareItem, shareItem?.name, options);
 }
 
 export function getTreeShakingSharedProviderName(
@@ -1598,13 +1593,10 @@ export function getPreBuildShareItem(
 
 export function getSharedImportSource(
   pkg: string,
-  shareItem?: ShareItem,
-  options?: NormalizedModuleFederationOptions
+  shareItem: ShareItem | undefined,
+  options: NormalizedModuleFederationOptions
 ): string {
-  return (
-    getConcreteSharedImportSource(pkg, shareItem) ||
-    getPreBuildLibImportId(pkg, options ?? getNormalizeModuleFederationOptions())
-  );
+  return getConcreteSharedImportSource(pkg, shareItem) || getPreBuildLibImportId(pkg, options);
 }
 
 // *** __loadShare__
@@ -1653,7 +1645,7 @@ export function materializeCachedLoadShareModule(options: {
   findSharedKey: (source: string, shared: NormalizedShared) => string | undefined;
   addUsedShares: (pkg: string) => void;
   writeLocalSharedImportMap: () => void;
-  federationOptions?: NormalizedModuleFederationOptions;
+  federationOptions: NormalizedModuleFederationOptions;
 }): void {
   const pkg = getCachedLoadSharePkg(options.id);
   if (!pkg) return;
@@ -1661,10 +1653,9 @@ export function materializeCachedLoadShareModule(options: {
   if (!key) return;
 
   const shareItem = options.shared[key];
-  const federationOptions = options.federationOptions ?? getNormalizeModuleFederationOptions();
-  writeLoadShareModule(pkg, shareItem, options.command, federationOptions);
+  writeLoadShareModule(pkg, shareItem, options.command, options.federationOptions);
   if (shareItem.shareConfig?.import !== false) {
-    writePreBuildLibPath(pkg, shareItem, federationOptions);
+    writePreBuildLibPath(pkg, shareItem, options.federationOptions);
   }
   options.addUsedShares(pkg);
   options.writeLocalSharedImportMap();
