@@ -2710,7 +2710,7 @@ export function generateHostAutoInitCode(
 }
 export function writeHostAutoInit(
   remoteEntryId = REMOTE_ENTRY_ID,
-  command = 'build',
+  command: string,
   options: NormalizedModuleFederationOptions,
   exportConditions?: readonly string[]
 ) {
@@ -2827,7 +2827,7 @@ export function generatePendingSharesCode(
     }
   `;
 }
-export function writePendingShares(command = 'build', options: NormalizedModuleFederationOptions) {
+export function writePendingShares(command: string, options: NormalizedModuleFederationOptions) {
   const state = getPendingSharesState(options);
   state.command = command;
   state.module.writeSync(generatePendingSharesCode(command, options), true);

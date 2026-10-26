@@ -795,7 +795,7 @@ export function proxySharedModule(options: {
           registerConfiguredShare(runtimeKey, federationOptions);
         });
         writeLocalSharedImportMap(federationOptions);
-        refreshHostAutoInit(getFederationOptions());
+        refreshHostAutoInit(resolvedOptions);
       },
       watchChange() {
         sharedSourceResolver.clear();
