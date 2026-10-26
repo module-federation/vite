@@ -155,6 +155,7 @@ vi.mock('../../utils/VirtualModule', () => ({
 }));
 
 import {
+  NormalizedModuleFederationOptions,
   NormalizedShared,
   normalizeModuleFederationOptions,
 } from '../../utils/normalizeModuleFederationOptions';
@@ -235,9 +236,14 @@ vi.mock('../../virtualModules', async (importOriginal) => {
       refreshHostAutoInitMock();
       return actual.refreshHostAutoInit(options);
     },
-    writeLoadShareModule: (pkg: string, shareItem: NormalizedShared[string], command: string) => {
+    writeLoadShareModule: (
+      pkg: string,
+      shareItem: NormalizedShared[string],
+      command: string,
+      options: NormalizedModuleFederationOptions
+    ) => {
       writeLoadShareModuleMock(pkg, shareItem, command);
-      return actual.writeLoadShareModule(pkg, shareItem, command);
+      return actual.writeLoadShareModule(pkg, shareItem, command, options);
     },
     writePreBuildLibPath: (pkg: string, shareItem?: NormalizedShared[string]) => {
       writePreBuildLibPathMock(pkg, shareItem);

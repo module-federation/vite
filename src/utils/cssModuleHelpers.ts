@@ -312,7 +312,7 @@ export const deduplicateAssets = (filesMap: PreloadMap): PreloadMap => {
 export const buildFileToShareKeyMap = async (
   shareKeys: Set<string>,
   resolveFn: (id: string) => Promise<{ id: string } | null>,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ): Promise<Map<string, string>> => {
   const fileToShareKey = new Map<string, string>();
 

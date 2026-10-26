@@ -1219,15 +1219,6 @@ interface SharedVirtualModuleState {
   ownerKey?: string;
 }
 
-const legacySharedVirtualModuleState: SharedVirtualModuleState = {
-  preBuildCacheMap: {},
-  preBuildShareItemMap: {},
-  treeShakingProviderCacheMap: {},
-  materializedTreeShakingProviders: new Set(),
-  loadShareCacheMap: {},
-  warnedMissingImportFalse: new Set(),
-  coalescableLoadShares: new Set(),
-};
 const sharedVirtualModuleStates = new WeakMap<
   NormalizedModuleFederationOptions,
   SharedVirtualModuleState
@@ -1235,15 +1226,7 @@ const sharedVirtualModuleStates = new WeakMap<
 // Only one `federation()` instance's chunking callback survives in the bundler
 // output options, so state has to be reachable from a virtual id's owner too.
 const sharedVirtualModuleStatesByOwner = new Map<string, SharedVirtualModuleState>();
-function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions) {
-  if (!options) {
-    try {
-      const currentOptions = getNormalizeModuleFederationOptions();
-      return sharedVirtualModuleStates.get(currentOptions) ?? legacySharedVirtualModuleState;
-    } catch {
-      return legacySharedVirtualModuleState;
-    }
-  }
+function getSharedVirtualModuleState(options: NormalizedModuleFederationOptions) {
   let state = sharedVirtualModuleStates.get(options);
   if (!state) {
     state = {
@@ -1265,7 +1248,7 @@ function getSharedVirtualModuleState(options?: NormalizedModuleFederationOptions
 /** State of the instance that owns a scoped virtual id; `options` covers unscoped ids. */
 function getSharedVirtualModuleStateForId(
   id: string | undefined,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ): SharedVirtualModuleState {
   const ownerKey = id === undefined ? undefined : VirtualModule.findById(id)?.getScopeName();
   return (
@@ -1277,7 +1260,7 @@ function getSharedVirtualModuleStateForId(
 function createScopedSharedVirtualModule(
   pkg: string,
   tag: string,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ) {
   return new VirtualModule(pkg, tag, '.js', getSharedVirtualModuleState(options).ownerKey);
 }
@@ -1323,29 +1306,23 @@ export function addTreeShakingGraphQuery(id: string, token: string): string {
 
 function getConcreteTreeShakingExportUsage(
   pkg: string,
-  shareItem?: ShareItem,
-  options?: NormalizedModuleFederationOptions
+  shareItem: ShareItem | undefined,
+  options: NormalizedModuleFederationOptions
 ) {
-  return getTreeShakingExportUsage(
-    pkg,
-    shareItem,
-    shareItem?.name,
-    options ?? getNormalizeModuleFederationOptions()
-  );
+  return getTreeShakingExportUsage(pkg, shareItem, shareItem?.name, options);
 }
 
 export function getTreeShakingSharedProviderName(
   pkg: string,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ): string {
-  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const ownerName = getSharedVirtualModuleState(options).ownerKey;
-  return `${ownerName ?? resolvedOptions.internalName ?? resolvedOptions.name}__tree_shaking__${packageNameEncode(pkg)}`;
+  return `${ownerName ?? options.internalName ?? options.name}__tree_shaking__${packageNameEncode(pkg)}`;
 }
 
 export function getTreeShakingSharedProviderImportId(
   pkg: string,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ): string {
   const { treeShakingProviderCacheMap } = getSharedVirtualModuleState(options);
   if (!treeShakingProviderCacheMap[pkg]) {
@@ -1360,8 +1337,8 @@ export function getTreeShakingSharedProviderImportId(
 
 export function hasTreeShakingSharedProvider(
   pkg: string,
-  shareItem?: ShareItem,
-  options?: NormalizedModuleFederationOptions
+  shareItem: ShareItem | undefined,
+  options: NormalizedModuleFederationOptions
 ): boolean {
   const { materializedTreeShakingProviders } = getSharedVirtualModuleState(options);
   const usage = getConcreteTreeShakingExportUsage(pkg, shareItem, options);
@@ -1379,8 +1356,8 @@ export function hasTreeShakingSharedProvider(
  */
 export function writeTreeShakingSharedProvider(
   pkg: string,
-  shareItem?: ShareItem,
-  options?: NormalizedModuleFederationOptions
+  shareItem: ShareItem | undefined,
+  options: NormalizedModuleFederationOptions
 ): void {
   const { materializedTreeShakingProviders, treeShakingProviderCacheMap } =
     getSharedVirtualModuleState(options);
@@ -1469,11 +1446,10 @@ export default { get, init };
 
 export function writePreBuildLibPath(
   pkg: string,
-  shareItem?: ShareItem,
-  options?: NormalizedModuleFederationOptions,
+  shareItem: ShareItem | undefined,
+  options: NormalizedModuleFederationOptions,
   exportConditions?: string[]
 ) {
-  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const { preBuildCacheMap, preBuildShareItemMap } = getSharedVirtualModuleState(options);
   if (!preBuildCacheMap[pkg]) {
     preBuildCacheMap[pkg] = createScopedSharedVirtualModule(pkg, PREBUILD_TAG, options);
@@ -1540,9 +1516,7 @@ export function writePreBuildLibPath(
   const namedExports = getSharedNamedExports(pkg, shareItem, exportConditions) ?? [];
   if (namedExports.length > 0) {
     const mutableExports = new Set(
-      isLocalOnlyContainer(resolvedOptions)
-        ? getSharedMutableExports(pkg, shareItem, exportConditions)
-        : []
+      isLocalOnlyContainer(options) ? getSharedMutableExports(pkg, shareItem, exportConditions) : []
     );
     const copiedExports = namedExports.filter((name) => !mutableExports.has(name));
     const liveExports = namedExports.filter((name) => mutableExports.has(name));
@@ -1588,7 +1562,7 @@ export function writePreBuildLibPath(
 
 /** Re-render already materialized wrappers after import analysis discovers exports. */
 export function refreshTreeShakingModules(
-  options?: NormalizedModuleFederationOptions,
+  options: NormalizedModuleFederationOptions,
   command = 'build',
   exportConditions?: string[]
 ) {
@@ -1601,7 +1575,7 @@ export function refreshTreeShakingModules(
 }
 export function getPreBuildLibImportId(
   pkg: string,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ): string {
   const { preBuildCacheMap } = getSharedVirtualModuleState(options);
   if (!preBuildCacheMap[pkg]) {
@@ -1612,15 +1586,15 @@ export function getPreBuildLibImportId(
 }
 export function getPreBuildShareItem(
   pkg: string,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ): ShareItem | undefined {
   return getSharedVirtualModuleState(options).preBuildShareItemMap[pkg];
 }
 
 export function getSharedImportSource(
   pkg: string,
-  shareItem?: ShareItem,
-  options?: NormalizedModuleFederationOptions
+  shareItem: ShareItem | undefined,
+  options: NormalizedModuleFederationOptions
 ): string {
   return getConcreteSharedImportSource(pkg, shareItem) || getPreBuildLibImportId(pkg, options);
 }
@@ -1630,7 +1604,7 @@ export { LOAD_SHARE_TAG };
 
 export function getLoadShareModulePath(
   pkg: string,
-  options?: NormalizedModuleFederationOptions
+  options: NormalizedModuleFederationOptions
 ): string {
   const { loadShareCacheMap } = getSharedVirtualModuleState(options);
   if (!loadShareCacheMap[pkg]) {
@@ -1671,7 +1645,7 @@ export function materializeCachedLoadShareModule(options: {
   findSharedKey: (source: string, shared: NormalizedShared) => string | undefined;
   addUsedShares: (pkg: string) => void;
   writeLocalSharedImportMap: () => void;
-  federationOptions?: NormalizedModuleFederationOptions;
+  federationOptions: NormalizedModuleFederationOptions;
 }): void {
   const pkg = getCachedLoadSharePkg(options.id);
   if (!pkg) return;
@@ -2098,7 +2072,7 @@ function recordCoalescability(
  */
 export function markLoadShareWrapperNotCoalescable(
   pkg: string,
-  options?: NormalizedModuleFederationOptions,
+  options: NormalizedModuleFederationOptions,
   id?: string
 ): void {
   getSharedVirtualModuleStateForId(id, options).coalescableLoadShares.delete(pkg);
@@ -2107,7 +2081,7 @@ export function markLoadShareWrapperNotCoalescable(
 /** With `id`, answers from the owning instance's state, whichever instance asks. */
 export function isCoalescableLoadShareWrapper(
   pkg: string,
-  options?: NormalizedModuleFederationOptions,
+  options: NormalizedModuleFederationOptions,
   id?: string
 ): boolean {
   return getSharedVirtualModuleStateForId(id, options).coalescableLoadShares.has(pkg);
@@ -2133,11 +2107,10 @@ export function writeLoadShareModule(
   pkg: string,
   shareItem: ShareItem,
   command: string,
-  options?: NormalizedModuleFederationOptions,
+  options: NormalizedModuleFederationOptions,
   exportConditions?: string[],
   importFalseExportUsage?: TreeShakingExportUsage
 ) {
-  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   const { loadShareCacheMap, coalescableLoadShares } = getSharedVirtualModuleState(options);
   const edges = createLocalPayloadEdges();
   if (!loadShareCacheMap[pkg]) {
@@ -2145,10 +2118,10 @@ export function writeLoadShareModule(
   }
   let importLine = getRuntimeModuleCacheBootstrapCode(exportConditions);
   const cacheDescriptor = getSharedCacheDescriptorLiteral(pkg, shareItem);
-  const cacheOwner = JSON.stringify(resolvedOptions.name);
-  const runtimeInitOwnerImportId = options ? getRuntimeInitStatusImportId(options) : undefined;
+  const cacheOwner = JSON.stringify(options.name);
+  const runtimeInitOwnerImportId = getRuntimeInitStatusImportId(options);
   const treeShakingConsumer =
-    command === 'build' && shareItem.shareConfig.treeShaking ? resolvedOptions.name : undefined;
+    command === 'build' && shareItem.shareConfig.treeShaking ? options.name : undefined;
 
   // import: false means the host must provide this module — the remote has no local copy.
   // Generate a minimal loadShare module that just delegates to the runtime.
@@ -2171,7 +2144,7 @@ export function writeLoadShareModule(
         treeShakingConsumer
       );
     } else {
-      const { warnedMissingImportFalse } = getSharedVirtualModuleState(resolvedOptions);
+      const { warnedMissingImportFalse } = getSharedVirtualModuleState(options);
       if (
         detectedNamedExports === undefined &&
         !shareItem.shareConfig.suppressMissingImportWarning &&
@@ -2221,9 +2194,7 @@ export function writeLoadShareModule(
   const detectedNamedExports = getSharedNamedExports(pkg, shareItem, exportConditions);
   const namedExports = detectedNamedExports ?? [];
   const mutableExports = new Set(
-    isLocalOnlyContainer(resolvedOptions)
-      ? getSharedMutableExports(pkg, shareItem, exportConditions)
-      : []
+    isLocalOnlyContainer(options) ? getSharedMutableExports(pkg, shareItem, exportConditions) : []
   );
   const copiedNamedExports = namedExports.filter((name) => !mutableExports.has(name));
   const liveNamedExports = namedExports.filter((name) => mutableExports.has(name));
@@ -2235,22 +2206,22 @@ export function writeLoadShareModule(
     shareItem.shareConfig.eager !== true &&
     (isWorkspacePackage ||
       (command !== 'build' &&
-        isRemoteOnlyContainer(resolvedOptions) &&
+        isRemoteOnlyContainer(options) &&
         shareItem.shareConfig.singleton === true) ||
       (command === 'build' &&
-        isRemoteContainer(resolvedOptions) &&
-        !isSharedSingletonConsumedByPeer(pkg, resolvedOptions, true)));
+        isRemoteContainer(options) &&
+        !isSharedSingletonConsumedByPeer(pkg, options, true)));
   const servesRemoteSingletonFallback =
     command !== 'build' &&
-    isRemoteOnlyContainer(resolvedOptions) &&
+    isRemoteOnlyContainer(options) &&
     shareItem.shareConfig.singleton === true;
-  const isConsumedByPeerSingleton = isSharedSingletonConsumedByPeer(pkg, resolvedOptions);
+  const isConsumedByPeerSingleton = isSharedSingletonConsumedByPeer(pkg, options);
   const usesEntryInjectedRemoteFallback =
     hasCompleteExportCoverage &&
     !isWorkspaceSingleton &&
-    isRemoteContainer(resolvedOptions) &&
+    isRemoteContainer(options) &&
     shareItem.shareConfig.singleton === true &&
-    resolvedOptions.hostInitInjectLocation === 'entry' &&
+    options.hostInitInjectLocation === 'entry' &&
     (command === 'build' || isConsumedByPeerSingleton);
   // Entry injection evaluates the remote entry before hostInit registers shares.
   // Keep React core and its subpaths synchronous for CJS identity. A peer
@@ -2268,7 +2239,7 @@ export function writeLoadShareModule(
     !isReactCoreShare(pkg) &&
     (pkg === REACT_DOM_CLIENT_SHARE ||
       (shareItem.shareConfig.eager !== true &&
-        !isSharedSingletonConsumedByPeer(pkg, resolvedOptions, true)));
+        !isSharedSingletonConsumedByPeer(pkg, options, true)));
   const usesEagerWorkspaceFallback =
     hasCompleteExportCoverage &&
     isWorkspaceSingleton &&
@@ -2451,7 +2422,7 @@ export function writeLoadShareModule(
     shareItem.shareConfig,
     coalescableLoadShares
   )
-    ? getSharedCacheHelpersImportCode(resolvedOptions)
+    ? getSharedCacheHelpersImportCode(options)
     : sharedCacheHelperCode;
 
   // These export blocks declare `exportModule` themselves; the plain body must not declare it a second time.
