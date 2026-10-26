@@ -336,6 +336,7 @@ const addEntry = ({
   const ENTRY_BOOTSTRAP_QUERY = `?${ENTRY_BOOTSTRAP_PARAM}`;
   const waitsForInit = entryName === 'hostInit';
   const getEntryPath = () => (typeof entryPath === 'function' ? entryPath() : entryPath);
+  const getFederationOptions = () => federationOptions ?? getNormalizeModuleFederationOptions();
   let devEntryPath = '';
   let entryFiles: string[] = [];
   let htmlFilePath: string | undefined;
@@ -464,7 +465,7 @@ const __mfCurrentScript = document.currentScript;
   // modulepreload hints, so the fetch starts at HTML parse time instead of
   // after the bootstrap script downloads and evaluates.
   function getRemoteEntryPreloadUrls(): string[] {
-    const normalizedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
+    const normalizedOptions = getFederationOptions();
     const isLoadedFirstClientBuild = isLoadedFirstClientBuildFor(normalizedOptions.shareStrategy);
     if (normalizedOptions.shareStrategy === 'loaded-first' && !isLoadedFirstClientBuild) return [];
     // Warm remote-entry URLs from registered remotes (keys), not imported
@@ -555,7 +556,7 @@ const __mfCurrentScript = document.currentScript;
       ? 'import(/* @vite-ignore */ __mfEntryUrl)'
       : importExpression(entrySrc);
 
-    const normalizedOptions = federationOptions ?? getNormalizeModuleFederationOptions();
+    const normalizedOptions = getFederationOptions();
     const isLoadedFirstClientBuild = isLoadedFirstClientBuildFor(normalizedOptions.shareStrategy);
 
     // `version-first` eagerly loads every used remote, while `loaded-first`
@@ -707,7 +708,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
     const pendingSharesBlock =
       waitsForInit && isBuildCommand()
         ? `
-  const __mfPendingShares = await ${importExpression(options?.pendingSharesSrc ?? getPendingSharesPath(federationOptions))}.catch(() => undefined);
+  const __mfPendingShares = await ${importExpression(options?.pendingSharesSrc ?? getPendingSharesPath(getFederationOptions()))}.catch(() => undefined);
   if (__mfPendingShares && typeof __mfPendingShares.preloadPendingShares === "function") await __mfPendingShares.preloadPendingShares();`
         : '';
 
@@ -1142,7 +1143,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           pendingSharesEmitId = this.emitFile({
             name: 'pendingShares',
             type: 'chunk',
-            id: getPendingSharesPath(federationOptions),
+            id: getPendingSharesPath(getFederationOptions()),
             preserveSignature: 'strict',
           });
         }

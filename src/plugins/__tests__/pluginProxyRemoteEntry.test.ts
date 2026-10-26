@@ -15,8 +15,9 @@ import pluginProxyRemoteEntry from '../pluginProxyRemoteEntry';
 describe('pluginProxyRemoteEntry', () => {
   it('does not treat an HTML proxy query containing host auto-init as the init module', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
+    const options = getDefaultMockOptions();
     const plugin = pluginProxyRemoteEntry({
-      options: getDefaultMockOptions(),
+      options,
       remoteEntryId: 'virtual:mf-remote-entry',
       virtualExposesId: 'virtual:mf-exposes',
     });
@@ -27,7 +28,7 @@ describe('pluginProxyRemoteEntry', () => {
       { command: 'serve', mode: 'development' }
     );
 
-    const proxyId = `\0virtual:mf-html-entry-proxy?init=${encodeURIComponent(getHostAutoInitPath())}&entry=%2Fsrc%2Fmain.jsx`;
+    const proxyId = `\0virtual:mf-html-entry-proxy?init=${encodeURIComponent(getHostAutoInitPath(options))}&entry=%2Fsrc%2Fmain.jsx`;
     expect(
       await callHook(plugin.resolveId, {} as Rollup.PluginContext, proxyId, undefined, {
         isEntry: false,
@@ -360,8 +361,9 @@ describe('pluginProxyRemoteEntry', () => {
 
   it('uses an inlined data-URL origin for dev host init in SSR/module-runner contexts, protocol relative fallback origin otherwise', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
+    const options = getDefaultMockOptions({ filename: 'remoteEntry.js' });
     const plugin = pluginProxyRemoteEntry({
-      options: getDefaultMockOptions({ filename: 'remoteEntry.js' }),
+      options,
       remoteEntryId: 'virtual:mf-remote-entry',
       virtualExposesId: 'virtual:mf-exposes',
     });
@@ -386,7 +388,7 @@ describe('pluginProxyRemoteEntry', () => {
       plugin.transform,
       {} as Rollup.TransformPluginContext,
       '',
-      getHostAutoInitPath()
+      getHostAutoInitPath(options)
     )) as {
       code: string;
     };
@@ -406,8 +408,9 @@ describe('pluginProxyRemoteEntry', () => {
     'uses a valid protocol-relative fallback origin when server.host is %s',
     async (host, expectedOrigin) => {
       normalizeModuleFederationOptions({ name: 'test' });
+      const options = getDefaultMockOptions({ filename: 'remoteEntry.js' });
       const plugin = pluginProxyRemoteEntry({
-        options: getDefaultMockOptions({ filename: 'remoteEntry.js' }),
+        options,
         remoteEntryId: 'virtual:mf-remote-entry',
         virtualExposesId: 'virtual:mf-exposes',
       });
@@ -432,7 +435,7 @@ describe('pluginProxyRemoteEntry', () => {
         plugin.transform,
         {} as Rollup.TransformPluginContext,
         '',
-        getHostAutoInitPath()
+        getHostAutoInitPath(options)
       )) as {
         code: string;
       };
@@ -445,8 +448,9 @@ describe('pluginProxyRemoteEntry', () => {
 
   it('uses a dev-safe filename for hash-pattern host init remote entry imports', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
+    const options = getDefaultMockOptions({ filename: 'remoteEntry-[hash]', publicPath: '/cdn' });
     const plugin = pluginProxyRemoteEntry({
-      options: getDefaultMockOptions({ filename: 'remoteEntry-[hash]', publicPath: '/cdn' }),
+      options,
       remoteEntryId: 'virtual:mf-remote-entry',
       virtualExposesId: 'virtual:mf-exposes',
     });
@@ -471,7 +475,7 @@ describe('pluginProxyRemoteEntry', () => {
       plugin.transform,
       {} as Rollup.TransformPluginContext,
       '',
-      getHostAutoInitPath()
+      getHostAutoInitPath(options)
     )) as {
       code: string;
     };
@@ -488,8 +492,9 @@ describe('pluginProxyRemoteEntry', () => {
     ['https://cdn.example.com/assets/', '"https://cdn.example.com/assets/remoteEntry.js"'],
   ])('resolves publicPath %s for dev host init', async (publicPath, expected) => {
     normalizeModuleFederationOptions({ name: 'test' });
+    const options = getDefaultMockOptions({ publicPath });
     const plugin = pluginProxyRemoteEntry({
-      options: getDefaultMockOptions({ publicPath }),
+      options,
       remoteEntryId: 'virtual:mf-remote-entry',
       virtualExposesId: 'virtual:mf-exposes',
     });
@@ -514,7 +519,7 @@ describe('pluginProxyRemoteEntry', () => {
       plugin.transform,
       {} as Rollup.TransformPluginContext,
       '',
-      getHostAutoInitPath()
+      getHostAutoInitPath(options)
     )) as { code: string };
 
     expect(result.code).toContain(
@@ -523,8 +528,9 @@ describe('pluginProxyRemoteEntry', () => {
   });
 
   it('uses an explicitly configured Vite base for dev host init', async () => {
+    const options = getDefaultMockOptions({ filename: 'remoteEntry.js' });
     const plugin = pluginProxyRemoteEntry({
-      options: getDefaultMockOptions({ filename: 'remoteEntry.js' }),
+      options,
       remoteEntryId: 'virtual:mf-remote-entry',
       virtualExposesId: 'virtual:mf-exposes',
     });
@@ -549,7 +555,7 @@ describe('pluginProxyRemoteEntry', () => {
       plugin.transform,
       {} as Rollup.TransformPluginContext,
       '',
-      getHostAutoInitPath()
+      getHostAutoInitPath(options)
     )) as { code: string };
 
     expect(result.code).toContain('origin + "/bbb/remoteEntry.js"');

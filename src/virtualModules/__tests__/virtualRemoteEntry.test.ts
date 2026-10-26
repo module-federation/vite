@@ -1939,8 +1939,14 @@ describe('virtualRemoteEntry', () => {
     });
 
     const mod = await import('../virtualRemoteEntry');
+    const { getNormalizeModuleFederationOptions } =
+      await import('../../utils/normalizeModuleFederationOptions');
 
-    mod.writeHostAutoInit('virtual:test-remote-entry');
+    mod.writeHostAutoInit(
+      'virtual:test-remote-entry',
+      'build',
+      getNormalizeModuleFederationOptions()
+    );
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = getLastCallFirstArg<string>(writeSyncSpy);

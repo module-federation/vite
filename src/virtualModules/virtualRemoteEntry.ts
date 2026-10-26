@@ -2510,14 +2510,8 @@ interface HostAutoInitState {
 }
 
 const hostAutoInitStates = new WeakMap<NormalizedModuleFederationOptions, HostAutoInitState>();
-const legacyHostAutoInitState: HostAutoInitState = {
-  module: new VirtualModule('hostAutoInit', HOST_AUTO_INIT_TAG),
-  remoteEntryId: REMOTE_ENTRY_ID,
-  command: 'build',
-};
 
-function getHostAutoInitState(options?: NormalizedModuleFederationOptions) {
-  if (!options) return legacyHostAutoInitState;
+function getHostAutoInitState(options: NormalizedModuleFederationOptions) {
   let state = hostAutoInitStates.get(options);
   if (!state) {
     const ownerKey = getLocalOwnerKey(options);
@@ -2717,7 +2711,7 @@ export function generateHostAutoInitCode(
 export function writeHostAutoInit(
   remoteEntryId = REMOTE_ENTRY_ID,
   command = 'build',
-  options?: NormalizedModuleFederationOptions,
+  options: NormalizedModuleFederationOptions,
   exportConditions?: readonly string[]
 ) {
   const state = getHostAutoInitState(options);
@@ -2735,7 +2729,7 @@ export function writeHostAutoInit(
   );
 }
 export function refreshHostAutoInit(
-  options?: NormalizedModuleFederationOptions,
+  options: NormalizedModuleFederationOptions,
   exportConditions?: readonly string[]
 ) {
   try {
@@ -2746,11 +2740,11 @@ export function refreshHostAutoInit(
     // initializing normalized federation options.
   }
 }
-export function getHostAutoInitPath(options?: NormalizedModuleFederationOptions) {
+export function getHostAutoInitPath(options: NormalizedModuleFederationOptions) {
   return getHostAutoInitState(options).module.getImportId();
 }
 
-export function isOwnedHostAutoInitId(id: string, options?: NormalizedModuleFederationOptions) {
+export function isOwnedHostAutoInitId(id: string, options: NormalizedModuleFederationOptions) {
   return VirtualModule.findById(id) === getHostAutoInitState(options).module;
 }
 
@@ -2767,13 +2761,8 @@ interface PendingSharesState {
   module: VirtualModule;
   command: string;
 }
-const legacyPendingSharesState: PendingSharesState = {
-  module: new VirtualModule('pendingShares', PENDING_SHARES_TAG),
-  command: 'build',
-};
 const pendingSharesStates = new WeakMap<NormalizedModuleFederationOptions, PendingSharesState>();
-function getPendingSharesState(options?: NormalizedModuleFederationOptions) {
-  if (!options) return legacyPendingSharesState;
+function getPendingSharesState(options: NormalizedModuleFederationOptions) {
   let state = pendingSharesStates.get(options);
   if (!state) {
     state = {
@@ -2838,12 +2827,12 @@ export function generatePendingSharesCode(
     }
   `;
 }
-export function writePendingShares(command = 'build', options?: NormalizedModuleFederationOptions) {
+export function writePendingShares(command = 'build', options: NormalizedModuleFederationOptions) {
   const state = getPendingSharesState(options);
   state.command = command;
   state.module.writeSync(generatePendingSharesCode(command, options), true);
 }
-export function refreshPendingShares(options?: NormalizedModuleFederationOptions) {
+export function refreshPendingShares(options: NormalizedModuleFederationOptions) {
   try {
     const state = getPendingSharesState(options);
     writePendingShares(state.command, options);
@@ -2851,9 +2840,9 @@ export function refreshPendingShares(options?: NormalizedModuleFederationOptions
     // Isolated unit tests exercise plugins without normalized federation options.
   }
 }
-export function getPendingSharesPath(options?: NormalizedModuleFederationOptions) {
+export function getPendingSharesPath(options: NormalizedModuleFederationOptions) {
   return getPendingSharesState(options).module.getImportId();
 }
-export function isOwnedPendingSharesId(id: string, options?: NormalizedModuleFederationOptions) {
+export function isOwnedPendingSharesId(id: string, options: NormalizedModuleFederationOptions) {
   return VirtualModule.findById(id) === getPendingSharesState(options).module;
 }

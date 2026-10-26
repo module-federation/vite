@@ -56,9 +56,7 @@ export default function ({
 
   const isHostAutoInitId = (id: string) => {
     const cleanId = id.split('?')[0];
-    return (
-      cleanId.includes(getHostAutoInitPath(options)) || cleanId.includes(getHostAutoInitPath())
-    );
+    return cleanId.includes(getHostAutoInitPath(options));
   };
 
   const getEnvironmentConditions = (context: unknown): readonly string[] | undefined =>

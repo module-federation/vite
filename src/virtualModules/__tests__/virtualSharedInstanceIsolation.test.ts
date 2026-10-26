@@ -15,7 +15,13 @@ import {
   writeLoadShareModule,
   writePreBuildLibPath,
 } from '../virtualShared_preBuild';
-import { generateRemoteEntry } from '../virtualRemoteEntry';
+import {
+  generateRemoteEntry,
+  getHostAutoInitPath,
+  getPendingSharesPath,
+  isOwnedHostAutoInitId,
+  isOwnedPendingSharesId,
+} from '../virtualRemoteEntry';
 import {
   addUsedRemote,
   ensureUsedRemote,
@@ -269,6 +275,21 @@ describe('shared virtual module instance isolation', () => {
 
     expect(getUsedRemotesMap(optionsA)).toEqual({ remoteA: new Set(['remoteA/Button']) });
     expect(getUsedRemotesMap(optionsB)).toEqual({ remoteB: new Set(['remoteB/Card']) });
+  });
+
+  it('gives each same-name federation instance its own host-init and pending-shares module', () => {
+    const optionsA = makeOptions();
+    const optionsB = makeOptions();
+
+    const hostInitA = getHostAutoInitPath(optionsA);
+    const pendingSharesA = getPendingSharesPath(optionsA);
+
+    expect(getHostAutoInitPath(optionsB)).not.toBe(hostInitA);
+    expect(getPendingSharesPath(optionsB)).not.toBe(pendingSharesA);
+    expect(isOwnedHostAutoInitId(hostInitA, optionsA)).toBe(true);
+    expect(isOwnedHostAutoInitId(hostInitA, optionsB)).toBe(false);
+    expect(isOwnedPendingSharesId(pendingSharesA, optionsA)).toBe(true);
+    expect(isOwnedPendingSharesId(pendingSharesA, optionsB)).toBe(false);
   });
 });
 
