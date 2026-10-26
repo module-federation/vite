@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
 import { parseAst } from 'vite';
@@ -4840,6 +4841,51 @@ describe('writePreBuildLibPath', () => {
     normalizeModuleFederationOptions({ name: 'test' });
     setTreeShakingBuildMode(false, getNormalizeModuleFederationOptions());
     writeSyncSpy.mockClear();
+  });
+
+  it.each([
+    ['react/jsx-runtime', 'jsx'],
+    ['react/jsx-dev-runtime', 'jsxDEV'],
+  ])('links %s against named-only and default-wrapped ESM providers', async (pkg, exportName) => {
+    const dataUrl = (source: string) =>
+      `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+
+    for (const hasDefault of [false, true]) {
+      const providerSource = `
+        export const Fragment = Symbol.for('react.fragment');
+        export const jsx = () => 'namespace';
+        export const jsxs = jsx;
+        export const jsxDEV = jsx;
+        ${hasDefault ? "export default { Fragment, jsx: () => 'default', jsxs: () => 'default', jsxDEV: () => 'default' };" : ''}
+      `;
+      const providerUrl = dataUrl(providerSource);
+      writePreBuildLibPath(pkg, undefined, getNormalizeModuleFederationOptions());
+      const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      const wrapperUrl = dataUrl(
+        generatedCode.replaceAll(JSON.stringify(pkg), JSON.stringify(providerUrl))
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '--eval',
+          `
+        import assert from 'node:assert/strict';
+        const provider = await import(${JSON.stringify(providerUrl)});
+        const wrapper = await import(${JSON.stringify(wrapperUrl)});
+        const expected = provider.default ?? provider;
+        assert.equal(wrapper.default, expected);
+        assert.equal(wrapper.Fragment, expected.Fragment);
+        assert.equal(wrapper[${JSON.stringify(exportName)}], expected[${JSON.stringify(exportName)}]);
+        assert.equal(wrapper[${JSON.stringify(exportName)}](), ${JSON.stringify(hasDefault ? 'default' : 'namespace')});
+        ${pkg === 'react/jsx-runtime' ? 'assert.equal(wrapper.jsxs, expected.jsxs);' : ''}
+      `,
+        ],
+        { encoding: 'utf8' }
+      );
+
+      expect(result.status, result.stderr).toBe(0);
+    }
   });
 
   it('keeps the prebuild fallback full and materializes a distinct optimized container', () => {
