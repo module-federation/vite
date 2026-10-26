@@ -461,7 +461,7 @@ export function generateRemotes(
     isLoadedFirst && remoteRegistration
       ? `runtime.registerRemotes([${JSON.stringify(remoteRegistration)}]);`
       : '';
-  const hostAutoInitPath = getHostAutoInitPath(options);
+  const hostAutoInitPath = getHostAutoInitPath(resolvedOptions);
   const ssrRemotes = getSsrRuntimeRemotes(resolvedOptions.remotes, options);
   const browserHostInitCode = `import(${JSON.stringify(hostAutoInitPath)})
         .then((mod) => mod.hostInitPromise)

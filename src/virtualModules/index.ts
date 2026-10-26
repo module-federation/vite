@@ -4,7 +4,10 @@ import {
   writeLocalSharedImportMap,
 } from './virtualRemoteEntry';
 import { getSsrRuntimeRemotes, writeRuntimeInitStatus } from './virtualRuntimeInitStatus';
-import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
+import {
+  getNormalizeModuleFederationOptions,
+  type NormalizedModuleFederationOptions,
+} from '../utils/normalizeModuleFederationOptions';
 
 export {
   addConfiguredShare,
@@ -81,12 +84,13 @@ export function initVirtualModules(
   enableSsrInit = false,
   options?: NormalizedModuleFederationOptions
 ) {
+  const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
   writeLocalSharedImportMap(options);
-  writeHostAutoInit(remoteEntryId, command, options);
+  writeHostAutoInit(remoteEntryId, command, resolvedOptions);
   writeRuntimeInitStatus(
     command,
     enableSsrInit,
-    getHostAutoInitPath(options),
+    getHostAutoInitPath(resolvedOptions),
     options,
     options ? getSsrRuntimeRemotes(options.remotes, options) : undefined
   );

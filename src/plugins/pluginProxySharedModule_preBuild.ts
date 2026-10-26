@@ -795,7 +795,7 @@ export function proxySharedModule(options: {
           registerConfiguredShare(runtimeKey, federationOptions);
         });
         writeLocalSharedImportMap(federationOptions);
-        refreshHostAutoInit(federationOptions);
+        refreshHostAutoInit(resolvedOptions);
       },
       watchChange() {
         sharedSourceResolver.clear();
@@ -1000,7 +1000,7 @@ export function proxySharedModule(options: {
           }
           addUsedShares(shareSource, federationOptions);
           writeLocalSharedImportMap(federationOptions);
-          refreshHostAutoInit(federationOptions);
+          refreshHostAutoInit(getFederationOptions());
         }
         return this.resolve(loadSharePath, importer, { skipSelf: true });
       },
