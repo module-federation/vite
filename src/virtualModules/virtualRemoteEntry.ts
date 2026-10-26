@@ -330,8 +330,8 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
           const treeShakingProviderImportId =
             treeShakingConfig &&
             !disableRuntimeInference &&
-            hasTreeShakingSharedProvider(key, shareItem, options)
-              ? getTreeShakingSharedProviderImportId(key, options)
+            hasTreeShakingSharedProvider(key, shareItem, resolvedOptions)
+              ? getTreeShakingSharedProviderImportId(key, resolvedOptions)
               : undefined;
           const treeShakingStatus =
             treeShakingUsage?.kind === 'full' ||
@@ -2800,7 +2800,7 @@ export function generatePendingSharesCode(
   }
   const pendingShareImports = pendingSharePkgs.map(
     (pkg) =>
-      `[${toSafeJsLiteral(pkg)}, () => import(${toSafeJsLiteral(getLoadShareModulePath(pkg, options))})]`
+      `[${toSafeJsLiteral(pkg)}, () => import(${toSafeJsLiteral(getLoadShareModulePath(pkg, resolvedOptions))})]`
   );
   return `
     ${getRuntimeModuleCacheBootstrapCode()}

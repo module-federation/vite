@@ -14,10 +14,11 @@ import {
 } from 'vite';
 import { afterAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { callHook } from '../utils/__tests__/viteHookHelpers';
-import type {
-  ModuleFederationOptions,
-  NormalizedModuleFederationOptions,
-  PluginManifestOptions,
+import {
+  getNormalizeModuleFederationOptions,
+  type ModuleFederationOptions,
+  type NormalizedModuleFederationOptions,
+  type PluginManifestOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import { toViteEncodedId } from '../utils/VirtualModule';
 import {
@@ -2187,8 +2188,12 @@ describe('vite:module-federation-early-init', () => {
     );
 
     expect(config.optimizeDeps.include).not.toContain(virtualRuntimeInitStatus.getImportId());
-    expect(config.optimizeDeps.include).not.toContain(getPreBuildLibImportId('vue'));
-    expect(config.optimizeDeps.include).not.toContain(getLoadShareModulePath('vue'));
+    expect(config.optimizeDeps.include).not.toContain(
+      getPreBuildLibImportId('vue', getNormalizeModuleFederationOptions())
+    );
+    expect(config.optimizeDeps.include).not.toContain(
+      getLoadShareModulePath('vue', getNormalizeModuleFederationOptions())
+    );
     expect(config.optimizeDeps.include.join(',')).not.toContain('virtual:mf:');
   });
 
@@ -2238,7 +2243,9 @@ describe('vite:module-federation-early-init', () => {
     const optimizer = config.optimizeDeps.rolldownOptions.plugins.find(
       (entry: { name: string }) => entry.name === 'module-federation:optimize-shared-resolver'
     );
-    const module = VirtualModule.findById(getLoadShareModulePath('react'));
+    const module = VirtualModule.findById(
+      getLoadShareModulePath('react', getNormalizeModuleFederationOptions())
+    );
     if (!module) throw new Error('shared React module not found');
     const writes = vi.spyOn(VirtualModule.prototype, 'writeSync');
     onTestFinished(() => writes.mockRestore());
@@ -2272,7 +2279,9 @@ describe('vite:module-federation-early-init', () => {
       onResolve: (_options: unknown, handler: (typeof resolves)[number]) => resolves.push(handler),
       onLoad: () => undefined,
     });
-    const module = VirtualModule.findById(getLoadShareModulePath('react'));
+    const module = VirtualModule.findById(
+      getLoadShareModulePath('react', getNormalizeModuleFederationOptions())
+    );
     if (!module) throw new Error('shared React module not found');
     const writes = vi.spyOn(VirtualModule.prototype, 'writeSync');
     onTestFinished(() => writes.mockRestore());
@@ -2344,7 +2353,7 @@ describe('vite:module-federation-early-init', () => {
       )
     ).toEqual({ id: 'module-federation:optimized-require-react-dom' });
     expect(resolver.load('module-federation:optimized-require-react-dom')).toContain(
-      getLoadShareModulePath('react-dom')
+      getLoadShareModulePath('react-dom', getNormalizeModuleFederationOptions())
     );
   });
 
@@ -2463,8 +2472,12 @@ describe('vite:module-federation-early-init', () => {
       mode: 'test',
     });
 
-    expect(config.optimizeDeps.include).not.toContain(getPreBuildLibImportId('vue'));
-    expect(config.optimizeDeps.include).not.toContain(getLoadShareModulePath('vue'));
+    expect(config.optimizeDeps.include).not.toContain(
+      getPreBuildLibImportId('vue', getNormalizeModuleFederationOptions())
+    );
+    expect(config.optimizeDeps.include).not.toContain(
+      getLoadShareModulePath('vue', getNormalizeModuleFederationOptions())
+    );
     expect(config.optimizeDeps.include.join(',')).not.toContain('virtual:mf:');
   });
 
@@ -2506,7 +2519,10 @@ describe('vite:module-federation-early-init', () => {
     });
 
     const result = onLoadHandlers[0]({ path: 'pkg-foo/a' });
-    const loadSharePath = getLoadShareModulePath('pkg-foo/a');
+    const loadSharePath = getLoadShareModulePath(
+      'pkg-foo/a',
+      getNormalizeModuleFederationOptions()
+    );
     const encodedLoadSharePath = toViteEncodedId(loadSharePath);
 
     expect(onResolveHandlers[0]({ path: encodedLoadSharePath })).toEqual({
@@ -2956,14 +2972,20 @@ describe('vite:module-federation-early-init', () => {
       id: 'module-federation:optimized-require-react',
     });
     const optimizedRequireReact = resolver.load('module-federation:optimized-require-react');
-    expect(optimizedRequireReact).toContain(JSON.stringify(getLoadShareModulePath('react')));
+    expect(optimizedRequireReact).toContain(
+      JSON.stringify(getLoadShareModulePath('react', getNormalizeModuleFederationOptions()))
+    );
     expect(optimizedRequireReact).not.toContain('/@id/__x00__');
-    expect(resolver.resolveId(toViteEncodedId(getLoadShareModulePath('react')))).toEqual({
-      id: toViteEncodedId(getLoadShareModulePath('react')),
+    expect(
+      resolver.resolveId(
+        toViteEncodedId(getLoadShareModulePath('react', getNormalizeModuleFederationOptions()))
+      )
+    ).toEqual({
+      id: toViteEncodedId(getLoadShareModulePath('react', getNormalizeModuleFederationOptions())),
       external: true,
     });
     expect(resolver.resolveId('react/jsx-runtime', '/repo/src/App.tsx')).toEqual({
-      id: getLoadShareModulePath('react/jsx-runtime'),
+      id: getLoadShareModulePath('react/jsx-runtime', getNormalizeModuleFederationOptions()),
       external: true,
     });
   });
@@ -2983,7 +3005,10 @@ describe('vite:module-federation-early-init', () => {
       mode: 'test',
     });
 
-    const importId = getLoadShareModulePath('react/jsx-runtime');
+    const importId = getLoadShareModulePath(
+      'react/jsx-runtime',
+      getNormalizeModuleFederationOptions()
+    );
     const virtualModule = VirtualModule.findById(importId);
 
     expect(config.optimizeDeps.include).toContain('react/jsx-runtime');
@@ -3388,10 +3413,22 @@ describe('vite:module-federation-early-init', () => {
       mode: 'test',
     });
 
-    const vanillaImportId = getLoadShareModulePath('zustand/vanilla');
-    const reactImportId = getLoadShareModulePath('zustand/react');
-    const middlewareImportId = getLoadShareModulePath('zustand/middleware');
-    const shallowImportId = getLoadShareModulePath('zustand/shallow');
+    const vanillaImportId = getLoadShareModulePath(
+      'zustand/vanilla',
+      getNormalizeModuleFederationOptions()
+    );
+    const reactImportId = getLoadShareModulePath(
+      'zustand/react',
+      getNormalizeModuleFederationOptions()
+    );
+    const middlewareImportId = getLoadShareModulePath(
+      'zustand/middleware',
+      getNormalizeModuleFederationOptions()
+    );
+    const shallowImportId = getLoadShareModulePath(
+      'zustand/shallow',
+      getNormalizeModuleFederationOptions()
+    );
     const optimizeDeps = [...config.optimizeDeps.include, ...config.optimizeDeps.exclude];
 
     expect(VirtualModule.findById(vanillaImportId)?.code).toBeTruthy();

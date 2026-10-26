@@ -1361,7 +1361,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls[0][0];
@@ -1383,7 +1383,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     const cacheDescriptor =
@@ -1416,14 +1416,14 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writePreBuildLibPath(pkg, mockShareItem);
+    writePreBuildLibPath(pkg, mockShareItem, getNormalizeModuleFederationOptions());
     const prebuildCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(prebuildCode).toContain(
       'export { currentInstance } from "mock-package-mutable-barrel";'
     );
     expect(prebuildCode).not.toContain('__mfPrebuildExports["currentInstance"]');
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
     const loadShareCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(loadShareCode).toContain('export { currentInstance } from "mock-import-id";');
     expect(loadShareCode).not.toContain('mod["currentInstance"]');
@@ -1434,14 +1434,14 @@ describe('writeLoadShareModule', () => {
       name: 'remote',
       exposes: { './App': './src/App.ts' },
     });
-    writePreBuildLibPath(pkg, mockShareItem);
+    writePreBuildLibPath(pkg, mockShareItem, getNormalizeModuleFederationOptions());
     const selectablePrebuildCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(selectablePrebuildCode).toContain('__mfPrebuildExports["currentInstance"]');
     expect(selectablePrebuildCode).not.toContain(
       'export { currentInstance } from "mock-package-mutable-barrel";'
     );
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
     const selectableLoadShareCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(selectableLoadShareCode).toContain('mod["currentInstance"]');
     expect(selectableLoadShareCode).not.toContain(
@@ -1468,12 +1468,12 @@ describe('writeLoadShareModule', () => {
         String(filePath).endsWith('node_modules/mock-package-mutable-source/index.js')
       ).length;
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
     const initialReads = countMutableReads();
     expect(initialReads).toBeGreaterThan(0);
     for (let i = 0; i < 5; i++) {
-      writeLoadShareModule(pkg, mockShareItem, 'serve');
-      writePreBuildLibPath(pkg, mockShareItem);
+      writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
+      writePreBuildLibPath(pkg, mockShareItem, getNormalizeModuleFederationOptions());
     }
     expect(countMutableReads()).toBe(initialReads);
     expect(writeSyncSpy.mock.calls.at(-1)?.[0] as string).toContain(
@@ -1481,12 +1481,16 @@ describe('writeLoadShareModule', () => {
     );
 
     invalidateSharedExportInspectionCache('/repo/apps/remote/src/App.ts');
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
     expect(countMutableReads()).toBeGreaterThan(initialReads);
   });
 
   it('aliases reserved named exports in prebuild wrappers instead of declaring them', () => {
-    writePreBuildLibPath('mock-package-with-reserved');
+    writePreBuildLibPath(
+      'mock-package-with-reserved',
+      undefined,
+      getNormalizeModuleFederationOptions()
+    );
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -1501,7 +1505,11 @@ describe('writeLoadShareModule', () => {
   });
 
   it('aliases JavaScript keyword named exports in prebuild wrappers', () => {
-    writePreBuildLibPath('mock-package-js-keywords');
+    writePreBuildLibPath(
+      'mock-package-js-keywords',
+      undefined,
+      getNormalizeModuleFederationOptions()
+    );
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -1531,7 +1539,11 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writePreBuildLibPath('mock-package-with-reserved', mockShareItem);
+    writePreBuildLibPath(
+      'mock-package-with-reserved',
+      mockShareItem,
+      getNormalizeModuleFederationOptions()
+    );
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -1559,7 +1571,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writePreBuildLibPath(pkg, mockShareItem);
+    writePreBuildLibPath(pkg, mockShareItem, getNormalizeModuleFederationOptions());
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -1590,7 +1602,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writePreBuildLibPath(pkg, mockShareItem);
+    writePreBuildLibPath(pkg, mockShareItem, getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).toContain('const __mf_0 = __mfPrebuildExports["ValueContext"];');
@@ -1676,7 +1688,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -1704,7 +1716,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1727,7 +1739,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1759,7 +1771,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1781,7 +1793,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1805,7 +1817,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1832,7 +1844,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1854,7 +1866,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1884,7 +1896,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1912,7 +1924,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1947,7 +1959,7 @@ describe('writeLoadShareModule', () => {
         scope: 'default',
       };
 
-      writeLoadShareModule(pkg, mockShareItem, 'build');
+      writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
       const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -1972,7 +1984,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2025,7 +2037,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2049,7 +2061,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2073,7 +2085,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2100,7 +2112,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2124,7 +2136,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2148,7 +2160,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2173,7 +2185,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2198,7 +2210,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2222,7 +2234,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2253,7 +2265,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2276,7 +2288,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2301,7 +2313,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2324,7 +2336,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2352,7 +2364,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2381,7 +2393,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2406,7 +2418,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2433,7 +2445,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2459,7 +2471,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2483,7 +2495,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2507,7 +2519,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2532,7 +2544,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2556,7 +2568,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2580,7 +2592,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2608,7 +2620,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2640,7 +2652,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2665,7 +2677,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     const localSource = '/repo/packages/workspace-unknown-exports/src/index.ts';
@@ -2690,7 +2702,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2715,7 +2727,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2742,7 +2754,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2767,7 +2779,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2796,7 +2808,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2818,7 +2830,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writePreBuildLibPath(pkg, mockShareItem);
+    writePreBuildLibPath(pkg, mockShareItem, getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2843,7 +2855,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2865,7 +2877,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -2887,7 +2899,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -2919,7 +2931,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -2952,7 +2964,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -2991,10 +3003,17 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build', undefined, undefined, {
-      kind: 'exports',
-      usedExports: ['default', 'get'],
-    });
+    writeLoadShareModule(
+      pkg,
+      mockShareItem,
+      'build',
+      getNormalizeModuleFederationOptions(),
+      undefined,
+      {
+        kind: 'exports',
+        usedExports: ['default', 'get'],
+      }
+    );
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).toContain('exportModule["get"]');
@@ -3023,7 +3042,14 @@ describe('writeLoadShareModule', () => {
         scope: 'default',
       };
 
-      writeLoadShareModule(pkg, mockShareItem, 'build', undefined, undefined, usage);
+      writeLoadShareModule(
+        pkg,
+        mockShareItem,
+        'build',
+        getNormalizeModuleFederationOptions(),
+        undefined,
+        usage
+      );
 
       const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
       expect(generatedCode).toContain('exportModule["delete"]');
@@ -3047,10 +3073,17 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build', undefined, undefined, {
-      kind: 'exports',
-      usedExports: ['hostOnlyExport'],
-    });
+    writeLoadShareModule(
+      pkg,
+      mockShareItem,
+      'build',
+      getNormalizeModuleFederationOptions(),
+      undefined,
+      {
+        kind: 'exports',
+        usedExports: ['hostOnlyExport'],
+      }
+    );
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).toContain('exportModule["delete"]');
@@ -3073,7 +3106,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -3097,7 +3130,11 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build', undefined, ['node', 'import', 'default']);
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions(), [
+      'node',
+      'import',
+      'default',
+    ]);
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3165,7 +3202,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build', undefined, [
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions(), [
       'worker',
       'browser',
       'import',
@@ -3232,7 +3269,11 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build', undefined, ['node', 'import', 'default']);
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions(), [
+      'node',
+      'import',
+      'default',
+    ]);
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3255,7 +3296,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3278,7 +3319,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3302,7 +3343,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3341,7 +3382,7 @@ describe('writeLoadShareModule', () => {
         scope: 'default',
       };
 
-      writeLoadShareModule(pkg, mockShareItem, 'build');
+      writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
       const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3379,7 +3420,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3446,7 +3487,7 @@ describe('writeLoadShareModule', () => {
     };
 
     mfWarnSpy.mockClear();
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     expect(writeSyncSpy).toHaveBeenCalled();
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
@@ -3482,8 +3523,8 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     expect(mfWarnSpy).toHaveBeenCalledTimes(1);
   });
@@ -3536,7 +3577,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3562,7 +3603,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3587,7 +3628,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3611,7 +3652,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3635,7 +3676,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3658,7 +3699,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3701,7 +3742,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3723,7 +3764,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3761,7 +3802,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
@@ -3794,7 +3835,7 @@ describe('writeLoadShareModule', () => {
         scope,
       };
 
-      writeLoadShareModule(pkg, mockShareItem, 'build');
+      writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
       const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
       expect(generatedCode).not.toContain('import * as __mfLocalShare');
@@ -3823,7 +3864,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
@@ -3852,7 +3893,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
@@ -3883,7 +3924,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).toContain('import * as __mfLocalShare from "mock-import-id";');
@@ -3906,7 +3947,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
@@ -3935,7 +3976,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -3970,7 +4011,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4019,7 +4060,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4070,7 +4111,12 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule('workspace-producer', mockShareItem, 'build');
+    writeLoadShareModule(
+      'workspace-producer',
+      mockShareItem,
+      'build',
+      getNormalizeModuleFederationOptions()
+    );
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     const runnable = generatedCode
@@ -4155,7 +4201,12 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule('workspace-producer', mockShareItem, 'build');
+    writeLoadShareModule(
+      'workspace-producer',
+      mockShareItem,
+      'build',
+      getNormalizeModuleFederationOptions()
+    );
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     const runnable = generatedCode
@@ -4219,7 +4270,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4248,7 +4299,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4273,7 +4324,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4295,7 +4346,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4324,7 +4375,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4362,7 +4413,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4401,7 +4452,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4444,7 +4495,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4476,7 +4527,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).toContain('import * as __mfLocalShare from "/resolved/react";');
@@ -4504,7 +4555,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
@@ -4543,7 +4594,8 @@ describe('writeLoadShareModule', () => {
         },
         scope: 'default',
       },
-      'build'
+      'build',
+      getNormalizeModuleFederationOptions()
     );
     return writeSyncSpy.mock.calls.at(-1)?.[0] as string;
   }
@@ -4631,7 +4683,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     expect(generatedCode).not.toContain('import * as __mfLocalShare');
@@ -4673,7 +4725,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4708,7 +4760,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4738,7 +4790,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'serve');
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
     const cacheDescriptor = '{"canonical":"default:vue","aliases":["vue"]}';
@@ -4772,7 +4824,7 @@ describe('writeLoadShareModule', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4807,7 +4859,7 @@ describe('writePreBuildLibPath', () => {
 
     setTreeShakingBuildMode(true, getNormalizeModuleFederationOptions());
     try {
-      writePreBuildLibPath(pkg, mockShareItem);
+      writePreBuildLibPath(pkg, mockShareItem, getNormalizeModuleFederationOptions());
 
       const generated = writeSyncSpy.mock.calls.map((call) => call[0] as string);
       const optimizedContainer = generated.find((code) => code.includes('__mfTreeShakenModule'));
@@ -4823,11 +4875,15 @@ describe('writePreBuildLibPath', () => {
       expect(optimizedContainer).toContain('const usedExports = ["get"]');
       expect(fullFallback).toContain('const __mf_0 = __mfPrebuildExports["delete"]');
       expect(fullFallback).toContain('const __mf_2 = __mfPrebuildExports["request"]');
-      expect(hasTreeShakingSharedProvider(pkg, mockShareItem)).toBe(true);
-      expect(getTreeShakingSharedProviderImportId(pkg)).toBe('mock-import-id');
+      expect(
+        hasTreeShakingSharedProvider(pkg, mockShareItem, getNormalizeModuleFederationOptions())
+      ).toBe(true);
+      expect(getTreeShakingSharedProviderImportId(pkg, getNormalizeModuleFederationOptions())).toBe(
+        'mock-import-id'
+      );
 
       writeSyncSpy.mockClear();
-      writeLoadShareModule(pkg, mockShareItem, 'build');
+      writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
       const loadShareCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
       expect(loadShareCode).toContain('__mfReadTreeShakingSharedSelection');
       expect(loadShareCode).toContain('"test"');
@@ -4854,7 +4910,7 @@ describe('writePreBuildLibPath', () => {
 
     setTreeShakingBuildMode(true, getNormalizeModuleFederationOptions());
     try {
-      writePreBuildLibPath(pkg, mockShareItem);
+      writePreBuildLibPath(pkg, mockShareItem, getNormalizeModuleFederationOptions());
       const optimizedContainer = writeSyncSpy.mock.calls
         .map((call) => call[0] as string)
         .find((code) => code.includes('__mfTreeShakenModule'));
@@ -4880,7 +4936,7 @@ describe('writePreBuildLibPath', () => {
       scope: 'default',
     };
 
-    writePreBuildLibPath(pkg, mockShareItem);
+    writePreBuildLibPath(pkg, mockShareItem, getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4897,7 +4953,11 @@ describe('writePreBuildLibPath', () => {
   // consumers, whose real default lives at `namespace.default`.
   // Fix: emit `namespace.default ?? namespace`, matching the fallback branch.
   it('unwraps namespace.default in the named-exports branch for CJS-interop consumers', () => {
-    writePreBuildLibPath('mock-package-with-reserved');
+    writePreBuildLibPath(
+      'mock-package-with-reserved',
+      undefined,
+      getNormalizeModuleFederationOptions()
+    );
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4908,11 +4968,12 @@ describe('writePreBuildLibPath', () => {
   });
 
   it('uses node conditional exports for SSR prebuild wrappers', () => {
-    writePreBuildLibPath('mock-package-browser-conditional', undefined, undefined, [
-      'node',
-      'import',
-      'default',
-    ]);
+    writePreBuildLibPath(
+      'mock-package-browser-conditional',
+      undefined,
+      getNormalizeModuleFederationOptions(),
+      ['node', 'import', 'default']
+    );
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4946,7 +5007,7 @@ describe('writePreBuildLibPath', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -4976,7 +5037,7 @@ describe('writePreBuildLibPath', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -5008,7 +5069,7 @@ describe('writePreBuildLibPath', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -5036,7 +5097,7 @@ describe('writePreBuildLibPath', () => {
       scope: 'default',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build');
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
 
     const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
 
@@ -5066,7 +5127,7 @@ describe('writePreBuildLibPath', () => {
       scope: 'react-server',
     };
 
-    writeLoadShareModule(pkg, mockShareItem, 'build', undefined, [
+    writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions(), [
       'react-server',
       'node',
       'import',
