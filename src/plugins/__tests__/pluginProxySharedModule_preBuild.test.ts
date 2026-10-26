@@ -155,11 +155,13 @@ vi.mock('../../utils/VirtualModule', () => ({
 }));
 
 import {
+  getNormalizeModuleFederationOptions,
   NormalizedModuleFederationOptions,
   NormalizedShared,
   normalizeModuleFederationOptions,
 } from '../../utils/normalizeModuleFederationOptions';
 import {
+  getLocalSharedImportMapPath,
   getResolvedLocalSharedImportMapId,
   getUsedShares,
   writeLocalSharedImportMap,
@@ -678,7 +680,8 @@ describe('pluginProxySharedModule_preBuild', () => {
     hasTreeShakingSharedProviderMock.mockReturnValue(false);
     getTreeShakingSharedProviderImportIdMock.mockClear();
     getTreeShakingSharedProviderNameMock.mockClear();
-    getUsedShares().clear();
+    const currentOptions = getNormalizeModuleFederationOptions();
+    if (currentOptions) getUsedShares(currentOptions).clear();
     preBuildShareItemMap.clear();
     consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -688,7 +691,7 @@ describe('pluginProxySharedModule_preBuild', () => {
   });
 
   it('serves localSharedImportMap as a pure Vite virtual module', async () => {
-    normalizeModuleFederationOptions({
+    const options = normalizeModuleFederationOptions({
       name: 'host',
       exposes: {},
       remotes: {},
@@ -699,10 +702,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     });
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({ shared: makeShared(), federationOptions: options });
     const plugin = getLocalSharedImportMapPlugin(plugins);
-    const importId = 'virtual:mf-localSharedImportMap:__mfe_internal__host';
-    const resolvedId = '\0virtual:mf-localSharedImportMap:__mfe_internal__host';
+    const importId = getLocalSharedImportMapPath(options);
+    const resolvedId = getResolvedLocalSharedImportMapId(options);
 
     expect(callHook(plugin.resolveId, {} as any, importId, undefined, {} as any)).toBe(resolvedId);
 
@@ -814,7 +817,9 @@ describe('pluginProxySharedModule_preBuild', () => {
         },
       },
     };
-    const graphPlugin = getTreeShakingGraphPlugin(proxySharedModule({ shared }));
+    const graphPlugin = getTreeShakingGraphPlugin(
+      proxySharedModule({ federationOptions: getNormalizeModuleFederationOptions(), shared })
+    );
     const resolve = vi.fn(async () => ({ id: 'C:\\repo\\node_modules\\pkg\\subpath.js' }));
 
     const result = await callHook(
@@ -905,7 +910,10 @@ describe('pluginProxySharedModule_preBuild', () => {
         return false;
       });
 
-      const plugins = proxySharedModule({ shared: makeShared() });
+      const plugins = proxySharedModule({
+        federationOptions: getNormalizeModuleFederationOptions(),
+        shared: makeShared(),
+      });
       const proxyPlugin = getProxyPlugin(plugins);
       const sharedResolvePlugin = getSharedResolvePlugin(plugins);
       const config: MockUserConfig = {
@@ -971,7 +979,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('does not skip an application shared import with a leaked internal marker', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -1005,7 +1016,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('matches Vue bundler aliases to the root Vue share', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -1080,7 +1094,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -1126,7 +1143,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -1172,7 +1192,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -1225,7 +1248,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -1256,7 +1282,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('keeps proxying shared imports from other loadShare wrappers', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -1397,7 +1426,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     callHook(
@@ -1455,7 +1487,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -1485,7 +1520,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('does not proxy internal imports from the same shared package during build', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -1527,7 +1565,10 @@ describe('pluginProxySharedModule_preBuild', () => {
     existsSyncMock.mockImplementation((p: string) => p in manifests);
     readFileSyncMock.mockImplementation((p: string) => manifests[p] ?? '{}');
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -1584,7 +1625,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       p.endsWith('/vue/package.json') ? '{"dependencies":{"react":"1"}}' : '{}'
     );
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -1636,7 +1680,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       dir === '/repo/apps/remote/node_modules/vue' ? [sourceFile('index.js')] : []
     );
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -1688,7 +1735,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       return '{}';
     });
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -1761,7 +1811,10 @@ describe('pluginProxySharedModule_preBuild', () => {
         name: 'react/',
       },
     };
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -1826,7 +1879,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       return { size: 128, isFile: () => p !== directory };
     });
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -1881,7 +1937,10 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const shared = makeShared();
     shared.vue.shareConfig.import = false;
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -1926,7 +1985,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       dir === '/repo/apps/remote/node_modules/vue' ? [sourceFile('index.js')] : []
     );
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     callHook(
@@ -1969,7 +2031,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       return '{}';
     });
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -2023,7 +2088,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       isFile: () => true,
     }));
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     callHook(
@@ -2072,7 +2140,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       isFile: () => p.endsWith('/index.js') || p.endsWith('/runtime.js'),
     }));
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     callHook(
@@ -2121,7 +2192,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       isFile: () => p.endsWith('/index.js') || p.endsWith('/runtime.js'),
     }));
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     callHook(
@@ -2179,7 +2253,10 @@ describe('pluginProxySharedModule_preBuild', () => {
         : []
     );
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -2261,7 +2338,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       return '{}';
     });
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -2309,7 +2389,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       ...explicitlyShared.vue,
       name: 'vue/sub',
     };
-    const plugins = proxySharedModule({ shared: explicitlyShared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: explicitlyShared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -2354,7 +2437,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       return '{}';
     });
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -2392,7 +2478,10 @@ describe('pluginProxySharedModule_preBuild', () => {
         name: 'transitive/',
       },
     };
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -2424,7 +2513,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('materializes repeated loadShare resolutions once per shared source', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
@@ -2483,7 +2575,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const config: MockUserConfig = {
       resolve: { alias: [] },
@@ -2585,7 +2680,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       normalizeModuleFederationOptions({ name: 'remote', shared: {} });
       hasPackageDependencyMock.mockReturnValue(false);
 
-      const plugins = proxySharedModule({ shared: makeShared() });
+      const plugins = proxySharedModule({
+        federationOptions: getNormalizeModuleFederationOptions(),
+        shared: makeShared(),
+      });
       const proxyPlugin = getProxyPlugin(plugins);
       const sharedResolvePlugin = getSharedResolvePlugin(plugins);
       const config: MockUserConfig = {
@@ -2692,7 +2790,10 @@ describe('pluginProxySharedModule_preBuild', () => {
         },
       },
     };
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     callHook(
@@ -2786,7 +2887,10 @@ describe('pluginProxySharedModule_preBuild', () => {
     };
     delete shared.transitive;
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = {
@@ -2837,7 +2941,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       'react/': reactNamespace,
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
 
@@ -2875,7 +2982,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('resolves prebuild aliases to configured share import sources in build mode', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {
@@ -2921,7 +3031,10 @@ describe('pluginProxySharedModule_preBuild', () => {
     };
     delete shared.transitive;
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {
@@ -2960,7 +3073,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('resolves prebuild aliases to auto-detected workspace sources without explicit share.import', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {
@@ -2998,7 +3114,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('does not proxy shared deps imported from build config files', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const sharedResolvePlugin = getSharedResolvePlugin(plugins);
     const config: MockUserConfig = {
@@ -3087,7 +3206,10 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
 
@@ -3157,7 +3279,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
 
@@ -3218,7 +3343,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
 
@@ -3281,7 +3409,10 @@ describe('pluginProxySharedModule_preBuild', () => {
       },
     };
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
 
@@ -3344,7 +3475,10 @@ describe('pluginProxySharedModule_preBuild', () => {
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const plugins = proxySharedModule({ shared });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const config: MockUserConfig = { resolve: { alias: [] } };
 
@@ -3370,7 +3504,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('uses auto-detected workspace sources in serve prebuild resolution without null deref', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {
@@ -3420,7 +3557,10 @@ describe('pluginProxySharedModule_preBuild', () => {
   it('returns already optimized serve prebuild resolutions without waiting for saved ids', async () => {
     hasPackageDependencyMock.mockReturnValue(false);
 
-    const plugins = proxySharedModule({ shared: makeShared() });
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared: makeShared(),
+    });
     const proxyPlugin = getProxyPlugin(plugins);
     const prebuildResolvePlugin = getPrebuildResolvePlugin(plugins);
     const config: MockUserConfig = {

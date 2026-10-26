@@ -8,7 +8,6 @@ import { findModuleImportDescriptors } from '../utils/htmlEntryUtils';
 import { mfWarn } from '../utils/logger';
 import { getImportAnalysis } from '../utils/importAnalysis';
 import {
-  getNormalizeModuleFederationOptions,
   hasRemotes,
   isRemoteContainer,
   type NormalizedModuleFederationOptions,
@@ -564,11 +563,10 @@ export function isSharedPackageRuntimeDependency(
 
 export function proxySharedModule(options: {
   shared?: NormalizedShared;
-  federationOptions?: NormalizedModuleFederationOptions;
+  federationOptions: NormalizedModuleFederationOptions;
   getParsePromise?: () => Promise<unknown>;
 }): Plugin[] {
   const { shared = {}, federationOptions, getParsePromise = () => Promise.resolve() } = options;
-  const getFederationOptions = () => federationOptions ?? getNormalizeModuleFederationOptions();
   let _config: ResolvedConfig | undefined;
   // Vite 5 has no environment object; its instances share the resolved config.
   const getBuildImportAnalysis = (environment?: Environment) =>
@@ -630,7 +628,7 @@ export function proxySharedModule(options: {
     conditions: getRuntimeDependencyConditions(context, resolveOptions),
   }));
   const refreshTreeShakingForEnvironment = (context: unknown) =>
-    refreshTreeShakingModules(getFederationOptions(), _command, getEnvironmentConditions(context));
+    refreshTreeShakingModules(federationOptions, _command, getEnvironmentConditions(context));
 
   const normalizeTreeShakingOutputPath = (value: string) => {
     const normalized = normalizePathForImport(value);
@@ -654,13 +652,12 @@ export function proxySharedModule(options: {
     const treeShaking = shareItem.shareConfig.treeShaking;
     if (!treeShaking) return undefined;
 
-    const normalizedOptions = getFederationOptions();
-    const outputDir = normalizedOptions.treeShakingDir
-      ? normalizeTreeShakingOutputPath(normalizedOptions.treeShakingDir)
+    const outputDir = federationOptions.treeShakingDir
+      ? normalizeTreeShakingOutputPath(federationOptions.treeShakingDir)
       : undefined;
 
     const fileName = outputDir
-      ? path.posix.join(outputDir, `${getTreeShakingSharedProviderName(pkg, normalizedOptions)}.js`)
+      ? path.posix.join(outputDir, `${getTreeShakingSharedProviderName(pkg, federationOptions)}.js`)
       : undefined;
 
     if (!fileName) return undefined;
@@ -673,14 +670,13 @@ export function proxySharedModule(options: {
     shareItem: ShareItem
   ) => {
     if (_command !== 'build' || emittedTreeShakingProviders.has(pkg)) return;
-    const resolvedOptions = getFederationOptions();
-    if (!hasTreeShakingSharedProvider(pkg, shareItem, resolvedOptions)) return;
+    if (!hasTreeShakingSharedProvider(pkg, shareItem, federationOptions)) return;
 
     const fileName = getTreeShakingProviderFileName(pkg, shareItem);
     context.emitFile({
       type: 'chunk',
-      id: getTreeShakingSharedProviderImportId(pkg, resolvedOptions),
-      name: getTreeShakingSharedProviderName(pkg, resolvedOptions),
+      id: getTreeShakingSharedProviderImportId(pkg, federationOptions),
+      name: getTreeShakingSharedProviderName(pkg, federationOptions),
       ...(fileName ? { fileName } : {}),
     });
     emittedTreeShakingProviders.add(pkg);
@@ -741,8 +737,8 @@ export function proxySharedModule(options: {
       config(config: UserConfig, { command }) {
         const root = config.root || process.cwd();
         setPackageDetectionCwd(root);
-        setTreeShakingBuildMode(command === 'build', getFederationOptions());
-        resetTreeShakingExports(getFederationOptions());
+        setTreeShakingBuildMode(command === 'build', federationOptions);
+        resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
         sharedSourceResolver.clear();
         sharedDependencyCache.clear();
@@ -775,9 +771,8 @@ export function proxySharedModule(options: {
         // is now prevented by adding prebuild IDs to optimizeDeps.include
         // in the config hook (createEarlyVirtualModulesPlugin), so Vite
         // pre-bundles them upfront without triggering re-optimization.
-        const resolvedOptions = getFederationOptions();
         const registerConfiguredShare =
-          _command === 'build' && isRemoteContainer(resolvedOptions)
+          _command === 'build' && isRemoteContainer(federationOptions)
             ? addUsedShares
             : addConfiguredShare;
         Object.keys(shared).forEach((key) => {
@@ -787,16 +782,16 @@ export function proxySharedModule(options: {
             registerConfiguredShare(runtimeKey, federationOptions);
             return;
           }
-          writeLoadShareModule(runtimeKey, shared[key], _command, resolvedOptions);
+          writeLoadShareModule(runtimeKey, shared[key], _command, federationOptions);
           // Skip prebuild for shared deps with import: false — the host must
           // provide them, so no local fallback source is needed.
           if (shared[key].shareConfig.import !== false) {
-            writePreBuildLibPath(runtimeKey, shared[key], resolvedOptions);
+            writePreBuildLibPath(runtimeKey, shared[key], federationOptions);
           }
           registerConfiguredShare(runtimeKey, federationOptions);
         });
         writeLocalSharedImportMap(federationOptions);
-        refreshHostAutoInit(resolvedOptions);
+        refreshHostAutoInit(federationOptions);
       },
       watchChange() {
         sharedSourceResolver.clear();
@@ -806,7 +801,7 @@ export function proxySharedModule(options: {
         patchRolldownResolveOptionKeys(this);
         if (_command !== 'build') return;
         if (hasAnalyzableShares) getBuildImportAnalysis(this.environment).clear();
-        resetTreeShakingExports(getFederationOptions());
+        resetTreeShakingExports(federationOptions);
         emittedTreeShakingProviders.clear();
         refreshTreeShakingForEnvironment(this);
       },
@@ -833,9 +828,9 @@ export function proxySharedModule(options: {
             return request ? findSharedKey(request, shares) : undefined;
           },
           (sharedKey, exports, request) =>
-            recordTreeShakingExports(sharedKey, exports, request, getFederationOptions()),
+            recordTreeShakingExports(sharedKey, exports, request, federationOptions),
           (sharedKey, request) =>
-            markTreeShakingPackageUnsafe(sharedKey, request, getFederationOptions()),
+            markTreeShakingPackageUnsafe(sharedKey, request, federationOptions),
           getBuildImportAnalysis(this.environment)
         );
         refreshTreeShakingForEnvironment(this);
@@ -992,17 +987,16 @@ export function proxySharedModule(options: {
           // A sibling prebuild would re-enter Vite's CommonJS proxy on Vite 5–7.
           return tryResolveFromProjectRoot(localSource) || localSource;
         }
-        const resolvedOptions = getFederationOptions();
-        const loadSharePath = getLoadShareModulePath(shareSource, resolvedOptions);
+        const loadSharePath = getLoadShareModulePath(shareSource, federationOptions);
         if (!materializedLoadShareSources.has(shareSource)) {
           materializedLoadShareSources.add(shareSource);
-          writeLoadShareModule(shareSource, shared[key], _command, resolvedOptions);
+          writeLoadShareModule(shareSource, shared[key], _command, federationOptions);
           if (shared[key].shareConfig.import !== false) {
-            writePreBuildLibPath(shareSource, shared[key], resolvedOptions);
+            writePreBuildLibPath(shareSource, shared[key], federationOptions);
           }
           addUsedShares(shareSource, federationOptions);
           writeLocalSharedImportMap(federationOptions);
-          refreshHostAutoInit(resolvedOptions);
+          refreshHostAutoInit(federationOptions);
         }
         return this.resolve(loadSharePath, importer, { skipSelf: true });
       },
@@ -1018,7 +1012,7 @@ export function proxySharedModule(options: {
         const pkgName = module.name;
         const importSource = getPrebuildResolutionSource(
           pkgName,
-          getPreBuildShareItem(pkgName, getFederationOptions())
+          getPreBuildShareItem(pkgName, federationOptions)
         );
 
         if (_command === 'build') {
