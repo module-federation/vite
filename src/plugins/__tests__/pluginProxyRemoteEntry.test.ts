@@ -4,7 +4,9 @@ import type {
   ResolvedConfig,
   Rollup,
 } from 'vite';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
@@ -13,6 +15,68 @@ import { addUsedShares, generateHostAutoInitCode, getHostAutoInitPath } from '..
 import pluginProxyRemoteEntry from '../pluginProxyRemoteEntry';
 
 describe('pluginProxyRemoteEntry', () => {
+  it.each([
+    ['a package root', '.', true, true, false],
+    ['a nested root without a leaf manifest', 'app', true, false, false],
+    ['a child package without Start', 'app', false, true, true],
+    ['a non-Start app in a package that lists Start', '.', false, true, true],
+  ] as const)(
+    'preserves the correct expose-entry behavior for %s',
+    async (_name, rootPath, activeStart, leafManifest, shouldEmit) => {
+      const packageRoot = mkdtempSync(join(tmpdir(), 'mf-start-root-'));
+      const root = resolve(packageRoot, rootPath);
+      mkdirSync(root, { recursive: true });
+      writeFileSync(
+        join(packageRoot, 'package.json'),
+        JSON.stringify({ dependencies: { '@tanstack/react-start': '1.169.4' } })
+      );
+      if (root !== packageRoot && leafManifest) {
+        writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'plain-vite-app' }));
+      }
+      const options = normalizeModuleFederationOptions({
+        name: 'remote',
+        exposes: { './Widget': './src/Widget.tsx' },
+      });
+      const plugin = pluginProxyRemoteEntry({
+        options,
+        remoteEntryId: 'virtual:mf-remote-entry',
+        virtualExposesId: 'virtual:mf-exposes',
+      });
+      const emitted: unknown[] = [];
+      const exposedId = join(root, 'src/Widget.tsx');
+      const context = {
+        resolve: async () => ({ id: exposedId }),
+        emitFile: (file: unknown) => {
+          emitted.push(file);
+          return 'expose';
+        },
+      } as unknown as Rollup.PluginContext;
+      try {
+        callHook(
+          plugin.config,
+          {} as ConfigPluginContext,
+          {},
+          { command: 'build', mode: 'production' }
+        );
+        callHook(
+          plugin.configResolved,
+          {} as MinimalPluginContextWithoutEnvironment,
+          {
+            root,
+            base: '/',
+            plugins: activeStart ? [{ name: 'tanstack-start-core:config' }] : [],
+          } as unknown as ResolvedConfig
+        );
+
+        await callHook(plugin.buildStart, context, {} as Rollup.NormalizedInputOptions);
+
+        expect(emitted).toEqual(shouldEmit ? [{ type: 'chunk', id: exposedId }] : []);
+      } finally {
+        rmSync(packageRoot, { recursive: true, force: true });
+      }
+    }
+  );
+
   it('does not treat an HTML proxy query containing host auto-init as the init module', async () => {
     normalizeModuleFederationOptions({ name: 'test' });
     const options = getDefaultMockOptions();
