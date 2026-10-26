@@ -16,6 +16,8 @@ import {
   writePreBuildLibPath,
 } from '../virtualShared_preBuild';
 import {
+  addUsedShares,
+  generatePendingSharesCode,
   generateRemoteEntry,
   getHostAutoInitPath,
   getPendingSharesPath,
@@ -290,6 +292,25 @@ describe('shared virtual module instance isolation', () => {
     expect(isOwnedHostAutoInitId(hostInitA, optionsB)).toBe(false);
     expect(isOwnedPendingSharesId(pendingSharesA, optionsA)).toBe(true);
     expect(isOwnedPendingSharesId(pendingSharesA, optionsB)).toBe(false);
+  });
+
+  it('does not preload shares that only another federation instance used', () => {
+    const makeReactHost = () =>
+      normalizeModuleFederationOptions({
+        name: 'same-name-host',
+        shared: { react: { singleton: true } },
+      });
+    const optionsA = makeReactHost();
+    const optionsB = makeReactHost();
+
+    addUsedShares('react', optionsA);
+
+    expect(generatePendingSharesCode('build', optionsA)).toContain(
+      getLoadShareModulePath('react', optionsA)
+    );
+    expect(generatePendingSharesCode('build', optionsB)).not.toContain(
+      getLoadShareModulePath('react', optionsB)
+    );
   });
 });
 

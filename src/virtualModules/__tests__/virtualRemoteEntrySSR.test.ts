@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
-import { addUsedShares, getUsedShares } from '../virtualRemoteEntry';
+import { addUsedShares } from '../virtualRemoteEntry';
 import {
   generateRemoteEntrySSR,
   getRemoteEntrySSRId,
@@ -70,13 +70,8 @@ function createRuntime(
   }));
 }
 
-beforeEach(() => {
-  getUsedShares().clear();
-});
-
 afterEach(() => {
   delete (globalThis as Record<string, unknown>).__mf_module_cache__;
-  getUsedShares().clear();
 });
 
 describe('virtualRemoteEntrySSR', () => {

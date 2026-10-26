@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { NormalizedModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 
 const AsyncFunction = async function () {}.constructor as FunctionConstructor;
 
@@ -11,21 +12,47 @@ const {
   usedRemotesMapMock,
   writeSyncSpy,
   optionsMock,
-} = vi.hoisted(() => ({
-  hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
-  isPackageExportAvailableMock: vi.fn<(specifier: string) => boolean>(() => true),
-  isPackageInstalledMock: vi.fn<(specifier: string) => boolean>(() => true),
-  normalizedSharedMock: vi.fn(() => ({})),
-  normalizedRemotesMock: vi.fn(() => ({})),
-  usedRemotesMapMock: vi.fn(() => ({})),
-  writeSyncSpy: vi.fn(),
-  optionsMock: {
+  normalizedOptionsMock,
+} = vi.hoisted(() => {
+  const normalizedSharedMock = vi.fn(() => ({}));
+  const normalizedRemotesMock = vi.fn(() => ({}));
+  const optionsMock = {
     shareStrategy: 'version-first' as 'version-first' | 'loaded-first',
     injectTreeShakingUsedExports: undefined as boolean | undefined,
     treeSharedImportFalse: false,
     treeSharedProvider: true,
-  },
-}));
+  };
+  return {
+    hasPackageDependencyMock: vi.fn<(pkg: string) => boolean>(() => false),
+    isPackageExportAvailableMock: vi.fn<(specifier: string) => boolean>(() => true),
+    isPackageInstalledMock: vi.fn<(specifier: string) => boolean>(() => true),
+    normalizedSharedMock,
+    normalizedRemotesMock,
+    usedRemotesMapMock: vi.fn(() => ({})),
+    writeSyncSpy: vi.fn(),
+    optionsMock,
+    // Per-instance state is keyed by the options object, so every call must return the same one.
+    normalizedOptionsMock: {
+      internalName: '__mfe_internal__host',
+      name: 'host',
+      filename: 'remoteEntry.js',
+      get remotes() {
+        return normalizedRemotesMock();
+      },
+      get shared() {
+        return normalizedSharedMock();
+      },
+      shareScope: 'default',
+      runtimePlugins: [],
+      get shareStrategy() {
+        return optionsMock.shareStrategy;
+      },
+      get injectTreeShakingUsedExports() {
+        return optionsMock.injectTreeShakingUsedExports;
+      },
+    } as unknown as NormalizedModuleFederationOptions,
+  };
+});
 
 function getLastCallFirstArg<T>(mockFn: { mock: { calls: T[][] } }): T | undefined {
   const calls = mockFn.mock.calls;
@@ -508,17 +535,7 @@ async function unpinNormalizedOptions() {
 
 vi.mock('../../utils/normalizeModuleFederationOptions', () => {
   return {
-    getNormalizeModuleFederationOptions: vi.fn(() => ({
-      internalName: '__mfe_internal__host',
-      name: 'host',
-      filename: 'remoteEntry.js',
-      remotes: normalizedRemotesMock(),
-      shared: normalizedSharedMock(),
-      shareScope: 'default',
-      runtimePlugins: [],
-      shareStrategy: optionsMock.shareStrategy,
-      injectTreeShakingUsedExports: optionsMock.injectTreeShakingUsedExports,
-    })),
+    getNormalizeModuleFederationOptions: vi.fn(() => normalizedOptionsMock),
     isExplicitSharedKey: (key: string) => key in normalizedSharedMock(),
     hasRemotes: (options: { remotes?: object }) => Object.keys(options?.remotes ?? {}).length > 0,
     hasShared: (options: { shared?: object }) => Object.keys(options?.shared ?? {}).length > 0,
@@ -620,8 +637,8 @@ describe('virtualRemoteEntry', () => {
 
   it('hands a loaded share back synchronously from get() once it has loaded', async () => {
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const reactModule = { createElement: () => null };
     const code = mod
@@ -651,8 +668,8 @@ describe('virtualRemoteEntry', () => {
 
   it('hands every get() caller the same pending promise while the share is loading', async () => {
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const reactModule = { createElement: () => null };
     const counter = { count: 0 };
@@ -685,8 +702,8 @@ describe('virtualRemoteEntry', () => {
 
   it('retries the import after a failed load instead of pinning the rejection', async () => {
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const reactModule = { createElement: () => null };
     const imports = {
@@ -779,8 +796,8 @@ describe('virtualRemoteEntry', () => {
 
       const mod = await import('../virtualRemoteEntry');
 
-      mod.getUsedShares().clear();
-      mod.addUsedShares(testCase.pkg);
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares(testCase.pkg, normalizedOptionsMock);
 
       const code = mod.generateLocalSharedImportMap();
 
@@ -792,8 +809,8 @@ describe('virtualRemoteEntry', () => {
 
   it('unwraps default-only CJS namespaces in local shared getters', async () => {
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const reactModule = {
       __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { S: 'dispatcher' },
@@ -817,8 +834,8 @@ describe('virtualRemoteEntry', () => {
 
   it('keeps a default-only class instance wrapped so its prototype survives (#1362)', async () => {
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('cls-pkg');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('cls-pkg', normalizedOptionsMock);
 
     class Greeter {
       name = 'greeter';
@@ -844,8 +861,8 @@ describe('virtualRemoteEntry', () => {
 
   it('reuses a cached singleton family before importing its local fallback', async () => {
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react-dom/client');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react-dom/client', normalizedOptionsMock);
 
     const hostRenderer = { marker: 'host-react-dom', createRoot: () => undefined };
     const previousCache = (globalThis as any).__mf_module_cache__;
@@ -883,8 +900,8 @@ describe('virtualRemoteEntry', () => {
 
   it('wraps a cached React 18 react-dom root as react-dom/client, like react-dom/client.js', async () => {
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react-dom/client');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react-dom/client', normalizedOptionsMock);
 
     // React 18's react-dom root warns from createRoot unless usingClientEntryPoint is set
     const internals = { usingClientEntryPoint: false };
@@ -932,8 +949,8 @@ describe('virtualRemoteEntry', () => {
 
   it('does not reuse a cached React DOM family from an older React than the local one', async () => {
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react-dom/client');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react-dom/client', normalizedOptionsMock);
 
     // A host seeds its react-dom/client before version-first negotiation upgrades
     // react to this remote's newer copy; that renderer binds the older React.
@@ -972,8 +989,8 @@ describe('virtualRemoteEntry', () => {
 
   it('does not use cached react-dom as react-dom/client', async () => {
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react-dom/client');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react-dom/client', normalizedOptionsMock);
 
     const previousCache = (globalThis as any).__mf_module_cache__;
     (globalThis as any).__mf_module_cache__ = {
@@ -1012,9 +1029,9 @@ describe('virtualRemoteEntry', () => {
     hasPackageDependencyMock.mockImplementation((pkg: string) => pkg === 'vinext');
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
-    mod.addUsedShares('react/jsx-runtime');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
+    mod.addUsedShares('react/jsx-runtime', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
     expect(code).toMatch(/"react": \{[\s\S]*?materialize: true,/);
@@ -1038,8 +1055,8 @@ describe('virtualRemoteEntry', () => {
 
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('custom-import');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('custom-import', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
 
@@ -1050,11 +1067,11 @@ describe('virtualRemoteEntry', () => {
   it('skips a used share with no config instead of leaving an empty import map entry (#1428)', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('host-only');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('host-only', normalizedOptionsMock);
     // Dev auto-excludes a shared sub-dependency after the scan recorded it
-    mod.addUsedShares('excluded-dep');
-    mod.addUsedShares('react');
+    mod.addUsedShares('excluded-dep', normalizedOptionsMock);
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
     expect(code).not.toContain('excluded-dep');
@@ -1074,9 +1091,9 @@ describe('virtualRemoteEntry', () => {
   it('builds a consume-only entry through one helper with the shape the literal had', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('host-only');
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('host-only', normalizedOptionsMock);
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
     // One helper call per consume-only key; the literal stays for shares with a local module
@@ -1116,8 +1133,8 @@ describe('virtualRemoteEntry', () => {
   it('marks a consume-only entry lazy only once the lazy share list replaces its placeholder', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('host-only');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('host-only', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
     expect(code).toContain(`const __mfLazyShares = "${mod.LAZY_CONSUME_ONLY_SHARES_PLACEHOLDER}";`);
@@ -1299,8 +1316,8 @@ describe('virtualRemoteEntry', () => {
   it('omits the consume-only helpers when no share is consume-only', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
     expect(code).not.toContain('__mfHostOnly');
@@ -1310,7 +1327,7 @@ describe('virtualRemoteEntry', () => {
   it('marks only export-complete shared proxies as rebindable', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
+    mod.getUsedShares(normalizedOptionsMock).clear();
     for (const pkg of [
       'host-only',
       'non-singleton',
@@ -1318,7 +1335,7 @@ describe('virtualRemoteEntry', () => {
       'default-only-singleton',
       'unknown-exports-singleton',
     ]) {
-      mod.addUsedShares(pkg);
+      mod.addUsedShares(pkg, normalizedOptionsMock);
     }
 
     const code = mod.generateLocalSharedImportMap();
@@ -1338,8 +1355,8 @@ describe('virtualRemoteEntry', () => {
   it('disables runtime tree selection when export coverage is unknown', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('unknown-tree-shared');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('unknown-tree-shared', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
 
@@ -1352,9 +1369,9 @@ describe('virtualRemoteEntry', () => {
   it('statically imports eager shared providers and emits eager runtime metadata', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('eager-shared');
-    mod.addUsedShares('vue');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('eager-shared', normalizedOptionsMock);
+    mod.addUsedShares('vue', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
 
@@ -1492,8 +1509,8 @@ describe('virtualRemoteEntry', () => {
     setTreeShakingBuildMode(true, federationOptions);
     try {
       const mod = await import('../virtualRemoteEntry');
-      mod.getUsedShares().clear();
-      mod.addUsedShares('tree-shared');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares('tree-shared', normalizedOptionsMock);
 
       const code = mod.generateLocalSharedImportMap();
 
@@ -1517,8 +1534,8 @@ describe('virtualRemoteEntry', () => {
     setTreeShakingBuildMode(true, federationOptions);
     try {
       const mod = await import('../virtualRemoteEntry');
-      mod.getUsedShares().clear();
-      mod.addUsedShares('tree-shared');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares('tree-shared', normalizedOptionsMock);
 
       const code = mod.generateLocalSharedImportMap();
 
@@ -1539,8 +1556,8 @@ describe('virtualRemoteEntry', () => {
     optionsMock.treeSharedProvider = false;
     try {
       const mod = await import('../virtualRemoteEntry');
-      mod.getUsedShares().clear();
-      mod.addUsedShares('tree-shared');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares('tree-shared', normalizedOptionsMock);
 
       const code = mod.generateLocalSharedImportMap();
 
@@ -1629,9 +1646,9 @@ describe('virtualRemoteEntry', () => {
     });
 
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/react-consumer');
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/react-consumer', normalizedOptionsMock);
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const localMap = mod.generateLocalSharedImportMap();
     const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
@@ -1659,10 +1676,10 @@ describe('virtualRemoteEntry', () => {
       '@repro/react-consumer': share('@repro/react-consumer'),
     });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
-    mod.addUsedShares('@repro/host-only');
-    mod.addUsedShares('@repro/react-consumer');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
+    mod.addUsedShares('@repro/host-only', normalizedOptionsMock);
+    mod.addUsedShares('@repro/react-consumer', normalizedOptionsMock);
 
     const buildCode = mod.generatePendingSharesCode('build');
     // Wrappers of shares with a local fallback are listed; an import:false share has nothing to seed.
@@ -1693,8 +1710,8 @@ describe('virtualRemoteEntry', () => {
       },
     });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react/jsx-runtime');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react/jsx-runtime', normalizedOptionsMock);
 
     const buildCode = mod.generatePendingSharesCode('build');
 
@@ -1718,9 +1735,9 @@ describe('virtualRemoteEntry', () => {
       'react-dom': share('react-dom'),
     });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react-dom');
-    mod.addUsedShares('react-dom/client');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react-dom', normalizedOptionsMock);
+    mod.addUsedShares('react-dom/client', normalizedOptionsMock);
 
     const buildCode = mod.generatePendingSharesCode('build');
 
@@ -1741,8 +1758,8 @@ describe('virtualRemoteEntry', () => {
       'react-dom': share('react-dom'),
     });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const remoteOptions = {
       name: 'remote',
@@ -1786,8 +1803,8 @@ describe('virtualRemoteEntry', () => {
       },
     });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react-dom/client');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react-dom/client', normalizedOptionsMock);
 
     const buildCode = mod.generatePendingSharesCode('build', {
       name: 'remote',
@@ -1813,8 +1830,8 @@ describe('virtualRemoteEntry', () => {
       },
     });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('lit/decorators.js');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('lit/decorators.js', normalizedOptionsMock);
 
     const buildCode = mod.generatePendingSharesCode('build');
 
@@ -1838,9 +1855,9 @@ describe('virtualRemoteEntry', () => {
       'eager-shared': share('eager-shared', true),
     });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
-    mod.addUsedShares('eager-shared');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
+    mod.addUsedShares('eager-shared', normalizedOptionsMock);
 
     const localMap = mod.generateLocalSharedImportMap();
     const buildCode = mod.generatePendingSharesCode('build');
@@ -1869,11 +1886,11 @@ describe('virtualRemoteEntry', () => {
     });
 
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react/jsx-runtime');
-    mod.addUsedShares('react');
-    mod.addUsedShares('react-dom/client');
-    mod.addUsedShares('react-dom');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react/jsx-runtime', normalizedOptionsMock);
+    mod.addUsedShares('react', normalizedOptionsMock);
+    mod.addUsedShares('react-dom/client', normalizedOptionsMock);
+    mod.addUsedShares('react-dom', normalizedOptionsMock);
 
     const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
     const batchesMarker = 'const __mfHostInitShareBatches = ';
@@ -1899,8 +1916,8 @@ describe('virtualRemoteEntry', () => {
 
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('transitive-no-override');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('transitive-no-override', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
 
@@ -1913,8 +1930,8 @@ describe('virtualRemoteEntry', () => {
   it('uses public name in generated shared records', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
 
@@ -1925,8 +1942,8 @@ describe('virtualRemoteEntry', () => {
   it('emits requiredVersion: false in generated shared records', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('unconstrained');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('unconstrained', normalizedOptionsMock);
 
     const code = mod.generateLocalSharedImportMap();
 
@@ -2000,8 +2017,8 @@ describe('virtualRemoteEntry', () => {
       },
     });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('host-only');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('host-only', normalizedOptionsMock);
 
     const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
@@ -2059,8 +2076,8 @@ describe('virtualRemoteEntry', () => {
     ) {
       normalizedSharedMock.mockReturnValue({ 'shared-lib': share });
       const mod = await import('../virtualRemoteEntry');
-      mod.getUsedShares().clear();
-      mod.addUsedShares('shared-lib');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares('shared-lib', normalizedOptionsMock);
       const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
       const batchesMarker = 'const __mfHostInitShareBatches = ';
       const batchesStart = code.indexOf(batchesMarker);
@@ -2203,8 +2220,8 @@ describe('virtualRemoteEntry', () => {
 
       normalizedSharedMock.mockReturnValue({ 'shared-lib': consumeOnly });
       const mod = await import('../virtualRemoteEntry');
-      mod.getUsedShares().clear();
-      mod.addUsedShares('shared-lib');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares('shared-lib', normalizedOptionsMock);
       const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
       const batchesMarker = 'const __mfHostInitShareBatches = ';
       const batchesStart = code.indexOf(batchesMarker);
@@ -2878,8 +2895,8 @@ describe('virtualRemoteEntry', () => {
   it('does not preload generated subpath shares from a root shared package', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('lit/decorators.js');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('lit/decorators.js', normalizedOptionsMock);
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
@@ -2925,10 +2942,10 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/core');
-    mod.addUsedShares('@repro/shared-lib');
-    mod.addUsedShares('@repro/shared-lib/media');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/core', normalizedOptionsMock);
+    mod.addUsedShares('@repro/shared-lib', normalizedOptionsMock);
+    mod.addUsedShares('@repro/shared-lib/media', normalizedOptionsMock);
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
@@ -2952,9 +2969,9 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('pkg-a');
-    mod.addUsedShares('pkg-b');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('pkg-a', normalizedOptionsMock);
+    mod.addUsedShares('pkg-b', normalizedOptionsMock);
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
@@ -3036,10 +3053,10 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/core');
-    mod.addUsedShares('@repro/shared-lib');
-    mod.addUsedShares('@repro/shared-lib/media');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/core', normalizedOptionsMock);
+    mod.addUsedShares('@repro/shared-lib', normalizedOptionsMock);
+    mod.addUsedShares('@repro/shared-lib/media', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3089,9 +3106,9 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/aaa-optional-peer');
-    mod.addUsedShares('@repro/zzz-dom');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/aaa-optional-peer', normalizedOptionsMock);
+    mod.addUsedShares('@repro/zzz-dom', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3132,8 +3149,8 @@ describe('virtualRemoteEntry', () => {
       });
       const mod = await import('../virtualRemoteEntry');
 
-      mod.getUsedShares().clear();
-      mod.addUsedShares('pkg-a');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares('pkg-a', normalizedOptionsMock);
 
       const code = mod.generateRemoteEntry(
         {
@@ -3179,9 +3196,9 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/core');
-    mod.addUsedShares('@repro/shared-lib');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/core', normalizedOptionsMock);
+    mod.addUsedShares('@repro/shared-lib', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3280,9 +3297,9 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/core');
-    mod.addUsedShares('@repro/shared-lib');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/core', normalizedOptionsMock);
+    mod.addUsedShares('@repro/shared-lib', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3374,9 +3391,9 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/core');
-    mod.addUsedShares('@repro/shared-lib');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/core', normalizedOptionsMock);
+    mod.addUsedShares('@repro/shared-lib', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3470,8 +3487,8 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addConfiguredShare('@repro/host-only');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addConfiguredShare('@repro/host-only', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3548,9 +3565,9 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/failing');
-    mod.addUsedShares('@repro/other');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/failing', normalizedOptionsMock);
+    mod.addUsedShares('@repro/other', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3638,10 +3655,10 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/shared-lib');
-    mod.addUsedShares('@repro/core');
-    mod.addUsedShares('@repro/react-consumer');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/shared-lib', normalizedOptionsMock);
+    mod.addUsedShares('@repro/core', normalizedOptionsMock);
+    mod.addUsedShares('@repro/react-consumer', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3725,9 +3742,9 @@ describe('virtualRemoteEntry', () => {
       '@repro/zzz-consumer': shareItem('@repro/zzz-consumer'),
     });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/aaa-host-only');
-    mod.addUsedShares('@repro/zzz-consumer');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/aaa-host-only', normalizedOptionsMock);
+    mod.addUsedShares('@repro/zzz-consumer', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3803,9 +3820,9 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
-    mod.addUsedShares('react-dom');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
+    mod.addUsedShares('react-dom', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3910,8 +3927,8 @@ describe('virtualRemoteEntry', () => {
     };
     normalizedSharedMock.mockReturnValue({ 'react-dom/client': shared });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react-dom/client');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react-dom/client', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -3979,8 +3996,8 @@ describe('virtualRemoteEntry', () => {
     };
     normalizedSharedMock.mockReturnValue({ dep: shared });
     const mod = await import('../virtualRemoteEntry');
-    mod.getUsedShares().clear();
-    mod.addUsedShares('dep');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('dep', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -4055,8 +4072,8 @@ describe('virtualRemoteEntry', () => {
       };
       normalizedSharedMock.mockReturnValue({ dep: shared });
       const mod = await import('../virtualRemoteEntry');
-      mod.getUsedShares().clear();
-      mod.addUsedShares('dep');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares('dep', normalizedOptionsMock);
 
       const code = mod.generateRemoteEntry(
         {
@@ -4134,8 +4151,8 @@ describe('virtualRemoteEntry', () => {
     normalizedSharedMock.mockReturnValue({ react: hostReactShare });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -4218,8 +4235,8 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('@repro/shared-lib');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('@repro/shared-lib', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -4322,9 +4339,9 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('vue');
-    mod.addUsedShares('some-dep');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('vue', normalizedOptionsMock);
+    mod.addUsedShares('some-dep', normalizedOptionsMock);
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
@@ -4354,8 +4371,8 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
@@ -4366,8 +4383,8 @@ describe('virtualRemoteEntry', () => {
   it('marks seeded host providers loaded in hostAutoInit after negotiation (#1396)', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     for (const strategy of ['version-first', 'loaded-first'] as const) {
       optionsMock.shareStrategy = strategy;
@@ -4397,8 +4414,8 @@ describe('virtualRemoteEntry', () => {
     optionsMock.shareStrategy = 'version-first';
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
@@ -4539,8 +4556,8 @@ describe('virtualRemoteEntry', () => {
     optionsMock.shareStrategy = 'loaded-first';
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('default-only-singleton');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('default-only-singleton', normalizedOptionsMock);
 
     const localSharedCode = mod.generateLocalSharedImportMap();
     const code = mod.generateRemoteEntry(
@@ -4576,8 +4593,8 @@ describe('virtualRemoteEntry', () => {
     optionsMock.shareStrategy = 'version-first';
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('default-only-singleton');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('default-only-singleton', normalizedOptionsMock);
 
     const localSharedCode = mod.generateLocalSharedImportMap();
     const code = mod.generateRemoteEntry(
@@ -4679,8 +4696,8 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('some-dep');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('some-dep', normalizedOptionsMock);
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
@@ -4707,8 +4724,8 @@ describe('virtualRemoteEntry', () => {
   it('refreshes external shares while preserving the host-owned cache in builds', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
 
@@ -4728,8 +4745,8 @@ describe('virtualRemoteEntry', () => {
   it('preserves an owned host share cache during dev', async () => {
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
@@ -4754,8 +4771,8 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -5101,8 +5118,8 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react-dom');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react-dom', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -5918,8 +5935,8 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {
@@ -5964,8 +5981,8 @@ describe('virtualRemoteEntry', () => {
     });
     const mod = await import('../virtualRemoteEntry');
 
-    mod.getUsedShares().clear();
-    mod.addUsedShares('react');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
 
     const code = mod.generateRemoteEntry(
       {

@@ -85,7 +85,7 @@ export function initVirtualModules(
   options?: NormalizedModuleFederationOptions
 ) {
   const resolvedOptions = options ?? getNormalizeModuleFederationOptions();
-  writeLocalSharedImportMap(options);
+  writeLocalSharedImportMap(resolvedOptions);
   writeHostAutoInit(remoteEntryId, command, resolvedOptions);
   writeRuntimeInitStatus(
     command,
