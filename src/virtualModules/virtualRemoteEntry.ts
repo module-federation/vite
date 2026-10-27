@@ -1050,6 +1050,19 @@ function generateRuntimeSharedCacheSeedCode(
             );
             return;
           }
+          // A Vite container seeds its own copy into the module cache before the Runtime
+          // marks its provider loaded. A non-singleton is cached under its version, so
+          // look the selected provider's copy up under that version, not this share's.
+          if (!share.shareConfig?.singleton && typeof externalProvider.version === 'string') {
+            const externalCached = __mfReadSharedCache(
+              __mfModuleCache.share,
+              __mfGetSharedCacheDescriptor(pkg, false, externalProvider.version, share.scope)
+            );
+            if (externalCached !== undefined) {
+              __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, externalCached, externalProvider.from);
+              return;
+            }
+          }
           // Leave an unloaded webpack provider to the late bridge, which only takes a
           // non-singleton of this share's own version; any other version seeds locally.
           if (
@@ -2566,6 +2579,15 @@ export function generateHostAutoInitCode(
               )
             );
           const __mfHostInitShareBatches = ${hostInitShareBatches};
+          // The baked batches are generated before the build has seen every import, so a
+          // share first used later in the graph, such as react-dom/client, is missing from
+          // them. Negotiate those after the baked batches, once their package roots have
+          // settled (#1503).
+          {
+            const bakedKeys = new Set(__mfHostInitShareBatches.flat());
+            const lateKeys = Object.keys(usedShared).filter((pkg) => !bakedKeys.has(pkg));
+            if (lateKeys.length) __mfHostInitShareBatches.push(lateKeys);
+          }
           ${hostInitSharedProviderHelperCode}
           for (const __mfHostInitShareBatch of __mfHostInitShareBatches) {
             await Promise.all(__mfHostInitShareBatch.map(async (pkg) => {
@@ -2581,16 +2603,17 @@ export function generateHostAutoInitCode(
                 __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined &&
                 ${
                   _command === 'serve'
-                    ? // Same singleton re-negotiation as build, so dev picks the same version (#1396).
+                    ? // Same re-negotiation as build, so dev picks the same version (#1396).
                       `__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined &&
-                      !(share.shareConfig?.singleton && __mfHasAlternativeSharedVersion(pkg, share))`
-                    : // A singleton negotiates against every remote under this strategy, so the
-                      // pre-init seed above can only ever record this container's own provisional
-                      // guess for it. Re-run loadShare() to let the runtime confirm or upgrade that
-                      // guess once remotes have registered, instead of treating it as final.
+                      !__mfHasAlternativeSharedVersion(pkg, share)`
+                    : // A share negotiates against every remote under this strategy, singleton or
+                      // not (#1503), so the pre-init seed above can only ever record this
+                      // container's own provisional guess for it. Re-run loadShare() to let the
+                      // runtime confirm or upgrade that guess once remotes have registered.
                       `(
-                        (!share.shareConfig?.singleton && __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) === ${cacheOwner}) ||
-                        (share.shareConfig?.singleton && !__mfHasAlternativeSharedVersion(pkg, share))
+                        !__mfHasAlternativeSharedVersion(pkg, share) &&
+                        (share.shareConfig?.singleton ||
+                          __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) === ${cacheOwner})
                       )`
                 }
               ) return;
