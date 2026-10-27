@@ -1830,6 +1830,50 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).not.toContain('mock-import-id');
   });
 
+  it.each([
+    ['rebinds', 'version-first', true],
+    ['does not rebind', 'loaded-first', false],
+  ])(
+    '%s a non-singleton proxy to later cache writes with %s (#1503)',
+    (_, shareStrategy, rebinds) => {
+      normalizeModuleFederationOptions({ name: 'test', shareStrategy: shareStrategy as any });
+      const pkg = 'mock-package-star-entry';
+      const mockShareItem: ShareItem = {
+        name: pkg,
+        from: '',
+        version: '1.0.0',
+        shareConfig: {
+          import: '/repo/packages/mock-package-star-entry.js',
+          singleton: false,
+          strictVersion: false,
+          requiredVersion: '^1.0.0',
+        },
+        scope: 'default',
+      };
+
+      writeLoadShareModule(pkg, mockShareItem, 'build', getNormalizeModuleFederationOptions());
+
+      const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      const cacheDescriptor = JSON.stringify({
+        canonical: `default:${pkg}@1.0.0`,
+        aliases: [`${pkg}@1.0.0`],
+      });
+
+      expect(generatedCode).toContain(
+        'export { __mf_0 as directExport, __mf_1 as fromStar, __mf_2 as anotherFromStar };'
+      );
+      if (rebinds) {
+        expect(generatedCode).toContain(
+          `__mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, __mfApplySharedExports);`
+        );
+        expect(generatedCode).not.toMatch(/const \{[^}]+\} = exportModule;/);
+      } else {
+        expect(generatedCode).not.toContain('__mfSubscribeSharedCache(__mfModuleCache.share');
+        expect(generatedCode).toMatch(/const \{[^}]+\} = exportModule;/);
+      }
+    }
+  );
+
   it('detects named exports from package star re-exports in shareConfig.import', () => {
     const pkg = 'mock-package-star-entry';
     const mockShareItem: ShareItem = {

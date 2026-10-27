@@ -2248,7 +2248,11 @@ export function writeLoadShareModule(
     !servesRemoteSingletonFallback &&
     (isConsumedByPeerSingleton || shareItem.shareConfig.eager === true);
   const usesDeferredTreeShakingFallback = hasCompleteExportCoverage && Boolean(treeShakingConsumer);
-  const reactMixedModeGuard = pkg === 'react' ? REACT_MIXED_MODE_GUARD : '';
+  const isSingleton = shareItem.shareConfig.singleton === true;
+  // version-first can move a non-singleton to a higher registered version once remotes have
+  // registered (#1503), so its exports must follow cache writes the way a singleton's do.
+  const rebindsSharedExports = isSingleton || options.shareStrategy === 'version-first';
+  const reactMixedModeGuard = pkg === 'react' && isSingleton ? REACT_MIXED_MODE_GUARD : '';
   let exportLine: string;
   let initBlock = '';
   if (usesDeferredTreeShakingFallback) {
@@ -2318,7 +2322,7 @@ export function writeLoadShareModule(
     ${edges.reExportAll(coherentLocalSource)}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
-  } else if (namedExports.length > 0 && shareItem.shareConfig.singleton === true) {
+  } else if (namedExports.length > 0 && rebindsSharedExports) {
     const namedExportVars = copiedNamedExports.map((_name, i) => `__mf_${i}`);
     const declarations = [
       'let __mfDefaultExport;',
@@ -2371,7 +2375,7 @@ export function writeLoadShareModule(
     ${liveNamedExportLine}`;
     initBlock = `exportModule = __mfNormalizeShareModule(__mfLocalShare);
       __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});`;
-  } else if (shareItem.shareConfig.singleton === true) {
+  } else if (rebindsSharedExports) {
     exportLine = `let __mfDefaultExport;
     const __mfApplySharedDefaultExport = (mod) => {
       ${reactMixedModeGuard}

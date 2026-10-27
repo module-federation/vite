@@ -4057,6 +4057,82 @@ describe('virtualRemoteEntry', () => {
     expect(cached.marker).toBe('local-dep');
   });
 
+  it("reuses an unloaded external provider's copy cached under its version (#1503)", async () => {
+    const shared = {
+      name: 'dep',
+      from: 'remote',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { singleton: false, requiredVersion: '^1.0.0' },
+    };
+    normalizedSharedMock.mockReturnValue({ dep: shared });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('dep', normalizedOptionsMock);
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+    const hostDep = { marker: 'host-dep' };
+    // A Vite host seeded dep@1.1.0 into the module cache, but its Runtime record is not loaded yet.
+    const externalProvider = { from: 'host', version: '1.1.0', get: async () => () => ({}) };
+    const state = { localLoads: 0, owner: undefined };
+    const usedShared = {
+      dep: {
+        ...shared,
+        scope: ['default'],
+        get: async () => {
+          state.localLoads++;
+          return () => ({ marker: 'local-dep' });
+        },
+      },
+    };
+
+    const cached = await new Function(
+      'usedShared',
+      'state',
+      'externalProvider',
+      'hostDep',
+      `return (async () => {
+        const __mfModuleCache = { share: { 'default:dep@1.1.0': hostDep } };
+        const mfName = 'remote';
+        const initialShared = { dep: { '1.1.0': externalProvider } };
+        const __mfGetSharedCacheDescriptor = (pkg, singleton, version) => ({
+          canonical: 'default:' + (singleton || !version ? pkg : pkg + '@' + version),
+        });
+        const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+        const __mfReadSharedCacheOwner = () => undefined;
+        const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
+          cache[descriptor.canonical] = value;
+          state.owner = owner;
+        };
+        const __mfReadTreeShakingSharedSelection = () => undefined;
+        const __mfSelectExternalSharedProvider = () => externalProvider;
+        const __mfGetExternalSharedProvider = () => externalProvider;
+        const isWebpackProvider = () => false;
+        ${getRuntimeSeedCode(code)}
+        await __mfSeedLocalShared(['dep']);
+        return __mfModuleCache.share['default:dep@1.0.0'];
+      })();`
+    )(usedShared, state, externalProvider, hostDep);
+
+    expect(state.localLoads).toBe(0);
+    expect(cached).toBe(hostDep);
+    expect(state.owner).toBe('host');
+  });
+
   it.each([
     ['seeds the local copy behind', '1.1.0', 1],
     ['leaves the late bridge', '1.0.0', 0],
@@ -4420,9 +4496,125 @@ describe('virtualRemoteEntry', () => {
     const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
 
     expect(code).toContain(
-      '!(share.shareConfig?.singleton && __mfHasAlternativeSharedVersion(pkg, share))'
+      `__mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor) !== undefined &&
+                      !__mfHasAlternativeSharedVersion(pkg, share)`
     );
   });
+
+  async function runHostInitShareLoop(
+    code: string,
+    usedShared: Record<string, unknown>,
+    runtime: Record<string, unknown>,
+    cache: Record<string, unknown>,
+    owner: (descriptor: { canonical: string }) => string | undefined
+  ) {
+    // Start at the alternative-version helper: a seeded share's re-negotiation reads it.
+    const loopMarker = 'const __mfHasAlternativeSharedVersion = ';
+    const loopStart = code.indexOf(loopMarker);
+    expect(loopStart).not.toBe(-1);
+    const loopCode = code.slice(loopStart, code.indexOf('return runtime;', loopStart));
+    await new AsyncFunction(
+      'usedShared',
+      'runtime',
+      '__mfModuleCache',
+      '__mfGetSharedCacheDescriptor',
+      '__mfReadSharedCache',
+      '__mfReadSharedCacheOwner',
+      '__mfWriteSharedCache',
+      '__mfNormalizeRuntimeShare',
+      'runtimeShare',
+      loopCode
+    )(
+      usedShared,
+      runtime,
+      { share: cache },
+      (pkg: string, singleton: boolean, version: string) => ({
+        canonical: `default:${singleton || !version ? pkg : `${pkg}@${version}`}`,
+      }),
+      (store: Record<string, unknown>, d: { canonical: string }) => store[d.canonical],
+      (_store: Record<string, unknown>, d: { canonical: string }) => owner(d),
+      (store: Record<string, unknown>, d: { canonical: string }, value: unknown) => {
+        store[d.canonical] = value;
+      },
+      (m: unknown) => m,
+      (await import('@module-federation/runtime/helpers')).share
+    );
+  }
+
+  it('negotiates used shares missing from the baked batches (#1503)', async () => {
+    optionsMock.shareStrategy = 'version-first';
+    const share = (name: string) => ({
+      name,
+      from: 'host',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { singleton: true, requiredVersion: '^1.0.0', strictVersion: false },
+    });
+    normalizedSharedMock.mockReturnValue({ 'pkg-a': share('pkg-a') });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    // late-pkg is only registered by the import scanner, like react-dom/client, and the
+    // build does that after hostInit has been generated.
+    mod.addUsedShares('pkg-a', normalizedOptionsMock);
+
+    const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+    expect(code).toContain('const __mfHostInitShareBatches = [["pkg-a"]]');
+
+    const loaded: string[] = [];
+    const runtime = {
+      shareScopeMap: { default: {} },
+      loadShare: async (pkg: string) => {
+        loaded.push(pkg);
+        return () => ({ marker: pkg });
+      },
+    };
+    await runHostInitShareLoop(
+      code,
+      { 'pkg-a': share('pkg-a'), 'late-pkg': share('late-pkg') },
+      runtime,
+      {},
+      () => undefined
+    );
+
+    expect(loaded).toEqual(['pkg-a', 'late-pkg']);
+  });
+
+  it.each([
+    ['re-negotiates', { '1.0.0': {}, '1.1.0': {} }, 1],
+    ['keeps', { '1.0.0': {} }, 0],
+  ])(
+    '%s a seeded version-first non-singleton when the scope holds %j (#1503)',
+    async (_, versions, loadShareCalls) => {
+      optionsMock.shareStrategy = 'version-first';
+      const share = {
+        name: 'dep',
+        from: 'host',
+        version: '1.0.0',
+        scope: 'default',
+        shareConfig: { singleton: false, requiredVersion: '^1.0.0', strictVersion: false },
+      };
+      normalizedSharedMock.mockReturnValue({ dep: share });
+      const mod = await import('../virtualRemoteEntry');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares('dep', normalizedOptionsMock);
+
+      const code = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+      const localDep = { marker: 'local-dep' };
+      const negotiatedDep = { marker: 'negotiated-dep' };
+      const loadShare = vi.fn(async () => () => negotiatedDep);
+      const cache: Record<string, unknown> = { 'default:dep@1.0.0': localDep };
+      await runHostInitShareLoop(
+        code,
+        { dep: share },
+        { shareScopeMap: { default: { dep: versions } }, loadShare },
+        cache,
+        () => 'host'
+      );
+
+      expect(loadShare).toHaveBeenCalledTimes(loadShareCalls);
+      expect(cache['default:dep@1.0.0']).toBe(loadShareCalls ? negotiatedDep : localDep);
+    }
+  );
 
   it('does not register remotes during remoteEntry init with loaded-first', async () => {
     optionsMock.shareStrategy = 'loaded-first';

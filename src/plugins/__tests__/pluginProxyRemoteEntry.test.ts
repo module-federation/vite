@@ -132,7 +132,8 @@ describe('pluginProxyRemoteEntry', () => {
 
     expect(code).toContain('(version) => version !== share.version');
     expect(code).toContain(
-      '(share.shareConfig?.singleton && !__mfHasAlternativeSharedVersion(pkg, share))'
+      `!__mfHasAlternativeSharedVersion(pkg, share) &&
+                        (share.shareConfig?.singleton ||`
     );
   });
 
