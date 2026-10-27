@@ -1050,6 +1050,19 @@ function generateRuntimeSharedCacheSeedCode(
             );
             return;
           }
+          // A Vite container seeds its own copy into the module cache before the Runtime
+          // marks its provider loaded. A non-singleton is cached under its version, so
+          // look the selected provider's copy up under that version, not this share's.
+          if (!share.shareConfig?.singleton && typeof externalProvider.version === 'string') {
+            const externalCached = __mfReadSharedCache(
+              __mfModuleCache.share,
+              __mfGetSharedCacheDescriptor(pkg, false, externalProvider.version, share.scope)
+            );
+            if (externalCached !== undefined) {
+              __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, externalCached, externalProvider.from);
+              return;
+            }
+          }
           // Leave an unloaded webpack provider to the late bridge, which only takes a
           // non-singleton of this share's own version; any other version seeds locally.
           if (

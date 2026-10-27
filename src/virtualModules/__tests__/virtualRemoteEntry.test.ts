@@ -4057,6 +4057,82 @@ describe('virtualRemoteEntry', () => {
     expect(cached.marker).toBe('local-dep');
   });
 
+  it("reuses an unloaded external provider's copy cached under its version (#1503)", async () => {
+    const shared = {
+      name: 'dep',
+      from: 'remote',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { singleton: false, requiredVersion: '^1.0.0' },
+    };
+    normalizedSharedMock.mockReturnValue({ dep: shared });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('dep', normalizedOptionsMock);
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__remote',
+        name: 'remote',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {},
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+    const hostDep = { marker: 'host-dep' };
+    // A Vite host seeded dep@1.1.0 into the module cache, but its Runtime record is not loaded yet.
+    const externalProvider = { from: 'host', version: '1.1.0', get: async () => () => ({}) };
+    const state = { localLoads: 0, owner: undefined };
+    const usedShared = {
+      dep: {
+        ...shared,
+        scope: ['default'],
+        get: async () => {
+          state.localLoads++;
+          return () => ({ marker: 'local-dep' });
+        },
+      },
+    };
+
+    const cached = await new Function(
+      'usedShared',
+      'state',
+      'externalProvider',
+      'hostDep',
+      `return (async () => {
+        const __mfModuleCache = { share: { 'default:dep@1.1.0': hostDep } };
+        const mfName = 'remote';
+        const initialShared = { dep: { '1.1.0': externalProvider } };
+        const __mfGetSharedCacheDescriptor = (pkg, singleton, version) => ({
+          canonical: 'default:' + (singleton || !version ? pkg : pkg + '@' + version),
+        });
+        const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+        const __mfReadSharedCacheOwner = () => undefined;
+        const __mfWriteSharedCache = (cache, descriptor, value, owner) => {
+          cache[descriptor.canonical] = value;
+          state.owner = owner;
+        };
+        const __mfReadTreeShakingSharedSelection = () => undefined;
+        const __mfSelectExternalSharedProvider = () => externalProvider;
+        const __mfGetExternalSharedProvider = () => externalProvider;
+        const isWebpackProvider = () => false;
+        ${getRuntimeSeedCode(code)}
+        await __mfSeedLocalShared(['dep']);
+        return __mfModuleCache.share['default:dep@1.0.0'];
+      })();`
+    )(usedShared, state, externalProvider, hostDep);
+
+    expect(state.localLoads).toBe(0);
+    expect(cached).toBe(hostDep);
+    expect(state.owner).toBe('host');
+  });
+
   it.each([
     ['seeds the local copy behind', '1.1.0', 1],
     ['leaves the late bridge', '1.0.0', 0],
