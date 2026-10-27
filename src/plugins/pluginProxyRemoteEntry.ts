@@ -14,7 +14,6 @@ import {
   type NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import { isRemoteSpecifier } from '../utils/hostProvidesAllShared';
-import { hasPackageDependency } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
 import { collectRemoteDependencies, type RemoteDependencyCache } from '../utils/remoteDependencies';
 import { isServerBuildContext } from '../utils/remoteConsumerTarget';
@@ -53,6 +52,7 @@ export default function ({
   let refreshPromise: Promise<void> | undefined;
   let dependencyInvalidationVersion = 0;
   let reactIslandExposes: ReadonlySet<string> = new Set();
+  let isTanStackStart = false;
 
   const isHostAutoInitId = (id: string) => {
     const cleanId = id.split('?')[0];
@@ -134,6 +134,8 @@ export default function ({
     configResolved(config) {
       viteConfig = config;
       root = config.root;
+      isTanStackStart =
+        config.plugins?.some((plugin) => plugin.name === 'tanstack-start-core:config') ?? false;
       reactIslandExposes = getReactIslandExposes(options, root);
     },
     config(config, { command }) {
@@ -142,11 +144,12 @@ export default function ({
     },
     async buildStart() {
       await refreshExposeRemoteDependencies(this);
-      // TanStack Start 1.171.x expects a single client application entry.
+      // TanStack Start 1.171.x (react/solid/vue, via the shared
+      // start-plugin-core) expects a single client application entry.
       // Its manifest plugin rejects the additional exposed-module entries
       // emitted here. Preserve those entries for other Vite integrations,
       // where they keep exposed modules separated from the host entry.
-      if (_command !== 'build' || hasPackageDependency('@tanstack/react-start', root)) return;
+      if (_command !== 'build' || isTanStackStart) return;
       for (const expose of Object.values(options.exposes)) {
         const resolved = await this.resolve(expose.import);
         if (resolved) {
