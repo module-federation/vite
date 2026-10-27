@@ -2202,27 +2202,24 @@ export function writeLoadShareModule(
   const liveNamedExports = namedExports.filter((name) => mutableExports.has(name));
   const liveNamedExportLine = edges.reExportNames(liveNamedExports, sharedImportSource);
   const hasCompleteExportCoverage = detectedNamedExports !== undefined;
-  const isWorkspaceSingleton = isWorkspacePackage && shareItem.shareConfig.singleton === true;
+  const isSingleton = shareItem.shareConfig.singleton === true;
+  const isWorkspaceSingleton = isWorkspacePackage && isSingleton;
   const usesDeferredSingletonFallback =
     hasCompleteExportCoverage &&
     shareItem.shareConfig.eager !== true &&
     (isWorkspacePackage ||
-      (command !== 'build' &&
-        isRemoteOnlyContainer(options) &&
-        shareItem.shareConfig.singleton === true) ||
+      (command !== 'build' && isRemoteOnlyContainer(options) && isSingleton) ||
       (command === 'build' &&
         isRemoteContainer(options) &&
         !isSharedSingletonConsumedByPeer(pkg, options, true)));
   const servesRemoteSingletonFallback =
-    command !== 'build' &&
-    isRemoteOnlyContainer(options) &&
-    shareItem.shareConfig.singleton === true;
+    command !== 'build' && isRemoteOnlyContainer(options) && isSingleton;
   const isConsumedByPeerSingleton = isSharedSingletonConsumedByPeer(pkg, options);
   const usesEntryInjectedRemoteFallback =
     hasCompleteExportCoverage &&
     !isWorkspaceSingleton &&
     isRemoteContainer(options) &&
-    shareItem.shareConfig.singleton === true &&
+    isSingleton &&
     options.hostInitInjectLocation === 'entry' &&
     (command === 'build' || isConsumedByPeerSingleton);
   // Entry injection evaluates the remote entry before hostInit registers shares.
@@ -2248,7 +2245,6 @@ export function writeLoadShareModule(
     !servesRemoteSingletonFallback &&
     (isConsumedByPeerSingleton || shareItem.shareConfig.eager === true);
   const usesDeferredTreeShakingFallback = hasCompleteExportCoverage && Boolean(treeShakingConsumer);
-  const isSingleton = shareItem.shareConfig.singleton === true;
   // version-first can move a non-singleton to a higher registered version once remotes have
   // registered (#1503), so its exports must follow cache writes the way a singleton's do.
   const rebindsSharedExports = isSingleton || options.shareStrategy === 'version-first';
