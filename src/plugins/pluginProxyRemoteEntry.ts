@@ -144,7 +144,8 @@ export default function ({
     },
     async buildStart() {
       await refreshExposeRemoteDependencies(this);
-      // TanStack Start 1.171.x expects a single client application entry.
+      // TanStack Start 1.171.x (react/solid/vue, via the shared
+      // start-plugin-core) expects a single client application entry.
       // Its manifest plugin rejects the additional exposed-module entries
       // emitted here. Preserve those entries for other Vite integrations,
       // where they keep exposed modules separated from the host entry.
