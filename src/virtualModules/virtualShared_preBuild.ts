@@ -77,6 +77,13 @@ function escapeGeneratedStringLiteral(value: string): string {
   });
 }
 
+// Reflect access avoids bundler link errors/warnings for ESM providers without a
+// default export (for example antd/es/index.js or named-only JSX runtimes),
+// while preserving the namespace fallback for packages that do provide one.
+function getDefaultOrNamespaceExpression(namespace: string): string {
+  return `Reflect.get(${namespace}, "default") ?? ${namespace}`;
+}
+
 function getSharedCacheDescriptorLiteral(pkg: string, shareItem: ShareItem): string {
   return JSON.stringify(getSharedCacheDescriptor(pkg, shareItem));
 }
@@ -1488,7 +1495,7 @@ export function writePreBuildLibPath(
     preBuildCacheMap[pkg].writeSync(
       `
     import * as __mfPrebuildNamespace from ${escapeGeneratedStringLiteral(importSource)};
-    const __mfPrebuildExports = Reflect.get(__mfPrebuildNamespace, "default") ?? __mfPrebuildNamespace;
+    const __mfPrebuildExports = ${getDefaultOrNamespaceExpression('__mfPrebuildNamespace')};
     export const Fragment = __mfPrebuildExports.Fragment;
     export const jsxDEV = __mfPrebuildExports.jsxDEV;
     export default __mfPrebuildExports;
@@ -1501,7 +1508,7 @@ export function writePreBuildLibPath(
     preBuildCacheMap[pkg].writeSync(
       `
     import * as __mfPrebuildNamespace from ${escapeGeneratedStringLiteral(importSource)};
-    const __mfPrebuildExports = Reflect.get(__mfPrebuildNamespace, "default") ?? __mfPrebuildNamespace;
+    const __mfPrebuildExports = ${getDefaultOrNamespaceExpression('__mfPrebuildNamespace')};
     export const Fragment = __mfPrebuildExports.Fragment;
     export const jsx = __mfPrebuildExports.jsx;
     export const jsxs = __mfPrebuildExports.jsxs;
@@ -1539,7 +1546,7 @@ export function writePreBuildLibPath(
     ${declarations}
     ${namedExportLine}
     ${liveExportLine}
-    export default Reflect.get(__mfPrebuildNamespace, "default") ?? __mfPrebuildNamespace;
+    export default ${getDefaultOrNamespaceExpression('__mfPrebuildNamespace')};
   `,
       true
     );
@@ -1549,10 +1556,7 @@ export function writePreBuildLibPath(
     `
     import * as __mfPrebuildExports from ${escapeGeneratedStringLiteral(importSource)};
     export * from ${escapeGeneratedStringLiteral(importSource)};
-    // Reflect access avoids bundler warnings for ESM packages without a
-    // default export (for example antd/es/index.js), while preserving the
-    // namespace fallback for packages that do provide one.
-    export default Reflect.get(__mfPrebuildExports, "default") ?? __mfPrebuildExports;
+    export default ${getDefaultOrNamespaceExpression('__mfPrebuildExports')};
   `,
     true
   );

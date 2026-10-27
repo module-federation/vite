@@ -4846,7 +4846,7 @@ describe('writePreBuildLibPath', () => {
   it.each([
     ['react/jsx-runtime', 'jsx'],
     ['react/jsx-dev-runtime', 'jsxDEV'],
-  ])('links %s against named-only and default-wrapped ESM providers', async (pkg, exportName) => {
+  ])('links %s against named-only and default-wrapped ESM providers', (pkg, exportName) => {
     const dataUrl = (source: string) =>
       `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 
@@ -4861,6 +4861,7 @@ describe('writePreBuildLibPath', () => {
       const providerUrl = dataUrl(providerSource);
       writePreBuildLibPath(pkg, undefined, getNormalizeModuleFederationOptions());
       const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      expect(generatedCode).toContain(JSON.stringify(pkg));
       const wrapperUrl = dataUrl(
         generatedCode.replaceAll(JSON.stringify(pkg), JSON.stringify(providerUrl))
       );
@@ -4881,9 +4882,10 @@ describe('writePreBuildLibPath', () => {
         ${pkg === 'react/jsx-runtime' ? 'assert.equal(wrapper.jsxs, expected.jsxs);' : ''}
       `,
         ],
-        { encoding: 'utf8' }
+        { encoding: 'utf8', timeout: 10_000 }
       );
 
+      expect(result.error).toBeUndefined();
       expect(result.status, result.stderr).toBe(0);
     }
   });
