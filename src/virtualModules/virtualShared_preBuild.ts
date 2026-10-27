@@ -380,7 +380,7 @@ function getSharedMutableExports(
   return mutableExports;
 }
 
-function resolveConfiguredImportPath(
+export function resolveConfiguredImportPath(
   importSource: string,
   exportConditions = DEFAULT_SHARED_EXPORT_CONDITIONS
 ): string | undefined {
@@ -423,7 +423,7 @@ function resolveFileLikeModule(filePath: string): string | undefined {
   return undefined;
 }
 
-function resolveRelativeModule(filePath: string, specifier: string): string | undefined {
+export function resolveRelativeModule(filePath: string, specifier: string): string | undefined {
   const dir = path.dirname(filePath);
   // Try the specifier as-is first (handles explicit extensions like './runtime.js')
   const exact = path.resolve(dir, specifier);

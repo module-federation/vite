@@ -304,6 +304,9 @@ function createRuntimeShareLoader(versionMap: Record<string, RuntimeBridgeProvid
   };
 }
 
+// Local shares (import is a project file) by key, for the getNormalizeShareItem mock.
+const localShareFilesMock: Record<string, string | undefined> = {};
+
 // remoteEntry defines __mfRejectInit outside init(); var tolerates both snippets in one scope.
 const rejectInitStub = 'var __mfRejectInit = (err) => { throw err; };\n';
 
@@ -444,6 +447,7 @@ vi.mock('../../utils/packageUtils', () => {
     hasPackageDependency: hasPackageDependencyMock,
     isPackageExportAvailable: isPackageExportAvailableMock,
     isPackageInstalled: isPackageInstalledMock,
+    getPackageDetectionCwd: () => process.cwd(),
     packageNameEncode: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_'),
     getPackageName: (packageString: string) => {
       const match = packageString.match(/^(?:@[^/]+\/)?[^/]+/);
@@ -557,7 +561,7 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
                     ? '/abs/custom-import.js'
                     : pkg === 'tree-shared' && optionsMock.treeSharedImportFalse
                       ? false
-                      : undefined,
+                      : localShareFilesMock[pkg],
               singleton: pkg !== 'non-singleton',
               requiredVersion: pkg === 'unconstrained' ? false : '^19.2.4',
               strictVersion: false,
@@ -576,8 +580,12 @@ vi.mock('../virtualRemotes', () => {
   };
 });
 
-vi.mock('../virtualShared_preBuild', () => {
+vi.mock('../virtualShared_preBuild', async (importOriginal) => {
+  const { resolveConfiguredImportPath, resolveRelativeModule } =
+    await importOriginal<typeof import('../virtualShared_preBuild')>();
   return {
+    resolveConfiguredImportPath,
+    resolveRelativeModule,
     getPreBuildLibImportId: (pkg: string) => `virtual:prebuild:${pkg}`,
     getLoadShareModulePath: (pkg: string) => `virtual:loadShare:${pkg}`,
     getTreeShakingSharedProviderImportId: (pkg: string) => `virtual:tree-provider:${pkg}`,
@@ -1909,6 +1917,112 @@ describe('virtualRemoteEntry', () => {
     expect(order.indexOf('react-dom')).toBeLessThan(order.indexOf('react-dom/client'));
     // react and react-dom have no dependency relationship, so they batch together.
     expect(batches[0]).toEqual(expect.arrayContaining(['react', 'react-dom']));
+  });
+
+  it('materializes local shares after the packages they may import and after the local shares they import', async () => {
+    const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-local-shares-'));
+    mkdirSync(path.join(root, 'src'));
+    writeFileSync(
+      path.join(root, 'src', 'slice.ts'),
+      "import { createSlice } from '@reduxjs/toolkit';\nexport const counter = createSlice({ name: 'counter', initialState: 0, reducers: {} });\n"
+    );
+    writeFileSync(
+      path.join(root, 'src', 'store.ts'),
+      "import { configureStore } from '@reduxjs/toolkit';\nimport { counter } from 'app/slice';\nexport default configureStore({ reducer: counter.reducer });\n"
+    );
+    localShareFilesMock['app/slice'] = path.join(root, 'src', 'slice.ts');
+    localShareFilesMock['app/store'] = path.join(root, 'src', 'store.ts');
+    const share = (name: string) => ({
+      name,
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { singleton: true, strictVersion: false },
+    });
+    normalizedSharedMock.mockReturnValue({
+      'app/store': share('app/store'),
+      'app/slice': share('app/slice'),
+      redux: share('redux'),
+      '@reduxjs/toolkit': share('@reduxjs/toolkit'),
+    });
+
+    try {
+      const mod = await import('../virtualRemoteEntry');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      mod.addUsedShares('app/store', normalizedOptionsMock);
+      mod.addUsedShares('app/slice', normalizedOptionsMock);
+      mod.addUsedShares('redux', normalizedOptionsMock);
+      mod.addUsedShares('@reduxjs/toolkit', normalizedOptionsMock);
+
+      const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'serve');
+      const batchesMarker = 'const __mfHostInitShareBatches = ';
+      const batchesStart = hostInit.indexOf(batchesMarker);
+      expect(batchesStart).not.toBe(-1);
+      const batchesLineEnd = hostInit.indexOf('\n', batchesStart);
+      const batchesSource = hostInit
+        .slice(batchesStart + batchesMarker.length, batchesLineEnd)
+        .trim();
+      const batches = JSON.parse(
+        batchesSource.endsWith(';') ? batchesSource.slice(0, -1) : batchesSource
+      ) as string[][];
+
+      // The project files have no package.json: every package share comes first, then the
+      // slice, then the store that imports it (see #1507).
+      expect(batches).toEqual([
+        expect.arrayContaining(['redux', '@reduxjs/toolkit']),
+        ['app/slice'],
+        ['app/store'],
+      ]);
+      expect(batches[0]).toHaveLength(2);
+    } finally {
+      delete localShareFilesMock['app/slice'];
+      delete localShareFilesMock['app/store'];
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('materializes the local shares a materialized local share imports', async () => {
+    const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-local-shares-'));
+    mkdirSync(path.join(root, 'src'));
+    writeFileSync(path.join(root, 'src', 'slice.ts'), 'export const counter = 1;\n');
+    writeFileSync(
+      path.join(root, 'src', 'store.ts'),
+      "import { counter } from 'app/slice';\nexport default counter;\n"
+    );
+    localShareFilesMock['app/slice'] = path.join(root, 'src', 'slice.ts');
+    localShareFilesMock['app/store'] = path.join(root, 'src', 'store.ts');
+    const share = (name: string) => ({
+      name,
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { singleton: true, strictVersion: false },
+    });
+    normalizedSharedMock.mockReturnValue({
+      'app/store': share('app/store'),
+      'app/slice': share('app/slice'),
+    });
+
+    try {
+      const mod = await import('../virtualRemoteEntry');
+      mod.getUsedShares(normalizedOptionsMock).clear();
+      // Only the store has been seen imported by the dev scanner; the slice is imported by the store's source.
+      mod.addUsedShares('app/store', normalizedOptionsMock);
+      mod.addConfiguredShare('app/slice', normalizedOptionsMock);
+
+      const code = mod.generateLocalSharedImportMap();
+      // The flags come before the nested `get()` of each entry, so stay inside the entry.
+      expect(code).toMatch(/"app\/store": \{[^{}]*materialize: true,/);
+      expect(code).toMatch(/"app\/slice": \{[^{}]*materialize: true,/);
+    } finally {
+      delete localShareFilesMock['app/slice'];
+      delete localShareFilesMock['app/store'];
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('uses auto-detected workspace import path in localSharedImportMap', async () => {

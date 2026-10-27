@@ -18,6 +18,7 @@ import {
   packageNameEncode,
   sharedCacheHelperCode,
 } from '../utils/packageUtils';
+import { getImportedLocalShares, getLocalShareSourceFile } from '../utils/localShareImports';
 import { getCommonSharedSubpaths } from '../utils/pathNormalization';
 import { REACT_DOM_CLIENT_SHARE } from '../utils/reactShares';
 import { filterRuntimePluginsForTarget } from '../utils/runtimePluginSpecifier';
@@ -485,7 +486,7 @@ function getOrderedUsedShares(options: NormalizedModuleFederationOptions) {
       pkg === 'react' ? 0 : pkg === 'react-dom' ? 1 : pkg.startsWith('react/') ? 2 : 3;
     return priority(a) - priority(b) || a.localeCompare(b);
   });
-  return orderSharedDependenciesFirst(sorted);
+  return orderSharedDependenciesFirst(sorted, options);
 }
 
 function getMaterializedShares(options: NormalizedModuleFederationOptions) {
@@ -501,14 +502,27 @@ function getMaterializedShares(options: NormalizedModuleFederationOptions) {
     }
   }
   const configured = new Map<string, string>();
-  for (const pkg of getOrderedUsedShares(options)) {
+  const orderedUsed = getOrderedUsedShares(options);
+  for (const pkg of orderedUsed) {
     const packageName = getPackageName(pkg);
     if (!configured.has(packageName) || pkg === packageName) configured.set(packageName, pkg);
   }
+  const localImports = getLocalShareImports(orderedUsed, options);
   const pending = [...shares];
   while (pending.length) {
     const pkg = pending.pop()!;
     const share = getNormalizeShareItem(pkg, options);
+    // A local share's source evaluates the local shares it imports, whether or not the dev
+    // scanner has seen them imported from the application yet.
+    for (const imported of localImports.get(pkg) ?? []) {
+      if (
+        !shares.has(imported) &&
+        getNormalizeShareItem(imported, options)?.scope === share?.scope
+      ) {
+        shares.add(imported);
+        pending.push(imported);
+      }
+    }
     const packageName = getPackageName(pkg);
     const packageJson =
       getInstalledPackageJson(pkg)?.packageJson ??
@@ -545,11 +559,55 @@ function getMaterializedShares(options: NormalizedModuleFederationOptions) {
       return shareItem ? getCanonicalSharedKey(pkg, shareItem) : pkg;
     })
   );
-  return orderSharedDependenciesFirst([...runtimeKeys]);
+  return orderSharedDependenciesFirst([...runtimeKeys], options);
+}
+
+/**
+ * The other local shares each local share (one whose `import` is a project file) imports at module
+ * evaluation, found through the static imports of its source and of the unshared project files it
+ * imports, keyed by share. Only local shares have an entry.
+ */
+function getLocalShareImports(
+  shares: string[],
+  options: NormalizedModuleFederationOptions
+): Map<string, string[]> {
+  const localShareFiles = new Map<string, string>();
+  const requests = new Map<string, string>();
+  for (const pkg of shares) {
+    const shareItem = getNormalizeShareItem(pkg, options);
+    const sourceFile = getLocalShareSourceFile(pkg, shareItem);
+    if (sourceFile === undefined) continue;
+    localShareFiles.set(pkg, sourceFile);
+    const request = getSharedRequest(pkg, shareItem);
+    if (request !== pkg) requests.set(request, pkg);
+  }
+  return new Map(
+    Array.from(localShareFiles, ([pkg, sourceFile]) => [
+      pkg,
+      getImportedLocalShares(sourceFile, localShareFiles, requests),
+    ])
+  );
+}
+
+/**
+ * Shares that must be materialized before each local share, keyed by share. A project file has no
+ * package.json to read dependencies from and may import any shared package, directly or through
+ * other project files, so every installed-package share comes first, followed by the local shares
+ * its source imports (see #1507).
+ */
+function getLocalSharePrerequisites(
+  shares: string[],
+  options: NormalizedModuleFederationOptions
+): Map<string, string[]> {
+  const localImports = getLocalShareImports(shares, options);
+  const packageShares = shares.filter((pkg) => !localImports.has(pkg));
+  return new Map(
+    Array.from(localImports, ([pkg, imports]) => [pkg, [...packageShares, ...imports]])
+  );
 }
 
 /** Shared keys a share's package.json depends on (roots stand in for their subpaths, subpaths for their root), keyed by share. */
-function getSharePrerequisites(ordered: string[]) {
+function getSharePrerequisites(ordered: string[], options: NormalizedModuleFederationOptions) {
   const roots = new Map<string, string>();
   const subpaths = new Map<string, string[]>();
   for (const pkg of ordered) {
@@ -558,7 +616,13 @@ function getSharePrerequisites(ordered: string[]) {
     else subpaths.set(packageName, [...(subpaths.get(packageName) ?? []), pkg]);
   }
   const prerequisitesByShare = new Map<string, string[]>();
+  const localPrerequisites = getLocalSharePrerequisites(ordered, options);
   for (const pkg of ordered) {
+    const local = localPrerequisites.get(pkg);
+    if (local) {
+      prerequisitesByShare.set(pkg, local);
+      continue;
+    }
     const packageName = getPackageName(pkg);
     const packageJson =
       getInstalledPackageJson(pkg)?.packageJson ??
@@ -586,7 +650,7 @@ function getSharePrerequisites(ordered: string[]) {
 
 function getShareBatches(options: NormalizedModuleFederationOptions, materializedOnly = true) {
   const ordered = materializedOnly ? getMaterializedShares(options) : getOrderedUsedShares(options);
-  const prerequisitesByShare = getSharePrerequisites(ordered);
+  const prerequisitesByShare = getSharePrerequisites(ordered, options);
   const levels = new Map<string, number>();
   for (const pkg of ordered) {
     levels.set(
@@ -602,7 +666,11 @@ function getShareBatches(options: NormalizedModuleFederationOptions, materialize
   return batches.filter(Boolean);
 }
 
-function orderSharedDependenciesFirst(sharedPackages: string[]) {
+function orderSharedDependenciesFirst(
+  sharedPackages: string[],
+  options: NormalizedModuleFederationOptions
+) {
+  const localPrerequisites = getLocalSharePrerequisites(sharedPackages, options);
   const sharedKeyByPackageName = new Map<string, string>();
   const subpathKeysByPackageName = new Map<string, string[]>();
   sharedPackages.forEach((pkg) => {
@@ -624,6 +692,14 @@ function orderSharedDependenciesFirst(sharedPackages: string[]) {
     if (visited.has(pkg)) return;
     if (visiting.has(pkg)) return;
     visiting.add(pkg);
+    const local = localPrerequisites.get(pkg);
+    if (local) {
+      local.forEach(visit);
+      visiting.delete(pkg);
+      visited.add(pkg);
+      ordered.push(pkg);
+      return;
+    }
     const packageName = getPackageName(pkg);
     const packageJson =
       getInstalledPackageJson(pkg)?.packageJson ??
@@ -966,7 +1042,7 @@ function generateRuntimeSharedCacheSeedCode(
   // consults this to skip the dependents of an unresolved share.
   const seedIndex = new Map(seedOrder.map((pkg, index) => [pkg, index]));
   const seedPrerequisites = Object.fromEntries(
-    Array.from(getSharePrerequisites(seedOrder))
+    Array.from(getSharePrerequisites(seedOrder, options))
       .filter(([, prerequisites]) => prerequisites.length > 0)
       .map(([pkg, prerequisites]) => [
         seedIndex.get(pkg),
