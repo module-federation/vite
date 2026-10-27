@@ -580,8 +580,12 @@ vi.mock('../virtualRemotes', () => {
   };
 });
 
-vi.mock('../virtualShared_preBuild', () => {
+vi.mock('../virtualShared_preBuild', async (importOriginal) => {
+  const { resolveConfiguredImportPath, resolveRelativeModule } =
+    await importOriginal<typeof import('../virtualShared_preBuild')>();
   return {
+    resolveConfiguredImportPath,
+    resolveRelativeModule,
     getPreBuildLibImportId: (pkg: string) => `virtual:prebuild:${pkg}`,
     getLoadShareModulePath: (pkg: string) => `virtual:loadShare:${pkg}`,
     getTreeShakingSharedProviderImportId: (pkg: string) => `virtual:tree-provider:${pkg}`,

@@ -2,11 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  getImportedLocalShares,
-  getLocalShareSourceFile,
-  getStaticImportSpecifiers,
-} from '../localShareImports';
+import { getImportedLocalShares, getLocalShareSourceFile } from '../localShareImports';
 import type { ShareItem } from '../normalizeModuleFederationOptions';
 
 const shareItem = (importSource: string | false | undefined): ShareItem => ({
@@ -15,41 +11,6 @@ const shareItem = (importSource: string | false | undefined): ShareItem => ({
   scope: 'default',
   from: '',
   shareConfig: { import: importSource, singleton: true, eager: false, requiredVersion: '0.0.1' },
-});
-
-describe('getStaticImportSpecifiers', () => {
-  it('collects static imports and re-exports', () => {
-    const code = `
-      import def from './a';
-      import { b, c as d } from "pkg-b";
-      import * as ns from 'pkg-c'
-      import 'side-effect';
-      export { e } from './e';
-      export * from './f';
-      export const g = 1;
-    `;
-    expect(getStaticImportSpecifiers(code)).toEqual([
-      './a',
-      'pkg-b',
-      'pkg-c',
-      'side-effect',
-      './e',
-      './f',
-    ]);
-  });
-
-  it('skips dynamic, type-only and commented imports', () => {
-    const code = `
-      import type { T } from './types';
-      export type { U } from './types';
-      // import hidden from './commented';
-      /* import block from './block'; */
-      const lazy = () => import('./lazy');
-      const url = 'http://example.com//path';
-      import real from './real';
-    `;
-    expect(getStaticImportSpecifiers(code)).toEqual(['./real']);
-  });
 });
 
 describe('local share source files', () => {
@@ -129,5 +90,25 @@ describe('local share source files', () => {
     expect(
       getImportedLocalShares(localShareFiles.get('app/store')!, localShareFiles, requests)
     ).toEqual(['slice-share']);
+  });
+
+  it('only follows the static, non-type imports a source evaluates', () => {
+    writeFileSync(
+      path.join(root, 'src', 'store.ts'),
+      [
+        "import { type Store, type State } from 'app/reducers';",
+        'const s = "import x from \'app/reducers\'";',
+        "const lazy = () => import('app/reducers');",
+        "const url = 'http://example.com//path'; import { helper } from './helper';",
+      ].join('\n')
+    );
+    const localShareFiles = new Map([
+      ['app/slice', path.join(root, 'src', 'slice.ts')],
+      ['app/reducers', path.join(root, 'src', 'reducers', 'index.ts')],
+      ['app/store', path.join(root, 'src', 'store.ts')],
+    ]);
+    expect(getImportedLocalShares(localShareFiles.get('app/store')!, localShareFiles)).toEqual([
+      'app/slice',
+    ]);
   });
 });
