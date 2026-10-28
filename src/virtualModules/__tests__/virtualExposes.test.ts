@@ -300,6 +300,7 @@ describe('virtualExposes', () => {
         setAttribute(name: string, value: string) {
           (this as any)[name] = value;
         },
+        remove: vi.fn(),
       })),
     };
     const dynamicImport = vi.fn();
