@@ -333,19 +333,27 @@ describe('virtualExposes', () => {
     );
 
     let appendCount = 0;
+    let activeLink: any;
     const document = {
       head: {
         appendChild: vi.fn((link: any) => {
           appendCount += 1;
+          activeLink = link;
           queueMicrotask(() => (appendCount === 1 ? link.onerror() : link.onload()));
         }),
       },
-      querySelector: vi.fn(() => null),
-      createElement: vi.fn(() => ({
-        setAttribute(name: string, value: string) {
-          (this as any)[name] = value;
-        },
-      })),
+      querySelector: vi.fn(() => activeLink ?? null),
+      createElement: vi.fn(() => {
+        const link: any = {
+          setAttribute(name: string, value: string) {
+            this[name] = value;
+          },
+          remove: vi.fn(() => {
+            activeLink = undefined;
+          }),
+        };
+        return link;
+      }),
     };
     const dynamicImport = vi.fn(() => Promise.resolve({ default: './one.js' }));
 
