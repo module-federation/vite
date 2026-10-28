@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import { createModuleFederationError, mfWarn } from '../utils/logger';
+import { isValidJsIdentifier, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import {
   getNormalizeModuleFederationOptions,
   type NormalizedModuleFederationOptions,
@@ -98,7 +99,14 @@ const VarRemoteEntry = (providedOptions?: NormalizedModuleFederationOptions): Pl
   ];
 
   function isValidVarName(name: string) {
-    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+    if (!isValidJsIdentifier(name)) return false;
+    // Reserved words (e.g. `class`) match the identifier pattern but can't be declared.
+    try {
+      new Function(`var ${name};`);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -108,28 +116,39 @@ const VarRemoteEntry = (providedOptions?: NormalizedModuleFederationOptions): Pl
    */
   function generateVarRemoteEntry(remoteEntryFile: string) {
     const { name, varFilename } = mfOptions;
-
     const isValidName = isValidVarName(name);
 
     return `
   ${isValidName ? `var ${name};` : ''}
-  ${isValidName ? name : `globalThis['${name}']`} = (function () {
+  (function (global) {
+    const name = ${toSafeJsLiteral(name)};
+    const descriptor = Object.getOwnPropertyDescriptor(global, name);
+    const prototype = Object.getPrototypeOf(global);
+    const emptyVarSlot = ${isValidName} && descriptor && 'value' in descriptor && descriptor.value === undefined && descriptor.writable && !(prototype && name in prototype);
+    if (name in global && !emptyVarSlot) {
+      const existing = descriptor && 'value' in descriptor ? descriptor.value : undefined;
+      if (existing && typeof existing.get === 'function' && typeof existing.init === 'function') {
+        return;
+      }
+      throw new Error('[Module Federation] Cannot register var remote "' + name + '" because the global already exists. Choose a different federation name or use an ESM remote.');
+    }
+
     function getScriptUrl() {
       const currentScript = document.currentScript;
       if (!currentScript) {
-        console.error("[Module Federation] ${varFilename} script should be called from sync <script> tag (document.currentScript is undefined)")
+        console.error(${toSafeJsLiteral(`[Module Federation] ${varFilename} script should be called from sync <script> tag (document.currentScript is undefined)`)})
         return '/';
       }
       return document.currentScript.src.replace(/\\/[^/]*$/, '/');
     }
 
-    const entry = getScriptUrl() + '${remoteEntryFile}';
+    const entry = getScriptUrl() + ${toSafeJsLiteral(remoteEntryFile)};
 
-    return {
+    global[name] = {
       get: (...args) => import(entry).then(m => m.get(...args)),
       init: (...args) => import(entry).then(m => m.init(...args)),
     };
-  })();
+  })(globalThis);
   `;
   }
 };

@@ -14,6 +14,7 @@ import { createRequire } from 'module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'url';
 import { createCodePositionMap } from '../utils/codePositionMap';
+import { isValidJsIdentifier, JS_IDENTIFIER_PATTERN } from '../utils/serializeRuntimeOptions';
 import { mfWarn } from '../utils/logger';
 import {
   getNormalizeModuleFederationOptions,
@@ -55,11 +56,6 @@ import {
 import { getSharedCacheHelpersImportCode } from './loadShareSharedChunk';
 import { LOAD_SHARE_TAG, PREBUILD_TAG } from './shareTags';
 
-const JS_IDENTIFIER_REGEX = new RegExp(
-  '^[$_\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*$',
-  'u'
-);
-
 function escapeGeneratedStringLiteral(value: string): string {
   return JSON.stringify(value).replace(/[<>\u2028\u2029]/g, (char) => {
     switch (char) {
@@ -88,17 +84,9 @@ function getSharedCacheDescriptorLiteral(pkg: string, shareItem: ShareItem): str
   return JSON.stringify(getSharedCacheDescriptor(pkg, shareItem));
 }
 
-function isValidJsIdentifier(name: string): boolean {
-  return JS_IDENTIFIER_REGEX.test(name);
-}
-
 function isValidEsmExportName(name: string | undefined): name is string {
   return !!name && name !== 'default' && name !== '__esModule' && isValidJsIdentifier(name);
 }
-
-const JS_IDENTIFIER_START = '[$_\\p{ID_Start}]';
-const JS_IDENTIFIER_CONTINUE = '[$_\\u200C\\u200D\\p{ID_Continue}]';
-const JS_IDENTIFIER_PATTERN = `${JS_IDENTIFIER_START}${JS_IDENTIFIER_CONTINUE}*`;
 
 function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
   try {

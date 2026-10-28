@@ -20,6 +20,15 @@ export function toSafeJsLiteral(value: unknown): string {
   return json.replace(UNSAFE_JS_CHAR_PATTERN, (char) => UNSAFE_JS_CHAR_MAP[char]);
 }
 
+const JS_IDENTIFIER_START = '[$_\\p{ID_Start}]';
+const JS_IDENTIFIER_CONTINUE = '[$_\\u200C\\u200D\\p{ID_Continue}]';
+export const JS_IDENTIFIER_PATTERN = `${JS_IDENTIFIER_START}${JS_IDENTIFIER_CONTINUE}*`;
+const JS_IDENTIFIER_REGEX = new RegExp(`^${JS_IDENTIFIER_PATTERN}$`, 'u');
+
+export function isValidJsIdentifier(name: string): boolean {
+  return JS_IDENTIFIER_REGEX.test(name);
+}
+
 /**
  * Serializes a JavaScript object into a string of source code that can be evaluated.
  * This function is used to create runtime plugin options without relying solely on JSON.stringify,
