@@ -109,12 +109,16 @@ const VarRemoteEntry = (providedOptions?: NormalizedModuleFederationOptions): Pl
    */
   function generateVarRemoteEntry(remoteEntryFile: string) {
     const { name, varFilename } = mfOptions;
+    const isValidName = isValidVarName(name);
 
     return `
+  ${isValidName ? `var ${name};` : ''}
   (function (global) {
     const name = ${toSafeJsLiteral(name)};
-    if (name in global) {
-      const descriptor = Object.getOwnPropertyDescriptor(global, name);
+    const descriptor = Object.getOwnPropertyDescriptor(global, name);
+    const prototype = Object.getPrototypeOf(global);
+    const emptyVarSlot = ${isValidName} && descriptor && 'value' in descriptor && descriptor.value === undefined && descriptor.writable && !(prototype && name in prototype);
+    if (name in global && !emptyVarSlot) {
       const existing = descriptor && 'value' in descriptor ? descriptor.value : undefined;
       if (existing && typeof existing.get === 'function' && typeof existing.init === 'function') {
         return;

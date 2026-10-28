@@ -160,7 +160,7 @@ describe('pluginVarRemoteEntry', () => {
     expect(emitted['remote-b.var.js']).not.toContain('wrongGlobal');
   });
 
-  it('registers a fresh container without declaring a global variable first', async () => {
+  it('registers a fresh container with the legacy global variable binding', async () => {
     const source = await generateSource();
     const context = createContext({
       document: { currentScript: { src: 'https://example.test/assets/remoteEntry.var.js' } },
@@ -213,8 +213,8 @@ describe('pluginVarRemoteEntry', () => {
     }
   );
 
-  it.each(['globalThis', 'Object', 'NaN', 'undefined', 'Infinity', 'constructor', 'toString'])(
-    'rejects the existing own or inherited global %s',
+  it.each(['globalThis', 'Object', 'NaN', 'undefined', 'Infinity'])(
+    'rejects the existing built-in global %s',
     async (name) => {
       const source = await generateSource(name);
       const context = createContext({});
@@ -224,13 +224,62 @@ describe('pluginVarRemoteEntry', () => {
     }
   );
 
-  it.each([undefined, null, false, 0, ''])(
-    'preserves an existing falsy global (%s)',
-    async (value) => {
-      const source = await generateSource();
-      const context = createContext({ basicRemote: value });
+  it.each([null, false, 0, ''])('preserves an existing falsy global (%s)', async (value) => {
+    const source = await generateSource();
+    const context = createContext({ basicRemote: value });
+    expect(() => runInContext(source, context)).toThrow('the global already exists');
+    expect(context.basicRemote).toBe(value);
+  });
+
+  it('allows a writable undefined slot used by a var declaration', async () => {
+    const source = await generateSource();
+    const context = createContext({
+      basicRemote: undefined,
+      document: { currentScript: { src: 'https://example.test/remoteEntry.var.js' } },
+    });
+    runInContext(source, context);
+    expect(context.basicRemote.get).toBeTypeOf('function');
+    expect(context.basicRemote.init).toBeTypeOf('function');
+  });
+
+  it('rejects an existing readonly undefined slot', async () => {
+    const source = await generateSource();
+    const context = createContext({});
+    Object.defineProperty(context, 'basicRemote', { value: undefined, writable: false });
+    expect(() => runInContext(source, context)).toThrow('the global already exists');
+    expect(context.basicRemote).toBeUndefined();
+  });
+
+  it('does not treat an undefined property for a non-identifier name as a hoisted var slot', async () => {
+    const source = await generateSource('remote-with-dashes');
+    const context = createContext({ 'remote-with-dashes': undefined });
+    expect(() => runInContext(source, context)).toThrow('the global already exists');
+    expect(context['remote-with-dashes']).toBeUndefined();
+  });
+
+  it('rejects an existing lexical binding before registering the container', async () => {
+    const source = await generateSource();
+    const context = createContext({});
+    runInContext('const basicRemote = "existing lexical binding";', context);
+    expect(() => runInContext(source, context)).toThrow('already been declared');
+    expect(runInContext('basicRemote', context)).toBe('existing lexical binding');
+    expect(Object.hasOwn(context, 'basicRemote')).toBe(false);
+  });
+
+  it.each(['constructor', 'toString'])(
+    'does not register a container when var hoisting shadows inherited %s',
+    async (name) => {
+      const source = await generateSource(name);
+      const context = createContext({});
+      const original = runInContext(
+        `Object.getPrototypeOf(globalThis)[${JSON.stringify(name)}]`,
+        context
+      );
       expect(() => runInContext(source, context)).toThrow('the global already exists');
-      expect(context.basicRemote).toBe(value);
+      expect(
+        runInContext(`Object.getPrototypeOf(globalThis)[${JSON.stringify(name)}]`, context)
+      ).toBe(original);
+      expect(context[name]?.init).not.toBeTypeOf('function');
     }
   );
 
