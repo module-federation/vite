@@ -108,10 +108,18 @@ function resolvePackageEntryFromProjectRoot(pkg: string): string | undefined {
   }
 }
 
+// Client conditions for installed entry lookups, including the user's
+// `resolve.conditions` so a workspace source condition wins like in Vite.
+let workspaceEntryConditions = ['browser', 'import', 'module', 'default'];
+
+export function setWorkspaceEntryConditions(conditions: string[]) {
+  workspaceEntryConditions = conditions;
+}
+
 function getPackageEsmEntryPath(pkg: string): string | undefined {
   return (
     getInstalledPackageEntry(pkg, {
-      conditions: ['browser', 'import', 'module', 'default'],
+      conditions: workspaceEntryConditions,
       resolveSubpathWithRequire: false,
     }) || resolvePackageEntryFromProjectRoot(pkg)
   );
@@ -930,7 +938,7 @@ export function getLocalProviderImportPath(pkg: string): string | undefined {
     return isWorkspaceFilePath(resolved) ? resolved : undefined;
   } catch {
     const resolved = getInstalledPackageEntry(pkg, {
-      conditions: ['browser', 'import', 'module', 'default'],
+      conditions: workspaceEntryConditions,
       resolveSubpathWithRequire: false,
     });
     return isWorkspaceFilePath(resolved) ? resolved : undefined;
@@ -979,7 +987,7 @@ function resolveWorkspaceEsmEntry(
   if (!isWorkspaceFilePath(resolved)) return resolved;
   const esmEntry = getInstalledPackageEntry(pkg, {
     cwd,
-    conditions: ['browser', 'import', 'module', 'default'],
+    conditions: workspaceEntryConditions,
     resolveSubpathWithRequire: false,
   });
   if (esmEntry && isWorkspaceFilePath(esmEntry)) return esmEntry;
@@ -1202,7 +1210,7 @@ function resolveConcreteSharedImportSource(pkg: string, projectRoot: string): st
     // out of reach of every `require.resolve` above. The installed lookup
     // reaches it through the dependents that link it.
     getInstalledPackageEntry(pkg, {
-      conditions: DEFAULT_SHARED_EXPORT_CONDITIONS,
+      conditions: workspaceEntryConditions,
       resolveSubpathWithRequire: false,
     })
   );

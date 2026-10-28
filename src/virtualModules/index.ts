@@ -51,6 +51,7 @@ export {
   getPreBuildShareItem,
   getProjectResolvedImportPath,
   getSharedImportSource,
+  setWorkspaceEntryConditions,
   addTreeShakingGraphQuery,
   getTreeShakingGraphToken,
   getTreeShakingSharedProviderImportId,

@@ -117,6 +117,7 @@ import {
   PREBUILD_TAG,
   refreshRemoteModuleForEnvironment,
   REMOTE_ENTRY_ID,
+  setWorkspaceEntryConditions,
   TREE_SHAKING_GRAPH_QUERY,
   TREE_SHAKING_PROVIDER_TAG,
   writeLocalSharedImportMap,
@@ -686,7 +687,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
   return {
     name: 'vite:module-federation-early-init',
     enforce: 'pre',
-    config(config: UserConfig, { command: _command }) {
+    config(config: UserConfig, { command: _command, mode }) {
       if (_command === 'serve') ignoreFederationGeneratedFiles(config, options);
 
       const root = config.root || process.cwd();
@@ -706,6 +707,13 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         .map((entry) => (path.isAbsolute(entry) ? entry : path.resolve(root, entry)));
       resetConcreteSharedImportSourceCache();
       setPackageDetectionCwd(root);
+      setWorkspaceEntryConditions(
+        getSharedExportConditions({
+          isProduction: mode === 'production',
+          isSsr: false,
+          rootConditions: config.resolve?.conditions,
+        })
+      );
       resolveSharedVersions(shared, root);
       const isVinext = hasPackageDependency('vinext');
 
