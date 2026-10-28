@@ -242,6 +242,16 @@ describe('pluginVarRemoteEntry', () => {
     expect(context.basicRemote.init).toBeTypeOf('function');
   });
 
+  it('registers a reserved-word name without emitting a var declaration', async () => {
+    const source = await generateSource('class');
+    expect(source).not.toContain('var class');
+    const context = createContext({
+      document: { currentScript: { src: 'https://example.test/remoteEntry.var.js' } },
+    });
+    runInContext(source, context);
+    expect(context.class.init).toBeTypeOf('function');
+  });
+
   it('rejects an existing readonly undefined slot', async () => {
     const source = await generateSource();
     const context = createContext({});

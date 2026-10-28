@@ -1,7 +1,7 @@
 import type { Plugin } from 'vite';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import { createModuleFederationError, mfWarn } from '../utils/logger';
-import { toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
+import { isValidJsIdentifier, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import {
   getNormalizeModuleFederationOptions,
   type NormalizedModuleFederationOptions,
@@ -99,7 +99,14 @@ const VarRemoteEntry = (providedOptions?: NormalizedModuleFederationOptions): Pl
   ];
 
   function isValidVarName(name: string) {
-    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+    if (!isValidJsIdentifier(name)) return false;
+    // Reserved words (e.g. `class`) match the identifier pattern but can't be declared.
+    try {
+      new Function(`var ${name};`);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
