@@ -15,6 +15,7 @@ import { setTreeShakingBuildMode } from '../../utils/treeShaking';
 import {
   addTreeShakingGraphQuery,
   getConcreteSharedImportSource,
+  getLocalProviderImportPath,
   getProjectResolvedImportPath,
   getSharedNamedExports,
   getTreeShakingGraphToken,
@@ -26,6 +27,7 @@ import {
   prependWorkspaceSingletonSsrImport,
   refreshTreeShakingModules,
   resetConcreteSharedImportSourceCache,
+  setWorkspaceEntryConditions,
   stripTreeShakingGraphQuery,
   writeLoadShareModule,
   writePreBuildLibPath,
@@ -232,6 +234,11 @@ vi.mock('../../utils/packageUtils', async (importOriginal) => ({
     }
     if (pkg === 'workspace-dual-format') {
       return '/repo/packages/workspace-dual-format/dist/index.js';
+    }
+    if (pkg === 'workspace-source-condition') {
+      return opts?.conditions?.includes('my-source')
+        ? '/repo/packages/workspace-source-condition/src/index.ts'
+        : '/repo/packages/workspace-source-condition/dist/index.js';
     }
     if (pkg === 'workspace-parent-dual-format' && opts?.cwd === '/repo') {
       return '/repo/packages/workspace-parent-dual-format/dist/index.js';
@@ -3483,6 +3490,21 @@ describe('writeLoadShareModule', () => {
     expect(getConcreteSharedImportSource('workspace-parent-dual-format')).toBe(
       '/repo/packages/workspace-parent-dual-format/dist/index.js'
     );
+  });
+
+  it('resolves workspace entries with the configured resolve conditions', () => {
+    const defaultConditions = ['browser', 'import', 'module', 'default'];
+    expect(getLocalProviderImportPath('workspace-source-condition')).toBe(
+      '/repo/packages/workspace-source-condition/dist/index.js'
+    );
+    setWorkspaceEntryConditions(['my-source', ...defaultConditions]);
+    try {
+      expect(getLocalProviderImportPath('workspace-source-condition')).toBe(
+        '/repo/packages/workspace-source-condition/src/index.ts'
+      );
+    } finally {
+      setWorkspaceEntryConditions(defaultConditions);
+    }
   });
 
   it('memoizes by package and root and supports lifecycle invalidation', () => {
