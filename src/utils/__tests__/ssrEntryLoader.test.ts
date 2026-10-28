@@ -1777,9 +1777,20 @@ async function freshLoaderWithRunner(
     const hash = { update: vi.fn().mockReturnThis(), digest: vi.fn(() => 'abc123def456789') };
     return { default: { createHash: vi.fn(() => hash) }, createHash: vi.fn(() => hash) };
   });
-  const createRequire = vi.fn(() => (id: string) => {
-    if (id !== 'vite/module-runner') throw new Error('module not found');
-    return runnerModule;
+  const createRequire = vi.fn(() => {
+    const require = Object.assign(
+      (id: string) => {
+        if (id !== 'vite/module-runner') throw new Error('module not found');
+        return runnerModule;
+      },
+      {
+        resolve: (id: string) => {
+          if (id === '@scope/ui/button') return '/host/node_modules/@scope/ui/button.js';
+          throw new Error('module not found');
+        },
+      }
+    );
+    return require;
   });
   vi.doMock('module', () => ({ default: { createRequire }, createRequire }));
   const { default: factory, revalidate } = await import('../ssrEntryLoader');
@@ -2026,6 +2037,58 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
       {
         result: {
           externalize: 'file:///host/node_modules/react/index.js',
+          type: 'module',
+        },
+      },
+    ]);
+  });
+
+  it('uses the host shared module for a concrete subpath matched by a wildcard key', async () => {
+    const sharedFetchResults: unknown[] = [];
+    const { factory } = await freshLoaderWithRunner((runnerOptions) => ({
+      import: vi.fn(async () => {
+        sharedFetchResults.push(
+          await runnerOptions.transport.invoke({
+            type: 'custom',
+            event: 'vite:invoke',
+            data: { name: 'fetchModule', data: ['@scope/ui/button'] },
+          })
+        );
+        return { init: vi.fn(), get: vi.fn() };
+      }),
+    }));
+    const fetch = makeFetchMock({
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:4175/__mf_runner__': {
+        ok: true,
+        json: {
+          result: {
+            externalize: 'file:///remote/node_modules/@scope/ui/button.js',
+            type: 'module',
+          },
+          shared: true,
+        },
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    await factory({
+      resolvedShared: { '@scope/ui/': '/host/node_modules/@scope/ui/index.js' },
+    }).loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    expect(sharedFetchResults).toEqual([
+      {
+        result: {
+          externalize: 'file:///host/node_modules/@scope/ui/button.js',
           type: 'module',
         },
       },

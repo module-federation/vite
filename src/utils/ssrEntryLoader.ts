@@ -189,12 +189,59 @@ function getRunnerCacheKey(
   ]);
 }
 
+function findResolvedSharedKey(
+  id: string,
+  resolvedShared: Record<string, string>
+): string | undefined {
+  if (resolvedShared[id]) return id;
+
+  let matchedKey: string | undefined;
+  for (const key of Object.keys(resolvedShared)) {
+    if (!key.endsWith('/')) continue;
+    const base = key.slice(0, -1);
+    if (id !== base && !id.startsWith(`${base}/`)) continue;
+    if (!matchedKey || key.length > matchedKey.length) matchedKey = key;
+  }
+  return matchedKey;
+}
+
+/**
+ * Resolve a shared request from the exact or wildcard build-time map.
+ * Wildcard entries point at the package entry, so concrete subpaths need a
+ * second Node resolution step to preserve package exports and conditions.
+ */
+export async function resolveSharedPath(
+  id: unknown,
+  resolvedShared: Record<string, string>
+): Promise<string | null> {
+  if (typeof id !== 'string') return null;
+  const matchedKey = findResolvedSharedKey(id, resolvedShared);
+  if (!matchedKey) return null;
+
+  const resolved = resolvedShared[matchedKey];
+  if (!resolved) return null;
+  if (matchedKey === id || EXTERNAL_URL_RE.test(resolved)) return resolved;
+
+  const { createRequire } = await _module();
+  try {
+    return createRequire(resolved).resolve(id);
+  } catch {
+    // Build output may have moved since the map was created. The application
+    // root is the same fallback used by the temp-file SSR cache.
+    try {
+      const { join } = await _path();
+      return createRequire(join(process.cwd(), 'noop.js')).resolve(id);
+    } catch {
+      return null;
+    }
+  }
+}
+
 async function resolveSharedExternal(
   id: unknown,
   resolvedShared: Record<string, string>
 ): Promise<{ externalize: string; type: 'module' } | null> {
-  if (typeof id !== 'string') return null;
-  const resolved = resolvedShared[id];
+  const resolved = await resolveSharedPath(id, resolvedShared);
   if (!resolved) return null;
 
   if (EXTERNAL_URL_RE.test(resolved)) {
@@ -1099,6 +1146,18 @@ function transformSsrCode(
   return neutralizeBrowserPreloadHelpers(rewriter.toString());
 }
 
+async function materializeSharedSubpaths(
+  specifiers: SsrModuleSpecifier[],
+  sharedPkgMap: Map<string, string>
+): Promise<void> {
+  const uniqueSpecifiers = new Set(specifiers.map(({ value }) => value));
+  for (const specifier of uniqueSpecifiers) {
+    if (sharedPkgMap.has(specifier)) continue;
+    const resolved = await resolveSharedPath(specifier, Object.fromEntries(sharedPkgMap));
+    if (resolved) sharedPkgMap.set(specifier, resolved);
+  }
+}
+
 function isVitePreloadHelperSpecifier(specifier: string): boolean {
   return specifier.includes('preload-helper');
 }
@@ -1213,6 +1272,10 @@ async function fetchEsmToTempFile(url: string, graph: TempFileGraph): Promise<st
         subMap.set(u, getTempFileImportUrl(tmpPath, versionKey));
       })
     );
+
+    // Expand wildcard shared entries to the concrete subpaths used by this
+    // module before rewriting imports to host-resolved file URLs.
+    if (sharedPkgMap) await materializeSharedSubpaths(specifiers, sharedPkgMap);
 
     // Transform code: absolute HTTP URLs → file:// paths for temp files,
     // and bare shared package specifiers → absolute file:// paths.
@@ -1541,9 +1604,10 @@ async function rebaseResolvedShared(
   const rebased: Record<string, string> = {};
   for (const [specifier, buildPath] of Object.entries(resolvedShared)) {
     rebased[specifier] = buildPath;
+    const resolutionSpecifier = specifier.endsWith('/') ? specifier.slice(0, -1) : specifier;
     for (const require of requires) {
       try {
-        rebased[specifier] = require.resolve(specifier);
+        rebased[specifier] = require.resolve(resolutionSpecifier);
         break;
       } catch {
         // Try the next base.
