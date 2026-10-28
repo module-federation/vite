@@ -26,8 +26,9 @@ import {
   getBodyPreview,
   readResponseTextBounded,
 } from './fetchWithTimeout';
-import { isHttpUrl } from './buildPaths';
+import { EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
 import { findSharedKey, type SharedKeyLookup } from './sharedKeyMatcher';
+import { resolveSharedPath } from './ssrEntryLoader';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
@@ -156,9 +157,10 @@ async function loadBareModule(specifier: string, options: VmStrategyOptions): Pr
     }
   }
 
-  const resolvedPath = options.resolvedShared[specifier];
+  const resolvedPath = await resolveSharedPath(specifier, options.resolvedShared);
   if (resolvedPath) {
-    return import(/* @vite-ignore */ `file://${resolvedPath}`);
+    const url = EXTERNAL_URL_RE.test(resolvedPath) ? resolvedPath : `file://${resolvedPath}`;
+    return import(/* @vite-ignore */ url);
   }
 
   const namespace = await import(/* @vite-ignore */ specifier);

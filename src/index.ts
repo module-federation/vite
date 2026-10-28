@@ -101,6 +101,7 @@ import {
   getCommonSharedSubpaths,
   isAssetLikeImport,
   isViteOptimizableEntry,
+  removeTrailingSlash,
 } from './utils/pathNormalization';
 import { findModuleImportDescriptors, getScannableModuleSource } from './utils/htmlEntryUtils';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
@@ -1067,11 +1068,15 @@ export default __mfShared.default ?? __mfShared;`,
       ];
       const resolvedShared: Record<string, string> = {};
       for (const pkg of [...commonSharedPkgs, ...sharedKeys]) {
+        // A trailing slash declares a wildcard shared package. Resolve its
+        // package root here; concrete subpaths are resolved by the SSR loader
+        // when the remote requests them.
+        const resolutionSpecifier = removeTrailingSlash(pkg);
         try {
-          resolvedShared[pkg] = projectRequire.resolve(pkg);
+          resolvedShared[pkg] = projectRequire.resolve(resolutionSpecifier);
         } catch {
           try {
-            resolvedShared[pkg] = resolveImportPath(pkg);
+            resolvedShared[pkg] = resolveImportPath(resolutionSpecifier);
           } catch {
             // Not installed at either location — ssrEntryLoader falls back to
             // runtime resolution from the host app.

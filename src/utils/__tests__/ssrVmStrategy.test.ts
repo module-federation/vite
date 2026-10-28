@@ -50,6 +50,30 @@ async function createFallbackSharedModule(prefix: string): Promise<string> {
   return file;
 }
 
+async function createFallbackWildcardPackage(prefix: string): Promise<string> {
+  const { mkdirSync, mkdtempSync, writeFileSync } = await import('fs');
+  const { tmpdir } = await import('os');
+  const { join } = await import('path');
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const packageDir = join(dir, 'node_modules', '@scope', 'ui');
+  mkdirSync(packageDir, { recursive: true });
+  writeFileSync(
+    join(packageDir, 'package.json'),
+    JSON.stringify({
+      name: '@scope/ui',
+      exports: {
+        '.': './index.mjs',
+        './button': { require: './button.cjs', import: './button.mjs' },
+      },
+    }),
+    'utf8'
+  );
+  writeFileSync(join(packageDir, 'index.mjs'), 'export const value = "index";', 'utf8');
+  writeFileSync(join(packageDir, 'button.mjs'), 'export const value = "fallback";', 'utf8');
+  writeFileSync(join(packageDir, 'button.cjs'), 'exports.value = "cjs";', 'utf8');
+  return join(packageDir, 'index.mjs');
+}
+
 const baseOptions = {
   resolvedShared: {},
   shareScopeName: 'default',
@@ -313,6 +337,28 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(namespace.value).toBe('negotiated');
     expect(loadShare).toHaveBeenCalledWith('@scope/ui/button');
   });
+
+  it.skipIf(!hasVmModules)(
+    'resolves a wildcard shared concrete subpath from the host map with ESM conditions',
+    async () => {
+      const packageEntry = await createFallbackWildcardPackage('mf-vm-wildcard-fallback-');
+
+      global.fetch = makeFetchMock({
+        'http://localhost:5001/remoteEntry.ssr.js': {
+          ok: true,
+          text: 'import { value } from "@scope/ui/button"; export { value };',
+        },
+      }) as unknown as typeof globalThis.fetch;
+      const strategy = await freshStrategy();
+
+      const namespace = (await strategy.loadViaVmStrategy(
+        'http://localhost:5001/remoteEntry.ssr.js',
+        { ...baseOptions, resolvedShared: { '@scope/ui/': packageEntry } }
+      )) as { value: string };
+
+      expect(namespace.value).toBe('fallback');
+    }
+  );
 
   it('does not negotiate common shared subpaths when the parent uses import:false', async () => {
     const fallbackFile = await createFallbackSharedModule('mf-vm-import-false-subpath-');
