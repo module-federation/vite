@@ -207,6 +207,36 @@ function findResolvedSharedKey(
   return matchedKey;
 }
 
+// Shared subpaths are imported as ESM, so prefer the export target Node's ESM
+// loader picks over `require.resolve`'s, which differ for dual packages.
+function getEsmExportTarget(target: unknown): string | undefined {
+  if (typeof target === 'string') return target;
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return undefined;
+  for (const [condition, value] of Object.entries(target)) {
+    if (condition !== 'node' && condition !== 'import' && condition !== 'default') continue;
+    const resolved = getEsmExportTarget(value);
+    if (resolved) return resolved;
+  }
+  return undefined;
+}
+
+async function resolveEsmSubpath(id: string, base: string): Promise<string | undefined> {
+  const { dirname, join } = await _path();
+  const { existsSync, readFileSync } = await _fs();
+  const segments = id.split('/');
+  const nameLength = id.startsWith('@') ? 2 : 1;
+  const name = segments.slice(0, nameLength).join('/');
+  const subpath = ['.', ...segments.slice(nameLength)].join('/');
+  for (let dir = dirname(base); dirname(dir) !== dir; dir = dirname(dir)) {
+    const packageJson = join(dir, 'node_modules', name, 'package.json');
+    if (!existsSync(packageJson)) continue;
+    const { exports } = JSON.parse(readFileSync(packageJson, 'utf8'));
+    const target = getEsmExportTarget(exports?.[subpath]);
+    return target && join(dirname(packageJson), target);
+  }
+  return undefined;
+}
+
 /**
  * Resolve a shared request from the exact or wildcard build-time map.
  * Wildcard entries point at the package entry, so concrete subpaths need a
@@ -225,18 +255,18 @@ export async function resolveSharedPath(
   if (matchedKey === id || EXTERNAL_URL_RE.test(resolved)) return resolved;
 
   const { createRequire } = await _module();
-  try {
-    return createRequire(resolved).resolve(id);
-  } catch {
-    // Build output may have moved since the map was created. The application
-    // root is the same fallback used by the temp-file SSR cache.
+  const { join } = await _path();
+  // Build output may have moved since the map was created. The application
+  // root is the same fallback used by the temp-file SSR cache.
+  for (const base of [resolved, join(process.cwd(), 'noop.js')]) {
     try {
-      const { join } = await _path();
-      return createRequire(join(process.cwd(), 'noop.js')).resolve(id);
+      const esmPath = await resolveEsmSubpath(id, base).catch(() => undefined);
+      return esmPath ?? createRequire(base).resolve(id);
     } catch {
-      return null;
+      // Try the next base.
     }
   }
+  return null;
 }
 
 async function resolveSharedExternal(

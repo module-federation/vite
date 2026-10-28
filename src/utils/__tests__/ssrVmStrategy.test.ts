@@ -61,12 +61,16 @@ async function createFallbackWildcardPackage(prefix: string): Promise<string> {
     join(packageDir, 'package.json'),
     JSON.stringify({
       name: '@scope/ui',
-      exports: { '.': './index.mjs', './button': './button.mjs' },
+      exports: {
+        '.': './index.mjs',
+        './button': { require: './button.cjs', import: './button.mjs' },
+      },
     }),
     'utf8'
   );
   writeFileSync(join(packageDir, 'index.mjs'), 'export const value = "index";', 'utf8');
   writeFileSync(join(packageDir, 'button.mjs'), 'export const value = "fallback";', 'utf8');
+  writeFileSync(join(packageDir, 'button.cjs'), 'exports.value = "cjs";', 'utf8');
   return join(packageDir, 'index.mjs');
 }
 
@@ -335,7 +339,7 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
   });
 
   it.skipIf(!hasVmModules)(
-    'resolves a wildcard shared concrete subpath from the host map',
+    'resolves a wildcard shared concrete subpath from the host map with ESM conditions',
     async () => {
       const packageEntry = await createFallbackWildcardPackage('mf-vm-wildcard-fallback-');
 
