@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import VirtualModule, { MF_OWNER_INFIX } from '../../utils/VirtualModule';
 import { findSharedKey } from '../../plugins/pluginProxySharedModule_preBuild';
 import { packageNameEncode } from '../../utils/packageUtils';
@@ -154,6 +154,40 @@ describe('shared virtual module instance isolation', () => {
         runtime: { ...makeTypedOptions(false).runtime, pattern: /remote-entry/g },
       })
     );
+  });
+
+  it('keeps the scope key when only filename changes between builds', async () => {
+    // A fresh module stands in for a fresh build process.
+    const loadGetScopeKey = async () => {
+      vi.resetModules();
+      return (await import('../virtualModuleScope')).getFederationScopeKey;
+    };
+    const first = makeOptions('per-build-host', 'remoteEntry.aaaaaaaa.js');
+    const second = makeOptions('per-build-host', 'remoteEntry.bbbbbbbb.js');
+
+    const key = (await loadGetScopeKey())(first);
+    expect((await loadGetScopeKey())(second)).toBe(key);
+
+    // Two instances in one build that differ only in filename stay apart.
+    const getScopeKey = await loadGetScopeKey();
+    expect(getScopeKey(first)).toBe(key);
+    expect(getScopeKey(second)).not.toBe(key);
+    expect(getScopeKey(first)).toBe(key);
+  });
+
+  it('changes the scope key when config other than filename changes', () => {
+    const base = {
+      internalName: 'config-host',
+      name: 'config-host',
+      filename: 'remoteEntry.js',
+      shared: {},
+    };
+    const key = getFederationScopeKey(base);
+
+    expect(getFederationScopeKey({ ...base, name: 'other-host' })).not.toBe(key);
+    expect(
+      getFederationScopeKey({ ...base, shared: makeShared('react') as typeof base.shared })
+    ).not.toBe(key);
   });
 
   it('uses the same scoped init barrier in serve loadShare and remoteEntry modules', () => {
