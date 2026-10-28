@@ -101,6 +101,7 @@ import {
   getCommonSharedSubpaths,
   isAssetLikeImport,
   isViteOptimizableEntry,
+  removeTrailingSlash,
 } from './utils/pathNormalization';
 import { findModuleImportDescriptors, getScannableModuleSource } from './utils/htmlEntryUtils';
 import VirtualModule, { createViteEncodedIdPrefixRegExp } from './utils/VirtualModule';
@@ -1070,7 +1071,7 @@ export default __mfShared.default ?? __mfShared;`,
         // A trailing slash declares a wildcard shared package. Resolve its
         // package root here; concrete subpaths are resolved by the SSR loader
         // when the remote requests them.
-        const resolutionSpecifier = pkg.endsWith('/') ? pkg.slice(0, -1) : pkg;
+        const resolutionSpecifier = removeTrailingSlash(pkg);
         try {
           resolvedShared[pkg] = projectRequire.resolve(resolutionSpecifier);
         } catch {

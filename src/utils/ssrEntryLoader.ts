@@ -189,6 +189,8 @@ function getRunnerCacheKey(
   ]);
 }
 
+// Mirrors sharedKeyMatcher's wildcard lookup without its static node:path
+// import, which this runtime entry must avoid.
 function findResolvedSharedKey(
   id: string,
   resolvedShared: Record<string, string>
@@ -1151,9 +1153,10 @@ async function materializeSharedSubpaths(
   sharedPkgMap: Map<string, string>
 ): Promise<void> {
   const uniqueSpecifiers = new Set(specifiers.map(({ value }) => value));
+  const resolvedShared = Object.fromEntries(sharedPkgMap);
   for (const specifier of uniqueSpecifiers) {
     if (sharedPkgMap.has(specifier)) continue;
-    const resolved = await resolveSharedPath(specifier, Object.fromEntries(sharedPkgMap));
+    const resolved = await resolveSharedPath(specifier, resolvedShared);
     if (resolved) sharedPkgMap.set(specifier, resolved);
   }
 }
