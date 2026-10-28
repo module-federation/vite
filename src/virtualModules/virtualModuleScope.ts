@@ -47,11 +47,23 @@ function stableConfigValue(value: unknown, ancestors = new WeakSet<object>()): u
   return result;
 }
 
+function hashConfig(value: unknown): bigint {
+  const identity = JSON.stringify(stableConfigValue(value));
+  return BigInt(`0x${createHash('sha256').update(identity).digest('hex').slice(0, 12)}`);
+}
+
+// The `filename` of the first instance in this process that got each owner id.
+const ownerIdFilenames = new Map<bigint, string | undefined>();
+
 export function getFederationScopeKey(
   options: Pick<NormalizedModuleFederationOptions, 'internalName'> &
     Partial<NormalizedModuleFederationOptions>
 ): string {
-  const identity = JSON.stringify(stableConfigValue(options));
-  const ownerId = BigInt(`0x${createHash('sha256').update(identity).digest('hex').slice(0, 12)}`);
+  // `filename` often changes on every build (`remoteEntry.<hash>.js`), so it only enters the
+  // key when it is the one thing that tells two instances in this process apart.
+  const { filename, ...identity } = options;
+  let ownerId = hashConfig(identity);
+  if (!ownerIdFilenames.has(ownerId)) ownerIdFilenames.set(ownerId, filename);
+  else if (ownerIdFilenames.get(ownerId) !== filename) ownerId = hashConfig(options);
   return `${options.internalName}${MF_OWNER_INFIX}${ownerId}`;
 }
