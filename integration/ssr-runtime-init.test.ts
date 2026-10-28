@@ -255,6 +255,58 @@ describe('plain runtime API during SSR startup', () => {
     expect(target.requests).toEqual([]);
   });
 
+  it.each(['init', 'registerRemotes'] as const)(
+    'lets a remote the app registers with %s() replace the configured entry',
+    async (api) => {
+      const configured = await remote('configured');
+      const override = await remote('override');
+      const app = await application(configured.entry);
+      const remotes = JSON.stringify([{ name: 'products', entry: override.entry, type: 'module' }]);
+      await writeFile(
+        path.join(app.root, 'probe.js'),
+        `
+        import { init, loadRemote, registerRemotes } from '@module-federation/runtime';
+        ${api === 'init' ? `init({ name: ${JSON.stringify(app.name)}, remotes: ${remotes} });` : `registerRemotes(${remotes});`}
+        export async function probe() {
+          return { target: (await loadRemote('products/value')).target };
+        }
+      `
+      );
+      const url = await buildApplication(app);
+      const { stdout } = await promisify(execFile)(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `const entry = await import(${JSON.stringify(url)}); console.log(JSON.stringify(await entry.probe()));`,
+      ]);
+      expect(JSON.parse(stdout.trim())).toEqual({ target: 'override' });
+      expect(configured.requests).toEqual([]);
+    }
+  );
+
+  it.runIf(Number(version.split('.')[0]) >= 8)(
+    'lets a remote the app registers replace the configured entry in dev SSR',
+    async () => {
+      const configured = await remote('configured');
+      const override = await remote('override');
+      const app = await application(configured.entry);
+      await writeFile(
+        path.join(app.root, 'probe.js'),
+        `
+        import { init, loadRemote } from '@module-federation/runtime';
+        init({ name: ${JSON.stringify(app.name)}, remotes: [{ name: 'products', entry: ${JSON.stringify(override.entry)}, type: 'module' }] });
+        export async function probe() {
+          return { target: (await loadRemote('products/value')).target };
+        }
+      `
+      );
+      const server = await createServer(app.config);
+      cleanup.push(() => server.close());
+      const probe = await server.ssrLoadModule('/probe.js');
+      expect(await probe.probe()).toEqual({ target: 'override' });
+      expect(configured.requests).toEqual([]);
+    }
+  );
+
   it('initializes a CommonJS SSR entry without top-level await', async () => {
     const app = await application((await remote('cjs')).entry);
     const url = await buildApplication(app, 'cjs');

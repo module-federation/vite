@@ -76,11 +76,28 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
             ${pluginImports}
             ${getRuntimeInitBootstrapCode(false, getRuntimeInitStatusImportId(options))}
             globalThis[globalKey].ssrInitStarted = true;
+            // These remotes are registered before application code, under owner-scoped
+            // names aliased to their configured names, and the runtime resolves an id
+            // against the first remote whose name or alias matches. Drop the alias once the
+            // application registers a remote under that name, so its entry wins.
+            const bootstrapRemoteNames = new Set(usedRemotes.map((remote) => remote.name));
+            const applicationRemotePlugin = {
+              name: 'vite-ssr-application-remote-plugin',
+              beforeRegisterRemote(args) {
+                if (bootstrapRemoteNames.has(args.remote.name)) return args;
+                for (const registered of args.origin.options.remotes) {
+                  if (bootstrapRemoteNames.has(registered.name) && registered.alias === args.remote.name) {
+                    delete registered.alias;
+                  }
+                }
+                return args;
+              },
+            };
             const runtime = init({
               name: ${toSafeJsLiteral(options.name)},
               remotes: usedRemotes,
               shared: usedShared,
-              plugins: [${plugins}],
+              plugins: [applicationRemotePlugin, ${plugins}],
               shareStrategy: ${toSafeJsLiteral(options.shareStrategy)},
             });
             const hostInitPromise = Promise.resolve(runtime);
