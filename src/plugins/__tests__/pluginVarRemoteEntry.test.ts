@@ -231,6 +231,14 @@ describe('pluginVarRemoteEntry', () => {
     expect(context.basicRemote).toBe(value);
   });
 
+  it('rejects the falsy browser global length', async () => {
+    const source = await generateSource('length');
+    const context = createContext({});
+    Object.defineProperty(context, 'length', { get: () => 0, configurable: true });
+    expect(() => runInContext(source, context)).toThrow('the global already exists');
+    expect(context.length).toBe(0);
+  });
+
   it('allows a writable undefined slot used by a var declaration', async () => {
     const source = await generateSource();
     const context = createContext({
