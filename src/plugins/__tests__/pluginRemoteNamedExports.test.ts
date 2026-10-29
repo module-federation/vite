@@ -343,6 +343,30 @@ describe('pluginRemoteNamedExports', () => {
       );
     });
 
+    it('does not wait for a remote a TypeScript target only uses as a type', async () => {
+      writeFiles({
+        'page.ts':
+          'import { Props } from "remoteApp/utils";\nexport const page = (props: Props) => props;',
+      });
+      expect(await transformEntry('import("./page.ts");')).toBeUndefined();
+    });
+
+    it('waits for a remote a TypeScript target uses as a value', async () => {
+      writeFiles({
+        'page.ts': 'import { foo, Props } from "remoteApp/utils";\nexport const page: Props = foo;',
+      });
+      expect(await transformEntry('import("./page.ts");')).toContain('import("remoteApp/utils")');
+    });
+
+    it('waits for a type-only remote import that verbatimModuleSyntax keeps', async () => {
+      writeFiles({
+        'tsconfig.json': '{ "compilerOptions": { "verbatimModuleSyntax": true } }',
+        'page.ts':
+          'import { Props } from "remoteApp/utils";\nexport const page = (props: Props) => props;',
+      });
+      expect(await transformEntry('import("./page.ts");')).toContain('import("remoteApp/utils")');
+    });
+
     it('does not wait for remotes behind a nested dynamic import', async () => {
       writeFiles({
         'page.js': 'export const load = () => import("./widget.js");',

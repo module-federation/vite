@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import * as vite from 'vite';
 import { findModuleImportDescriptors, getScannableModuleSource } from './htmlEntryUtils';
 import { isNodeModulePath } from './pathNormalization';
 
@@ -34,6 +35,26 @@ function shouldScanResolvedImport(id: string): boolean {
   return /\.(?:[cm]?[jt]sx?|vue|svelte)(?:\?|$)/.test(id);
 }
 
+const TS_MODULE_RE = /\.[cm]?tsx?$/;
+
+/**
+ * The module as Vite's TypeScript transform leaves it. A value-style import used only as a type
+ * (`import { Props } from 'remote/Widget'`) is dropped there, so it loads nothing at runtime.
+ * `transformWithOxc` is Vite 8+; `transformWithEsbuild` needs esbuild, which Vite 8 no longer ships.
+ */
+async function withoutTypeOnlyImports(id: string, code: string): Promise<string> {
+  if (!TS_MODULE_RE.test(id)) return code;
+  const { transformWithOxc } = vite as { transformWithOxc?: typeof vite.transformWithOxc };
+  try {
+    const result = transformWithOxc
+      ? await transformWithOxc(code, id, { jsx: 'preserve' })
+      : await vite.transformWithEsbuild(code, id, { jsx: 'preserve' });
+    return result.code;
+  } catch {
+    return code;
+  }
+}
+
 async function readModuleEdges(
   ctx: ResolveContext,
   id: string,
@@ -45,9 +66,14 @@ async function readModuleEdges(
   } catch {
     return { remotes: [], staticImports: [], dynamicImports: [] };
   }
+  let sources = collectImportSources(code);
+  // Only a remote import can change the result, so most modules skip the transform.
+  if (sources.some(({ source }) => isRemoteImport(source))) {
+    sources = collectImportSources(await withoutTypeOnlyImports(id, code));
+  }
 
   const edges: ModuleEdges = { remotes: [], staticImports: [], dynamicImports: [] };
-  for (const { source, dynamic } of collectImportSources(code)) {
+  for (const { source, dynamic } of sources) {
     if (isRemoteImport(source)) {
       if (!dynamic) edges.remotes.push(source);
       continue;
