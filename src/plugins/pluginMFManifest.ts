@@ -275,7 +275,7 @@ function getRemoteContainerName(remoteKey: string, remote: RemoteObjectConfig) {
 
 const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[] => {
   const mfOptions = providedOptions ?? getNormalizeModuleFederationOptions();
-  const { name, filename, getPublicPath, manifest: manifestOptions, varFilename } = mfOptions;
+  const { filename, getPublicPath, manifest: manifestOptions } = mfOptions;
 
   let mfManifestName =
     manifestOptions === true
@@ -341,41 +341,9 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Access-Control-Allow-Origin', '*');
             void (async () => {
-              const manifest = await applyManifestAdditionalData({
-                ...generateMFManifest({}, disableAssetsAnalyze),
-                id: name,
-                name: name,
-                metaData: {
-                  name: name,
-                  type: 'app',
-                  buildInfo: {
-                    buildVersion: getBuildVersion(),
-                    buildName: name,
-                    ...getTreeShakingBuildInfo(mfOptions),
-                  },
-                  remoteEntry: {
-                    name: devRemoteEntryFile,
-                    path: '',
-                    type: 'module',
-                  },
-                  ssrRemoteEntry: {
-                    name: getSsrRemoteEntryFileName(mfOptions, devRemoteEntryFile),
-                    path: '/__mf_ssr__/',
-                    type: 'module',
-                  },
-                  varRemoteEntry: varFilename
-                    ? {
-                        name: varFilename,
-                        path: '',
-                        type: 'var',
-                      }
-                    : undefined,
-                  types: resolveTypesMeta(mfOptions.dts),
-                  globalName: name,
-                  pluginVersion: packageJson.version,
-                  ...(getPublicPath ? { getPublicPath } : { publicPath }),
-                },
-              });
+              const manifest = await applyManifestAdditionalData(
+                generateMFManifest({}, disableAssetsAnalyze)
+              );
               res.end(JSON.stringify(manifest));
             })().catch(next);
           } else {
@@ -496,14 +464,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         // A plain client build emits no SSR entry; advertising the expected
         // filename anyway sends Node consumers to a 404. A standalone SSR
         // build adds the entry in writeBundle once the file exists.
-        ssrRemoteEntryFile =
-          foundSsrRemoteEntryFile ||
-          (_command === 'serve'
-            ? getSsrRemoteEntryFileName(
-                mfOptions,
-                resolveHashPlaceholderFileName(mfOptions.filename)
-              )
-            : undefined);
+        ssrRemoteEntryFile = foundSsrRemoteEntryFile;
 
         // Second pass: Collect all CSS assets
         const allCssAssets =
@@ -630,10 +591,10 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
   function generateMFManifest(preloadMap: PreloadMap, disableAssetsAnalyze = false) {
     const options = mfOptions;
     const { name, varFilename } = options;
+    // Dev serves the container at the unhashed configured path, even when
+    // bundledDev emits it under another name.
     const resolvedRemoteEntryFile =
-      _command === 'serve'
-        ? remoteEntryFile || resolveHashPlaceholderFileName(filename)
-        : remoteEntryFile;
+      _command === 'serve' ? resolveHashPlaceholderFileName(filename) : remoteEntryFile;
     const remoteEntry = {
       name: resolvedRemoteEntryFile,
       path: '',
@@ -641,8 +602,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
     };
     const resolvedSsrRemoteEntryFile =
       _command === 'serve'
-        ? ssrRemoteEntryFile ||
-          getSsrRemoteEntryFileName(mfOptions, resolveHashPlaceholderFileName(filename))
+        ? getSsrRemoteEntryFileName(mfOptions, resolvedRemoteEntryFile)
         : ssrRemoteEntryFile;
     const ssrRemoteEntry = resolvedSsrRemoteEntryFile
       ? {
