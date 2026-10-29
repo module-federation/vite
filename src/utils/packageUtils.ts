@@ -425,22 +425,20 @@ type SharedCacheDescriptor = {
   aliases?: string[];
 };
 
-type SharedCacheKeyInput = {
-  pkg: string;
-  singleton?: boolean;
-  version?: string;
-  scope?: string | string[];
-};
-
-export function getSharedCacheKeyParts(input: SharedCacheKeyInput) {
-  const normalizedScope = Array.isArray(input.scope) ? input.scope[0] : input.scope;
-  const scope = normalizedScope || 'default';
-  const id = input.singleton || !input.version ? input.pkg : `${input.pkg}@${input.version}`;
-  return {
-    scope,
-    id,
-    key: `${scope}:${id}`,
-  };
+// Emitted into generated runtime code with toString(), so it must stay self-contained:
+// no imports, no outer variables, and only syntax every supported runtime accepts.
+function createSharedCacheDescriptor(
+  pkg: string,
+  singleton: boolean | undefined,
+  version: string | undefined,
+  scope: string | string[] | undefined
+): SharedCacheDescriptor {
+  const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
+  const scopeName = normalizedScope || 'default';
+  const id = singleton || !version ? pkg : pkg + '@' + version;
+  const descriptor: SharedCacheDescriptor = { canonical: scopeName + ':' + id };
+  if (scopeName === 'default') descriptor.aliases = [id];
+  return descriptor;
 }
 
 export function getSharedCacheDescriptor(pkg: string, shareItem: ShareItem): SharedCacheDescriptor {
@@ -448,26 +446,15 @@ export function getSharedCacheDescriptor(pkg: string, shareItem: ShareItem): Sha
     shareItem.shareConfig.request !== undefined || shareItem.shareConfig.shareKey !== undefined
       ? getSharedRuntimeKey(pkg, shareItem)
       : pkg;
-  const parts = getSharedCacheKeyParts({
-    pkg: runtimeKey,
-    singleton: shareItem.shareConfig.singleton,
-    version: shareItem.version,
-    scope: shareItem.scope,
-  });
-  return {
-    canonical: parts.key,
-    ...(parts.scope === 'default' ? { aliases: [parts.id] } : {}),
-  };
+  return createSharedCacheDescriptor(
+    runtimeKey,
+    shareItem.shareConfig.singleton,
+    shareItem.version,
+    shareItem.scope
+  );
 }
 
-export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
-            const normalizedScope = Array.isArray(scope) ? scope[0] : scope;
-            const scopeName = normalizedScope || "default";
-            const id = singleton || !version ? pkg : pkg + "@" + version;
-            const descriptor = { canonical: scopeName + ":" + id };
-            if (scopeName === "default") descriptor.aliases = [id];
-            return descriptor;
-          };
+export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = ${createSharedCacheDescriptor.toString()};
           const __mfReadSharedCache = (cache, descriptor) => {
             const value = cache[descriptor.canonical];
             if (value !== undefined) return value;
