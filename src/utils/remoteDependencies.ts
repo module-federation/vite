@@ -66,10 +66,14 @@ async function readModuleEdges(
   } catch {
     return { remotes: [], staticImports: [], dynamicImports: [] };
   }
-  code = await withoutTypeOnlyImports(id, code);
+  let sources = collectImportSources(code);
+  // Only a remote import can change the result, so most modules skip the transform.
+  if (sources.some(({ source }) => isRemoteImport(source))) {
+    sources = collectImportSources(await withoutTypeOnlyImports(id, code));
+  }
 
   const edges: ModuleEdges = { remotes: [], staticImports: [], dynamicImports: [] };
-  for (const { source, dynamic } of collectImportSources(code)) {
+  for (const { source, dynamic } of sources) {
     if (isRemoteImport(source)) {
       if (!dynamic) edges.remotes.push(source);
       continue;
