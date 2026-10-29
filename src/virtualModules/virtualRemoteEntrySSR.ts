@@ -21,9 +21,9 @@ export function getRemoteEntrySSRId(
 const SSR_HOST_INIT_ID = 'virtual:mf-ssr-host-init';
 
 /**
- * The SSR entry's import of the host bootstrap. It names no owner: under the Vite builder the entry
- * plugin is shared by every environment, so the federation instance building each environment
- * resolves it to its own bootstrap.
+ * The SSR entry's import of the host bootstrap. Keyed by config scope, not by federation()
+ * instance: under the Vite builder the entry plugin is shared by every environment, so the
+ * instance building each environment resolves it to its own bootstrap.
  */
 export function getSsrHostInitId(
   options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
