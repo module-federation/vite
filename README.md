@@ -269,6 +269,10 @@ loading stays lazy, including with `loaded-first`. Apps without remotes receive 
 SSR host bootstrap. Cold development SSR follows the existing Vite 8+ support gate;
 independent SSR builds are supported on Vite 5–8.
 
+A remote the application registers at runtime with `init()` or `registerRemotes()`
+under a configured remote's name or alias replaces that remote for `loadRemote()`
+calls. Static `import "remote/expose"` statements keep using the configured entry.
+
 Dependencies externalized by Vite keep Node's own runtime resolution. Their runtime
 imports are not bound to the application's instance by this bootstrap.
 Include runtime-consuming dependencies in Vite's `ssr.noExternal` when they need
