@@ -1703,7 +1703,7 @@ describe('getSharedCacheDescriptor', () => {
 });
 
 describe('shared cache key parity', () => {
-  // The emitted runtime helper hand-copies the key format; both must agree on every input.
+  // The emitted runtime helper is serialized from the same function; it must stay self-contained and agree on every input.
   const runtimeDescriptor = new Function(
     `${sharedCacheHelperCode}
     return __mfGetSharedCacheDescriptor;`
