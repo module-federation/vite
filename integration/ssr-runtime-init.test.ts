@@ -255,13 +255,17 @@ describe('plain runtime API during SSR startup', () => {
     expect(target.requests).toEqual([]);
   });
 
-  it.each(['init', 'registerRemotes'] as const)(
-    'lets a remote the app registers with %s() replace the configured entry',
-    async (api) => {
+  it.each([
+    ['init', 'products', undefined],
+    ['registerRemotes', 'products', undefined],
+    ['registerRemotes', 'products-override', 'products'],
+  ] as const)(
+    'lets a remote the app registers with %s() as %s (alias %s) replace the configured entry',
+    async (api, name, alias) => {
       const configured = await remote('configured');
       const override = await remote('override');
       const app = await application(configured.entry);
-      const remotes = JSON.stringify([{ name: 'products', entry: override.entry, type: 'module' }]);
+      const remotes = JSON.stringify([{ name, alias, entry: override.entry, type: 'module' }]);
       await writeFile(
         path.join(app.root, 'probe.js'),
         `
