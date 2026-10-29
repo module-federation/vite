@@ -288,6 +288,45 @@ describe('loaded-first static remote browser bootstrap', () => {
     }
   }, 60_000);
 
+  it('resolves a local dynamic import whose chunk uses a remote only as a type', async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), 'mf-loaded-first-browser-type-only-'));
+    let hostServer: StaticServer | undefined;
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      // Nothing serves the remote: the page must not need it.
+      const unused = await serveDirectory(workspace);
+      const remoteEntry = `${unused.origin}/remoteEntry.js`;
+      await unused.close();
+
+      const hostOutDir = path.join(workspace, 'host');
+      await buildFixtureTo(
+        'loaded-first-type-only-boundary-host',
+        hostOutDir,
+        hostOptions(remoteEntry)
+      );
+      hostServer = await serveDirectory(hostOutDir);
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+
+      await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(
+        () => document.querySelector('#app')?.textContent !== '',
+        undefined,
+        { timeout: 15_000 }
+      );
+
+      expect(await page.locator('#app').textContent()).toBe('typed');
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser?.close();
+      await hostServer?.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('does not evaluate the host entry when a static remote fails', async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), 'mf-loaded-first-browser-failure-'));
     let remoteServer: StaticServer | undefined;
