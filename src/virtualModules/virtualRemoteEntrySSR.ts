@@ -6,7 +6,7 @@ import {
 import { resolveHashPlaceholderFileName } from '../utils/buildPaths';
 import { getSharedRequest, getSharedRuntimeKey } from '../utils/sharedKeyMatcher';
 import { getVirtualExposesSSRId } from './virtualExposesSSR';
-import { expandSharedPrefixKey, getUsedShares, getHostAutoInitPath } from './virtualRemoteEntry';
+import { expandSharedPrefixKey, getUsedShares } from './virtualRemoteEntry';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
 import { MODULE_CACHE_SHARE_SCOPE_KEY } from './virtualRuntimeInitStatus';
 
@@ -16,6 +16,19 @@ export function getRemoteEntrySSRId(
   options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
 ) {
   return `${REMOTE_ENTRY_SSR_ID}:${getVirtualModuleScopeKey(options)}`;
+}
+
+const SSR_HOST_INIT_ID = 'virtual:mf-ssr-host-init';
+
+/**
+ * The SSR entry's import of the host bootstrap. Keyed by config scope, not by federation()
+ * instance: under the Vite builder the entry plugin is shared by every environment, so the
+ * instance building each environment resolves it to its own bootstrap.
+ */
+export function getSsrHostInitId(
+  options: Pick<NormalizedModuleFederationOptions, 'internalName' | 'filename'>
+) {
+  return `${SSR_HOST_INIT_ID}:${getVirtualModuleScopeKey(options)}`;
 }
 
 // Trailing extension of a file name, e.g. `.js` in `remoteEntry.ssr.js`.
@@ -85,7 +98,7 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
   return `
   ${
     hasRemotes(options)
-      ? `import { hostInitPromise } from ${JSON.stringify(getHostAutoInitPath(options))};`
+      ? `import { hostInitPromise } from ${JSON.stringify(getSsrHostInitId(options))};`
       : 'import { init as runtimeInit } from "@module-federation/runtime";'
   }
 

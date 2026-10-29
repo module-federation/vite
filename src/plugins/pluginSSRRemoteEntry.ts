@@ -25,6 +25,7 @@ import {
   generateRemoteEntrySSR,
   getRemoteEntrySSRId,
   getSsrExposesFileName,
+  getSsrHostInitId,
   getSsrRemoteEntryFileName,
 } from '../virtualModules/virtualRemoteEntrySSR';
 
@@ -220,6 +221,8 @@ function readBoundedRunnerBody(
  */
 export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions): Plugin[] {
   const remoteEntrySSRId = getRemoteEntrySSRId(options);
+  const ssrHostInitId = getSsrHostInitId(options);
+  let hostInitChunkRef: string | undefined;
   const virtualExposesSSRId = getVirtualExposesSSRId(options);
   let cachedSsrRemoteEntrySource: string | undefined;
   const ssrOutputFilename = getSsrRemoteEntryFileName(options);
@@ -354,6 +357,10 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Register virtual SSR module IDs so they resolve to themselves.
         if (id === remoteEntrySSRId || id.startsWith(remoteEntrySSRId)) return id;
         if (id === virtualExposesSSRId || id.startsWith(virtualExposesSSRId)) return id;
+        // Not shared during build, so this is the instance that builds the current environment.
+        if (id === ssrHostInitId) {
+          return this.resolve(getHostAutoInitPath(options), importer, { skipSelf: true });
+        }
 
         if (!importer || !ssrModuleIds.has(importer)) return;
 
@@ -578,9 +585,9 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Rollup emits the SSR container as an asset. Its host bootstrap must
         // have a stable exported facade that this asset can import as well.
         if (!isRolldown && hasRemotes(options)) {
-          this.emitFile({
+          hostInitChunkRef = this.emitFile({
             type: 'chunk',
-            id: getHostAutoInitPath(options),
+            id: ssrHostInitId,
             name: 'hostInit',
             preserveSignature: 'strict',
           });
@@ -622,17 +629,13 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           const exposesChunk = findNuxtExposesChunk(bundle) ?? findEmittedExposesChunk(bundle);
           if (!isRolldown && isSsrRemoteEntryBuild(environment)) {
             let source = getSsrRemoteEntrySource();
-            if (hasRemotes(options)) {
-              const hostInitId = getHostAutoInitPath(options);
-              const hostInitChunk = Object.values(bundle).find(
-                (file) => file.type === 'chunk' && file.facadeModuleId?.includes(hostInitId)
+            if (hasRemotes(options) && hostInitChunkRef) {
+              source = source.replace(
+                JSON.stringify(ssrHostInitId),
+                JSON.stringify(
+                  toRelativeImport(ssrOutputFilename, this.getFileName(hostInitChunkRef))
+                )
               );
-              if (hostInitChunk) {
-                source = source.replace(
-                  JSON.stringify(hostInitId),
-                  JSON.stringify(toRelativeImport(ssrOutputFilename, hostInitChunk.fileName))
-                );
-              }
             }
             if (exposesChunk) {
               // The entry may sit below the output root (`filename` or

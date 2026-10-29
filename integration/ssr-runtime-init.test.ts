@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
-import { build, createServer, version, type Rollup, type InlineConfig } from 'vite';
+import { build, createBuilder, createServer, version, type Rollup, type InlineConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { federation } from '../src';
 import { createBrowser, serveDirectory } from './helpers/browser';
@@ -255,6 +255,62 @@ describe('plain runtime API during SSR startup', () => {
     expect(target.requests).toEqual([]);
   });
 
+  it.each([
+    ['init', 'products', undefined],
+    ['registerRemotes', 'products', undefined],
+    ['registerRemotes', 'products-override', 'products'],
+  ] as const)(
+    'lets a remote the app registers with %s() as %s (alias %s) replace the configured entry',
+    async (api, name, alias) => {
+      const configured = await remote('configured');
+      const override = await remote('override');
+      const app = await application(configured.entry);
+      const remotes = JSON.stringify([{ name, alias, entry: override.entry, type: 'module' }]);
+      await writeFile(
+        path.join(app.root, 'probe.js'),
+        `
+        import { init, loadRemote, registerRemotes } from '@module-federation/runtime';
+        ${api === 'init' ? `init({ name: ${JSON.stringify(app.name)}, remotes: ${remotes} });` : `registerRemotes(${remotes});`}
+        export async function probe() {
+          return { target: (await loadRemote('products/value')).target };
+        }
+      `
+      );
+      const url = await buildApplication(app);
+      const { stdout } = await promisify(execFile)(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `const entry = await import(${JSON.stringify(url)}); console.log(JSON.stringify(await entry.probe()));`,
+      ]);
+      expect(JSON.parse(stdout.trim())).toEqual({ target: 'override' });
+      expect(configured.requests).toEqual([]);
+    }
+  );
+
+  it.runIf(Number(version.split('.')[0]) >= 8)(
+    'lets a remote the app registers replace the configured entry in dev SSR',
+    async () => {
+      const configured = await remote('configured');
+      const override = await remote('override');
+      const app = await application(configured.entry);
+      await writeFile(
+        path.join(app.root, 'probe.js'),
+        `
+        import { init, loadRemote } from '@module-federation/runtime';
+        init({ name: ${JSON.stringify(app.name)}, remotes: [{ name: 'products', entry: ${JSON.stringify(override.entry)}, type: 'module' }] });
+        export async function probe() {
+          return { target: (await loadRemote('products/value')).target };
+        }
+      `
+      );
+      const server = await createServer(app.config);
+      cleanup.push(() => server.close());
+      const probe = await server.ssrLoadModule('/probe.js');
+      expect(await probe.probe()).toEqual({ target: 'override' });
+      expect(configured.requests).toEqual([]);
+    }
+  );
+
   it('initializes a CommonJS SSR entry without top-level await', async () => {
     const app = await application((await remote('cjs')).entry);
     const url = await buildApplication(app, 'cjs');
@@ -461,6 +517,62 @@ describe('plain runtime API during SSR startup', () => {
       await page.waitForFunction('globalThis.runtimeProbe !== undefined');
       expectTopology(await page.evaluate('globalThis.runtimeProbe.probe()'), host, parent);
       expect(errors).toEqual([]);
+    },
+    30_000
+  );
+
+  it.runIf(Number(version.split('.')[0]) >= 6).each([false, true])(
+    'builds a container SSR entry on the environment bootstrap from a config file (sharedConfigBuild: %s)',
+    async (sharedConfigBuild) => {
+      const app = await application('http://unused', 'version-first', true);
+      // Vite evaluates a config file once more for every environment unless sharedConfigBuild is
+      // set, so each environment builds with its own federation() instance.
+      (globalThis as any).__mfTestPlugins = () =>
+        federation({
+          name: app.name,
+          filename: 'remoteEntry.js',
+          remotes: { products: { name: 'products', type: 'module', entry: 'http://unused' } },
+          dts: false,
+          runtimePlugins: [path.join(app.root, 'counter.js')],
+          exposes: { './probe': path.join(app.root, 'probe.js') },
+        });
+      cleanup.push(async () => delete (globalThis as any).__mfTestPlugins);
+      await writeFile(
+        path.join(app.root, 'vite.config.mjs'),
+        `export default {
+          builder: { sharedConfigBuild: ${sharedConfigBuild} },
+          plugins: [globalThis.__mfTestPlugins()],
+          build: { minify: false },
+          environments: {
+            client: { build: { outDir: 'dist/client' } },
+            ssr: { build: { outDir: 'dist/server', rollupOptions: { input: ${JSON.stringify(path.join(app.root, 'probe.js'))} } } },
+          },
+        };`
+      );
+      const builder = await createBuilder({
+        root: app.root,
+        configFile: path.join(app.root, 'vite.config.mjs'),
+        logLevel: 'silent',
+      });
+      await builder.buildApp();
+
+      const serverDir = path.join(app.root, 'dist/server');
+      const owners = new Set<string>();
+      for (const file of await readdir(serverDir, { recursive: true })) {
+        if (!file.endsWith('.js')) continue;
+        const code = await readFile(path.join(serverDir, file), 'utf8');
+        for (const [owner] of code.matchAll(/__mf_owner__\d+__H_A_I__/g)) owners.add(owner);
+      }
+      expect(owners.size).toBe(1);
+      const entry = pathToFileURL(path.join(serverDir, 'remoteEntry.ssr.js')).href;
+      const { stdout } = await promisify(execFile)(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `const container = await import(${JSON.stringify(entry)});
+        await container.init({});
+        console.log(globalThis.__mfTestInitCounts?.[${JSON.stringify(app.name)}] ?? 0);`,
+      ]);
+      expect(stdout.trim()).toBe('1');
     },
     30_000
   );
