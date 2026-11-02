@@ -338,9 +338,12 @@ describe('virtualRuntimeInitStatus', () => {
 
     expect(getSsrRuntimeRemotes(options.remotes, options)).toEqual([
       {
+        alias: 'remote',
+        entryGlobalName: 'remote',
         name: getRuntimeRemoteAlias('remote', options),
         entry: 'http://localhost:4174/remoteEntry.js',
         type: 'module',
+        shareScope: 'default',
       },
     ]);
   });
