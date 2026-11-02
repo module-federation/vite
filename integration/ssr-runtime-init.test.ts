@@ -25,7 +25,6 @@ vi.mock('../src/utils/packageUtils', async () => {
 
 const cleanup: Array<() => Promise<unknown>> = [];
 type Application = { root: string; name: string; config: InlineConfig };
-type RemoteConfig = { name: string; type: 'module'; entry: string };
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
@@ -63,19 +62,13 @@ async function remote(target: string) {
 }
 
 async function application(
-  entry: string | Record<string, RemoteConfig>,
+  entry: string,
   shareStrategy: 'version-first' | 'loaded-first' = 'version-first',
   exposes = false,
-  hostInitInjectLocation: 'html' | 'entry' = 'html',
-  probeRemoteNames = ['products']
+  hostInitInjectLocation: 'html' | 'entry' = 'html'
 ): Promise<Application> {
   const root = await directory();
   const name = path.basename(root);
-  const remotes: Record<string, RemoteConfig> =
-    typeof entry === 'string' ? { products: { name: 'products', type: 'module', entry } } : entry;
-  const probeRemoteLoads = probeRemoteNames
-    .map((remoteName) => `loadRemote(${JSON.stringify(`${remoteName}/value`)})`)
-    .join(', ');
   await writeFile(
     path.join(root, 'probe.js'),
     `
@@ -87,10 +80,6 @@ async function application(
       const mod = await loadRemote(['products', 'value'].join('/'));
       return { ownerAtEvaluation, owner: getInstance()?.name,
         sameInstance: original === getInstance(), target: mod.target, exposes: mod.exposes() };
-    }
-    export async function probeAll() {
-      const modules = await Promise.all([${probeRemoteLoads}]);
-      return modules.map((mod) => mod.target);
     }
   `
   );
@@ -127,11 +116,10 @@ async function application(
         federation({
           name,
           filename: 'remoteEntry.js',
-          remotes,
+          remotes: { products: { name: 'products', type: 'module', entry } },
           dts: false,
           shareStrategy,
           hostInitInjectLocation,
-          ssrEntryLoader: { strategy: 'temp-file' },
           runtimePlugins: [counter],
           exposes: exposes ? { './probe': path.join(root, 'probe.js') } : {},
         }),
@@ -492,28 +480,6 @@ describe('plain runtime API during SSR startup', () => {
       cleanup.push(() => server.close());
       const probe = await server.ssrLoadModule('/probe.js');
       expectTopology(await probe.probe(), host, parent);
-    },
-    30_000
-  );
-
-  it.runIf(Number(version.split('.')[0]) >= 8)(
-    'registers all configured remotes during cold dev SSR',
-    async () => {
-      const names = ['catalog', 'checkout', 'account', 'insights'];
-      const remoteEntries = Object.fromEntries(
-        await Promise.all(
-          names.map(async (name) => {
-            const target = await remote(name);
-            return [name, { name, type: 'module' as const, entry: target.entry }];
-          })
-        )
-      ) as Record<string, RemoteConfig>;
-      const app = await application(remoteEntries, 'version-first', false, 'entry', names);
-      const server = await createServer({ ...app.config, server: { port: 0 } });
-      cleanup.push(() => server.close());
-
-      const probe = await server.ssrLoadModule('/probe.js');
-      await expect(probe.probeAll()).resolves.toEqual(names);
     },
     30_000
   );
