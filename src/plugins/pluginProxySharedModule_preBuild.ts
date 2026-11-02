@@ -588,6 +588,10 @@ export function proxySharedModule(options: {
   // sources have been materialized so the heavy writes happen at most once each.
   const materializedLoadShareSources = new Set<string>();
   const emittedTreeShakingProviders = new Set<string>();
+  // Concrete share source -> share, rebuilt only when the used shares change, so the
+  // dev resolve below doesn't scan every share for each absolute import.
+  const concreteShareSources = new Map<string, string>();
+  let concreteShareSourcesSize = -1;
   const hasAnalyzableShares = Object.values(shared).some((share) =>
     shouldAnalyzeSharedExports(share)
   );
@@ -1010,8 +1014,17 @@ export function proxySharedModule(options: {
         // Vite serves a file path as is. Resolving the share by name from the dependency
         // that installs it gets the pre-bundled copy instead (#1524).
         if (_command === 'serve' && path.isAbsolute(source)) {
-          const usedShares = [...getUsedShares(federationOptions)];
-          const share = usedShares.find((used) => getConcreteSharedImportSource(used) === source);
+          // Vite ids use forward slashes; concrete sources are native paths on Windows.
+          const usedShares = getUsedShares(federationOptions);
+          if (concreteShareSourcesSize !== usedShares.size) {
+            concreteShareSourcesSize = usedShares.size;
+            concreteShareSources.clear();
+            for (const used of usedShares) {
+              const concrete = getConcreteSharedImportSource(used);
+              if (concrete) concreteShareSources.set(concrete.replaceAll('\\', '/'), used);
+            }
+          }
+          const share = concreteShareSources.get(source.replaceAll('\\', '/'));
           if (!share) return;
           const packageName = getPackageName(share);
           const dependent = findPackageInDependents(packageName, getPackageDetectionCwd());
