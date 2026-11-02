@@ -3177,9 +3177,7 @@ describe('vite:module-federation-early-init', () => {
     }
   });
 
-  it('includes a shared singleton only a dependency installs through a nested optimizeDeps entry', () => {
-    // pnpm keeps the package inside its dependent's node_modules, so the project root
-    // can't resolve it. Excluding it would serve its raw CommonJS imports in dev (#1524).
+  it('includes a share only a dependency installs through that dependency', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'mf-dependent-only-'));
     try {
       writeFileSync(

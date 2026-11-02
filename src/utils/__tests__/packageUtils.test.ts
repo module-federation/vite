@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../buildPaths';
 import { withNodePath } from './helpers';
 import {
-  findDependentCopy,
+  findPackageInDependents,
   getInstalledPackageEntry,
   getInstalledPackageJson,
   getPackageExportSpecifiersForFile,
@@ -624,7 +624,7 @@ describe('getInstalledPackageJson through dependents', () => {
     });
     installShared('node_modules/mf-test-parent', '2.0.0');
 
-    expect(findDependentCopy('mf-test-shared', root)).toMatchObject({
+    expect(findPackageInDependents('mf-test-shared', root)).toMatchObject({
       chain: ['mf-test-wrapper', 'mf-test-parent'],
       dependentDir: realpathSync(path.join(root, 'node_modules/mf-test-parent')),
     });

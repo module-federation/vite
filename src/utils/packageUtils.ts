@@ -706,7 +706,9 @@ function resolveInstalledPackageJson(
     if (directCandidate) return directCandidate;
   }
 
-  return findDependentCopy(packageName, cwd)?.copy ?? findPackageInPnpmStore(packageName, cwd);
+  return (
+    findPackageInDependents(packageName, cwd)?.copy ?? findPackageInPnpmStore(packageName, cwd)
+  );
 }
 
 function readDirEntries(dir: string) {
@@ -770,11 +772,11 @@ function findPackageInPnpmStore(
   return undefined;
 }
 
+// `chain` is the dependency path from the project to the dependent, e.g. `['a', 'b']`.
 type DependentCopy = {
   copy: InstalledPackageJson;
-  /** Real directory of the package that declares the copy. */
+  via: string;
   dependentDir: string;
-  /** Dependency names from the project down to that package, e.g. `['a', 'b']`. */
   chain: string[];
 };
 
@@ -784,7 +786,10 @@ type DependentCopy = {
  * does, so the copy found is the version it is installed against rather than
  * whichever one the pnpm store happens to list first.
  */
-export function findDependentCopy(packageName: string, cwd: string): DependentCopy | undefined {
+export function findPackageInDependents(
+  packageName: string,
+  cwd: string
+): DependentCopy | undefined {
   const cacheKey = `${cwd}\0${packageName}`;
   if (!dependentsLookupCache.has(cacheKey)) {
     // A walk for a name no reachable package installs visits the whole graph,
@@ -839,7 +844,7 @@ function walkDependents(
         // arbitrary pick this walk exists to avoid.
         if (dependencies.includes(packageName)) {
           const copy = findPackageFrom(packageName, dependent.dir);
-          if (copy) candidates.push({ copy, dependentDir: dependent.dir, chain });
+          if (copy) candidates.push({ copy, via: name, dependentDir: dependent.dir, chain });
         }
         for (const dependency of dependencies) {
           nextLevel.push({
@@ -860,11 +865,14 @@ function walkDependents(
   return undefined;
 }
 
-function warnOnAmbiguousDependents(packageName: string, candidates: DependentCopy[]) {
+function warnOnAmbiguousDependents(
+  packageName: string,
+  candidates: { copy: InstalledPackageJson; via: string }[]
+) {
   const viaByVersion = new Map<unknown, string>();
-  for (const { copy, chain } of candidates) {
+  for (const { copy, via } of candidates) {
     if (!viaByVersion.has(copy.packageJson.version)) {
-      viaByVersion.set(copy.packageJson.version, chain[chain.length - 1]);
+      viaByVersion.set(copy.packageJson.version, via);
     }
   }
   if (viaByVersion.size < 2) return;

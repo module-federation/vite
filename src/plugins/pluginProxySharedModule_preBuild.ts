@@ -27,7 +27,7 @@ import {
   getSharedRuntimeKey,
 } from '../utils/sharedKeyMatcher';
 import {
-  findDependentCopy,
+  findPackageInDependents,
   getInstalledPackageJson,
   type InstalledPackageJson,
   getInstalledPackageEntry,
@@ -1007,22 +1007,19 @@ export function proxySharedModule(options: {
       name: 'proxyPreBuildShared:resolve-prebuild',
       enforce: 'pre',
       async resolveId(source, importer) {
-        // The generated share modules import a share that only a dependency declares by
-        // that dependency's absolute entry, which Vite serves unoptimized. Resolving the
-        // bare name from the dependency lets Vite match it to the nested optimizeDeps
-        // entry (#1524).
-        if (_command !== 'build' && path.isAbsolute(source)) {
-          const pkgName = [...getUsedShares(federationOptions)].find(
-            (share) => getConcreteSharedImportSource(share) === source
+        // Vite serves a file path as is. Resolving the share by name from the dependency
+        // that installs it gets the pre-bundled copy instead (#1524).
+        if (_command === 'serve' && path.isAbsolute(source)) {
+          const usedShares = [...getUsedShares(federationOptions)];
+          const share = usedShares.find((used) => getConcreteSharedImportSource(used) === source);
+          if (!share) return;
+          const dependent = findPackageInDependents(
+            getPackageName(share),
+            getPackageDetectionCwd()
           );
-          if (!pkgName) return;
-          const dependent = findDependentCopy(getPackageName(pkgName), getPackageDetectionCwd());
           if (!dependent || !source.startsWith(dependent.copy.dir + path.sep)) return;
-          return resolveInternally(
-            this,
-            pkgName,
-            path.join(dependent.dependentDir, 'package.json')
-          );
+          const dependentPackageJson = path.join(dependent.dependentDir, 'package.json');
+          return resolveInternally(this, share, dependentPackageJson);
         }
         if (!source.includes(PREBUILD_TAG)) return;
         if (source.startsWith('.')) return;
