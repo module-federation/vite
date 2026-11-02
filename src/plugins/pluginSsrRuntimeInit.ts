@@ -17,6 +17,7 @@ import {
 import {
   getRuntimeInitBootstrapCode,
   getRuntimeInitStatusImportId,
+  getSsrRuntimeRemotes,
 } from '../virtualModules/virtualRuntimeInitStatus';
 
 /** Register the SSR host before application evaluation, without preloading remotes. */
@@ -69,6 +70,7 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
                 `plugin${index}(${Array.isArray(plugin) ? serializeRuntimeOptions(plugin[1]) : ''})`
             )
             .join(',');
+          const fallbackRemotes = toSafeJsLiteral(getSsrRuntimeRemotes(options.remotes, options));
           return {
             code: `
             import { init } from ${toSafeJsLiteral(options.implementation)};
@@ -80,7 +82,8 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
             // names aliased to their configured names, and the runtime resolves an id
             // against the first remote whose name or alias matches. Drop the alias once the
             // application registers a remote under that name or alias, so its entry wins.
-            const bootstrapRemoteNames = new Set(usedRemotes.map((remote) => remote.name));
+            const bootstrapRemotes = Array.isArray(usedRemotes) ? usedRemotes : ${fallbackRemotes};
+            const bootstrapRemoteNames = new Set(bootstrapRemotes.map((remote) => remote.name));
             const applicationRemotePlugin = {
               name: 'vite-ssr-application-remote-plugin',
               beforeRegisterRemote(args) {
@@ -99,7 +102,7 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
             };
             const runtime = init({
               name: ${toSafeJsLiteral(options.name)},
-              remotes: usedRemotes,
+              remotes: bootstrapRemotes,
               shared: usedShared,
               plugins: [applicationRemotePlugin, ${plugins}],
               shareStrategy: ${toSafeJsLiteral(options.shareStrategy)},

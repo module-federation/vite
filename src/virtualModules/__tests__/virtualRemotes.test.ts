@@ -770,7 +770,7 @@ describe('generateRemotes', () => {
       '/virtual/hostInit-https%3A%2F%2Ftenant-b.invalid%2FremoteEntry.js.js'
     );
     expect(wrapperA.code).toMatch(
-      /remotes: \[{"name":"shared_host_name__mf_owner__\d+__remote","entry":"https:\/\/tenant-a\.invalid\/remoteEntry\.js","type":"module"}\]/
+      /remotes: \[{"alias":"remote","entryGlobalName":"remote_a","name":"shared_host_name__mf_owner__\d+__remote","entry":"https:\/\/tenant-a\.invalid\/remoteEntry\.js","type":"module","shareScope":"default"}\]/
     );
 
     addUsedRemote('remote', 'remote/CardA', optionsA);

@@ -45,14 +45,26 @@ export function getRuntimeRemoteAlias(alias: string, options?: NormalizedModuleF
   return `${getFederationScopeKey(options)}__${alias}`;
 }
 
+export interface SsrRuntimeRemote {
+  name: string;
+  entry: string;
+  type: string;
+  alias?: string;
+  entryGlobalName?: string;
+  shareScope?: string | string[];
+}
+
 export function getSsrRuntimeRemotes(
   remotes: NormalizedModuleFederationOptions['remotes'],
   options?: NormalizedModuleFederationOptions
 ) {
-  return Object.entries(remotes).map(([name, item]) => ({
-    name: getRuntimeRemoteAlias(name, options),
+  return Object.entries(remotes).map(([alias, item]) => ({
+    alias,
+    entryGlobalName: item.entryGlobalName,
+    name: getRuntimeRemoteAlias(alias, options),
     entry: item.entry,
     type: item.type ?? 'module',
+    shareScope: item.shareScope ?? 'default',
   }));
 }
 
@@ -70,9 +82,9 @@ function getDeferredInitPromiseCode() {
 
 // Serialised remotes config for the SSR runtime — populated by writeRuntimeInitStatus
 // from the host's remotes option so loadRemote knows where to find each remote.
-let _ssrRemotes: Array<{ name: string; entry: string; type: string }> = [];
+let _ssrRemotes: SsrRuntimeRemote[] = [];
 
-export function setSsrRemotes(remotes: Array<{ name: string; entry: string; type: string }>) {
+export function setSsrRemotes(remotes: SsrRuntimeRemote[]) {
   _ssrRemotes = remotes;
 }
 
@@ -136,7 +148,7 @@ function getRuntimeInitStateBootstrapCode(options: {
   enableSsrInit: boolean;
   ownerImportId?: string;
   hostInitImportId?: string;
-  ssrRemotes?: Array<{ name: string; entry: string; type: string }>;
+  ssrRemotes?: SsrRuntimeRemote[];
 }) {
   return `
 const ${options.globalKeyVar} = ${toSafeJsLiteral(getRuntimeInitGlobalKey(options.ownerImportId))};
@@ -162,7 +174,7 @@ const ${options.exposedConst} = ${options.stateVar}.${options.exposedProperty};
 export function getRuntimeInitBootstrapCode(
   enableSsrInit = false,
   ownerImportId?: string,
-  ssrRemotes?: Array<{ name: string; entry: string; type: string }>,
+  ssrRemotes?: SsrRuntimeRemote[],
   hostInitImportId = ownerImportId,
   exportConditions?: readonly string[]
 ) {
@@ -235,7 +247,7 @@ for (const __mfShareKey of Object.keys(__mfModuleCache.share)) {
 export function getRuntimeInitPromiseBootstrapCode(
   enableSsrInit = false,
   ownerImportId?: string,
-  ssrRemotes?: Array<{ name: string; entry: string; type: string }>,
+  ssrRemotes?: SsrRuntimeRemote[],
   hostInitImportId = ownerImportId
 ) {
   return getRuntimeInitStateBootstrapCode({
@@ -256,7 +268,7 @@ export function getRuntimeInitPromiseBootstrapCode(
 export function getRuntimeInitResolveBootstrapCode(
   enableSsrInit = false,
   ownerImportId?: string,
-  ssrRemotes?: Array<{ name: string; entry: string; type: string }>,
+  ssrRemotes?: SsrRuntimeRemote[],
   hostInitImportId = ownerImportId
 ) {
   return getRuntimeInitStateBootstrapCode({
