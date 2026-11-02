@@ -3120,21 +3120,17 @@ describe('pluginProxySharedModule_preBuild', () => {
   it.each([
     {
       name: 'resolves a share only a dependency installs from that dependency in dev',
-      copyDir: '/workspace/packages/transitive-no-override',
+      dependent: { dependentDir: '/workspace/packages/ui', chain: ['ui'] },
       expected: '/workspace/packages/ui/package.json:transitive-no-override',
     },
     {
-      name: 'leaves the entry alone when it belongs to another copy',
-      copyDir: '/workspace/node_modules/transitive-no-override',
+      name: 'leaves a share entry alone when no dependency installs it',
+      dependent: undefined,
       expected: undefined,
     },
-  ])('$name', async ({ copyDir, expected }) => {
+  ])('$name', async ({ dependent, expected }) => {
     hasPackageDependencyMock.mockReturnValue(false);
-    findPackageInDependentsMock.mockReturnValue({
-      copy: { dir: copyDir },
-      dependentDir: '/workspace/packages/ui',
-      chain: ['ui'],
-    });
+    findPackageInDependentsMock.mockReturnValue(dependent);
     const federationOptions = normalizeModuleFederationOptions({
       name: 'host',
       exposes: {},

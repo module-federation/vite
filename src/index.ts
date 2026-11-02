@@ -408,7 +408,7 @@ function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean 
   }
 }
 
-// A share only a dependency installs is pre-bundled through it, e.g. `ui > react-i18next` (#1524).
+// A share only a dependency installs is pre-bundled through it, e.g. `ui > react-i18next`.
 function getSharedIncludeEntry(subpath: string, projectRoot: string): string | undefined {
   if (canResolveSharedSubpath(subpath, projectRoot)) return subpath;
   const dependent = findPackageInDependents(getPackageName(subpath), projectRoot);

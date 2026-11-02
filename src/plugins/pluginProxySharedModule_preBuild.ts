@@ -1013,11 +1013,9 @@ export function proxySharedModule(options: {
           const usedShares = [...getUsedShares(federationOptions)];
           const share = usedShares.find((used) => getConcreteSharedImportSource(used) === source);
           if (!share) return;
-          const dependent = findPackageInDependents(
-            getPackageName(share),
-            getPackageDetectionCwd()
-          );
-          if (!dependent || !source.startsWith(dependent.copy.dir + path.sep)) return;
+          const packageName = getPackageName(share);
+          const dependent = findPackageInDependents(packageName, getPackageDetectionCwd());
+          if (!dependent) return;
           const dependentPackageJson = path.join(dependent.dependentDir, 'package.json');
           return resolveInternally(this, share, dependentPackageJson);
         }

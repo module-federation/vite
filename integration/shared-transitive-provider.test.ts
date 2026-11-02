@@ -274,7 +274,7 @@ describe('shared transitive provider', () => {
 
     try {
       // The loadShare wrapper exists only when the package is shared. Its local copy
-      // must be the optimized one: a raw store path skips CommonJS interop (#1524).
+      // must be the optimized one: a raw store path skips CommonJS interop.
       const seen = new Set<string>();
       const pending = ['/main.js'];
       let fallbackCode: string | undefined;
