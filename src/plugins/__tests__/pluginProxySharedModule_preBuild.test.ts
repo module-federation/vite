@@ -26,6 +26,7 @@ const {
   writePreBuildLibPathMock,
   getInstalledPackageEntryMock,
   getPackageExportSpecifiersForFileMock,
+  findPackageInDependentsMock,
   hasTreeShakingSharedProviderMock,
   getTreeShakingSharedProviderImportIdMock,
   getTreeShakingSharedProviderNameMock,
@@ -66,6 +67,9 @@ const {
       }
     ) => string[]
   >(() => []),
+  findPackageInDependentsMock: vi.fn<(packageName: string, cwd: string) => unknown>(
+    () => undefined
+  ),
   hasTreeShakingSharedProviderMock: vi.fn<(pkg: string, shareItem?: unknown) => boolean>(
     () => false
   ),
@@ -99,6 +103,7 @@ vi.mock('../../utils/packageUtils', async (importOriginal) => ({
   isPackageExportAvailable: () => true,
   isPackageInstalled: () => true,
   getPackageExportSpecifiersForFile: getPackageExportSpecifiersForFileMock,
+  findPackageInDependents: findPackageInDependentsMock,
   getInstalledPackageJson: vi.fn((pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     const packageName = match ? match[0] : pkg;
@@ -676,6 +681,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     getInstalledPackageEntryMock.mockReturnValue(undefined);
     getPackageExportSpecifiersForFileMock.mockReset();
     getPackageExportSpecifiersForFileMock.mockReturnValue([]);
+    findPackageInDependentsMock.mockReset();
     hasTreeShakingSharedProviderMock.mockReset();
     hasTreeShakingSharedProviderMock.mockReturnValue(false);
     getTreeShakingSharedProviderImportIdMock.mockClear();
@@ -3109,6 +3115,46 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect((resolution as { id: string }).id).toBe(
       '/workspace/packages/transitive-no-override/dist/index.js'
     );
+  });
+
+  it.each([
+    {
+      name: 'resolves a share only a dependency installs from that dependency in dev',
+      dependent: { dependentDir: '/workspace/packages/ui', chain: ['ui'] },
+      expected: '/workspace/packages/ui/package.json:transitive-no-override',
+    },
+    {
+      name: 'leaves a share entry alone when no dependency installs it',
+      dependent: undefined,
+      expected: undefined,
+    },
+  ])('$name', async ({ dependent, expected }) => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    findPackageInDependentsMock.mockReturnValue(dependent);
+    const federationOptions = normalizeModuleFederationOptions({
+      name: 'host',
+      exposes: {},
+      remotes: {},
+      shared: {},
+    });
+    const plugins = proxySharedModule({ federationOptions, shared: makeShared() });
+    callHook(
+      getProxyPlugin(plugins).config,
+      { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'serve', mode: 'development' } as ConfigEnv
+    );
+    getUsedShares(federationOptions).add('transitive-no-override');
+
+    const resolution = await callHook(
+      getPrebuildResolvePlugin(plugins).resolveId,
+      { resolve: async (id: string, importer: string) => ({ id: `${importer}:${id}` }) } as any,
+      '/workspace/packages/transitive-no-override/dist/index.js',
+      '\0virtual:mf-localSharedImportMap',
+      { isEntry: false }
+    );
+
+    expect((resolution as { id: string } | undefined)?.id).toBe(expected);
   });
 
   it('does not proxy shared deps imported from build config files', async () => {

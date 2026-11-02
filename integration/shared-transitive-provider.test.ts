@@ -273,9 +273,8 @@ describe('shared transitive provider', () => {
     });
 
     try {
-      // The loadShare wrapper is the share's fallback. Its code naming the store
-      // copy is what proves the provider resolved, and it exists only when the
-      // package is actually shared.
+      // The loadShare wrapper exists only when the package is shared. Its local copy
+      // must be the optimized one: a raw store path skips CommonJS interop.
       const seen = new Set<string>();
       const pending = ['/main.js'];
       let fallbackCode: string | undefined;
@@ -289,9 +288,9 @@ describe('shared transitive provider', () => {
         for (const [, spec] of result.code.matchAll(/from\s*"([^"]+)"/g)) pending.push(spec);
       }
 
-      expect(fallbackCode).toContain(
-        'node_modules/.pnpm/mf-nested-lib@2.1.0/node_modules/mf-nested-lib'
-      );
+      expect(server.config.optimizeDeps.include).toContain('mf-parent-lib > mf-nested-lib');
+      expect(fallbackCode).toContain('/node_modules/.vite/deps/');
+      expect(fallbackCode).not.toContain('node_modules/.pnpm/mf-nested-lib');
     } finally {
       await server.close();
     }

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizePathForImport } from '../buildPaths';
 import { withNodePath } from './helpers';
 import {
+  findPackageInDependents,
   getInstalledPackageEntry,
   getInstalledPackageJson,
   getPackageExportSpecifiersForFile,
@@ -607,6 +608,26 @@ describe('getInstalledPackageJson through dependents', () => {
     expect(getInstalledPackageJson('mf-test-shared', { cwd: root })?.packageJson.version).toBe(
       '2.0.0'
     );
+  });
+
+  it('reports the dependency chain to the dependent that installs the copy', () => {
+    const { root, writePackage, installShared } = createProject({
+      dependencies: { 'mf-test-wrapper': '1.0.0' },
+    });
+    writePackage('node_modules/mf-test-wrapper', {
+      name: 'mf-test-wrapper',
+      dependencies: { 'mf-test-parent': '1.0.0' },
+    });
+    writePackage('node_modules/mf-test-parent', {
+      name: 'mf-test-parent',
+      dependencies: { 'mf-test-shared': '2.0.0' },
+    });
+    installShared('node_modules/mf-test-parent', '2.0.0');
+
+    expect(findPackageInDependents('mf-test-shared', root)).toMatchObject({
+      chain: ['mf-test-wrapper', 'mf-test-parent'],
+      dependentDir: realpathSync(path.join(root, 'node_modules/mf-test-parent')),
+    });
   });
 
   it('terminates on a dependency cycle', () => {

@@ -73,6 +73,7 @@ import {
   resolveSharedVersions,
 } from './utils/normalizeModuleFederationOptions';
 import {
+  findPackageInDependents,
   getIsRolldown,
   getInstalledPackageEntry,
   getInstalledPackageJson,
@@ -405,6 +406,16 @@ function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean 
     }
     return false;
   }
+}
+
+// A share only a dependency installs is pre-bundled through it, e.g. `ui > react-i18next`.
+function getSharedIncludeEntry(subpath: string, projectRoot: string): string | undefined {
+  if (canResolveSharedSubpath(subpath, projectRoot)) return subpath;
+  const dependent = findPackageInDependents(getPackageName(subpath), projectRoot);
+  if (dependent && canResolveSharedSubpath(subpath, dependent.dependentDir)) {
+    return [...dependent.chain, subpath].join(' > ');
+  }
+  return undefined;
 }
 
 const VITE_DEV_IMPORT_CONDITIONS = new Set([
@@ -925,8 +936,9 @@ export default __mfShared.default ?? __mfShared;`,
               optimizeDeps.exclude ??= [];
               for (const subpath of getCommonSharedSubpaths(request)) {
                 writePreBuildLibPath(subpath, shareItem, options);
-                if (canResolveSharedSubpath(subpath, root)) {
-                  optimizeDeps.include.push(subpath);
+                const includeEntry = getSharedIncludeEntry(subpath, root);
+                if (includeEntry) {
+                  optimizeDeps.include.push(includeEntry);
                 } else {
                   optimizeDeps.exclude.push(subpath);
                 }
@@ -958,14 +970,15 @@ export default __mfShared.default ?? __mfShared;`,
             // and loadShare proxy, independently from dependency optimization.
             // Shares resolving to raw .jsx/.tsx source can't be optimized by
             // Vite at all, so route them to exclude the same way.
-            const shouldBypassOptimizeDep =
-              isLitShare(runtimeKey) || !canResolveSharedSubpath(runtimeKey, root);
+            const includeEntry = isLitShare(runtimeKey)
+              ? undefined
+              : getSharedIncludeEntry(runtimeKey, root);
             if (optimizeDeps.include.includes(runtimeKey)) {
               optimizeDeps.exclude = optimizeDeps.exclude.filter((dep) => dep !== runtimeKey);
-            } else if (shouldBypassOptimizeDep || optimizeDeps.exclude.includes(runtimeKey)) {
+            } else if (!includeEntry || optimizeDeps.exclude.includes(runtimeKey)) {
               optimizeDeps.exclude.push(runtimeKey);
             } else {
-              optimizeDeps.include.push(runtimeKey);
+              optimizeDeps.include.push(includeEntry);
             }
             const commonSubpaths =
               shareItem.shareConfig.request === undefined &&
@@ -973,12 +986,12 @@ export default __mfShared.default ?? __mfShared;`,
                 ? getCommonSharedSubpaths(runtimeKey)
                 : [];
             for (const subpath of commonSubpaths) {
-              const canResolveSubpath = canResolveSharedSubpath(subpath, root);
+              const subpathIncludeEntry = getSharedIncludeEntry(subpath, root);
               if (
                 ['react/compiler-runtime', 'react-dom/client', 'react-dom/profiling'].includes(
                   subpath
                 ) &&
-                !canResolveSubpath
+                !subpathIncludeEntry
               ) {
                 // These entry points only exist in newer React versions.
                 // Generating their prebuild wrappers for older versions creates
@@ -990,11 +1003,11 @@ export default __mfShared.default ?? __mfShared;`,
               writeLoadShareModule(subpath, shareItem, _command, options);
               writePreBuildLibPath(subpath, shareItem, options);
               addConfiguredShare(subpath, options);
-              if (canResolveSubpath) {
-                optimizeDeps.include.push(subpath);
+              if (subpathIncludeEntry) {
+                optimizeDeps.include.push(subpathIncludeEntry);
                 // Prevent subpaths like react-dom/client from using a later, incompatible optimizer generation.
-                if (runtimeKey === 'react-dom') {
-                  optimizeDeps.include.push(`${runtimeKey} > ${subpath}`);
+                if (runtimeKey === 'react-dom' && includeEntry) {
+                  optimizeDeps.include.push(`${includeEntry} > ${subpath}`);
                 }
               } else {
                 optimizeDeps.exclude.push(subpath);

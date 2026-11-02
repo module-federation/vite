@@ -31,7 +31,7 @@ function getDependencyCacheKey(cwd: string, dependencyName: string) {
 // same way hasPackageDependency already does above.
 const installedPackageJsonCache = new Map<string, InstalledPackageJson | undefined>();
 // Keyed by project and package name, so subpath lookups share one walk and one warning.
-const dependentsLookupCache = new Map<string, InstalledPackageJson | undefined>();
+const dependentsLookupCache = new Map<string, DependentCopy | undefined>();
 // Per project: every name installed under some package the dependents walk can reach.
 const reachableDependencyNames = new Map<string, Set<string>>();
 // Index the pnpm store once per detection root. A shared dependency graph can
@@ -706,7 +706,9 @@ function resolveInstalledPackageJson(
     if (directCandidate) return directCandidate;
   }
 
-  return findPackageInDependents(packageName, cwd) ?? findPackageInPnpmStore(packageName, cwd);
+  return (
+    findPackageInDependents(packageName, cwd)?.copy ?? findPackageInPnpmStore(packageName, cwd)
+  );
 }
 
 function readDirEntries(dir: string) {
@@ -770,16 +772,24 @@ function findPackageInPnpmStore(
   return undefined;
 }
 
+// `chain` is the dependency path from the project to the dependent, e.g. `['a', 'b']`.
+type DependentCopy = {
+  copy: InstalledPackageJson;
+  via: string;
+  dependentDir: string;
+  chain: string[];
+};
+
 /**
  * A package installed only under a dependent is invisible to the walks above.
  * Resolving it from each dependent in turn follows the same links that dependent
  * does, so the copy found is the version it is installed against rather than
  * whichever one the pnpm store happens to list first.
  */
-function findPackageInDependents(
+export function findPackageInDependents(
   packageName: string,
   cwd: string
-): InstalledPackageJson | undefined {
+): DependentCopy | undefined {
   const cacheKey = `${cwd}\0${packageName}`;
   if (!dependentsLookupCache.has(cacheKey)) {
     // A walk for a name no reachable package installs visits the whole graph,
@@ -803,7 +813,7 @@ function walkDependents(
   packageName: string,
   cwd: string,
   reachedNames?: Set<string>
-): InstalledPackageJson | undefined {
+): DependentCopy | undefined {
   const root = tryReadPackageJson(path.join(cwd, 'package.json'));
   if (!root) return undefined;
 
@@ -818,11 +828,11 @@ function walkDependents(
     getDependencyNames(root.packageJson, ['devDependencies']),
   ];
   for (const rootDependencies of rootDependencyGroups) {
-    let level = rootDependencies.map((name) => ({ name, fromDir: cwd }));
+    let level = rootDependencies.map((name) => ({ name, fromDir: cwd, chain: [name] }));
     while (level.length) {
-      const candidates: { copy: InstalledPackageJson; via: string }[] = [];
+      const candidates: DependentCopy[] = [];
       const nextLevel: typeof level = [];
-      for (const { name, fromDir } of level) {
+      for (const { name, fromDir, chain } of level) {
         if (name === packageName) continue;
         const dependent = findPackageFrom(name, fromDir);
         if (!dependent || visited.has(dependent.dir)) continue;
@@ -834,15 +844,19 @@ function walkDependents(
         // arbitrary pick this walk exists to avoid.
         if (dependencies.includes(packageName)) {
           const copy = findPackageFrom(packageName, dependent.dir);
-          if (copy) candidates.push({ copy, via: name });
+          if (copy) candidates.push({ copy, via: name, dependentDir: dependent.dir, chain });
         }
         for (const dependency of dependencies) {
-          nextLevel.push({ name: dependency, fromDir: dependent.dir });
+          nextLevel.push({
+            name: dependency,
+            fromDir: dependent.dir,
+            chain: [...chain, dependency],
+          });
         }
       }
       if (candidates.length) {
         warnOnAmbiguousDependents(packageName, candidates);
-        return candidates[0].copy;
+        return candidates[0];
       }
       level = nextLevel;
     }

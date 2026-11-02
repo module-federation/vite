@@ -3177,6 +3177,52 @@ describe('vite:module-federation-early-init', () => {
     }
   });
 
+  it('includes a share only a dependency installs through that dependency', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-dependent-only-'));
+    try {
+      writeFileSync(
+        path.join(root, 'package.json'),
+        JSON.stringify({ name: 'host', dependencies: { '@fixture/ui': '1.0.0' } })
+      );
+      const uiDir = path.join(root, 'node_modules', '@fixture', 'ui');
+      mkdirSync(uiDir, { recursive: true });
+      writeFileSync(
+        path.join(uiDir, 'package.json'),
+        JSON.stringify({ name: '@fixture/ui', dependencies: { '@fixture/i18n': '1.0.0' } })
+      );
+      const sharedDir = path.join(uiDir, 'node_modules', '@fixture', 'i18n');
+      mkdirSync(sharedDir, { recursive: true });
+      writeFileSync(
+        path.join(sharedDir, 'package.json'),
+        JSON.stringify({ name: '@fixture/i18n', version: '1.0.0', main: './index.js' })
+      );
+      writeFileSync(path.join(sharedDir, 'index.js'), 'exports.marker = 1;\n');
+
+      const earlyInitPlugin = (
+        federation({
+          name: 'host',
+          filename: 'remoteEntry.js',
+          shared: { '@fixture/i18n': { singleton: true } },
+        }) as Plugin[]
+      ).find((entry) => entry.name === 'vite:module-federation-early-init');
+      if (!earlyInitPlugin) {
+        throw new Error('vite:module-federation-early-init plugin not found');
+      }
+
+      const config: any = { root, optimizeDeps: { include: [], exclude: [] } };
+      runConfig(earlyInitPlugin, {} as ConfigPluginContext, config, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      expect(config.optimizeDeps.include).toContain('@fixture/ui > @fixture/i18n');
+      expect(config.optimizeDeps.include).not.toContain('@fixture/i18n');
+      expect(config.optimizeDeps.exclude).not.toContain('@fixture/i18n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     {
       name: 'has no main export',
