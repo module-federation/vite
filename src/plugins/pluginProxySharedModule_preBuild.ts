@@ -27,6 +27,7 @@ import {
   getSharedRuntimeKey,
 } from '../utils/sharedKeyMatcher';
 import {
+  findDependentCopy,
   getInstalledPackageJson,
   type InstalledPackageJson,
   getInstalledPackageEntry,
@@ -42,6 +43,7 @@ import {
   createSharedSourceResolver,
   isSharedEntryLookup,
   patchRolldownResolveOptionKeys,
+  resolveInternally,
 } from '../utils/sharedSource';
 import { PromiseStore } from '../utils/PromiseStore';
 import { getSharedExportConditions } from '../utils/sharedExportConditions';
@@ -1005,6 +1007,23 @@ export function proxySharedModule(options: {
       name: 'proxyPreBuildShared:resolve-prebuild',
       enforce: 'pre',
       async resolveId(source, importer) {
+        // The generated share modules import a share that only a dependency declares by
+        // that dependency's absolute entry, which Vite serves unoptimized. Resolving the
+        // bare name from the dependency lets Vite match it to the nested optimizeDeps
+        // entry (#1524).
+        if (_command !== 'build' && path.isAbsolute(source)) {
+          const pkgName = [...getUsedShares(federationOptions)].find(
+            (share) => getConcreteSharedImportSource(share) === source
+          );
+          if (!pkgName) return;
+          const dependent = findDependentCopy(getPackageName(pkgName), getPackageDetectionCwd());
+          if (!dependent || !source.startsWith(dependent.copy.dir + path.sep)) return;
+          return resolveInternally(
+            this,
+            pkgName,
+            path.join(dependent.dependentDir, 'package.json')
+          );
+        }
         if (!source.includes(PREBUILD_TAG)) return;
         if (source.startsWith('.')) return;
 

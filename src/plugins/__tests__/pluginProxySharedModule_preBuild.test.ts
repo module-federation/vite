@@ -26,6 +26,7 @@ const {
   writePreBuildLibPathMock,
   getInstalledPackageEntryMock,
   getPackageExportSpecifiersForFileMock,
+  findDependentCopyMock,
   hasTreeShakingSharedProviderMock,
   getTreeShakingSharedProviderImportIdMock,
   getTreeShakingSharedProviderNameMock,
@@ -66,6 +67,7 @@ const {
       }
     ) => string[]
   >(() => []),
+  findDependentCopyMock: vi.fn<(packageName: string, cwd: string) => unknown>(() => undefined),
   hasTreeShakingSharedProviderMock: vi.fn<(pkg: string, shareItem?: unknown) => boolean>(
     () => false
   ),
@@ -99,6 +101,7 @@ vi.mock('../../utils/packageUtils', async (importOriginal) => ({
   isPackageExportAvailable: () => true,
   isPackageInstalled: () => true,
   getPackageExportSpecifiersForFile: getPackageExportSpecifiersForFileMock,
+  findDependentCopy: findDependentCopyMock,
   getInstalledPackageJson: vi.fn((pkg: string) => {
     const match = pkg.match(/^(?:@[^/]+\/)?[^/]+/);
     const packageName = match ? match[0] : pkg;
@@ -676,6 +679,7 @@ describe('pluginProxySharedModule_preBuild', () => {
     getInstalledPackageEntryMock.mockReturnValue(undefined);
     getPackageExportSpecifiersForFileMock.mockReset();
     getPackageExportSpecifiersForFileMock.mockReturnValue([]);
+    findDependentCopyMock.mockReset();
     hasTreeShakingSharedProviderMock.mockReset();
     hasTreeShakingSharedProviderMock.mockReturnValue(false);
     getTreeShakingSharedProviderImportIdMock.mockClear();
@@ -3110,6 +3114,53 @@ describe('pluginProxySharedModule_preBuild', () => {
       '/workspace/packages/transitive-no-override/dist/index.js'
     );
   });
+
+  it.each([
+    {
+      name: 'resolves it from the dependent in dev',
+      copyDir: '/workspace/packages/transitive-no-override',
+      expected: '/workspace/packages/ui/package.json:transitive-no-override',
+    },
+    {
+      name: 'leaves it alone when the dependent installs another copy',
+      copyDir: '/workspace/node_modules/transitive-no-override',
+      expected: undefined,
+    },
+  ])(
+    'for the absolute entry of a share only a dependency installs, $name',
+    async ({ copyDir, expected }) => {
+      hasPackageDependencyMock.mockReturnValue(false);
+      findDependentCopyMock.mockReturnValue({
+        copy: { dir: copyDir },
+        dependentDir: '/workspace/packages/ui',
+        chain: ['ui'],
+      });
+      const federationOptions = normalizeModuleFederationOptions({
+        name: 'host',
+        exposes: {},
+        remotes: {},
+        shared: {},
+      });
+      const plugins = proxySharedModule({ federationOptions, shared: makeShared() });
+      callHook(
+        getProxyPlugin(plugins).config,
+        { meta: createPluginMeta() } as unknown as ConfigPluginContext,
+        { resolve: { alias: [] } },
+        { command: 'serve', mode: 'development' } as ConfigEnv
+      );
+      getUsedShares(federationOptions).add('transitive-no-override');
+
+      const resolution = await callHook(
+        getPrebuildResolvePlugin(plugins).resolveId,
+        { resolve: async (id: string, importer: string) => ({ id: `${importer}:${id}` }) } as any,
+        '/workspace/packages/transitive-no-override/dist/index.js',
+        '\0virtual:mf-localSharedImportMap',
+        { isEntry: false }
+      );
+
+      expect((resolution as { id: string } | undefined)?.id).toBe(expected);
+    }
+  );
 
   it('does not proxy shared deps imported from build config files', async () => {
     hasPackageDependencyMock.mockReturnValue(false);

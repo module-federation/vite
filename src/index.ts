@@ -73,6 +73,7 @@ import {
   resolveSharedVersions,
 } from './utils/normalizeModuleFederationOptions';
 import {
+  findDependentCopy,
   getIsRolldown,
   getInstalledPackageEntry,
   getInstalledPackageJson,
@@ -405,6 +406,19 @@ function canResolveSharedSubpath(subpath: string, projectRoot: string): boolean 
     }
     return false;
   }
+}
+
+// pnpm keeps a share that only a dependency declares inside that dependency's
+// node_modules, where the project root can't resolve it. Vite's nested include
+// (`a > b > pkg`) still pre-bundles that copy; excluding it instead would serve
+// its raw CommonJS imports to the browser (#1524).
+function getSharedOptimizeDep(subpath: string, projectRoot: string): string | undefined {
+  if (canResolveSharedSubpath(subpath, projectRoot)) return subpath;
+  const dependent = findDependentCopy(getPackageName(subpath), projectRoot);
+  if (dependent && canResolveSharedSubpath(subpath, dependent.dependentDir)) {
+    return [...dependent.chain, subpath].join(' > ');
+  }
+  return undefined;
 }
 
 const VITE_DEV_IMPORT_CONDITIONS = new Set([
@@ -925,8 +939,9 @@ export default __mfShared.default ?? __mfShared;`,
               optimizeDeps.exclude ??= [];
               for (const subpath of getCommonSharedSubpaths(request)) {
                 writePreBuildLibPath(subpath, shareItem, options);
-                if (canResolveSharedSubpath(subpath, root)) {
-                  optimizeDeps.include.push(subpath);
+                const optimizeDep = getSharedOptimizeDep(subpath, root);
+                if (optimizeDep) {
+                  optimizeDeps.include.push(optimizeDep);
                 } else {
                   optimizeDeps.exclude.push(subpath);
                 }
@@ -958,14 +973,15 @@ export default __mfShared.default ?? __mfShared;`,
             // and loadShare proxy, independently from dependency optimization.
             // Shares resolving to raw .jsx/.tsx source can't be optimized by
             // Vite at all, so route them to exclude the same way.
-            const shouldBypassOptimizeDep =
-              isLitShare(runtimeKey) || !canResolveSharedSubpath(runtimeKey, root);
+            const optimizeDep = isLitShare(runtimeKey)
+              ? undefined
+              : getSharedOptimizeDep(runtimeKey, root);
             if (optimizeDeps.include.includes(runtimeKey)) {
               optimizeDeps.exclude = optimizeDeps.exclude.filter((dep) => dep !== runtimeKey);
-            } else if (shouldBypassOptimizeDep || optimizeDeps.exclude.includes(runtimeKey)) {
+            } else if (!optimizeDep || optimizeDeps.exclude.includes(runtimeKey)) {
               optimizeDeps.exclude.push(runtimeKey);
             } else {
-              optimizeDeps.include.push(runtimeKey);
+              optimizeDeps.include.push(optimizeDep);
             }
             const commonSubpaths =
               shareItem.shareConfig.request === undefined &&
@@ -973,12 +989,12 @@ export default __mfShared.default ?? __mfShared;`,
                 ? getCommonSharedSubpaths(runtimeKey)
                 : [];
             for (const subpath of commonSubpaths) {
-              const canResolveSubpath = canResolveSharedSubpath(subpath, root);
+              const subpathOptimizeDep = getSharedOptimizeDep(subpath, root);
               if (
                 ['react/compiler-runtime', 'react-dom/client', 'react-dom/profiling'].includes(
                   subpath
                 ) &&
-                !canResolveSubpath
+                !subpathOptimizeDep
               ) {
                 // These entry points only exist in newer React versions.
                 // Generating their prebuild wrappers for older versions creates
@@ -990,11 +1006,11 @@ export default __mfShared.default ?? __mfShared;`,
               writeLoadShareModule(subpath, shareItem, _command, options);
               writePreBuildLibPath(subpath, shareItem, options);
               addConfiguredShare(subpath, options);
-              if (canResolveSubpath) {
-                optimizeDeps.include.push(subpath);
+              if (subpathOptimizeDep) {
+                optimizeDeps.include.push(subpathOptimizeDep);
                 // Prevent subpaths like react-dom/client from using a later, incompatible optimizer generation.
-                if (runtimeKey === 'react-dom') {
-                  optimizeDeps.include.push(`${runtimeKey} > ${subpath}`);
+                if (runtimeKey === 'react-dom' && optimizeDep) {
+                  optimizeDeps.include.push(`${optimizeDep} > ${subpath}`);
                 }
               } else {
                 optimizeDeps.exclude.push(subpath);
