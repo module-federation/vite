@@ -2206,12 +2206,16 @@ export function writeLoadShareModule(
   // copy is only a fallback. A static import would evaluate it even when a remote's higher
   // version is selected and run its top-level side effects twice (#1527); load it through
   // import() only when init() leaves the cache empty. The React family keeps its
-  // synchronous wrapper, which carries the mixed-mode guard.
+  // synchronous wrapper, which carries the mixed-mode guard. A singleton read at
+  // module-evaluation time by a peer singleton with a federation-runtime dependency
+  // also stays synchronous: the bundler can place that peer on the remote entry's
+  // static graph, where it runs before init() publishes any share (#1196).
   const negotiatesSingletonWithRemotes =
     isSingleton &&
     !isReactFamilyShare(pkg) &&
     options.shareStrategy === 'version-first' &&
-    hasRemotes(options);
+    hasRemotes(options) &&
+    !isSharedSingletonConsumedByPeer(pkg, options, true);
   const usesDeferredSingletonFallback =
     hasCompleteExportCoverage &&
     shareItem.shareConfig.eager !== true &&
