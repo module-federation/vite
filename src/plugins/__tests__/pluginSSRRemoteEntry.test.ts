@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -52,6 +53,8 @@ vi.mock('../../virtualModules/virtualRemoteEntrySSR', async () => {
 
 import { generateRemoteEntrySSR } from '../../virtualModules/virtualRemoteEntrySSR';
 import { pluginSSRRemoteEntry } from '../pluginSSRRemoteEntry';
+
+const testRequire = createRequire(import.meta.url);
 
 function makeOptions(overrides: Record<string, unknown> = {}) {
   return normalizeModuleFederationOptions({
@@ -720,6 +723,52 @@ describe('pluginSSRRemoteEntry', () => {
 
       expect(handleInvoke).toHaveBeenCalledWith(payload);
       expect(res.statusCode).toBe(200);
+    });
+
+    it('marks Vite-encoded package ids as shared packages', async () => {
+      const handleInvoke = vi.fn().mockResolvedValue({ result: { code: 'export default 1' } });
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: {
+            id: 'send',
+            name: 'fetchModule',
+            data: ['/@id/react'],
+          },
+        },
+        { fetchModule: vi.fn(), hot: { handleInvoke } }
+      );
+
+      expect(JSON.parse(res.body)).toEqual({
+        result: { code: 'export default 1' },
+        shared: true,
+      });
+    });
+
+    it('resolves Vite-encoded bare package ids through the remote fallback', async () => {
+      const handleInvoke = vi.fn().mockResolvedValue({ error: { message: 'unresolved' } });
+      const res = await invokeRunnerMiddleware(
+        {
+          type: 'custom',
+          event: 'vite:invoke',
+          data: {
+            id: 'send',
+            name: 'fetchModule',
+            data: ['/@id/@module-federation/runtime'],
+          },
+        },
+        { fetchModule: vi.fn(), hot: { handleInvoke } },
+        undefined,
+        { root: process.cwd() }
+      );
+
+      expect(JSON.parse(res.body)).toEqual({
+        result: {
+          externalize: pathToFileURL(testRequire.resolve('@module-federation/runtime')).href,
+          type: 'module',
+        },
+      });
     });
 
     it('rejects malformed or unsupported runner invokes before calling Vite', async () => {

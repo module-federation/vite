@@ -508,7 +508,8 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               // Mark shared packages so the host can swap in its own copy.
               const fetchedId = body.data.name === 'fetchModule' ? body.data.data[0] : undefined;
               const shared =
-                typeof fetchedId === 'string' && !!findSharedKey(fetchedId, options.shared);
+                typeof fetchedId === 'string' &&
+                !!findSharedKey(decodeViteId(fetchedId).replace(/^\0+/, ''), options.shared);
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify(shared ? { ...result, shared } : result));
             } catch (e) {

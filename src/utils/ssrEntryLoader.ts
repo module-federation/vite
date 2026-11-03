@@ -34,7 +34,7 @@ import {
   isSsrFetchBodyTooLargeError,
   readResponseTextBounded,
 } from './fetchWithTimeout';
-import { EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
+import { decodeViteId, EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
 import { mfWarn } from './logger';
@@ -250,17 +250,18 @@ export async function resolveSharedPath(
   resolvedShared: Record<string, string>
 ): Promise<string | null> {
   if (typeof id !== 'string') return null;
-  const matchedKey = findResolvedSharedKey(id, resolvedShared);
+  const normalizedId = decodeViteId(id);
+  const matchedKey = findResolvedSharedKey(normalizedId, resolvedShared);
   if (!matchedKey) return null;
 
   const resolved = resolvedShared[matchedKey];
   if (!resolved) return null;
   if (EXTERNAL_URL_RE.test(resolved)) return resolved;
-  if (matchedKey === id) {
+  if (matchedKey === normalizedId) {
     // The map holds `require.resolve` paths, but callers `import()` the result.
     // For a dual package that is the CJS build, a second instance next to the
     // ESM one the host app runs (e.g. a router whose context is then empty).
-    return (await resolveEsmSubpath(id, resolved).catch(() => undefined)) ?? resolved;
+    return (await resolveEsmSubpath(normalizedId, resolved).catch(() => undefined)) ?? resolved;
   }
 
   const { createRequire } = await _module();
@@ -269,8 +270,8 @@ export async function resolveSharedPath(
   // root is the same fallback used by the temp-file SSR cache.
   for (const base of [resolved, join(process.cwd(), 'noop.js')]) {
     try {
-      const esmPath = await resolveEsmSubpath(id, base).catch(() => undefined);
-      return esmPath ?? createRequire(base).resolve(id);
+      const esmPath = await resolveEsmSubpath(normalizedId, base).catch(() => undefined);
+      return esmPath ?? createRequire(base).resolve(normalizedId);
     } catch {
       // Try the next base.
     }
