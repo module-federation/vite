@@ -2557,7 +2557,12 @@ export function generateRemoteEntry(
     if (__mfModuleCache.pendingShareLoads) {
       await Promise.all(__mfModuleCache.pendingShareLoads)
     }
-    return (exposesMap[moduleName])().then(res => () => res)
+    const res = await exposesMap[moduleName]()
+    // Wrappers evaluated by the expose import may queue share loads only now (#1535).
+    if (__mfModuleCache.pendingShareLoads) {
+      await Promise.all(__mfModuleCache.pendingShareLoads)
+    }
+    return () => res
   }
   ${
     guardHostAutoInit
