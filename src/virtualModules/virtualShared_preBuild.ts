@@ -166,6 +166,29 @@ function hasCodeMatch(source: string, regex: RegExp, codePositions: Uint8Array):
   return false;
 }
 
+/** True when the code before `index` is a `.`: a member named like a keyword (`obj.export`). */
+function isMemberName(source: string, index: number, codePositions: Uint8Array): boolean {
+  let previousCodeIndex = index - 1;
+  while (
+    previousCodeIndex >= 0 &&
+    (/\s/.test(source[previousCodeIndex]) || !codePositions[previousCodeIndex])
+  ) {
+    previousCodeIndex--;
+  }
+  return source[previousCodeIndex] === '.';
+}
+
+/** TypeScript `export = value`; an assignment to a member named `export` (`e.export = 'export'`) is not one. */
+function hasExportAssignment(source: string, codePositions: Uint8Array): boolean {
+  const regex = /\bexport\s*=/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(source)) !== null) {
+    if (codePositions[match.index] && !isMemberName(source, match.index, codePositions))
+      return true;
+  }
+  return false;
+}
+
 /**
  * True when the file contains a top-level static `import`/`export` declaration.
  * Local identifiers named `module` or `exports` (webpack/rspack helpers,
@@ -634,7 +657,7 @@ function getNamedExportsViaRegex(
   }
   if (
     hasCodeMatch(source, /export\s+import\s+/g, codePositions) ||
-    hasCodeMatch(source, /export\s*=/g, codePositions)
+    hasExportAssignment(source, codePositions)
   ) {
     scanState.complete = false;
   }
@@ -774,14 +797,7 @@ function getNamedExportsViaRegex(
     if (recognizedExportStarts.has(match.index)) continue;
 
     // A member named `export` is not an export declaration.
-    let previousCodeIndex = match.index - 1;
-    while (
-      previousCodeIndex >= 0 &&
-      (/\s/.test(source[previousCodeIndex]) || !codePositions[previousCodeIndex])
-    ) {
-      previousCodeIndex--;
-    }
-    if (source[previousCodeIndex] === '.') continue;
+    if (isMemberName(source, match.index, codePositions)) continue;
 
     let nextCodeIndex = match.index + match[0].length;
     while (
