@@ -24,7 +24,6 @@ import {
   generateHostAutoInitCode,
   generateRemoteEntry,
   getExposesCssMapPlaceholder,
-  getHostAutoInitPath,
 } from '../virtualModules';
 import { isOwnedHostAutoInitId } from '../virtualModules/virtualRemoteEntry';
 
@@ -55,10 +54,7 @@ export default function ({
   let reactIslandExposes: ReadonlySet<string> = new Set();
   let isTanStackStart = false;
 
-  const isHostAutoInitId = (id: string) => {
-    const cleanId = id.split('?')[0];
-    return cleanId.includes(getHostAutoInitPath(options));
-  };
+  const isHostAutoInitId = (id: string) => isOwnedHostAutoInitId(id, options);
 
   const getEnvironmentConditions = (context: unknown): readonly string[] | undefined =>
     (context as { environment?: { config?: { resolve?: { conditions?: string[] } } } }).environment
@@ -184,8 +180,7 @@ export default function ({
       // because it is a transitive dependency.  Re-resolve from this package's
       // location so Vite uses the correct ESM entry point.
       if (
-        (importer === remoteEntryId ||
-          (importer !== undefined && isOwnedHostAutoInitId(importer, options))) &&
+        (importer === remoteEntryId || (importer !== undefined && isHostAutoInitId(importer))) &&
         !id.startsWith('.') &&
         !id.startsWith('/') &&
         !id.startsWith('\0') &&
