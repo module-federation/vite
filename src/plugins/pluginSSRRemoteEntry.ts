@@ -19,6 +19,7 @@ import {
 } from '../utils/pathNormalization';
 import { findSharedKey } from '../utils/sharedKeyMatcher';
 import { decodeViteId } from '../utils/VirtualModule';
+import { normalizeRunnerModuleId } from '../utils/normalizeRunnerModuleId';
 import { getHostAutoInitPath } from '../virtualModules/virtualRemoteEntry';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
 import {
@@ -478,7 +479,10 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               let result = await runnerEnv.hot!.handleInvoke!(body);
               if ('error' in result && body.data.name === 'fetchModule') {
                 const id = body.data.data[0];
-                const bareId = typeof id === 'string' ? decodeViteId(id).replace(/^\0/, '') : '';
+                const bareId =
+                  typeof id === 'string'
+                    ? normalizeRunnerModuleId(decodeViteId(id)).replace(/^\0+/, '')
+                    : '';
                 const isBarePackageSpecifier =
                   bareId &&
                   !bareId.startsWith('.') &&
@@ -508,7 +512,11 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               // Mark shared packages so the host can swap in its own copy.
               const fetchedId = body.data.name === 'fetchModule' ? body.data.data[0] : undefined;
               const shared =
-                typeof fetchedId === 'string' && !!findSharedKey(fetchedId, options.shared);
+                typeof fetchedId === 'string' &&
+                !!findSharedKey(
+                  normalizeRunnerModuleId(decodeViteId(fetchedId)).replace(/^\0+/, ''),
+                  options.shared
+                );
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify(shared ? { ...result, shared } : result));
             } catch (e) {
