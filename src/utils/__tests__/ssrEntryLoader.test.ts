@@ -63,12 +63,16 @@ async function freshLoaderModule() {
     join: (...p: string[]) => p.join('/'),
     dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
   }));
-  vi.mock('fs', () => ({
-    default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
-    mkdirSync: vi.fn(),
-    writeFileSync: vi.fn(),
-    rmSync: vi.fn(),
-  }));
+  vi.mock('fs', () => {
+    const fs = {
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(),
+      rmSync: vi.fn(),
+      existsSync: vi.fn(),
+      readFileSync: vi.fn(),
+    };
+    return { default: fs, ...fs };
+  });
   vi.mock('crypto', () => {
     const hash = { update: vi.fn().mockReturnThis(), digest: vi.fn(() => 'abc123def456789') };
     return { default: { createHash: vi.fn(() => hash) }, createHash: vi.fn(() => hash) };
@@ -86,6 +90,7 @@ async function freshLoader() {
 }
 
 beforeEach(() => {
+  runnerFiles.clear();
   delete (globalThis as Record<string, unknown>).window;
   vi.clearAllMocks();
 });
@@ -1591,6 +1596,49 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     expect(written).not.toMatch(/from\s*["']react["']/);
   });
 
+  it('imports the ESM entry of a dual shared package but keeps require on its CJS entry', async () => {
+    const files = new Map<string, string>();
+    const packageJson = '/abs/node_modules/@scope/router/package.json';
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.existsSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (path: unknown) => path === packageJson
+    );
+    (fsMock.readFileSync as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      JSON.stringify({
+        exports: { '.': { import: './dist/esm/index.js', require: './dist/cjs/index.cjs' } },
+      })
+    );
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (path: unknown, code: unknown) => {
+        files.set(String(path), String(code));
+      }
+    );
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'import { createRequire } from "node:module"; import { Link } from "@scope/router"; export const Router = createRequire(import.meta.url)("@scope/router"); export { Link };',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory({
+      resolvedShared: { '@scope/router': '/abs/node_modules/@scope/router/dist/cjs/index.cjs' },
+    }).loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+
+    const shimPath = [...files.keys()].find((path) => /\/node-module-[^/]+\.mjs$/.test(path))!;
+    expect(files.get(shimPath)).toContain('"/abs/node_modules/@scope/router/dist/cjs/index.cjs"');
+    const remoteCode = [...files].find(([path]) => path !== shimPath)![1];
+    // The mocked path.join does not normalize `./`.
+    expect(remoteCode).toMatch(
+      /from "file:\/\/\/abs\/node_modules\/@scope\/router\/(\.\/)?dist\/esm\/index\.js"/
+    );
+  });
+
   it('routes createRequire through a node:module shim that honors resolvedShared', async () => {
     const files = new Map<string, string>();
     const fsMock = await import('fs');
@@ -1737,6 +1785,9 @@ type RunnerOptions = {
   };
 };
 
+/** In-memory files the runner-path `fs` mock serves (package.json lookups). */
+const runnerFiles = new Map<string, string>();
+
 async function freshLoaderWithRunner(
   runnerFactory: (
     options: RunnerOptions
@@ -1767,11 +1818,25 @@ async function freshLoaderWithRunner(
     join: (...p: string[]) => p.join('/'),
     dirname: (p: string) => p.replace(/\/[^/]+$/, ''),
   }));
+  const existsSync = (file: string) => runnerFiles.has(file);
+  const readFileSync = (file: string) => {
+    const content = runnerFiles.get(file);
+    if (content === undefined) throw new Error(`ENOENT: ${file}`);
+    return content;
+  };
   vi.doMock('fs', () => ({
-    default: { mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() },
+    default: {
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(),
+      rmSync: vi.fn(),
+      existsSync,
+      readFileSync,
+    },
     mkdirSync: vi.fn(),
     writeFileSync: vi.fn(),
     rmSync: vi.fn(),
+    existsSync,
+    readFileSync,
   }));
   vi.doMock('crypto', () => {
     const hash = { update: vi.fn().mockReturnThis(), digest: vi.fn(() => 'abc123def456789') };
@@ -2037,6 +2102,66 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
       {
         result: {
           externalize: 'file:///host/node_modules/react/index.js',
+          type: 'module',
+        },
+      },
+    ]);
+  });
+
+  it('uses the ESM entry of a dual package the remote shares', async () => {
+    // The host map holds the require.resolve (CJS) path. Importing it next to
+    // the ESM copy the host app runs would create a second package instance.
+    runnerFiles.set(
+      '/host/node_modules/@scope/router/package.json',
+      JSON.stringify({
+        exports: { '.': { import: './dist/esm/index.js', require: './dist/cjs/index.cjs' } },
+      })
+    );
+    const sharedFetchResults: unknown[] = [];
+    const { factory } = await freshLoaderWithRunner((runnerOptions) => ({
+      import: vi.fn(async () => {
+        sharedFetchResults.push(
+          await runnerOptions.transport.invoke({
+            type: 'custom',
+            event: 'vite:invoke',
+            data: { name: 'fetchModule', data: ['@scope/router'] },
+          })
+        );
+        return { init: vi.fn(), get: vi.fn() };
+      }),
+    }));
+    const fetch = makeFetchMock({
+      'http://localhost:4175/mf-manifest.json': {
+        ok: true,
+        json: {
+          metaData: {
+            ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '__mf_ssr__/', type: 'module' },
+          },
+        },
+      },
+      'http://localhost:4175/__mf_runner__': {
+        ok: true,
+        json: {
+          result: {
+            externalize: 'file:///remote/node_modules/@scope/router/dist/esm/index.js',
+            type: 'module',
+          },
+          shared: true,
+        },
+      },
+    });
+    global.fetch = fetch as unknown as typeof globalThis.fetch;
+
+    await factory({
+      resolvedShared: { '@scope/router': '/host/node_modules/@scope/router/dist/cjs/index.cjs' },
+    }).loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:4175/remoteEntry.js' },
+    });
+
+    expect(sharedFetchResults).toEqual([
+      {
+        result: {
+          externalize: 'file:///host/node_modules/@scope/router/dist/esm/index.js',
           type: 'module',
         },
       },

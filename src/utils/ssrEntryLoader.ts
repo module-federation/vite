@@ -252,7 +252,13 @@ export async function resolveSharedPath(
 
   const resolved = resolvedShared[matchedKey];
   if (!resolved) return null;
-  if (matchedKey === id || EXTERNAL_URL_RE.test(resolved)) return resolved;
+  if (EXTERNAL_URL_RE.test(resolved)) return resolved;
+  if (matchedKey === id) {
+    // The map holds `require.resolve` paths, but callers `import()` the result.
+    // For a dual package that is the CJS build, a second instance next to the
+    // ESM one the host app runs (e.g. a router whose context is then empty).
+    return (await resolveEsmSubpath(id, resolved).catch(() => undefined)) ?? resolved;
+  }
 
   const { createRequire } = await _module();
   const { join } = await _path();
@@ -1149,7 +1155,7 @@ function transformSsrCode(
   code: string,
   base: string,
   specifiers: SsrModuleSpecifier[],
-  sharedPkgMap?: Map<string, string>,
+  sharedImports?: Map<string, string>,
   requireShimUrl?: string,
   tempFileUrlMap?: Map<string, string>
 ): string {
@@ -1164,7 +1170,7 @@ function transformSsrCode(
     // the same physical module instance as the host app. Without this, Node
     // resolves bare "react" from the workspace root which may be a different
     // version than the one bundled into the host's server.
-    const resolvedShared = sharedPkgMap?.get(value);
+    const resolvedShared = sharedImports?.get(value);
     const relativeUrl = isRelativeSpecifier(value) ? new URL(value, base).href : undefined;
     // Apply the temp-file map to both normalized relative imports and absolute
     // HTTP imports, while keeping the rewrite scoped to actual specifiers.
@@ -1178,17 +1184,22 @@ function transformSsrCode(
   return neutralizeBrowserPreloadHelpers(rewriter.toString());
 }
 
-async function materializeSharedSubpaths(
+// Imports get the ESM entry of exact keys too, while the require shim keeps
+// their `require.resolve` paths. Wildcard subpaths are pinned for both.
+async function resolveSharedImports(
   specifiers: SsrModuleSpecifier[],
   sharedPkgMap: Map<string, string>
-): Promise<void> {
+): Promise<Map<string, string>> {
   const uniqueSpecifiers = new Set(specifiers.map(({ value }) => value));
   const resolvedShared = Object.fromEntries(sharedPkgMap);
+  const sharedImports = new Map<string, string>();
   for (const specifier of uniqueSpecifiers) {
-    if (sharedPkgMap.has(specifier)) continue;
     const resolved = await resolveSharedPath(specifier, resolvedShared);
-    if (resolved) sharedPkgMap.set(specifier, resolved);
+    if (!resolved) continue;
+    sharedImports.set(specifier, resolved);
+    if (!sharedPkgMap.has(specifier)) sharedPkgMap.set(specifier, resolved);
   }
+  return sharedImports;
 }
 
 function isVitePreloadHelperSpecifier(specifier: string): boolean {
@@ -1308,7 +1319,7 @@ async function fetchEsmToTempFile(url: string, graph: TempFileGraph): Promise<st
 
     // Expand wildcard shared entries to the concrete subpaths used by this
     // module before rewriting imports to host-resolved file URLs.
-    if (sharedPkgMap) await materializeSharedSubpaths(specifiers, sharedPkgMap);
+    const sharedImports = sharedPkgMap && (await resolveSharedImports(specifiers, sharedPkgMap));
 
     // Transform code: absolute HTTP URLs → file:// paths for temp files,
     // and bare shared package specifiers → absolute file:// paths.
@@ -1316,7 +1327,7 @@ async function fetchEsmToTempFile(url: string, graph: TempFileGraph): Promise<st
       sharedPkgMap?.size && specifiers.some(({ value }) => isNodeModuleSpecifier(value))
         ? await getRequireShimUrl(tmpDir, sharedPkgMap, contextKey)
         : undefined;
-    code = transformSsrCode(code, base, specifiers, sharedPkgMap, requireShimUrl, subMap);
+    code = transformSsrCode(code, base, specifiers, sharedImports, requireShimUrl, subMap);
 
     const { writeFileSync } = await _fs();
     writeFileSync(tmpFile, code, 'utf8');
