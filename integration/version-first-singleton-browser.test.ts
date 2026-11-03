@@ -104,11 +104,12 @@ async function readNegotiatedSharedVersions(
       );
     }
 
-    const [hostSaw, remoteSaw] = await Promise.all([
+    const [hostSaw, remoteSaw, evaluated] = await Promise.all([
       page.evaluate(() => (window as any).__host_saw_version__),
       page.evaluate(() => (window as any).__remote_saw_version__),
+      page.evaluate(() => (window as any).__shared_lib_evaluated__),
     ]);
-    return { hostSaw, remoteSaw, pageErrors, consoleErrors };
+    return { hostSaw, remoteSaw, evaluated, pageErrors, consoleErrors };
   } finally {
     await browser?.close();
     await hostServer?.close();
@@ -211,9 +212,12 @@ describe('version-first singleton static import browser bootstrap', () => {
   it('resolves a higher remote version before host static import capture', async () => {
     // The remote's 1.5.0 provider is registered by entry injection before the
     // host's static import captures the singleton; this must remain an upgrade.
+    // Only the selected copy may evaluate: the host's 1.0.0 has top-level side
+    // effects that must not run alongside the remote's (#1527).
     expect(await readNegotiatedSharedVersions()).toEqual({
       hostSaw: '1.5.0',
       remoteSaw: '1.5.0',
+      evaluated: ['1.5.0'],
       pageErrors: [],
       consoleErrors: [],
     });

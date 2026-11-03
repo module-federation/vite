@@ -26,3 +26,12 @@ export const REACT_DOM_CLIENT_SHARE = 'react-dom/client';
 export function isReactCoreShare(pkg: string): boolean {
   return pkg === 'react' || pkg.startsWith('react/');
 }
+
+/**
+ * React and its renderer, including subpath exports. Their wrappers bind
+ * synchronously and carry the mixed-mode guard, so the generic deferral of a
+ * negotiated singleton's local copy does not apply to them.
+ */
+export function isReactFamilyShare(pkg: string): boolean {
+  return isReactCoreShare(pkg) || pkg === 'react-dom' || pkg.startsWith('react-dom/');
+}

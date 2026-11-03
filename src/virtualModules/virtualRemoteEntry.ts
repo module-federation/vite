@@ -1209,6 +1209,18 @@ function generateRuntimeSharedCacheSeedCode(
         : __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
       if (cachedShare !== undefined) return false;
       if (share.treeShaking || share.shareConfig?.import === false) return true;
+      // version-first negotiates a singleton against this container's remotes, which only
+      // register during initializeSharing(). Seeding the local copy before that evaluates it
+      // even when a remote's higher version is selected, so a package with top-level side
+      // effects (custom element registration, polyfills) runs twice (#1527). Wait for the
+      // remotes; the deferred pass seeds the local copy only when no remote outranks it.
+      // The React family keeps the eager seed its synchronous wrappers rely on
+      // (see isReactFamilyShare).
+      if (
+        ${toSafeJsLiteral(shareStrategy === 'version-first' && hasRemotes(options))} &&
+        share.shareConfig?.singleton &&
+        !/^react(?:-dom)?(?:\\/|$)/.test(pkg)
+      ) return true;
       if (typeof __mfSelectExternalSharedProvider !== 'function') return false;
       return Boolean(__mfSelectExternalSharedProvider(
         initialShared[pkg],
