@@ -1076,8 +1076,16 @@ function generateRuntimeSharedCacheSeedCode(
     };
     var __mfSeedLocalShared = async (seedKeys) => {
       const requested = new Set(seedKeys);
+      // A dependent of a share left to the late bridge would evaluate against an empty
+      // wrapper (#1541); leave it to its wrapper's own fallback load instead.
+      const skipped = new Set();
       for (const batch of __mfSeedBatches) await Promise.all(batch.filter((pkg) => requested.has(pkg)).map(async (pkg) => {
         const share = usedShared[pkg];
+        const seedIndex = __mfSeedIndex.get(pkg);
+        if ((__mfSeedPrerequisites[seedIndex] || []).some((dependency) => skipped.has(dependency))) {
+          skipped.add(seedIndex);
+          return;
+        }
         const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
         if (
           share.shareConfig?.import === false ||
@@ -1152,7 +1160,10 @@ function generateRuntimeSharedCacheSeedCode(
             isWebpackProvider(externalProvider) &&
             (share.shareConfig?.singleton ||
               __mfFindSharedProviderEntry(initialShared[pkg], externalProvider)?.version === share.version)
-          ) return;
+          ) {
+            skipped.add(seedIndex);
+            return;
+          }
         }
         const providerKey = cacheDescriptor.canonical;
         const resolved = await __mfInitializeProviderOnce(providerKey, async () => {
