@@ -3,6 +3,9 @@ import { packageNameDecode, packageNameEncode } from '../utils/packageUtils';
 import { createModuleFederationError } from './logger';
 import { getNormalizeModuleFederationOptions } from './normalizeModuleFederationOptions';
 import { escapeRegExp } from './regexEscape';
+import { decodeViteId, VITE_ID_PREFIX, VITE_NULL_BYTE_PLACEHOLDER } from './buildPaths';
+
+export { decodeViteId, VITE_ID_PREFIX, VITE_NULL_BYTE_PLACEHOLDER };
 
 export function getSuffix(name: string): string {
   const base = basename(name);
@@ -29,8 +32,6 @@ const cacheMap: {
 // scanning all virtual modules on every call.
 const idCacheMap: Record<string, VirtualModule> = {};
 
-export const VITE_ID_PREFIX = '/@id/';
-export const VITE_NULL_BYTE_PLACEHOLDER = '__x00__';
 export const VITE_ENCODED_NULL_BYTE_PREFIX = `${VITE_ID_PREFIX}${VITE_NULL_BYTE_PLACEHOLDER}`;
 
 // Separates a federation instance's internalName from its per-generation
@@ -43,14 +44,6 @@ export function createViteEncodedIdPrefixRegExp(sourcePrefix = ''): RegExp {
 
 export function toViteEncodedId(id: string): string {
   return `${VITE_ENCODED_NULL_BYTE_PREFIX}${id}`;
-}
-
-export function decodeViteId(id: string): string {
-  if (!id.startsWith(VITE_ID_PREFIX)) return id;
-  const viteId = id.slice(VITE_ID_PREFIX.length);
-  return viteId.startsWith(VITE_NULL_BYTE_PLACEHOLDER)
-    ? `\0${viteId.slice(VITE_NULL_BYTE_PLACEHOLDER.length)}`
-    : viteId;
 }
 
 export function assertModuleFound(tag: string, str: string = ''): VirtualModule {

@@ -93,3 +93,14 @@ export function resolveHashPlaceholderFileName(fileName: string): string {
   const normalized = fileName.replace(HASH_PLACEHOLDER_RE, '');
   return hasFileExtension(normalized) ? normalized : `${normalized}.js`;
 }
+
+export const VITE_ID_PREFIX = '/@id/';
+export const VITE_NULL_BYTE_PLACEHOLDER = '__x00__';
+
+export function decodeViteId(id: string): string {
+  if (!id.startsWith(VITE_ID_PREFIX)) return id;
+  const viteId = id.slice(VITE_ID_PREFIX.length);
+  return viteId.startsWith(VITE_NULL_BYTE_PLACEHOLDER)
+    ? `\0${viteId.slice(VITE_NULL_BYTE_PLACEHOLDER.length)}`
+    : viteId;
+}

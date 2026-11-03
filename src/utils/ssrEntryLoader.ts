@@ -34,11 +34,10 @@ import {
   isSsrFetchBodyTooLargeError,
   readResponseTextBounded,
 } from './fetchWithTimeout';
-import { EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
+import { decodeViteId, EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
 import { mfWarn } from './logger';
-import { normalizeRunnerModuleId } from './normalizeRunnerModuleId';
 import type { SsrEntryLoaderConfig } from './normalizeModuleFederationOptions';
 
 // No static Node.js imports — this module is safe to import in the browser.
@@ -251,7 +250,7 @@ export async function resolveSharedPath(
   resolvedShared: Record<string, string>
 ): Promise<string | null> {
   if (typeof id !== 'string') return null;
-  const normalizedId = normalizeRunnerModuleId(id);
+  const normalizedId = decodeViteId(id);
   const matchedKey = findResolvedSharedKey(normalizedId, resolvedShared);
   if (!matchedKey) return null;
 
