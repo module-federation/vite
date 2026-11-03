@@ -26,6 +26,7 @@ import {
   getExposesCssMapPlaceholder,
   getHostAutoInitPath,
 } from '../virtualModules';
+import { isOwnedHostAutoInitId } from '../virtualModules/virtualRemoteEntry';
 
 interface ProxyRemoteEntryParams {
   options: NormalizedModuleFederationOptions;
@@ -176,13 +177,15 @@ export default function ({
       if (_command === 'serve' && isHostAutoInitId(id)) {
         return id;
       }
-      // When the virtual remote entry imports a bare specifier (e.g. a runtime
-      // plugin like "@module-federation/dts-plugin/dynamic-remote-type-hints-plugin"),
-      // Vite cannot resolve it from the consumer project root under strict package
-      // managers (pnpm) because it is a transitive dependency.  Re-resolve from
-      // this package's location so Vite uses the correct ESM entry point.
+      // When the virtual remote entry or the host auto-init module (which imports
+      // runtime plugins on SSR) imports a bare specifier (e.g. a runtime plugin like
+      // "@module-federation/dts-plugin/dynamic-remote-type-hints-plugin"), Vite cannot
+      // resolve it from the consumer project root under strict package managers (pnpm)
+      // because it is a transitive dependency.  Re-resolve from this package's
+      // location so Vite uses the correct ESM entry point.
       if (
-        (importer === remoteEntryId || (importer && isHostAutoInitId(importer))) &&
+        (importer === remoteEntryId ||
+          (importer !== undefined && isOwnedHostAutoInitId(importer, options))) &&
         !id.startsWith('.') &&
         !id.startsWith('/') &&
         !id.startsWith('\0') &&

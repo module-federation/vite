@@ -124,6 +124,31 @@ describe('pluginProxyRemoteEntry', () => {
     );
   });
 
+  it('does not re-resolve bare imports from another instance host auto-init module', async () => {
+    const options = normalizeModuleFederationOptions({ name: 'owner-host' } as any);
+    const otherOptions = normalizeModuleFederationOptions({ name: 'other-host' } as any);
+    const plugin = pluginProxyRemoteEntry({
+      options,
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+    const resolve = vi.fn(async (source: string) => ({ id: `resolved:${source}` }));
+    const context = { resolve } as unknown as Rollup.PluginContext;
+
+    await expect(
+      callHook(
+        plugin.resolveId,
+        context,
+        'some-runtime-plugin',
+        getHostAutoInitPath(otherOptions),
+        {
+          isEntry: false,
+        }
+      )
+    ).resolves.toBeUndefined();
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
   it('keeps dev host-init shared seeds bound to their owning options', () => {
     const optionsA = normalizeModuleFederationOptions({
       name: 'tenant-a',
