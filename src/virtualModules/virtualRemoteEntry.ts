@@ -20,7 +20,7 @@ import {
 } from '../utils/packageUtils';
 import { getImportedLocalShares, getLocalShareSourceFile } from '../utils/localShareImports';
 import { getCommonSharedSubpaths } from '../utils/pathNormalization';
-import { REACT_DOM_CLIENT_SHARE } from '../utils/reactShares';
+import { isReactFamilyShare, REACT_DOM_CLIENT_SHARE } from '../utils/reactShares';
 import { filterRuntimePluginsForTarget } from '../utils/runtimePluginSpecifier';
 import { serializeRuntimeOptions, toSafeJsLiteral } from '../utils/serializeRuntimeOptions';
 import { getSharedRequest, getSharedRuntimeKey } from '../utils/sharedKeyMatcher';
@@ -1049,8 +1049,14 @@ function generateRuntimeSharedCacheSeedCode(
         prerequisites.map((prerequisite) => seedIndex.get(prerequisite)),
       ])
   );
+  // version-first singletons whose local seed waits for the remotes to register (#1527).
+  const versionFirstDeferredSeeds =
+    shareStrategy === 'version-first' && hasRemotes(options)
+      ? seedOrder.filter((pkg) => !isReactFamilyShare(pkg))
+      : [];
   return `
     const __mfSeedOrder = ${toSafeJsLiteral(seedOrder)};
+    const __mfVersionFirstDeferredSeeds = new Set(${toSafeJsLiteral(versionFirstDeferredSeeds)});
     const __mfSeedBatches = ${toSafeJsLiteral(seedBatches)};
     const __mfSeedIndex = new Map(__mfSeedOrder.map((pkg, index) => [pkg, index]));
     const __mfSeedPrerequisites = ${toSafeJsLiteral(seedPrerequisites)};
@@ -1214,13 +1220,8 @@ function generateRuntimeSharedCacheSeedCode(
       // even when a remote's higher version is selected, so a package with top-level side
       // effects (custom element registration, polyfills) runs twice (#1527). Wait for the
       // remotes; the deferred pass seeds the local copy only when no remote outranks it.
-      // The React family keeps the eager seed its synchronous wrappers rely on
-      // (see isReactFamilyShare).
-      if (
-        ${toSafeJsLiteral(shareStrategy === 'version-first' && hasRemotes(options))} &&
-        share.shareConfig?.singleton &&
-        !/^react(?:-dom)?(?:\\/|$)/.test(pkg)
-      ) return true;
+      // The React family keeps the eager seed its synchronous wrappers rely on.
+      if (__mfVersionFirstDeferredSeeds.has(pkg) && share.shareConfig?.singleton) return true;
       if (typeof __mfSelectExternalSharedProvider !== 'function') return false;
       return Boolean(__mfSelectExternalSharedProvider(
         initialShared[pkg],
