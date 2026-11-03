@@ -2215,6 +2215,8 @@ export function writeLoadShareModule(
     !isReactFamilyShare(pkg) &&
     options.shareStrategy === 'version-first' &&
     hasRemotes(options) &&
+    // solid-js/web re-exports solid-js at evaluation time and would snapshot its unbound exports.
+    pkg !== 'solid-js' &&
     !isSharedSingletonConsumedByPeer(pkg, options, true);
   const usesDeferredSingletonFallback =
     hasCompleteExportCoverage &&
