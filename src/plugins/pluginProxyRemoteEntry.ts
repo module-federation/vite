@@ -182,7 +182,7 @@ export default function ({
       // managers (pnpm) because it is a transitive dependency.  Re-resolve from
       // this package's location so Vite uses the correct ESM entry point.
       if (
-        importer === remoteEntryId &&
+        (importer === remoteEntryId || (importer && isHostAutoInitId(importer))) &&
         !id.startsWith('.') &&
         !id.startsWith('/') &&
         !id.startsWith('\0') &&
