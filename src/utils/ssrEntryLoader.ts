@@ -232,7 +232,10 @@ async function resolveEsmSubpath(id: string, base: string): Promise<string | und
     if (!existsSync(packageJson)) continue;
     const { exports } = JSON.parse(readFileSync(packageJson, 'utf8'));
     const target = getEsmExportTarget(exports?.[subpath]);
-    return target && join(dirname(packageJson), target);
+    const esmPath = target && join(dirname(packageJson), target);
+    // Deploy tracers (e.g. Nitro) copy only the files the host loads, so the
+    // ESM target may be missing. Then the caller's path is the host's copy.
+    return esmPath && existsSync(esmPath) ? esmPath : undefined;
   }
   return undefined;
 }

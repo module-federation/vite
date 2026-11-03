@@ -1602,7 +1602,7 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     const fsMock = await import('fs');
     (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
     (fsMock.existsSync as ReturnType<typeof vi.fn>).mockImplementation(
-      (path: unknown) => path === packageJson
+      (path: unknown) => path === packageJson || /\/dist\/esm\/index\.js$/.test(String(path))
     );
     (fsMock.readFileSync as ReturnType<typeof vi.fn>).mockImplementation(() =>
       JSON.stringify({
@@ -1636,6 +1636,48 @@ describe('ssrEntryLoaderPlugin — code transformation', () => {
     // The mocked path.join does not normalize `./`.
     expect(remoteCode).toMatch(
       /from "file:\/\/\/abs\/node_modules\/@scope\/router\/(\.\/)?dist\/esm\/index\.js"/
+    );
+  });
+
+  it('keeps the host path of a shared package when its ESM entry was not deployed', async () => {
+    // Deploy tracers such as Nitro copy only the files the host loads, so the
+    // package.json can name an ESM entry that is missing from the server output.
+    const files = new Map<string, string>();
+    const packageJson = '/abs/node_modules/@scope/router/package.json';
+    const fsMock = await import('fs');
+    (fsMock.mkdirSync as ReturnType<typeof vi.fn>).mockImplementation(() => {});
+    (fsMock.existsSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (path: unknown) => path === packageJson
+    );
+    (fsMock.readFileSync as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      JSON.stringify({
+        exports: { '.': { import: './dist/esm/index.js', require: './dist/cjs/index.cjs' } },
+      })
+    );
+    (fsMock.writeFileSync as ReturnType<typeof vi.fn>).mockImplementation(
+      (path: unknown, code: unknown) => {
+        files.set(String(path), String(code));
+      }
+    );
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/mf-manifest.json': { ok: false },
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        headers: { 'content-type': 'application/javascript' },
+        text: 'import { Link } from "@scope/router"; export { Link };',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const factory = await freshLoader();
+
+    await factory({
+      resolvedShared: { '@scope/router': '/abs/node_modules/@scope/router/dist/cjs/index.cjs' },
+    }).loadEntry!({
+      remoteInfo: { name: 'r', entry: 'http://localhost:5001/remoteEntry.js' },
+    });
+
+    const remoteCode = [...files.values()].find((code) => code.includes('Link'))!;
+    expect(remoteCode).toContain(
+      'from "file:///abs/node_modules/@scope/router/dist/cjs/index.cjs"'
     );
   });
 
@@ -2111,6 +2153,7 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
   it('uses the ESM entry of a dual package the remote shares', async () => {
     // The host map holds the require.resolve (CJS) path. Importing it next to
     // the ESM copy the host app runs would create a second package instance.
+    runnerFiles.set('/host/node_modules/@scope/router/./dist/esm/index.js', '');
     runnerFiles.set(
       '/host/node_modules/@scope/router/package.json',
       JSON.stringify({
