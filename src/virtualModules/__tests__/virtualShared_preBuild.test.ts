@@ -4720,6 +4720,53 @@ describe('writeLoadShareModule', () => {
     expect(code).not.toContain('Promise.race([');
   });
 
+  function versionFirstHostCode(
+    pkg: string,
+    shared: Record<string, { singleton: boolean }> = { [pkg]: { singleton: true } }
+  ) {
+    normalizeModuleFederationOptions({
+      name: 'host',
+      remotes: { remote: 'remote@http://localhost:4174/remoteEntry.js' },
+      shareStrategy: 'version-first',
+      shared,
+    });
+    writeLoadShareModule(
+      pkg,
+      {
+        name: pkg,
+        from: '',
+        version: '1.0.0',
+        shareConfig: { singleton: true, requiredVersion: '*' },
+        scope: 'default',
+      },
+      'build',
+      getNormalizeModuleFederationOptions()
+    );
+    return writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+  }
+
+  it('defers the local copy of a singleton a version-first host negotiates with remotes', () => {
+    const code = versionFirstHostCode('vue');
+    expect(code).not.toContain('import * as __mfLocalShare');
+    expect(code).toContain('initPromise.then');
+    expect(code).toContain('import("/resolved/vue").then((mod) => {');
+  });
+
+  it('keeps a negotiated singleton synchronous when a runtime-dependent peer reads it', () => {
+    const code = versionFirstHostCode('vue', {
+      vue: { singleton: true },
+      'static-entry-consumer': { singleton: true },
+    });
+    expect(code).toContain('import * as __mfLocalShare from');
+    expect(code).not.toContain('initPromise.then');
+  });
+
+  it('keeps a negotiated React singleton synchronous', () => {
+    const code = versionFirstHostCode('react');
+    expect(code).toContain('import * as __mfLocalShare from');
+    expect(code).not.toContain('initPromise.then');
+  });
+
   it('respects an explicitly eager entry-injected singleton', () => {
     const code = entryInjectedCode('vue', { vue: { singleton: true, eager: true } });
     expect(code).toContain('import * as __mfLocalShare from "/resolved/vue";');

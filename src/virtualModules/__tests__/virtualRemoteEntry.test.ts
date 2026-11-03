@@ -4326,7 +4326,7 @@ describe('virtualRemoteEntry', () => {
     }
   );
 
-  it('seeds a root host singleton before version-first remote initialization', async () => {
+  it('seeds a root host React singleton before version-first remote initialization', async () => {
     const hostReactShare = {
       name: 'react',
       from: 'host',
@@ -4367,7 +4367,11 @@ describe('virtualRemoteEntry', () => {
       'serve'
     );
     const seedCode = getRuntimeSeedCode(code);
-    const state = { localReactLoads: 0, cachedReact: undefined as unknown };
+    const state = {
+      localReactLoads: 0,
+      cachedReact: undefined as unknown,
+      deferredSeedKeys: [] as string[],
+    };
     const usedShared = {
       react: {
         ...hostReactShare,
@@ -4401,11 +4405,104 @@ describe('virtualRemoteEntry', () => {
         const __mfSelectExternalSharedProvider = () => undefined;
         ${seedCode}
         state.cachedReact = __mfModuleCache.share['default:react'];
+        state.deferredSeedKeys = __mfDeferredSeedKeys;
       })();`
     )(usedShared, state);
 
+    // The React family keeps the eager seed its synchronous wrappers rely on.
     expect(state.localReactLoads).toBe(1);
     expect(state.cachedReact).toMatchObject({ marker: 'host-react' });
+    expect(state.deferredSeedKeys).toEqual([]);
+  });
+
+  it('defers a root host singleton seed until version-first remotes have registered', async () => {
+    const hostLibShare = {
+      name: 'shared-lib',
+      from: 'host',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: {
+        singleton: true,
+        requiredVersion: '^1.0.0',
+        strictVersion: false,
+      },
+    };
+    normalizedSharedMock.mockReturnValue({ 'shared-lib': hostLibShare });
+    const mod = await import('../virtualRemoteEntry');
+
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('shared-lib', normalizedOptionsMock);
+
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        exposes: {},
+        remotes: {
+          remote: {
+            entryGlobalName: 'remote',
+            name: 'remote',
+            type: 'module',
+            entry: 'http://localhost:4174/remoteEntry.js',
+          },
+        },
+        shared: normalizedSharedMock(),
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'serve'
+    );
+    const seedCode = getRuntimeSeedCode(code);
+    const state = {
+      localLibLoads: 0,
+      cachedLib: undefined as unknown,
+      deferredSeedKeys: [] as string[],
+    };
+    const usedShared = {
+      'shared-lib': {
+        ...hostLibShare,
+        scope: ['default'],
+        get: async () => {
+          state.localLibLoads++;
+          return () => ({ marker: 'host-lib' });
+        },
+      },
+    };
+
+    await new Function(
+      'usedShared',
+      'state',
+      `return (async () => {
+        const __mfModuleCache = { share: {} };
+        const mfName = 'host';
+        const initialShared = {};
+        const __mfGetSharedCacheDescriptor = (pkg, singleton, version, scope) => {
+          const scopeName = Array.isArray(scope) ? scope[0] : scope || 'default';
+          const id = singleton || !version ? pkg : pkg + '@' + version;
+          return { canonical: scopeName + ':' + id };
+        };
+        const __mfReadSharedCache = (cache, descriptor) => cache[descriptor.canonical];
+        const __mfReadSharedCacheOwner = () => undefined;
+        const __mfWriteSharedCache = (cache, descriptor, value) => {
+          cache[descriptor.canonical] = value;
+        };
+        const __mfReadTreeShakingSharedSelection = () => undefined;
+        const runtimeResolveShareHook = {};
+        const __mfSelectExternalSharedProvider = () => undefined;
+        ${seedCode}
+        state.cachedLib = __mfModuleCache.share['default:shared-lib'];
+        state.deferredSeedKeys = __mfDeferredSeedKeys;
+      })();`
+    )(usedShared, state);
+
+    // Seeding before initializeSharing() would evaluate the local copy even when a remote's
+    // higher version wins the negotiation (#1527).
+    expect(state.localLibLoads).toBe(0);
+    expect(state.cachedLib).toBeUndefined();
+    expect(state.deferredSeedKeys).toEqual(['shared-lib']);
   });
 
   it('orders package subpath shares discovered after remoteEntry codegen before their package root', async () => {
