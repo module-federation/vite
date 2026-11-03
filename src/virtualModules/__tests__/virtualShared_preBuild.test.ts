@@ -150,6 +150,9 @@ vi.mock('../../utils/packageUtils', async (importOriginal) => ({
     if (pkg === 'mock-package-export-method-call') {
       return '/repo/apps/remote/node_modules/mock-package-export-method-call/index.js';
     }
+    if (pkg === 'mock-package-export-member-assignment') {
+      return '/repo/apps/remote/node_modules/mock-package-export-member-assignment/index.js';
+    }
     if (pkg === 'mock-package-esm-only/stores' || pkg === 'mock-package-esm-only') {
       return '/repo/apps/remote/node_modules/mock-package-esm-only/dist/stores.js';
     }
@@ -724,6 +727,14 @@ export const buttonBase = 1;`;
         'export function toJwk() {',
         "  return key.export({ format: 'jwk' });",
         '}',
+      ].join('\n');
+    }
+    if (filePath.endsWith('node_modules/mock-package-export-member-assignment/index.js')) {
+      // The bundled form of `enum Action { export = 'export' }`.
+      return [
+        "var Action = ((e) => ((e.export = 'export'), e))(Action || {});",
+        'export const answer = 42;',
+        'export { Action };',
       ].join('\n');
     }
     if (
@@ -3237,6 +3248,13 @@ describe('writeLoadShareModule', () => {
 
   it('detects named exports when `export` appears as a method name', () => {
     expect(getSharedNamedExports('mock-package-export-method-call')).toEqual(['toJwk']);
+  });
+
+  it('detects named exports when a member named `export` is assigned', () => {
+    expect(getSharedNamedExports('mock-package-export-member-assignment')).toEqual([
+      'answer',
+      'Action',
+    ]);
   });
 
   it('uses worker conditional exports for webworker SSR', () => {
