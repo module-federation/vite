@@ -7,7 +7,7 @@ import type {
 import { resolve, join } from 'node:path';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getDefaultMockOptions } from '../../utils/__tests__/helpers';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
@@ -99,6 +99,54 @@ describe('pluginProxyRemoteEntry', () => {
       })
     ).toBeUndefined();
     expect(await callHook(plugin.load, {} as Rollup.PluginContext, proxyId)).toBeUndefined();
+  });
+
+  it('resolves bare imports from the SSR host auto-init module from the plugin package', async () => {
+    const options = getDefaultMockOptions();
+    const plugin = pluginProxyRemoteEntry({
+      options,
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+    const resolve = vi.fn(async (source: string) => ({ id: `resolved:${source}` }));
+    const context = { resolve } as unknown as Rollup.PluginContext;
+    const runtimePlugin = '@module-federation/dts-plugin/dynamic-remote-type-hints-plugin';
+
+    await expect(
+      callHook(plugin.resolveId, context, runtimePlugin, getHostAutoInitPath(options), {
+        isEntry: false,
+      })
+    ).resolves.toEqual({ id: `resolved:${runtimePlugin}` });
+    expect(resolve).toHaveBeenCalledWith(
+      runtimePlugin,
+      expect.stringContaining('pluginProxyRemoteEntry'),
+      { skipSelf: true }
+    );
+  });
+
+  it('does not re-resolve bare imports from another instance host auto-init module', async () => {
+    const options = normalizeModuleFederationOptions({ name: 'owner-host' } as any);
+    const otherOptions = normalizeModuleFederationOptions({ name: 'other-host' } as any);
+    const plugin = pluginProxyRemoteEntry({
+      options,
+      remoteEntryId: 'virtual:mf-remote-entry',
+      virtualExposesId: 'virtual:mf-exposes',
+    });
+    const resolve = vi.fn(async (source: string) => ({ id: `resolved:${source}` }));
+    const context = { resolve } as unknown as Rollup.PluginContext;
+
+    await expect(
+      callHook(
+        plugin.resolveId,
+        context,
+        'some-runtime-plugin',
+        getHostAutoInitPath(otherOptions),
+        {
+          isEntry: false,
+        }
+      )
+    ).resolves.toBeUndefined();
+    expect(resolve).not.toHaveBeenCalled();
   });
 
   it('keeps dev host-init shared seeds bound to their owning options', () => {
