@@ -12,7 +12,7 @@
     "@babel/core": "7.29.6",
     "@babel/preset-env": "7.25.4",
     "@babel/preset-react": "7.24.7",
-    "@module-federation/enhanced": "2.8.1",
+    "@module-federation/enhanced": "2.9.3",
     "@rspack/cli": "2.1.7",
     "@rspack/core": "2.1.7",
     "@rspack/dev-server": "2.1.0",
