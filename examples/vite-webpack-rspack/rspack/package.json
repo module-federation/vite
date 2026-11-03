@@ -9,7 +9,7 @@
     "start": "BROWSERSLIST_IGNORE_OLD_DATA=1 NODE_ENV=development rspack serve"
   },
   "devDependencies": {
-    "@module-federation/enhanced": "2.8.1",
+    "@module-federation/enhanced": "2.9.3",
     "@rspack/cli": "2.1.7",
     "@rspack/core": "2.1.7",
     "@rspack/dev-server": "2.1.0",
