@@ -903,108 +903,116 @@ export function proxySharedModule(options: {
     {
       name: 'proxyPreBuildShared:resolve-shared-loadShare',
       enforce: 'pre',
-      async resolveId(source, importer, resolveOptions) {
-        if (
-          isSharedEntryLookup(source, importer, resolveOptions) ||
-          (resolveOptions.custom as Record<string, unknown> | undefined)?.__mfTreeShakingGraph
-        ) {
-          return;
-        }
-        const sharedSource = await sharedSourceResolver.resolve(this, source, resolveOptions);
-        if (!sharedSource) return;
-        const key = findSharedKey(sharedSource, shared);
-        if (!key) return;
-
-        const shouldSkipTaggedImporterProxy = (sharedKey: string, tag: string): boolean => {
-          if (!importer?.includes(tag)) return false;
-
-          const taggedModule = VirtualModule.findModule(tag, importer);
-          if (!taggedModule) return true;
-
-          // Only skip a wrapper's own fallback import. Cross-wrapper shared imports
-          // still need proxying, e.g. @fortawesome/vue-fontawesome -> vue.
-          return (
-            taggedModule.name === sharedKey || matchesSharedSource(sharedSource, taggedModule.name)
-          );
-        };
-
-        // A shared package's own files must keep ordinary internal module edges.
-        // Compare package roots because `key` may be an explicit subpath or a
-        // trailing-slash wildcard share key.
-        const importerPackage = getSharedPackageFromFile(importer, shared);
-        if (importerPackage === getPackageName(key) && keepsOwnPackageEdge(importer, shared))
-          return;
-        // A dependency of the shared package that imports it back (a package-level
-        // cycle) keeps its ordinary edge too. Proxying it would place the loadShare
-        // glue inside the package's own evaluation cycle, where the glue's eager
-        // export reads run before the fallback body has initialized.
-        // An unshared workspace importer is judged by the imports the shared package
-        // evaluates, not by its manifest closure: in a monorepo that closure reaches
-        // most of the workspace through type-only dependencies, and an ordinary edge
-        // there binds the importer to the local fallback even when a host provides
-        // the singleton.
-        // A consume-only share (`import: false`) has no local fallback for an ordinary edge to stay
-        // coherent with: keeping the edge would inline the share's source into this container, a
-        // second instance next to the one the host provides. Such a share is always proxied.
-        if (importerPackage && shared[key].shareConfig.import !== false) {
-          const importerIsUnsharedWorkspacePackage =
-            !isNodeModulePath(importer!) &&
-            !Object.keys(shared).some((sharedKey) => getPackageName(sharedKey) === importerPackage);
-          const request = getSharedRequest(key, shared[key]);
-          const runtimeDependencyRequest =
-            request.endsWith('/') && matchesSharedSource(sharedSource, key, shared[key])
-              ? sharedSource
-              : request;
-          const keepsOrdinaryEdge = importerIsUnsharedWorkspacePackage
-            ? isSharedPackageRuntimeDependency(
-                runtimeDependencyRequest,
-                importerPackage,
-                getRuntimeDependencyConditions(this, resolveOptions)
-              )
-            : isSharedPackageDependency(request, importerPackage);
-          if (keepsOrdinaryEdge) return;
-        }
-        if (useDirectReactImport && key === 'react') return;
-        if (isAssetLikeImport(source)) return;
-        if (isBuildConfigImporter(importer)) return;
-        // Hard-stop proxying bare React in dev. Vite's RSC pipeline expects
-        // the native server React entry.
-        if (useDirectReactImport && source === 'react') return;
-        // Avoid recursive loadShare/prebuild/local map resolution loops.
-        if (importer && importer.includes('localSharedImportMap')) return;
-        if (importer && (importer.includes('hostAutoInit') || importer.includes('__H_A_I__'))) {
-          return;
-        }
-        if (shouldSkipTaggedImporterProxy(key, LOAD_SHARE_TAG)) return;
-        if (shouldSkipTaggedImporterProxy(key, PREBUILD_TAG)) return;
-        const shareSource =
-          key === 'vue' && sharedSource.startsWith('vue/dist/') ? key : sharedSource;
-        if (
-          shouldKeepSharedImportLocal(
-            shareSource,
-            importer,
-            key,
-            shared,
-            importerPackage,
-            federationOptions
-          )
-        ) {
-          const localSource = getPrebuildResolutionSource(shareSource, shared[key]);
-          // A sibling prebuild would re-enter Vite's CommonJS proxy on Vite 5–7.
-          return tryResolveFromProjectRoot(localSource) || localSource;
-        }
-        const loadSharePath = getLoadShareModulePath(shareSource, federationOptions);
-        if (!materializedLoadShareSources.has(shareSource)) {
-          materializedLoadShareSources.add(shareSource);
-          writeLoadShareModule(shareSource, shared[key], _command, federationOptions);
-          if (shared[key].shareConfig.import !== false) {
-            writePreBuildLibPath(shareSource, shared[key], federationOptions);
+      resolveId: {
+        // Run ahead of other pre plugins (e.g. vite-tsconfig-paths), as the resolve.alias this
+        // replaced did, so a share they would resolve to its source is still proxied.
+        order: 'pre',
+        async handler(source, importer, resolveOptions) {
+          if (
+            isSharedEntryLookup(source, importer, resolveOptions) ||
+            (resolveOptions.custom as Record<string, unknown> | undefined)?.__mfTreeShakingGraph
+          ) {
+            return;
           }
-          addUsedShares(shareSource, federationOptions);
-          writeLocalSharedImportMap(federationOptions);
-          refreshHostAutoInit(federationOptions);
-        }
-        return this.resolve(loadSharePath, importer, { skipSelf: true });
+          const sharedSource = await sharedSourceResolver.resolve(this, source, resolveOptions);
+          if (!sharedSource) return;
+          const key = findSharedKey(sharedSource, shared);
+          if (!key) return;
+
+          const shouldSkipTaggedImporterProxy = (sharedKey: string, tag: string): boolean => {
+            if (!importer?.includes(tag)) return false;
+
+            const taggedModule = VirtualModule.findModule(tag, importer);
+            if (!taggedModule) return true;
+
+            // Only skip a wrapper's own fallback import. Cross-wrapper shared imports
+            // still need proxying, e.g. @fortawesome/vue-fontawesome -> vue.
+            return (
+              taggedModule.name === sharedKey ||
+              matchesSharedSource(sharedSource, taggedModule.name)
+            );
+          };
+
+          // A shared package's own files must keep ordinary internal module edges.
+          // Compare package roots because `key` may be an explicit subpath or a
+          // trailing-slash wildcard share key.
+          const importerPackage = getSharedPackageFromFile(importer, shared);
+          if (importerPackage === getPackageName(key) && keepsOwnPackageEdge(importer, shared))
+            return;
+          // A dependency of the shared package that imports it back (a package-level
+          // cycle) keeps its ordinary edge too. Proxying it would place the loadShare
+          // glue inside the package's own evaluation cycle, where the glue's eager
+          // export reads run before the fallback body has initialized.
+          // An unshared workspace importer is judged by the imports the shared package
+          // evaluates, not by its manifest closure: in a monorepo that closure reaches
+          // most of the workspace through type-only dependencies, and an ordinary edge
+          // there binds the importer to the local fallback even when a host provides
+          // the singleton.
+          // A consume-only share (`import: false`) has no local fallback for an ordinary edge to stay
+          // coherent with: keeping the edge would inline the share's source into this container, a
+          // second instance next to the one the host provides. Such a share is always proxied.
+          if (importerPackage && shared[key].shareConfig.import !== false) {
+            const importerIsUnsharedWorkspacePackage =
+              !isNodeModulePath(importer!) &&
+              !Object.keys(shared).some(
+                (sharedKey) => getPackageName(sharedKey) === importerPackage
+              );
+            const request = getSharedRequest(key, shared[key]);
+            const runtimeDependencyRequest =
+              request.endsWith('/') && matchesSharedSource(sharedSource, key, shared[key])
+                ? sharedSource
+                : request;
+            const keepsOrdinaryEdge = importerIsUnsharedWorkspacePackage
+              ? isSharedPackageRuntimeDependency(
+                  runtimeDependencyRequest,
+                  importerPackage,
+                  getRuntimeDependencyConditions(this, resolveOptions)
+                )
+              : isSharedPackageDependency(request, importerPackage);
+            if (keepsOrdinaryEdge) return;
+          }
+          if (useDirectReactImport && key === 'react') return;
+          if (isAssetLikeImport(source)) return;
+          if (isBuildConfigImporter(importer)) return;
+          // Hard-stop proxying bare React in dev. Vite's RSC pipeline expects
+          // the native server React entry.
+          if (useDirectReactImport && source === 'react') return;
+          // Avoid recursive loadShare/prebuild/local map resolution loops.
+          if (importer && importer.includes('localSharedImportMap')) return;
+          if (importer && (importer.includes('hostAutoInit') || importer.includes('__H_A_I__'))) {
+            return;
+          }
+          if (shouldSkipTaggedImporterProxy(key, LOAD_SHARE_TAG)) return;
+          if (shouldSkipTaggedImporterProxy(key, PREBUILD_TAG)) return;
+          const shareSource =
+            key === 'vue' && sharedSource.startsWith('vue/dist/') ? key : sharedSource;
+          if (
+            shouldKeepSharedImportLocal(
+              shareSource,
+              importer,
+              key,
+              shared,
+              importerPackage,
+              federationOptions
+            )
+          ) {
+            const localSource = getPrebuildResolutionSource(shareSource, shared[key]);
+            // A sibling prebuild would re-enter Vite's CommonJS proxy on Vite 5–7.
+            return tryResolveFromProjectRoot(localSource) || localSource;
+          }
+          const loadSharePath = getLoadShareModulePath(shareSource, federationOptions);
+          if (!materializedLoadShareSources.has(shareSource)) {
+            materializedLoadShareSources.add(shareSource);
+            writeLoadShareModule(shareSource, shared[key], _command, federationOptions);
+            if (shared[key].shareConfig.import !== false) {
+              writePreBuildLibPath(shareSource, shared[key], federationOptions);
+            }
+            addUsedShares(shareSource, federationOptions);
+            writeLocalSharedImportMap(federationOptions);
+            refreshHostAutoInit(federationOptions);
+          }
+          return this.resolve(loadSharePath, importer, { skipSelf: true });
+        },
       },
     },
     {
