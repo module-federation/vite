@@ -3206,6 +3206,36 @@ describe('virtualRemoteEntry', () => {
     expect(code).toContain('const providerKey = cacheDescriptor.canonical;');
   });
 
+  it('materializes a shared subpath that only a shared dependency imports', async () => {
+    const shareItem = (name: string) => ({
+      name,
+      from: '',
+      version: '1.0.0',
+      scope: 'default',
+      shareConfig: { singleton: true, requiredVersion: '^1.0.0', strictVersion: false },
+    });
+    const mod = await import('../virtualRemoteEntry');
+    const options = {
+      internalName: '__mfe_internal__dependency_subpath',
+      name: 'dependency-subpath-host',
+      shared: {
+        '@repro/core': shareItem('@repro/core'),
+        '@repro/shared-lib': shareItem('@repro/shared-lib'),
+        '@repro/shared-lib/media': shareItem('@repro/shared-lib/media'),
+      },
+    } as any;
+    // The application imports @repro/core only. @repro/core depends on
+    // @repro/shared-lib and its source imports @repro/shared-lib/media, so the
+    // subpath has to be materialized along with the package root.
+    mod.addConfiguredShare('@repro/shared-lib', options);
+    mod.addConfiguredShare('@repro/shared-lib/media', options);
+    mod.addUsedShares('@repro/core', options);
+
+    const code = mod.generateLocalSharedImportMap(options);
+    expect(code).toMatch(/"@repro\/shared-lib": \{[^}]*?materialize: true,/);
+    expect(code).toMatch(/"@repro\/shared-lib\/media": \{[^}]*?materialize: true,/);
+  });
+
   it('seeds optional peers before their consumers', async () => {
     const shareItem = (name: string) => ({
       name,
