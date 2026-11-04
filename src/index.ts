@@ -80,6 +80,7 @@ import {
   getPackageName,
   getPackageNameFromNodeModulePath,
   hasPackageDependency,
+  isPackageExportAvailable,
   resolveImportPath,
   resolveModulePath,
   setPackageDetectionCwd,
@@ -667,11 +668,17 @@ function registerEntryImports(
 // A shared subpath (react-dom/client, react/jsx-runtime) is served by its root
 // package and requires it synchronously while evaluating, so the root must be
 // seeded with it. The optimizer discovers that edge while scanning, but skips
-// the scan once node_modules/.vite is warm (#1220, #1384).
+// the scan once node_modules/.vite is warm (#1220, #1384). A `pkg/` share also
+// matches the bare `pkg`, so only seed a root the package actually exports:
+// eager hosts emit `import * as x from "<root>"` for every used share (#1322).
 function materializeSharedRequest(options: NormalizedModuleFederationOptions, request: string) {
   addUsedShares(request, options);
   const packageName = getPackageName(request);
-  if (packageName !== request && findSharedKey(packageName, options.shared)) {
+  if (
+    packageName !== request &&
+    findSharedKey(packageName, options.shared) &&
+    isPackageExportAvailable(packageName)
+  ) {
     addUsedShares(packageName, options);
   }
 }

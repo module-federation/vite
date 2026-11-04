@@ -53,6 +53,7 @@ vi.mock('../utils/packageUtils', async () => {
   return {
     ...actual,
     hasPackageDependency: hasPackageDependencyMock,
+    isPackageExportAvailable: vi.fn(actual.isPackageExportAvailable),
     resolveImportPath: vi.fn(actual.resolveImportPath),
     setPackageDetectionCwd: vi.fn(),
   };
@@ -67,7 +68,7 @@ vi.mock('../utils/logger', async () => {
 });
 
 import { federation } from '../index';
-import { resolveImportPath } from '../utils/packageUtils';
+import { isPackageExportAvailable, resolveImportPath } from '../utils/packageUtils';
 import VirtualModule from '../utils/VirtualModule';
 import {
   getPreBuildLibImportId,
@@ -1737,6 +1738,49 @@ describe('vite:module-federation-early-init', () => {
       expect(materializeOf('react-dom')).toBe('true');
       expect(materializeOf('vue')).toBe('false');
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not materialize the root of a prefix share whose package has no root export', () => {
+    // Regression: a `pkg/` share also matches the bare `pkg`, so every
+    // `pkg/<subpath>` import seeded the root too. For a package whose
+    // `exports` has no "." (only "./*"), an eager host then emitted
+    // `import * as x from "<pkg>/index.js"`, a file that does not exist.
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-subpath-no-root-export-'));
+    mkdirSync(path.join(root, 'src'));
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<script type="module" src="/src/main.ts"></script>'
+    );
+    writeFileSync(path.join(root, 'src/main.ts'), 'import "no-root-pkg/button.js"');
+    const exportAvailableMock = vi.mocked(isPackageExportAvailable);
+    const originalImplementation = exportAvailableMock.getMockImplementation()!;
+    exportAvailableMock.mockImplementation((pkg, opts) =>
+      pkg === 'no-root-pkg' ? false : originalImplementation(pkg, opts)
+    );
+
+    try {
+      const plugins = federation({
+        name: 'subpath-no-root-export',
+        shared: { 'no-root-pkg/': {} },
+      }) as Plugin[];
+      const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+      const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+        | (Plugin & { _options: NormalizedModuleFederationOptions })
+        | undefined;
+      if (!early || !owner) throw new Error('module federation plugins not found');
+
+      runConfig(early, { meta: {} } as ConfigPluginContext, { root } as UserConfig, {
+        command: 'serve',
+        mode: 'test',
+      });
+
+      const code = generateLocalSharedImportMap(owner._options);
+      expect(code).toContain('"no-root-pkg/button.js": {');
+      expect(code).not.toContain('"no-root-pkg": {');
+    } finally {
+      exportAvailableMock.mockReset();
       rmSync(root, { recursive: true, force: true });
     }
   });
