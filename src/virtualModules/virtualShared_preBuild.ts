@@ -1928,13 +1928,23 @@ function generateDeferredHostProvidedExports(
       ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
 
+  // A share seeded by a later batch, after this wrapper evaluated, still binds once it reaches the cache,
+  // even if the pending load below has already rejected with the "imported before bootstrap" error.
+  const subscribeToLateShare = treeShakingConsumer
+    ? ''
+    : `__mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, (mod) => {
+        exportModule = mod;
+        __mfApplyHostProvidedExports(mod);
+      });
+      `;
+
   return `${declarations}
     const __mfApplyHostProvidedExports = (exportModule) => {
       ${assignments}
     };
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
-      __mfTrackPendingShareLoad(initPromise.then(() => {
+      ${subscribeToLateShare}__mfTrackPendingShareLoad(initPromise.then(() => {
         exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
         // A share init() left to its dynamic import is normally bridged before that import runs;
         // bridge it here when this wrapper is reached another way.

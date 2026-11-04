@@ -3051,6 +3051,70 @@ describe('writeLoadShareModule', () => {
     expect(generatedCode).toContain('was imported before federation bootstrap finished');
   });
 
+  it('binds an import: false share that reaches the cache only after init in serve mode', async () => {
+    // A shared subpath imported only by another shared package is not seeded by the dev hostAutoInit:
+    // its wrapper misses the cache at init, and has to bind when the share is written later.
+    const pkg = 'mock-package-with-reserved';
+    const mockShareItem: ShareItem = {
+      name: pkg,
+      from: '',
+      version: undefined,
+      shareConfig: {
+        import: false,
+        singleton: true,
+        strictVersion: false,
+        requiredVersion: '*',
+      },
+      scope: 'default',
+    };
+
+    writeLoadShareModule(pkg, mockShareItem, 'serve', getNormalizeModuleFederationOptions());
+
+    const generatedCode = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    const runnable = generatedCode
+      .replace(/^\s*import [^\n]*$/gm, '')
+      .replace(/^\s*export \{[^\n]*$/gm, '');
+    const previousCache = (globalThis as Record<string, unknown>).__mf_module_cache__;
+    delete (globalThis as Record<string, unknown>).__mf_module_cache__;
+    try {
+      const wrapper = new Function(
+        `${runnable}
+        return {
+          get get() { return __mf_1; },
+          get moduleExports() { return exportModule; },
+          initResolve: __mfPromiseState.initResolve,
+          pending: __mfModuleCache.pendingShareLoads,
+          cache: __mfModuleCache.share,
+          descriptor: {"canonical":"default:mock-package-with-reserved","aliases":["mock-package-with-reserved"]},
+          write: __mfWriteSharedCache,
+        };`
+      )() as {
+        get: unknown;
+        moduleExports: unknown;
+        initResolve: (value?: unknown) => void;
+        pending: Promise<unknown>[];
+        cache: Record<string, unknown>;
+        descriptor: unknown;
+        write: (cache: unknown, descriptor: unknown, value: unknown, owner: string) => void;
+      };
+
+      wrapper.initResolve();
+      await Promise.allSettled([...wrapper.pending]);
+      expect(wrapper.get).toBeUndefined();
+
+      const hostGet = () => 'host';
+      const hostModule = { delete: () => 'host', get: hostGet, request: () => 'host' };
+      wrapper.write(wrapper.cache, wrapper.descriptor, hostModule, 'host');
+
+      expect(wrapper.get).toBe(hostGet);
+      expect(wrapper.moduleExports).toBe(hostModule);
+    } finally {
+      if (previousCache === undefined)
+        delete (globalThis as Record<string, unknown>).__mf_module_cache__;
+      else (globalThis as Record<string, unknown>).__mf_module_cache__ = previousCache;
+    }
+  });
+
   it('emits only analyzed named exports for a finalized import:false consumer', () => {
     const pkg = 'mock-package-with-reserved';
     const mockShareItem: ShareItem = {
