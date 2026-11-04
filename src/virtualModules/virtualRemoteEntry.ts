@@ -502,14 +502,14 @@ function getMaterializedShares(options: NormalizedModuleFederationOptions) {
     }
   }
   // Every shared key of a package (its root and any subpaths such as `pkg/media`), so a
-  // materialized share pulls in each subpath of its dependencies, not only the root.
-  const configured = new Map<string, string[]>();
+  // materialized share pulls in all shared subpaths of its dependencies, not only the ones it imports.
+  const sharedKeysByPackage = new Map<string, string[]>();
   const orderedUsed = getOrderedUsedShares(options);
   for (const pkg of orderedUsed) {
     const packageName = getPackageName(pkg);
-    const keys = configured.get(packageName);
+    const keys = sharedKeysByPackage.get(packageName);
     if (keys) keys.push(pkg);
-    else configured.set(packageName, [pkg]);
+    else sharedKeysByPackage.set(packageName, [pkg]);
   }
   const localImports = getLocalShareImports(orderedUsed, options);
   const pending = [...shares];
@@ -538,7 +538,7 @@ function getMaterializedShares(options: NormalizedModuleFederationOptions) {
       ...((packageJson?.peerDependenciesMeta as Record<string, unknown> | undefined) || {}),
     };
     for (const dependency of Object.keys(dependencies)) {
-      for (const sharedDependency of configured.get(dependency) ?? []) {
+      for (const sharedDependency of sharedKeysByPackage.get(dependency) ?? []) {
         if (shares.has(sharedDependency)) continue;
         if (getNormalizeShareItem(sharedDependency, options)?.scope !== share?.scope) continue;
         shares.add(sharedDependency);
