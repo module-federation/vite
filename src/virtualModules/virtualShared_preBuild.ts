@@ -1928,13 +1928,23 @@ function generateDeferredHostProvidedExports(
       ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
 
+  // A share seeded only after this wrapper evaluated (e.g. a shared subpath imported only by another
+  // shared package) still binds once it reaches the cache.
+  const subscribeToLateShare = treeShakingConsumer
+    ? ''
+    : `__mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, (mod) => {
+        exportModule = mod;
+        __mfApplyHostProvidedExports(mod);
+      });
+      `;
+
   return `${declarations}
     const __mfApplyHostProvidedExports = (exportModule) => {
       ${assignments}
     };
     let exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
     if (exportModule === undefined) {
-      __mfTrackPendingShareLoad(initPromise.then(() => {
+      ${subscribeToLateShare}__mfTrackPendingShareLoad(initPromise.then(() => {
         exportModule = ${getSharedCacheReadExpression(cacheDescriptor, treeShakingConsumer)};
         // A share init() left to its dynamic import is normally bridged before that import runs;
         // bridge it here when this wrapper is reached another way.
