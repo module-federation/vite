@@ -1928,8 +1928,8 @@ function generateDeferredHostProvidedExports(
       ? `\n    export { ${namedExports.map((name, i) => `${namedExportVars[i]} as ${name}`).join(', ')} };`
       : '';
 
-  // A share seeded only after this wrapper evaluated (e.g. a shared subpath imported only by another
-  // shared package) still binds once it reaches the cache.
+  // A share seeded by a later batch, after this wrapper evaluated, still binds once it reaches the cache,
+  // even if the pending load below has already rejected with the "imported before bootstrap" error.
   const subscribeToLateShare = treeShakingConsumer
     ? ''
     : `__mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, (mod) => {
