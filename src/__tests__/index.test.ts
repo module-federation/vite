@@ -1988,6 +1988,46 @@ describe('vite:module-federation-early-init', () => {
     }
   });
 
+  it('scans build entry imports after configResolved generated sources exist', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-entry-generated-remote-'));
+    mkdirSync(path.join(root, 'src/routes'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<script type="module" src="/src/main.tsx"></script>'
+    );
+    writeFileSync(path.join(root, 'src/main.tsx'), 'import { routeTree } from "./routeTree.gen"');
+    writeFileSync(path.join(root, 'src/routes/index.tsx'), 'import { Button } from "lib/ui"');
+
+    try {
+      const plugins = federation({
+        name: 'entry-generated-remote',
+        remotes: {
+          lib: { name: 'lib', type: 'module', entry: '/lib/remoteEntry.js' },
+        },
+      }) as Plugin[];
+      const early = plugins.find((plugin) => plugin.name === 'vite:module-federation-early-init');
+      const owner = plugins.find((plugin) => plugin.name === 'module-federation-vite') as
+        | (Plugin & { _options: NormalizedModuleFederationOptions })
+        | undefined;
+      if (!early || !owner) throw new Error('module federation plugins not found');
+
+      runConfig(early, { meta: {} } as ConfigPluginContext, { root } as UserConfig, {
+        command: 'build',
+        mode: 'production',
+      });
+      // A router plugin writes the route tree in its (parallel) configResolved.
+      writeFileSync(
+        path.join(root, 'src/routeTree.gen.ts'),
+        'import "./routes/index"; export const routeTree = {}'
+      );
+      (early.buildStart as () => void).call({});
+
+      expect(getPreloadRemotes(owner._options)).toEqual(new Set(['lib/ui']));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('registers configured remotes for version-first init without importing the bare alias', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'mf-entry-remote-init-'));
     mkdirSync(path.join(root, 'src'));
@@ -2117,6 +2157,7 @@ describe('vite:module-federation-early-init', () => {
           mode: 'production',
         }
       );
+      (early.buildStart as () => void).call({});
 
       expect(getStaticRemotes(owner._options)).toEqual(new Set(['remote/runtime']));
     } finally {

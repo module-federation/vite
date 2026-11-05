@@ -2795,6 +2795,101 @@ describe('pluginAddEntry', () => {
     expect(html).not.toContain('http://localhost:5002/remoteEntry.js');
   });
 
+  it('injects init-chain modulepreloads beside the entry script with entry injection', () => {
+    const federationOptions = {
+      internalName: 'host',
+      name: 'host',
+      shareStrategy: 'version-first',
+      shared: {},
+      remotes: {
+        remote: {
+          entry: '/cdn/remote/remoteEntry.js',
+          entryGlobalName: 'remote',
+          name: 'remote',
+          type: 'module',
+          shareScope: 'default',
+        },
+      },
+    } as any;
+    addUsedRemote('remote', 'remote/ui', federationOptions);
+
+    const plugins = addEntry({
+      entryName: 'hostInit',
+      entryPath: '/virtual/hostInit.js',
+      inject: 'entry',
+      federationOptions,
+    });
+    const buildPlugin = plugins[1];
+    const script = '<script type="module" crossorigin src="/app/scripts/main.js"></script>';
+    const bundle: any = {
+      'html/app.html': {
+        type: 'asset',
+        source: `<!-- app:body --><div id="root"></div><!-- app:body end --><!-- app:footer -->${script}<!-- app:footer end -->`,
+      },
+      'scripts/main.js': {
+        type: 'chunk',
+        name: 'main',
+        isEntry: true,
+        fileName: 'scripts/main.js',
+        facadeModuleId: '/repo/host/src/main.tsx',
+        imports: [],
+      },
+      'scripts/app.js': {
+        type: 'chunk',
+        name: 'main',
+        isEntry: false,
+        fileName: 'scripts/app.js',
+        facadeModuleId: '/repo/host/src/main.tsx?mf-entry-bootstrap',
+        imports: ['scripts/vendor.js'],
+      },
+      'scripts/vendor.js': { type: 'chunk', name: 'vendor', fileName: 'scripts/vendor.js' },
+      'scripts/route.js': {
+        type: 'chunk',
+        name: 'route',
+        fileName: 'scripts/route.js',
+        facadeModuleId: '/repo/host/src/route.tsx',
+      },
+      'scripts/hostInit.js': { type: 'chunk', name: 'hostInit', fileName: 'scripts/hostInit.js' },
+    };
+
+    runConfigResolved(buildPlugin, {
+      root: '/repo/host',
+      base: '/app/',
+      command: 'build',
+      build: { rollupOptions: {} },
+    } as unknown as ResolvedConfig);
+    runBuildStart(
+      buildPlugin,
+      { emitFile: () => 'host-init-ref' } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedInputOptions
+    );
+    runGenerateBundle(
+      buildPlugin,
+      {
+        getFileName: () => 'scripts/hostInit.js',
+        emitFile: () => 'ref',
+      } as unknown as Rollup.PluginContext,
+      {} as Rollup.NormalizedOutputOptions,
+      bundle as unknown as Rollup.OutputBundle,
+      false
+    );
+
+    const html = String(bundle['html/app.html'].source);
+    // Headless fragment: hints stay inside the footer region with the script.
+    const footer = html.slice(html.indexOf('<!-- app:footer -->'), html.indexOf(script));
+    for (const href of [
+      '/cdn/remote/remoteEntry.js',
+      '/app/scripts/hostInit.js',
+      '/app/scripts/app.js',
+      '/app/scripts/vendor.js',
+    ]) {
+      expect(footer).toContain(`<link rel="modulepreload" crossorigin href="${href}">`);
+    }
+    expect(html).not.toContain('/app/scripts/route.js');
+    // The entry script itself is left alone.
+    expect(html).toContain(script);
+  });
+
   it('appends init-critical chunk warmup to the remote entry chunk', () => {
     const plugins = addEntry({
       entryName: 'remoteEntry',
