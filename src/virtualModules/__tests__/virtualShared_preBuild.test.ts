@@ -4718,6 +4718,33 @@ describe('writeLoadShareModule', () => {
     expect(prependWorkspaceSingletonSsrImport(generatedCode)).toBe(generatedCode);
   });
 
+  it('defers react-dom/client fallbacks in built entry-injected hosts', () => {
+    const shareItem: ShareItem = {
+      name: 'react-dom/client',
+      from: '',
+      version: '19.2.0',
+      shareConfig: { singleton: true, strictVersion: false, requiredVersion: '^19.0.0' },
+      scope: 'default',
+    };
+    const hostOptions = (hostInitInjectLocation: 'entry' | 'html') =>
+      normalizeModuleFederationOptions({
+        name: 'host',
+        hostInitInjectLocation,
+        remotes: { remote: 'remote@http://localhost:5001/remoteEntry.js' },
+        shared: { 'react-dom/client': { singleton: true } },
+      });
+
+    // Another host on the page may seed a different React; evaluating this unused
+    // renderer would then throw React's version check (#527).
+    writeLoadShareModule('react-dom/client', shareItem, 'build', hostOptions('entry'));
+    const deferred = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+    expect(deferred).not.toContain('import * as __mfLocalShare');
+    expect(deferred).toContain('import("/resolved/react-dom/client").then((mod) => {');
+
+    writeLoadShareModule('react-dom/client', shareItem, 'build', hostOptions('html'));
+    expect(writeSyncSpy.mock.calls.at(-1)?.[0]).toContain('import * as __mfLocalShare');
+  });
+
   function entryInjectedCode(
     pkg: string,
     shared: Record<string, { singleton: boolean; eager?: boolean }> = {
