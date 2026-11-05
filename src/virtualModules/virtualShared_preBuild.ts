@@ -2260,12 +2260,24 @@ export function writeLoadShareModule(
   // react-dom/client must always take this path, including on the server:
   // evaluating an unused local renderer registers it and splits React identity
   // (#1335).
+  // A built entry-injected host seeds it in hostInit before its app code runs.
+  // Another host on the page may have seeded a different version; evaluating
+  // this host's unused copy would then fail React's version check (#527).
+  const defersHostReactDomClient =
+    command === 'build' &&
+    hasCompleteExportCoverage &&
+    isSingleton &&
+    pkg === REACT_DOM_CLIENT_SHARE &&
+    !isWorkspaceSingleton &&
+    options.hostInitInjectLocation === 'entry' &&
+    hasRemotes(options);
   const usesDeferredEntryInjectedSingletonFallback =
-    usesEntryInjectedRemoteFallback &&
-    !isReactCoreShare(pkg) &&
-    (pkg === REACT_DOM_CLIENT_SHARE ||
-      (shareItem.shareConfig.eager !== true &&
-        !isSharedSingletonConsumedByPeer(pkg, options, true)));
+    defersHostReactDomClient ||
+    (usesEntryInjectedRemoteFallback &&
+      !isReactCoreShare(pkg) &&
+      (pkg === REACT_DOM_CLIENT_SHARE ||
+        (shareItem.shareConfig.eager !== true &&
+          !isSharedSingletonConsumedByPeer(pkg, options, true))));
   const usesEagerWorkspaceFallback =
     hasCompleteExportCoverage &&
     isWorkspaceSingleton &&

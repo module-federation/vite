@@ -1182,6 +1182,10 @@ function generateRuntimeSharedCacheSeedCode(
           value: true,
           enumerable: false
         });
+        // The init map is page-wide: another container may have run this provider
+        // init and seeded the result under its own name. Keep that owner, or this
+        // container would later treat a sibling's copy as its own provisional seed.
+        if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) return;
         __mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, exportModule, mfName);
       }));
     };
@@ -2692,6 +2696,16 @@ export function generateHostAutoInitCode(
             if (lateKeys.length) __mfHostInitShareBatches.push(lateKeys);
           }
           ${hostInitSharedProviderHelperCode}
+          // Hosts on one page share the module cache. Negotiate one host at a time so
+          // none adopts another's half-upgraded set of singletons.
+          const __mfPinnedShareOwners = (__mfModuleCache.pinnedShareOwners ||= new Set());
+          const __mfPreviousHostShareInit = __mfModuleCache.hostShareInit;
+          let __mfReleaseHostShareInit;
+          __mfModuleCache.hostShareInit = new Promise((resolve) => {
+            __mfReleaseHostShareInit = resolve;
+          });
+          await __mfPreviousHostShareInit;
+          try {
           for (const __mfHostInitShareBatch of __mfHostInitShareBatches) {
             await Promise.all(__mfHostInitShareBatch.map(async (pkg) => {
               const share = usedShared[pkg];
@@ -2702,6 +2716,20 @@ export function generateHostAutoInitCode(
               // a generic full-module key here.
               if (share.treeShaking) return;
               const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
+              // Another host on the page may hold this singleton in the module cache. Its
+              // app, e.g. its react-dom, is bound to that copy, so this host adopts it and
+              // pins that host's seeds: re-negotiation may then no longer upgrade them.
+              const __mfKeepsCachedSingleton = () => {
+                if (!share.shareConfig?.singleton) return false;
+                if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) === undefined) return false;
+                const owner = __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor);
+                if (owner === undefined) return false;
+                if (owner === ${cacheOwner}) return __mfPinnedShareOwners.has(owner);
+                if ((runtime.options?.remotes || []).some((remote) => remote.name === owner)) return false;
+                __mfPinnedShareOwners.add(owner);
+                return true;
+              };
+              if (__mfKeepsCachedSingleton()) return;
               if (
                 __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined &&
                 ${
@@ -2759,6 +2787,7 @@ export function generateHostAutoInitCode(
                 customShareInfo: { shareConfig: share.shareConfig }
               }).then(async (factory) => {
                 if (factory === false) return;
+                if (__mfKeepsCachedSingleton()) return;
                 const mod = typeof factory === "function" ? factory() : factory;
                 let resolved = __mfNormalizeRuntimeShare(await Promise.resolve(mod));
                 ${
@@ -2784,6 +2813,9 @@ export function generateHostAutoInitCode(
                 );
               });
             }));
+          }
+          } finally {
+            __mfReleaseHostShareInit();
           }
           `
               : ''

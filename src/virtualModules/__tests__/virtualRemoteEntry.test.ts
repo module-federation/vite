@@ -1879,6 +1879,71 @@ describe('virtualRemoteEntry', () => {
     expect(buildCode).not.toContain('virtual:loadShare:eager-shared');
   });
 
+  it("keeps a sibling host's cached singleton and negotiates one host at a time", async () => {
+    normalizedSharedMock.mockReturnValue({
+      react: {
+        name: 'react',
+        version: '19.2.0',
+        scope: 'default',
+        shareConfig: { singleton: true, strictVersion: false },
+      },
+    });
+    const mod = await import('../virtualRemoteEntry');
+    mod.getUsedShares(normalizedOptionsMock).clear();
+    mod.addUsedShares('react', normalizedOptionsMock);
+
+    const hostInit = mod.generateHostAutoInitCode('"virtual:remoteEntry"', 'build');
+
+    // Hosts on one page share the module cache: a later host must not swap the
+    // singleton another host's react-dom is already bound to.
+    expect(hostInit).toContain(
+      'if ((runtime.options?.remotes || []).some((remote) => remote.name === owner)) return false;'
+    );
+    expect(hostInit).toContain('__mfPinnedShareOwners.add(owner);');
+    expect(hostInit.indexOf('if (__mfKeepsCachedSingleton()) return;')).toBeLessThan(
+      hostInit.indexOf('await runtime.loadShare(pkg')
+    );
+    // Also after a load: the sibling may have seeded it in the meantime.
+    expect(hostInit).toMatch(
+      /if \(factory === false\) return;\s*if \(__mfKeepsCachedSingleton\(\)\) return;/
+    );
+    expect(hostInit.indexOf('await __mfPreviousHostShareInit;')).toBeLessThan(
+      hostInit.indexOf('for (const __mfHostInitShareBatch of __mfHostInitShareBatches)')
+    );
+    expect(hostInit).toContain('__mfReleaseHostShareInit();');
+  });
+
+  it('keeps the owner of a provider another container initialized first', async () => {
+    const mod = await import('../virtualRemoteEntry');
+    const code = mod.generateRemoteEntry(
+      {
+        internalName: '__mfe_internal__host',
+        name: 'host',
+        filename: 'remoteEntry.js',
+        remotes: {},
+        runtimePlugins: [],
+        shareScope: 'default',
+        shareStrategy: 'version-first',
+      } as any,
+      'virtual:exposes',
+      'build'
+    );
+
+    // The provider-init map is page-wide, so the awaited module may be another
+    // container's; it already seeded the cache under its own name. Keep that owner,
+    // but still flag this container's provider eager for the same-version tie (#1333).
+    const seed = code.slice(code.indexOf('const resolved = await __mfInitializeProviderOnce('));
+    const keepOwner = seed.indexOf(
+      'if (__mfReadSharedCache(__mfModuleCache.share, cacheDescriptor) !== undefined) return;'
+    );
+    expect(keepOwner).toBeGreaterThan(seed.indexOf('provider.eager = true;'));
+    expect(keepOwner).toBeLessThan(
+      seed.indexOf(
+        '__mfWriteSharedCache(__mfModuleCache.share, cacheDescriptor, exportModule, mfName);'
+      )
+    );
+  });
+
   it('orders React package roots before their subpath shares', async () => {
     const share = (name: string) => ({
       name,
