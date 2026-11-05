@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createServer, type ViteDevServer } from 'vite';
+import { createServer, type ViteDevServer, version as viteVersion } from 'vite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { federation } from '../src';
 
@@ -10,6 +10,8 @@ const roots: string[] = [];
 const servers: ViteDevServer[] = [];
 
 const workspaceRoot = path.resolve(import.meta.dirname, '..');
+// Dev SSR only loads the shared import map through the Vite 8+ ModuleRunner bootstrap.
+const supportsDevSsrInit = Number.parseInt(viteVersion, 10) >= 8;
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
@@ -44,7 +46,7 @@ const runtimeLink = {
   '@module-federation/runtime': 'node_modules/@module-federation/runtime',
 };
 
-describe('dev SSR shared import map invalidation', () => {
+describe.skipIf(!supportsDevSsrInit)('dev SSR shared import map invalidation', () => {
   it('keeps an evaluated SSR shared map intact when a client resolve registers a subpath', async () => {
     const root = await writeFixture(
       'mf-ssr-invalidate-',
