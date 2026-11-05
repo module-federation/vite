@@ -809,6 +809,50 @@ describe('pluginProxySharedModule_preBuild', () => {
     callHook(pluginB.closeBundle, {} as any);
   });
 
+  it('invalidates the client environment graph and not the SSR graph', () => {
+    const options = normalizeModuleFederationOptions({ name: 'ssr-host', shared: {} });
+    const clientModule = { id: 'client-map' };
+    const ssrModule = { id: 'ssr-map' };
+    const invalidateClient = vi.fn();
+    const invalidateSsr = vi.fn();
+    const invalidateMixed = vi.fn();
+    const plugin = getLocalSharedImportMapPlugin(
+      proxySharedModule({ shared: options.shared, federationOptions: options })
+    );
+
+    callHook(
+      plugin.configureServer,
+      {} as any,
+      {
+        environments: {
+          client: {
+            moduleGraph: {
+              getModuleById: () => clientModule,
+              invalidateModule: invalidateClient,
+            },
+          },
+          ssr: {
+            moduleGraph: {
+              getModuleById: () => ssrModule,
+              invalidateModule: invalidateSsr,
+            },
+          },
+        },
+        moduleGraph: {
+          getModuleById: () => clientModule,
+          invalidateModule: invalidateMixed,
+        },
+      } as any
+    );
+
+    writeLocalSharedImportMap(options);
+    expect(invalidateClient).toHaveBeenCalledWith(clientModule);
+    expect(invalidateSsr).not.toHaveBeenCalled();
+    expect(invalidateMixed).not.toHaveBeenCalled();
+
+    callHook(plugin.closeBundle, {} as any);
+  });
+
   it('keeps same-package subpaths inside the independent tree-shaking graph', async () => {
     const shared: NormalizedShared = {
       'pkg/': {
