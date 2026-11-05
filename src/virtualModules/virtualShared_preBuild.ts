@@ -33,6 +33,7 @@ import {
   getPackageDetectionCwd,
   getPackageName,
   getSharedCacheDescriptor,
+  hasPackageDependency,
   packageNameDecode,
   packageNameEncode,
   resolveModulePath,
@@ -2270,7 +2271,9 @@ export function writeLoadShareModule(
     pkg === REACT_DOM_CLIENT_SHARE &&
     !isWorkspaceSingleton &&
     options.hostInitInjectLocation === 'entry' &&
-    hasRemotes(options);
+    hasRemotes(options) &&
+    // vinext's browser bootstrap calls hydrateRoot before the deferred import binds.
+    !hasPackageDependency('vinext');
   const usesDeferredEntryInjectedSingletonFallback =
     defersHostReactDomClient ||
     (usesEntryInjectedRemoteFallback &&

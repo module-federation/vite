@@ -1643,7 +1643,14 @@ export function generateRemoteEntry(
     return __mfExposesMap
   }
 
+  // Hosts that call get() without awaiting init() must still see the shares that
+  // init binds asynchronously: get() waits until no init() call is in flight.
+  let __mfInitsInFlight = 0;
+  let __mfInitsSettled = Promise.resolve();
+  let __mfSettleInits = () => {};
   async function init(shared = {}, initScope = [], remoteEntryInitOptions = {}) {
+    if (__mfInitsInFlight++ === 0) __mfInitsSettled = new Promise((resolve) => (__mfSettleInits = resolve));
+    try {
     ${sharedCacheHelperCode}
     const getShareScope = (scopeName) => remoteEntryInitOptions.shareScopeMap?.[scopeName] ?? (${hasMultipleShareScopes} ? (shared?.[scopeName] || {}) : shared);
     const getShareScopeNames = (share) => {
@@ -2561,9 +2568,14 @@ export function generateRemoteEntry(
     }
     initResolve(initRes)
     return initRes
+    } finally {
+      if (--__mfInitsInFlight === 0) __mfSettleInits();
+    }
   }
 
   async function getExposes(moduleName) {
+    // init() failures surface from init() itself; get() only waits for it to settle.
+    if (__mfInitsInFlight) await __mfInitsSettled
     const exposesMap = await getExposesMap()
     if (!(moduleName in exposesMap)) throw new Error(\`[Module Federation] Module \${moduleName} does not exist in container.\`)
     if (__mfLateBridgeShared) await __mfLateBridgeShared()
