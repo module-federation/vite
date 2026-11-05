@@ -4745,6 +4745,36 @@ describe('writeLoadShareModule', () => {
     expect(writeSyncSpy.mock.calls.at(-1)?.[0]).toContain('import * as __mfLocalShare');
   });
 
+  it('keeps the static react-dom/client fallback in vinext entry-injected hosts', () => {
+    // vinext's browser bootstrap calls hydrateRoot before a deferred import binds.
+    hasPackageDependencyMock.mockImplementation((pkg) => pkg === 'vinext');
+    try {
+      const shareItem: ShareItem = {
+        name: 'react-dom/client',
+        from: '',
+        version: '19.2.0',
+        shareConfig: { singleton: true, strictVersion: false, requiredVersion: '^19.0.0' },
+        scope: 'default',
+      };
+      writeLoadShareModule(
+        'react-dom/client',
+        shareItem,
+        'build',
+        normalizeModuleFederationOptions({
+          name: 'host',
+          hostInitInjectLocation: 'entry',
+          remotes: { remote: 'remote@http://localhost:5001/remoteEntry.js' },
+          shared: { 'react-dom/client': { singleton: true } },
+        })
+      );
+      const code = writeSyncSpy.mock.calls.at(-1)?.[0] as string;
+      expect(code).toContain('import * as __mfLocalShare');
+      expect(code).not.toContain('import("/resolved/react-dom/client").then((mod) => {');
+    } finally {
+      hasPackageDependencyMock.mockImplementation(() => false);
+    }
+  });
+
   function entryInjectedCode(
     pkg: string,
     shared: Record<string, { singleton: boolean; eager?: boolean }> = {
