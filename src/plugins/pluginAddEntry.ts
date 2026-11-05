@@ -158,7 +158,8 @@ function injectHostInitPreloads(
   html: string,
   bundle: Rollup.OutputBundle,
   resolvePath: (fileName: string) => string,
-  externalHrefs: string[] = []
+  externalHrefs: string[] = [],
+  isExtraSeed: (chunk: Rollup.OutputChunk) => boolean = () => false
 ) {
   const existingHrefs = getExistingHrefSet(html);
   const hrefs: string[] = [];
@@ -168,7 +169,9 @@ function injectHostInitPreloads(
     hrefs.push(href);
   }
   const chunksByFileName = getChunksByFileName(bundle);
-  const seeds = Array.from(chunksByFileName.values()).filter(isHostInitPreloadSeed);
+  const seeds = Array.from(chunksByFileName.values()).filter(
+    (chunk) => isHostInitPreloadSeed(chunk) || isExtraSeed(chunk)
+  );
   for (const fileName of collectPreloadChunkFiles(chunksByFileName, seeds)) {
     const href = resolvePath(fileName);
     if (existingHrefs.has(href)) continue;
@@ -181,7 +184,11 @@ function injectHostInitPreloads(
   const tags = hrefs
     .map((href) => `<link rel="modulepreload" crossorigin href="${escapeHtmlAttr(href)}">`)
     .join('');
-  return html.includes('</head>') ? html.replace('</head>', `${tags}</head>`) : `${tags}${html}`;
+  if (html.includes('</head>')) return html.replace('</head>', `${tags}</head>`);
+  // Headless fragments (e.g. CMS templates) keep only marked regions; stay
+  // next to the entry script rather than before the whole document.
+  const script = html.search(/<script\b[^>]*\btype=["']module["']/i);
+  return script === -1 ? `${tags}${html}` : html.slice(0, script) + tags + html.slice(script);
 }
 
 // A consumer discovers the remote entry's init/get chunk URLs one dynamic
@@ -460,7 +467,7 @@ const __mfCurrentScript = document.currentScript;
     return patched;
   }
 
-  // Absolute module-type remote entry URLs that are safe to warm before host
+  // Absolute or root-relative module-type remote entry URLs that are safe to warm before host
   // init runs. Used both by the bootstrap's runtime prefetch and as HTML
   // modulepreload hints, so the fetch starts at HTML parse time instead of
   // after the bootstrap script downloads and evaluates.
@@ -484,7 +491,7 @@ const __mfCurrentScript = document.currentScript;
           );
           return registration &&
             (registration.type === 'module' || registration.type === 'esm') &&
-            /^(?:https?:)?\/\//.test(registration.entry) &&
+            /^(?:https?:)?\//.test(registration.entry) &&
             !/\.json(?:[?#]|$)/i.test(registration.entry)
             ? [registration.entry]
             : [];
@@ -1192,7 +1199,14 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             appendRemoteEntryWarmup(bundle, remoteEntryFile);
           }
         }
-        if (!injectHtml()) return;
+        // Entry injection leaves the HTML script alone, but the page still
+        // benefits from hints for the init chain the bootstrap walks serially.
+        const preloadsEntryHtml =
+          inject === 'entry' &&
+          waitsForInit &&
+          !viteConfig.build.ssr &&
+          viteConfig.build.modulePreload !== false;
+        if (!injectHtml() && !preloadsEntryHtml) return;
         if (!emitFileId) return;
         const htmlFileNames = Object.keys(bundle).filter((fileName) => fileName.endsWith('.html'));
         if (htmlFileNames.length === 0) return;
@@ -1249,6 +1263,23 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         const basePrefix = viteConfig.base?.replace(/\/$/, '') ?? '';
         const stripBase = (p: string) =>
           basePrefix && p.startsWith(basePrefix + '/') ? p.slice(basePrefix.length) : p;
+
+        if (!injectHtml()) {
+          for (const fileName of htmlFileNames) {
+            const htmlAsset = bundle[fileName];
+            if (htmlAsset.type === 'chunk') continue;
+            htmlAsset.source = injectHostInitPreloads(
+              htmlAsset.source.toString(),
+              bundle,
+              (builtFileName) => resolvePath(builtFileName, fileName),
+              getRemoteEntryPreloadUrls(),
+              // The app code is the bootstrap's dynamic import here, not the
+              // HTML entry chunk as with html injection.
+              (chunk) => !!chunk.facadeModuleId && hasEntryBootstrapParam(chunk.facadeModuleId)
+            );
+          }
+          return;
+        }
 
         let bootstrapIndex = 0;
         // Process each HTML file

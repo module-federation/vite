@@ -703,6 +703,7 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
   const { shared, remotes } = options;
   const isLitShare = (pkg: string) => pkg === 'lit' || pkg.startsWith('lit/');
   let hasClientJsxSource = false;
+  let scanBuildEntryImports: (() => void) | undefined;
   return {
     name: 'vite:module-federation-early-init',
     enforce: 'pre',
@@ -769,13 +770,19 @@ function createEarlyVirtualModulesPlugin(options: NormalizedModuleFederationOpti
         // bootstrap. Keep share/optimize-deps discovery serve-only, but scan
         // the same client entry graph during build so the bootstrap can wait
         // for only the remotes imported synchronously by that graph.
-        const hasJsxSource = registerEntryImports(
-          options,
-          root,
-          _command === 'serve',
-          resolvedConfiguredEntryFiles
-        );
-        if (_command === 'serve') hasClientJsxSource = hasJsxSource;
+        // Build waits for buildStart: generated sources (e.g. TanStack Router's
+        // routeTree.gen.ts, written in configResolved) may not exist yet.
+        if (_command === 'serve') {
+          hasClientJsxSource = registerEntryImports(
+            options,
+            root,
+            true,
+            resolvedConfiguredEntryFiles
+          );
+        } else {
+          scanBuildEntryImports = () =>
+            registerEntryImports(options, root, false, resolvedConfiguredEntryFiles);
+        }
       }
 
       // Create shared module virtual files EARLY and register shares eagerly
@@ -1050,6 +1057,10 @@ export default __mfShared.default ?? __mfShared;`,
           ];
         }
       }
+    },
+
+    buildStart() {
+      scanBuildEntryImports?.();
     },
 
     configResolved(config) {
