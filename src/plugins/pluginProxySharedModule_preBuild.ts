@@ -695,10 +695,12 @@ export function proxySharedModule(options: {
       configureServer(server) {
         devServer = server;
         setLocalSharedImportMapInvalidator(() => {
-          const module = server.moduleGraph.getModuleById(
-            getResolvedLocalSharedImportMapId(federationOptions)
-          );
-          if (module) server.moduleGraph.invalidateModule(module);
+          // Vite 6+ exposes `server.moduleGraph` as a mixed client+SSR graph.
+          // Invalidating through it marks the SSR module stale, and an in-flight
+          // SSR ModuleRunner then re-enters the map before `usedShared` exists.
+          const graph = server.environments?.client?.moduleGraph ?? server.moduleGraph;
+          const module = graph.getModuleById(getResolvedLocalSharedImportMapId(federationOptions));
+          if (module) graph.invalidateModule(module as never);
         }, federationOptions);
       },
       resolveId(source) {
