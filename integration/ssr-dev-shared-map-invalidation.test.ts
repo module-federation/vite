@@ -16,31 +16,13 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function writeFixture(): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), 'mf-ssr-invalidate-'));
+async function writeFixture(
+  prefix: string,
+  files: Record<string, string>,
+  links: Record<string, string>
+): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
   roots.push(root);
-  const files: Record<string, string> = {
-    'package.json': JSON.stringify({
-      name: 'mf-ssr-invalidate-repro',
-      private: true,
-      type: 'module',
-      dependencies: {
-        react: '19.2.4',
-        'react-dom': '19.2.4',
-        '@module-federation/runtime': '2.9.3',
-        'cycle-lib': '1.0.0',
-      },
-    }),
-    'src/entry.js': `import '@module-federation/runtime';\nexport const ready = true;\n`,
-    'node_modules/cycle-lib/package.json': JSON.stringify({
-      name: 'cycle-lib',
-      version: '1.0.0',
-      type: 'module',
-      exports: { '.': './index.js', './widget': './widget.js' },
-    }),
-    'node_modules/cycle-lib/index.js': `export function root() { return 'root'; }\n`,
-    'node_modules/cycle-lib/widget.js': `export function widget() { return 'widget'; }\n`,
-  };
   await Promise.all(
     Object.entries(files).map(async ([file, source]) => {
       const filePath = path.join(root, file);
@@ -48,26 +30,52 @@ async function writeFixture(): Promise<string> {
       await writeFile(filePath, source);
     })
   );
-  const modules = path.join(root, 'node_modules');
-  await mkdir(path.join(modules, '@module-federation'), { recursive: true });
-  await symlink(
-    path.join(workspaceRoot, 'examples/vite-vite/vite-remote/node_modules/react'),
-    path.join(modules, 'react')
-  );
-  await symlink(
-    path.join(workspaceRoot, 'examples/vite-vite/vite-remote/node_modules/react-dom'),
-    path.join(modules, 'react-dom')
-  );
-  await symlink(
-    path.join(workspaceRoot, 'node_modules/@module-federation/runtime'),
-    path.join(modules, '@module-federation/runtime')
+  await mkdir(path.join(root, 'node_modules/@module-federation'), { recursive: true });
+  await Promise.all(
+    Object.entries(links).map(([name, target]) =>
+      symlink(path.join(workspaceRoot, target), path.join(root, 'node_modules', name))
+    )
   );
   return root;
 }
 
+const reactLink = { react: 'examples/vite-vite/vite-remote/node_modules/react' };
+const runtimeLink = {
+  '@module-federation/runtime': 'node_modules/@module-federation/runtime',
+};
+
 describe('dev SSR shared import map invalidation', () => {
   it('keeps an evaluated SSR shared map intact when a client resolve registers a subpath', async () => {
-    const root = await writeFixture();
+    const root = await writeFixture(
+      'mf-ssr-invalidate-',
+      {
+        'package.json': JSON.stringify({
+          name: 'mf-ssr-invalidate-repro',
+          private: true,
+          type: 'module',
+          dependencies: {
+            react: '19.2.4',
+            'react-dom': '19.2.4',
+            '@module-federation/runtime': '2.9.3',
+            'cycle-lib': '1.0.0',
+          },
+        }),
+        'src/entry.js': `import '@module-federation/runtime';\nexport const ready = true;\n`,
+        'node_modules/cycle-lib/package.json': JSON.stringify({
+          name: 'cycle-lib',
+          version: '1.0.0',
+          type: 'module',
+          exports: { '.': './index.js', './widget': './widget.js' },
+        }),
+        'node_modules/cycle-lib/index.js': `export function root() { return 'root'; }\n`,
+        'node_modules/cycle-lib/widget.js': `export function widget() { return 'widget'; }\n`,
+      },
+      {
+        ...reactLink,
+        'react-dom': 'examples/vite-vite/vite-remote/node_modules/react-dom',
+        ...runtimeLink,
+      }
+    );
     const server = await createServer({
       root,
       configFile: false,
@@ -120,63 +128,48 @@ describe('dev SSR shared import map invalidation', () => {
   });
 
   it('does not re-enter the SSR shared map while an eager share is still evaluating', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'mf-ssr-invalidate-live-'));
-    roots.push(root);
-    const files: Record<string, string> = {
-      'package.json': JSON.stringify({
-        name: 'mf-ssr-invalidate-live',
-        private: true,
-        type: 'module',
-        dependencies: {
-          react: '19.2.4',
-          '@module-federation/runtime': '2.9.3',
-          'cycle-lib': '1.0.0',
-        },
-      }),
-      'src/entry.js': `
+    const root = await writeFixture(
+      'mf-ssr-invalidate-live-',
+      {
+        'package.json': JSON.stringify({
+          name: 'mf-ssr-invalidate-live',
+          private: true,
+          type: 'module',
+          dependencies: {
+            react: '19.2.4',
+            '@module-federation/runtime': '2.9.3',
+            'cycle-lib': '1.0.0',
+          },
+        }),
+        'src/entry.js': `
         import '@module-federation/runtime';
         import { value } from './cycle-b.js';
         export function render() { return value; }
       `,
-      'src/cycle-b.js': `
+        'src/cycle-b.js': `
         import { id } from './cycle-a.js';
         export const value = id();
       `,
-      'src/cycle-a.js': `
+        'src/cycle-a.js': `
         import { widget } from 'cycle-lib/widget';
         import { render } from './entry.js';
         export const id = () => widget(typeof render);
       `,
-      'node_modules/cycle-lib/package.json': JSON.stringify({
-        name: 'cycle-lib',
-        version: '1.0.0',
-        type: 'module',
-        exports: { '.': './index.js', './widget': './widget.js' },
-      }),
-      'node_modules/cycle-lib/index.js': `
+        'node_modules/cycle-lib/package.json': JSON.stringify({
+          name: 'cycle-lib',
+          version: '1.0.0',
+          type: 'module',
+          exports: { '.': './index.js', './widget': './widget.js' },
+        }),
+        'node_modules/cycle-lib/index.js': `
         export const ready = await new Promise((resolve) => {
           globalThis.__mfReleaseEager = resolve;
         });
         export function root() { return 'root'; }
       `,
-      'node_modules/cycle-lib/widget.js': `export function widget(kind) { return 'widget:' + kind; }\n`,
-    };
-    await Promise.all(
-      Object.entries(files).map(async ([file, source]) => {
-        const filePath = path.join(root, file);
-        await mkdir(path.dirname(filePath), { recursive: true });
-        await writeFile(filePath, source);
-      })
-    );
-    const modules = path.join(root, 'node_modules');
-    await mkdir(path.join(modules, '@module-federation'), { recursive: true });
-    await symlink(
-      path.join(workspaceRoot, 'examples/vite-vite/vite-remote/node_modules/react'),
-      path.join(modules, 'react')
-    );
-    await symlink(
-      path.join(workspaceRoot, 'node_modules/@module-federation/runtime'),
-      path.join(modules, '@module-federation/runtime')
+        'node_modules/cycle-lib/widget.js': `export function widget(kind) { return 'widget:' + kind; }\n`,
+      },
+      { ...reactLink, ...runtimeLink }
     );
 
     const seen: unknown[] = [];
