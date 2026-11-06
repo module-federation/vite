@@ -832,6 +832,15 @@ const normalizeRuntimeShareCode = `const __mfNormalizeRuntimeShare = (mod) => {
 
 // Emitted into remoteEntry for shared provider selection.
 export const sharedProviderSelectionHelperCode = `const __mfOriginalProviderKey = Symbol("mf.originalSharedProvider");
+          // The runtime uses a singleton's requiredVersion only to warn, and the remote entry
+          // selects the same provider in several phases: let it warn once per package and range.
+          const __mfCheckedSingletons = new Set();
+          const __mfCheckSingletonOnce = (pkg, shareConfig) => {
+            if (!shareConfig?.singleton || shareConfig.strictVersion || typeof shareConfig.requiredVersion !== "string") return shareConfig;
+            const key = pkg + "@" + shareConfig.requiredVersion;
+            if (!__mfCheckedSingletons.has(key)) return __mfCheckedSingletons.add(key), shareConfig;
+            return { ...shareConfig, requiredVersion: false };
+          };
           const __mfResolveShareHook = { emit: (params) => params };
           const __mfGetShareScopeNames = (share) =>
             Array.isArray(share.scope) ? share.scope : [share.scope || "default"];
@@ -885,7 +894,7 @@ export const sharedProviderSelectionHelperCode = `const __mfOriginalProviderKey 
             const selected = runtimeShare.getRegisteredShare(
               shareScopeMap,
               pkg,
-              { ...share, scope: scopes, strategy },
+              { ...share, shareConfig: __mfCheckSingletonOnce(pkg, share.shareConfig), scope: scopes, strategy },
               __mfResolveShareHook
             )?.shared;
             return selected?.[__mfOriginalProviderKey] || selected;
@@ -2035,7 +2044,7 @@ export function generateRemoteEntry(
       try {
         const factory = await initRes.loadShare(pkg, {
           customShareInfo: {
-            shareConfig,
+            shareConfig: ${needsSharedProviderSelectionHelper ? '__mfCheckSingletonOnce(pkg, shareConfig)' : 'shareConfig'},
             [__mfRuntimeShareLoadIdKey]: loadId
           }
         });
