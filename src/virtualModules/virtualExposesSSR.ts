@@ -1,4 +1,3 @@
-import { resolveExposeImport } from '../utils/buildPaths';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { generateReactIslandSSRDefinition } from '../utils/reactIsland';
 import { getVirtualModuleScopeKey } from './virtualModuleScope';
@@ -25,8 +24,7 @@ export function getVirtualExposesSSRId(
  */
 export function generateExposesSSR(
   options: NormalizedModuleFederationOptions,
-  reactIslandExposes: ReadonlySet<string> = new Set(),
-  root?: string
+  reactIslandExposes: ReadonlySet<string> = new Set()
 ) {
   return `
     export default {
@@ -34,7 +32,7 @@ export function generateExposesSSR(
       .map((key) => {
         return `
         ${JSON.stringify(key)}: async () => {
-          const importModule = await import(${JSON.stringify(resolveExposeImport(options.exposes[key].import, root))})
+          const importModule = await import(${JSON.stringify(options.exposes[key].import)})
           const exportModule = {}
           Object.assign(exportModule, importModule)
           ${generateReactIslandSSRDefinition(reactIslandExposes.has(key))}

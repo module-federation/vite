@@ -54,9 +54,9 @@ export function normalizePathForImport(path: string): string {
 }
 
 /**
- * Resolves a relative expose import against the Vite root. Virtual modules have no
- * directory, and Vite 7 and older resolve their relative imports against the working
- * directory instead. Bare specifiers and absolute paths are returned unchanged.
+ * Resolves a relative expose import against the Vite root, for exposes that Vite cannot
+ * resolve on its own: virtual modules have no directory, and Vite 7 and older resolve
+ * their relative imports against the working directory. Other imports are unchanged.
  */
 export function resolveExposeImport(importPath: string, root: string | undefined): string {
   if (!root || !importPath.startsWith('.')) return importPath;
