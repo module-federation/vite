@@ -7,6 +7,7 @@ import {
   hasRemotes,
   NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
+import { resolveExposeImport } from '../utils/buildPaths';
 import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
 import {
@@ -357,6 +358,11 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         // Register virtual SSR module IDs so they resolve to themselves.
         if (id === remoteEntrySSRId || id.startsWith(remoteEntrySSRId)) return id;
         if (id === virtualExposesSSRId || id.startsWith(virtualExposesSSRId)) return id;
+        if (importer === virtualExposesSSRId && id.startsWith('.')) {
+          return this.resolve(resolveExposeImport(id, viteConfig?.root), undefined, {
+            skipSelf: true,
+          });
+        }
         // Not shared during build, so this is the instance that builds the current environment.
         if (id === ssrHostInitId) {
           return this.resolve(getHostAutoInitPath(options), importer, { skipSelf: true });

@@ -9,6 +9,7 @@ import {
   resolveHashPlaceholderFileName,
 } from '../utils/buildPaths';
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
+import { isCSSFile } from '../utils/cssModuleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import { isClientEnvironment, isServerBuildContext } from '../utils/remoteConsumerTarget';
 
@@ -937,6 +938,8 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             }
             req.url = devEntryPath;
             req.headers['sec-fetch-dest'] = 'script';
+            // Vite only serves modules to GET; Node still omits the body for HEAD.
+            if (req.method === 'HEAD') req.method = 'GET';
           }
           next();
         });
@@ -1488,7 +1491,10 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         const shouldInject =
           !skipNuxtDevEntryAsyncInject &&
           (injectedTransformIds.has(projectId) ||
-            (injectEntry() && entryFiles.some((file) => projectId === file)) ||
+            // Stylesheet inputs (e.g. an Angular theme) are entries too, but cannot run JS.
+            (injectEntry() &&
+              !isCSSFile(stripQueryAndHash(id)) &&
+              entryFiles.some((file) => projectId === file)) ||
             // Fallback for SSR frameworks (e.g. Nuxt) that bypass transformIndexHtml.
             (_command === 'serve' &&
               inject === 'html' &&

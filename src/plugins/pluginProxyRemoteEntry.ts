@@ -1,7 +1,11 @@
 import * as path from 'node:path';
 import { fileURLToPath } from 'url';
 import type { Plugin } from 'vite';
-import { normalizePathForImport, resolveHashPlaceholderFileName } from '../utils/buildPaths';
+import {
+  normalizePathForImport,
+  resolveExposeImport,
+  resolveHashPlaceholderFileName,
+} from '../utils/buildPaths';
 import {
   addCssAssetsToAllExports,
   collectCssAssets,
@@ -80,6 +84,9 @@ export default function ({
     return generateExposes(options, exposeRemoteDependencies, _command, reactIslandExposes);
   };
 
+  const resolveExpose = async (ctx: any, source: string) =>
+    (await ctx.resolve(source)) ?? (await ctx.resolve(resolveExposeImport(source, root)));
+
   function isRemoteImport(source: string): boolean {
     return isRemoteSpecifier(source, Object.keys(options.remotes));
   }
@@ -101,7 +108,7 @@ export default function ({
         // own chunk's remotes, so the expose only waits for its static graph.
         const followDynamicImports = options.shareStrategy !== 'loaded-first';
         for (const [exposeKey, expose] of Object.entries(options.exposes)) {
-          const resolved = await (ctx as any).resolve(expose.import);
+          const resolved = await resolveExpose(ctx, expose.import);
           next[exposeKey] = resolved?.id
             ? await collectRemoteDependencies(ctx as any, resolved.id, isRemoteImport, {
                 followDynamicImports,
@@ -139,23 +146,29 @@ export default function ({
       _command = command;
       originalConfigBase = config.base;
     },
-    async buildStart() {
-      await refreshExposeRemoteDependencies(this);
-      // TanStack Start 1.171.x (react/solid/vue, via the shared
-      // start-plugin-core) expects a single client application entry.
-      // Its manifest plugin rejects the additional exposed-module entries
-      // emitted here. Preserve those entries for other Vite integrations,
-      // where they keep exposed modules separated from the host entry.
-      if (_command !== 'build' || isTanStackStart) return;
-      for (const expose of Object.values(options.exposes)) {
-        const resolved = await this.resolve(expose.import);
-        if (resolved) {
-          this.emitFile({
-            type: 'chunk',
-            id: resolved.id,
-          });
+    buildStart: {
+      // Rollup loads emitted chunks right away: wait for other plugins' async buildStart
+      // (e.g. Angular compilers), or the exposes are transformed before they are ready.
+      order: 'post',
+      sequential: true,
+      async handler() {
+        await refreshExposeRemoteDependencies(this);
+        // TanStack Start 1.171.x (react/solid/vue, via the shared
+        // start-plugin-core) expects a single client application entry.
+        // Its manifest plugin rejects the additional exposed-module entries
+        // emitted here. Preserve those entries for other Vite integrations,
+        // where they keep exposed modules separated from the host entry.
+        if (_command !== 'build' || isTanStackStart) return;
+        for (const expose of Object.values(options.exposes)) {
+          const resolved = await resolveExpose(this, expose.import);
+          if (resolved) {
+            this.emitFile({
+              type: 'chunk',
+              id: resolved.id,
+            });
+          }
         }
-      }
+      },
     },
     watchChange() {
       invalidateExposeRemoteDependencies();
@@ -169,6 +182,9 @@ export default function ({
       }
       if (id === virtualExposesId) {
         return virtualExposesId;
+      }
+      if (importer === virtualExposesId && id.startsWith('.')) {
+        return this.resolve(resolveExposeImport(id, root), undefined, { skipSelf: true });
       }
       if (_command === 'serve' && isHostAutoInitId(id)) {
         return id;

@@ -292,6 +292,53 @@ describe('pluginAddEntry', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it('serves the dev remoteEntry.js to HEAD requests', () => {
+    const servePlugin = addEntry({
+      entryName: 'remoteEntry',
+      entryPath: 'virtual:mf-remote-entry',
+      fileName: 'remoteEntry.js',
+    })[0];
+    const handlers: Function[] = [];
+    runConfig(
+      servePlugin,
+      {} as ConfigPluginContext,
+      {},
+      { command: 'serve', mode: 'development' }
+    );
+    runConfigResolved(servePlugin, { root: '/', base: '/' } as unknown as ResolvedConfig);
+    runConfigureServer(servePlugin, {
+      middlewares: { use: (handler: Function) => handlers.push(handler) },
+    } as unknown as ViteDevServer);
+
+    const req = { method: 'HEAD', url: '/remoteEntry.js', headers: {} };
+    handlers[0](req, {}, vi.fn());
+
+    expect(req.url).toBe('/@id/virtual:mf-remote-entry');
+    expect(req.method).toBe('GET');
+  });
+
+  for (const command of ['build', 'serve'] as const) {
+    it(`does not inject host init into stylesheet inputs (${command})`, async () => {
+      const root = '/repo';
+      const main = path.join(root, 'src/main.ts');
+      const theme = path.join(root, 'src/theme.scss');
+      const plugin = addEntry({
+        entryName: 'hostInit',
+        entryPath: '/virtual/hostInit.js',
+        inject: 'entry',
+      })[1];
+      const config = { root, base: '/', build: { rollupOptions: { input: [main, theme] } } };
+      runConfig(plugin, {} as ConfigPluginContext, config, { command, mode: 'development' });
+      runConfigResolved(plugin, { ...config, command } as unknown as ResolvedConfig);
+
+      expect(await runTransform(plugin, '$color: red;', theme)).toBeUndefined();
+      const result = (await runTransform(plugin, 'export {};', main)) as
+        | { code: string }
+        | undefined;
+      expect(result?.code).toContain('/virtual/hostInit.js');
+    });
+  }
+
   it('applies hash-pattern remote filenames to Rolldown chunks', () => {
     const plugins = addEntry({
       entryName: 'remoteEntry',
