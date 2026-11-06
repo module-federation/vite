@@ -1,7 +1,11 @@
 import * as path from 'node:path';
 import { fileURLToPath } from 'url';
 import type { Plugin } from 'vite';
-import { normalizePathForImport, resolveHashPlaceholderFileName } from '../utils/buildPaths';
+import {
+  normalizePathForImport,
+  resolveExposeImport,
+  resolveHashPlaceholderFileName,
+} from '../utils/buildPaths';
 import {
   addCssAssetsToAllExports,
   collectCssAssets,
@@ -77,7 +81,7 @@ export default function ({
     context: Parameters<typeof refreshExposeRemoteDependencies>[0]
   ) => {
     await refreshExposeRemoteDependencies(context);
-    return generateExposes(options, exposeRemoteDependencies, _command, reactIslandExposes);
+    return generateExposes(options, exposeRemoteDependencies, _command, reactIslandExposes, root);
   };
 
   function isRemoteImport(source: string): boolean {
@@ -101,7 +105,7 @@ export default function ({
         // own chunk's remotes, so the expose only waits for its static graph.
         const followDynamicImports = options.shareStrategy !== 'loaded-first';
         for (const [exposeKey, expose] of Object.entries(options.exposes)) {
-          const resolved = await (ctx as any).resolve(expose.import);
+          const resolved = await (ctx as any).resolve(resolveExposeImport(expose.import, root));
           next[exposeKey] = resolved?.id
             ? await collectRemoteDependencies(ctx as any, resolved.id, isRemoteImport, {
                 followDynamicImports,
@@ -148,7 +152,7 @@ export default function ({
       // where they keep exposed modules separated from the host entry.
       if (_command !== 'build' || isTanStackStart) return;
       for (const expose of Object.values(options.exposes)) {
-        const resolved = await this.resolve(expose.import);
+        const resolved = await this.resolve(resolveExposeImport(expose.import, root));
         if (resolved) {
           this.emitFile({
             type: 'chunk',

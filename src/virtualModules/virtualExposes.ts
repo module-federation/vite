@@ -1,3 +1,4 @@
+import { resolveExposeImport } from '../utils/buildPaths';
 import { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
 import { generateReactIslandBrowserDefinition } from '../utils/reactIsland';
 import { getRemoteVirtualModule } from './virtualRemotes';
@@ -19,7 +20,8 @@ export function generateExposes(
   options: NormalizedModuleFederationOptions,
   remoteDependencyMap: Record<string, string[]> = {},
   command = 'build',
-  reactIslandExposes: ReadonlySet<string> = new Set()
+  reactIslandExposes: ReadonlySet<string> = new Set(),
+  root?: string
 ) {
   return `
     const cssAssetMap = ${JSON.stringify(options.bundleAllCSS ? EXPOSES_CSS_MAP_PLACEHOLDER : {})};
@@ -110,7 +112,7 @@ export function generateExposes(
           await Promise.all([${remoteDependencyPreloads}])
           const importModule = await loadExposedModule(
             ${JSON.stringify(key)},
-            () => import(${JSON.stringify(options.exposes[key].import)})
+            () => import(${JSON.stringify(resolveExposeImport(options.exposes[key].import, root))})
           )
           const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;
           if (dependencyPending && typeof dependencyPending.then === "function") {

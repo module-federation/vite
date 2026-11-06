@@ -1,3 +1,5 @@
+import * as nodePath from 'node:path';
+
 /**
  * Rebase an import path for a bootstrap file that moved from root into `dir`.
  *
@@ -49,6 +51,16 @@ export function rebaseImport(importSrc: string, dir: string): string {
 
 export function normalizePathForImport(path: string): string {
   return path.replace(/\\/g, '/');
+}
+
+/**
+ * Resolves a relative expose import against the Vite root. Virtual modules have no
+ * directory, and Vite 7 and older resolve their relative imports against the working
+ * directory instead. Bare specifiers and absolute paths are returned unchanged.
+ */
+export function resolveExposeImport(importPath: string, root: string | undefined): string {
+  if (!root || !importPath.startsWith('.')) return importPath;
+  return normalizePathForImport(nodePath.resolve(root, importPath));
 }
 
 export const EXTERNAL_URL_RE = /^(?:[a-z]+:|\/\/)/i;

@@ -561,7 +561,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           return getSsrRemoteEntrySource();
         }
         if (id === virtualExposesSSRId || id.startsWith(virtualExposesSSRId)) {
-          return generateExposesSSR(options, reactIslandExposes);
+          return generateExposesSSR(options, reactIslandExposes, viteConfig?.root);
         }
       },
 
