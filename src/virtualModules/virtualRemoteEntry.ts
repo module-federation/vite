@@ -2306,7 +2306,6 @@ export function generateRemoteEntry(
         const actualProvider = loadedShare?.provider;
         const actualSelection = loadedShare?.selection;
         if (!actualSelection) return;
-        if (__mfMatchesSharedProvider(actualProvider, usedShare)) return;
         if (expectedSelection) {
           if (
             expectedSelection.version !== actualSelection.version ||
@@ -2323,7 +2322,10 @@ export function generateRemoteEntry(
           actualSelection.registered &&
           liveVersionMap?.[actualSelection.version] !== actualProvider
         ) return;
-        if (!expectedSelection) {
+        // The selected local provider must also reach the cache before the next
+        // dependency batch evaluates. Its deferred wrapper cannot publish exports
+        // until init resolves, so dropping this result leaves consumers unbound.
+        if (!expectedSelection && !__mfMatchesSharedProvider(actualProvider, usedShare)) {
           bridgeSelections.set(pkg, {
             version: actualSelection.version,
             provider: { from: actualSelection.from }

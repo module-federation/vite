@@ -5384,7 +5384,7 @@ describe('virtualRemoteEntry', () => {
     expect(bridgeHelperCode).toContain(
       'if (!resolvedExternalProvider && !selectedLocalProvider) return;'
     );
-    expect(bridgeHelperCode).toContain(
+    expect(bridgeHelperCode).not.toContain(
       'if (__mfMatchesSharedProvider(actualProvider, usedShare)) return;'
     );
     expect(bridgeHelperCode).toContain('bridgeSelections.set(pkg, {');
