@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -219,22 +219,95 @@ describe('loaded-first static remote browser bootstrap', () => {
       browser = await createBrowser();
       const page = await browser.newPage();
       const pageErrors: string[] = [];
+      await page.addInitScript(() => {
+        (window as typeof window & { __mfUnhandled?: string[] }).__mfUnhandled = [];
+        window.addEventListener('unhandledrejection', (event) => {
+          const target = window as typeof window & { __mfUnhandled: string[] };
+          target.__mfUnhandled.push(String(event.reason));
+        });
+      });
       page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
 
       await page.goto(hostServer.origin, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(
-        () => document.querySelector('#app')?.textContent !== '',
+        () =>
+          document.querySelector('#app')?.textContent !== '' ||
+          (window as any).__mfUnhandled.length > 0,
         undefined,
         {
           timeout: 15_000,
         }
       );
 
-      expect(await page.locator('#app').textContent()).toBe('remoteApp');
+      // The page also reads the remote binding at module top level, as it evaluates.
+      await expect(page.evaluate(() => (window as any).__mfUnhandled)).resolves.toEqual([]);
       expect(pageErrors).toEqual([]);
+      expect(await page.locator('#app').textContent()).toBe('remoteApp REMOTEAPP');
     } finally {
       await browser?.close();
       await hostServer?.close();
+      await remoteServer?.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('resolves a lazy import inside an expose after the remotes its chunk imports statically', async () => {
+    const workspace = await mkdtemp(
+      path.join(tmpdir(), 'mf-loaded-first-browser-expose-boundary-')
+    );
+    let remoteServer: StaticServer | undefined;
+    let containerServer: StaticServer | undefined;
+    let hostServer: StaticServer | undefined;
+    let browser: Awaited<ReturnType<typeof createBrowser>> | undefined;
+
+    try {
+      const remoteOutDir = path.join(workspace, 'remote');
+      const containerOutDir = path.join(workspace, 'container');
+      const hostDir = path.join(workspace, 'host');
+      await buildFixtureTo('basic-remote', remoteOutDir, remoteOptions);
+      remoteServer = await serveDirectory(remoteOutDir);
+      // The expose itself imports no remote, so get() does not wait for any.
+      await buildFixtureTo('loaded-first-dynamic-boundary-host', containerOutDir, {
+        ...hostOptions(`${remoteServer.origin}/remoteEntry.js`),
+        exposes: {
+          './surface': path.resolve(FIXTURES, 'loaded-first-dynamic-boundary-host', 'surface.js'),
+        },
+      });
+      containerServer = await serveDirectory(containerOutDir);
+      await mkdir(hostDir, { recursive: true });
+      await writeFile(
+        path.join(hostDir, 'index.html'),
+        `<!doctype html>
+<script type="module">
+  try {
+    const container = await import(${JSON.stringify(`${containerServer.origin}/remoteEntry.js`)});
+    await container.init({});
+    const surface = (await container.get('./surface'))();
+    window.__result = (await surface.load()).LABEL;
+  } catch (error) {
+    window.__error = String((error && error.message) || error);
+  }
+</script>`
+      );
+      hostServer = await serveDirectory(hostDir);
+
+      browser = await createBrowser();
+      const page = await browser.newPage();
+      const pageErrors: string[] = [];
+      page.on('pageerror', (error) => pageErrors.push(error.stack || error.message));
+
+      await page.goto(hostServer.origin);
+      await page.waitForFunction(() => '__result' in window || '__error' in window, null, {
+        timeout: 15_000,
+      });
+
+      expect(await page.evaluate(() => (window as any).__error)).toBeUndefined();
+      expect(pageErrors).toEqual([]);
+      expect(await page.evaluate(() => (window as any).__result)).toBe('REMOTEAPP');
+    } finally {
+      await browser?.close();
+      await hostServer?.close();
+      await containerServer?.close();
       await remoteServer?.close();
       await rm(workspace, { recursive: true, force: true });
     }
@@ -265,6 +338,10 @@ describe('loaded-first static remote browser bootstrap', () => {
       hostServer = await serveDirectory(hostOutDir);
       browser = await createBrowser();
       const page = await browser.newPage();
+      const pageChunkRequests: string[] = [];
+      page.on('request', (request) => {
+        if (/\/page(-[\w-]+)?\.js$/.test(request.url())) pageChunkRequests.push(request.url());
+      });
       await page.addInitScript(() => {
         (window as typeof window & { __mfUnhandled?: string[] }).__mfUnhandled = [];
         window.addEventListener('unhandledrejection', (event) => {
@@ -279,6 +356,8 @@ describe('loaded-first static remote browser bootstrap', () => {
       });
 
       expect(await page.locator('#app').textContent()).toBe('');
+      // The chunk never evaluates against a failed remote, so it caches no evaluation error.
+      expect(pageChunkRequests).toEqual([]);
       const unhandled = await page.evaluate(() => (window as any).__mfUnhandled as string[]);
       expect(unhandled.join('\n')).toMatch(/Failed to load script resources|RUNTIME-008/);
     } finally {

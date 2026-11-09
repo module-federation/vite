@@ -16,7 +16,7 @@
  *     → import("remote/xxx").then(…)  // spreads __moduleExports into namespace
  *
  *   import("./page")  // loaded-first, when ./page's static graph imports remote/xxx
- *     → Promise.all([import("./page"), import("remote/xxx").then(…pending)]).then(…)
+ *     → Promise.all([import("remote/xxx").then(…pending)]).then(() => import("./page"))
  *
  * NOTE: `export * from "remote/xxx"` is not supported — Rolldown cannot
  * statically resolve the set of exported names from a federated remote at
@@ -76,8 +76,8 @@ interface DynamicImportInfo {
 }
 
 // A local `import()` whose target statically imports remotes. Under loaded-first nothing
-// else waits for those remotes, so their named bindings are still undefined when the
-// promise resolves unless the import waits for them.
+// else waits for those remotes, so the target would evaluate with their named bindings
+// still undefined unless it is loaded only after they are ready.
 interface LocalDynamicImportInfo {
   kind: 'local-dynamic';
   source: string;
@@ -317,7 +317,7 @@ function applyRewrites(
         ms.overwrite(
           imp.start,
           imp.end,
-          `Promise.all([${imp.originalText}, ${ready.join(', ')}]).then(function(__mf_r__) { return __mf_r__[0]; })`
+          `Promise.all([${ready.join(', ')}]).then(function() { return ${imp.originalText}; })`
         );
         changed = true;
         break;

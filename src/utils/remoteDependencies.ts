@@ -98,7 +98,7 @@ async function readModuleEdges(
 /**
  * Static remote imports in the module graph rooted at `id`: the remotes whose
  * bindings must be ready before the graph is used. `followDynamicImports: false`
- * stops at local `import()` boundaries, which wait for their own remotes.
+ * stops at local `import()` boundaries, which load only after their own remotes are ready.
  */
 export async function collectRemoteDependencies(
   ctx: ResolveContext,
