@@ -339,7 +339,7 @@ describe('pluginRemoteNamedExports', () => {
       });
       const result = await transformEntry('import("./page.js").then((m) => m.render());');
       expect(result).toContain(
-        'Promise.all([import("./page.js"), import("remoteApp/utils").then(function(__mf_m__) { return __mf_m__.__mf_remote_pending; })]).then(function(__mf_r__) { return __mf_r__[0]; })'
+        'Promise.all([import("remoteApp/utils").then(function(__mf_m__) { return __mf_m__.__mf_remote_pending; })]).then(function() { return import("./page.js"); }).then((m) => m.render());'
       );
     });
 

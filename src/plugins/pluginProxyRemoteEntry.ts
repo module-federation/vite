@@ -104,8 +104,8 @@ export default function ({
       refreshPromise = (async () => {
         const next: Record<string, string[]> = {};
         const cache: RemoteDependencyCache = new Map();
-        // Under loaded-first, pluginRemoteNamedExports makes each local import() wait for its
-        // own chunk's remotes, so the expose only waits for its static graph.
+        // Under loaded-first, pluginRemoteNamedExports loads each local import() only after its
+        // own chunk's remotes are ready, so the expose only waits for its static graph.
         const followDynamicImports = options.shareStrategy !== 'loaded-first';
         for (const [exposeKey, expose] of Object.entries(options.exposes)) {
           const resolved = await resolveExpose(ctx, expose.import);
