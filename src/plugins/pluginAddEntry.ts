@@ -374,17 +374,16 @@ const addEntry = ({
     return _command === 'build' || viteConfig?.command === 'build';
   }
 
-  function isLoadedFirstClientBuildFor(shareStrategy: string | undefined) {
-    return (
-      isBuildCommand() &&
-      waitsForInit &&
-      !viteConfig?.build?.ssr &&
-      shareStrategy === 'loaded-first'
-    );
+  // One plugin instance can serve several environments, and `viteConfig` is then
+  // the last one resolved: ask the hook's own environment whether it builds for a server.
+  const isSsrBuild = (ctx: unknown) => isServerBuildContext(ctx, viteConfig);
+
+  function isLoadedFirstClientBuildFor(shareStrategy: string | undefined, isSsr: boolean) {
+    return isBuildCommand() && waitsForInit && !isSsr && shareStrategy === 'loaded-first';
   }
 
-  function skipSvelteKitSsrBuild() {
-    return isBuildCommand() && viteConfig?.build?.ssr && hasPackageDependency('@sveltejs/kit');
+  function skipSvelteKitSsrBuild(ctx: unknown) {
+    return isBuildCommand() && isSsrBuild(ctx) && hasPackageDependency('@sveltejs/kit');
   }
 
   function isSvelteKitServerModule(id: string) {
@@ -472,9 +471,12 @@ const __mfCurrentScript = document.currentScript;
   // init runs. Used both by the bootstrap's runtime prefetch and as HTML
   // modulepreload hints, so the fetch starts at HTML parse time instead of
   // after the bootstrap script downloads and evaluates.
-  function getRemoteEntryPreloadUrls(): string[] {
+  function getRemoteEntryPreloadUrls(isSsr = false): string[] {
     const normalizedOptions = getFederationOptions();
-    const isLoadedFirstClientBuild = isLoadedFirstClientBuildFor(normalizedOptions.shareStrategy);
+    const isLoadedFirstClientBuild = isLoadedFirstClientBuildFor(
+      normalizedOptions.shareStrategy,
+      isSsr
+    );
     if (normalizedOptions.shareStrategy === 'loaded-first' && !isLoadedFirstClientBuild) return [];
     // Warm remote-entry URLs from registered remotes (keys), not imported
     // modules. Config registration must not loadRemote("."), but the entry
@@ -535,8 +537,14 @@ const __mfCurrentScript = document.currentScript;
     initSrc: string,
     entrySrc: string,
     useSystemImportFallback = false,
-    options?: { skipRemotePreload?: boolean; pendingSharesSrc?: string; isBundled?: boolean }
+    options?: {
+      skipRemotePreload?: boolean;
+      pendingSharesSrc?: string;
+      isBundled?: boolean;
+      isSsr?: boolean;
+    }
   ) {
+    const isSsr = options?.isSsr ?? false;
     const importHelper = useSystemImportFallback
       ? `const __mfImport = (src) =>
   globalThis.System && typeof globalThis.System.import === 'function'
@@ -565,7 +573,10 @@ const __mfCurrentScript = document.currentScript;
       : importExpression(entrySrc);
 
     const normalizedOptions = getFederationOptions();
-    const isLoadedFirstClientBuild = isLoadedFirstClientBuildFor(normalizedOptions.shareStrategy);
+    const isLoadedFirstClientBuild = isLoadedFirstClientBuildFor(
+      normalizedOptions.shareStrategy,
+      isSsr
+    );
 
     // `version-first` eagerly loads every used remote, while `loaded-first`
     // normally defers loading until an export is read. A static ESM import is
@@ -608,7 +619,7 @@ const __mfCurrentScript = document.currentScript;
     // entries otherwise queue behind every shared chunk (staircase waterfall).
     // Warm the module-type entry URLs up front: the browser dedupes the
     // later loadRemote() import of the same URL against the in-flight request.
-    const remoteEntryPrefetchUrls = shouldPreloadRemotes ? getRemoteEntryPreloadUrls() : [];
+    const remoteEntryPrefetchUrls = shouldPreloadRemotes ? getRemoteEntryPreloadUrls(isSsr) : [];
     const remoteEntryPrefetchBlock =
       remoteEntryPrefetchUrls.length > 0
         ? `const __mfRemoteEntryPrefetchUrls = ${JSON.stringify(remoteEntryPrefetchUrls)};
@@ -738,8 +749,13 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
     ].join('\n');
   }
 
-  function getSystemBootstrapSource(initSrc: string, entrySrc: string, pendingSharesSrc?: string) {
-    return getBootstrapSource(initSrc, entrySrc, true, { pendingSharesSrc });
+  function getSystemBootstrapSource(
+    initSrc: string,
+    entrySrc: string,
+    pendingSharesSrc: string | undefined,
+    isSsr: boolean
+  ) {
+    return getBootstrapSource(initSrc, entrySrc, true, { pendingSharesSrc, isSsr });
   }
 
   function injectHtml() {
@@ -1129,7 +1145,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           isServerBuildContext(this, viteConfig)
         )
           return;
-        if (skipSvelteKitSsrBuild()) return;
+        if (skipSvelteKitSsrBuild(this)) return;
         // Skip Nitro's "ssr" environment — it reads all emitted entry chunks to
         // detect the SSR request handler, and picks up hostInit / remoteEntry
         // instead of the real framework SSR entry, causing
@@ -1184,12 +1200,13 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
           }
           return;
         }
-        if (skipSvelteKitSsrBuild()) return;
+        if (skipSvelteKitSsrBuild(this)) return;
+        const isSsr = isSsrBuild(this);
         if (
           entryName === 'remoteEntry' &&
           emitFileId &&
           fileName &&
-          !viteConfig?.build?.ssr &&
+          !isSsr &&
           (_options as { format?: string })?.format === 'es' &&
           viteConfig?.build?.modulePreload !== false
         ) {
@@ -1205,10 +1222,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         // Entry injection leaves the HTML script alone, but the page still
         // benefits from hints for the init chain the bootstrap walks serially.
         const preloadsEntryHtml =
-          inject === 'entry' &&
-          waitsForInit &&
-          !viteConfig.build.ssr &&
-          viteConfig.build.modulePreload !== false;
+          inject === 'entry' && waitsForInit && !isSsr && viteConfig.build.modulePreload !== false;
         if (!injectHtml() && !preloadsEntryHtml) return;
         if (!emitFileId) return;
         const htmlFileNames = Object.keys(bundle).filter((fileName) => fileName.endsWith('.html'));
@@ -1275,7 +1289,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
               htmlAsset.source.toString(),
               bundle,
               (builtFileName) => resolvePath(builtFileName, fileName),
-              getRemoteEntryPreloadUrls(),
+              getRemoteEntryPreloadUrls(isSsr),
               // The app code is the bootstrap's dynamic import here, not the
               // HTML entry chunk as with html injection.
               (chunk) => !!chunk.facadeModuleId && hasEntryBootstrapParam(chunk.facadeModuleId)
@@ -1316,7 +1330,8 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             const bootstrapSource = getSystemBootstrapSource(
               rebasedInitPath,
               rebasedEntrySrc,
-              rebasedPendingSharesPath
+              rebasedPendingSharesPath,
+              isSsr
             );
             // Content-hash the bootstrap filename so browsers/CDNs invalidate
             // the cache on deploy. Without a hash the file ships as
@@ -1352,7 +1367,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
               htmlContent,
               bundle,
               (builtFileName) => resolvePath(builtFileName, fileName),
-              getRemoteEntryPreloadUrls()
+              getRemoteEntryPreloadUrls(isSsr)
             );
           }
           htmlAsset.source = htmlContent;
@@ -1362,7 +1377,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         if (
           _command === 'serve' ||
           !hasPackageDependency('@sveltejs/kit') ||
-          skipSvelteKitSsrBuild()
+          skipSvelteKitSsrBuild(this)
         ) {
           return;
         }
@@ -1378,7 +1393,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         return virtualEntryCode.get(id);
       },
       transform(code, id, transformOptions) {
-        if (skipSvelteKitSsrBuild()) return;
+        if (skipSvelteKitSsrBuild(this)) return;
         // The remoteEntry chunk is emitted in buildStart and reached through a
         // dynamic import, so a build never needs the side-effect import in the
         // app entry. Worse, that static import makes Rolldown move the entry
