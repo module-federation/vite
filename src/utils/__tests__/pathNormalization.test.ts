@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ensureTrailingSlash,
   getBasePath,
+  getBasePathname,
   getCommonSharedSubpaths,
   isAssetLikeImport,
   isNuxtClientBase,
@@ -29,6 +30,15 @@ describe('pathNormalization', () => {
   it('normalizes Vite base paths', () => {
     expect(getBasePath('/_nuxt/')).toBe('/_nuxt');
     expect(getBasePath(undefined)).toBe('');
+  });
+
+  it('reads the path part of a Vite base that may be a URL', () => {
+    expect(getBasePathname(undefined)).toBe('/');
+    expect(getBasePathname('')).toBe('/');
+    expect(getBasePathname('/app/')).toBe('/app/');
+    expect(getBasePathname('https://cdn.example.com/app/')).toBe('/app/');
+    expect(getBasePathname('https://cdn.example.com')).toBe('/');
+    expect(getBasePathname('http://')).toBe('/');
   });
 
   it('detects Nuxt client base paths', () => {

@@ -1,8 +1,8 @@
 import type { ViteDevServer } from 'vite';
-import { isHttpUrl } from '../../utils/buildPaths';
 import { formatDevServerHostForOrigin, watchFileEvents } from '../../utils/devServerHost';
 import { mfWarn } from '../../utils/logger';
 import type { NormalizedModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
+import { getBasePathname } from '../../utils/pathNormalization';
 import { shouldIgnoreFile } from '../pluginDevRemoteHmr';
 
 const REMOTE_HMR_ENDPOINT = '__mf_hmr';
@@ -10,26 +10,14 @@ export const REMOTE_HMR_EVENT = 'mf:remote-update';
 const REMOTE_HMR_CONNECT_RETRY_DELAY_MS = 1000;
 const REMOTE_HMR_CONNECT_MAX_RETRIES = 10;
 
-function getBasePath(base: string) {
-  if (!base) return '/';
-  if (isHttpUrl(base)) {
-    try {
-      return new URL(base).pathname || '/';
-    } catch {
-      return '/';
-    }
-  }
-  return base;
-}
-
 function getRemoteHmrPath(base: string) {
-  const normalizedBase = getBasePath(base).replace(/\/?$/, '/');
+  const normalizedBase = getBasePathname(base).replace(/\/?$/, '/');
   return `${normalizedBase}${REMOTE_HMR_ENDPOINT}`.replace(/\/{2,}/g, '/');
 }
 
 function getHmrWsPath(base: string, hmrPath?: string) {
-  const normalizedBase = getBasePath(base);
-  const normalizedPath = getBasePath(hmrPath || '');
+  const normalizedBase = getBasePathname(base);
+  const normalizedPath = getBasePathname(hmrPath);
 
   if (!normalizedPath || normalizedPath === '/') return normalizedBase;
 
