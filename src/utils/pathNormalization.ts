@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { normalizePathForImport } from './buildPaths';
+import { isHttpUrl, normalizePathForImport } from './buildPaths';
 import type { NormalizedModuleFederationOptions } from './normalizeModuleFederationOptions';
 
 export const COMMON_SHARED_SUBPATHS: Record<string, string[]> = {
@@ -84,6 +84,17 @@ export function ensureTrailingSlash(value: string): string {
 
 export function getBasePath(base?: string): string {
   return removeTrailingSlash(base || '/');
+}
+
+/** The path part of Vite's `base`, which may also be a full URL. */
+export function getBasePathname(base?: string): string {
+  if (!base) return '/';
+  if (!isHttpUrl(base)) return base;
+  try {
+    return new URL(base).pathname;
+  } catch {
+    return '/';
+  }
 }
 
 export function isNuxtClientBase(base?: string): boolean {
