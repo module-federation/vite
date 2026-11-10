@@ -312,7 +312,9 @@ federation({
 });
 ```
 
-With `maxAgeMs`, a remote redeployed at the same URL is picked up once its manifest version changes. Only manifest-resolved entries can be revalidated.
+With `maxAgeMs`, a running host re-checks a remote's manifest on the next `loadRemote()` once that interval has elapsed, and picks up a redeploy at the same URL when the manifest version changes. Omit `maxAgeMs` to keep the loaded build until process exit.
+
+`revalidate(name | manifestUrl | ssrUrl)` resets that one remote. `name` is the configured remote name, `manifestUrl` is the entry from `remotes` (for example `mf-manifest.json`), and `ssrUrl` is the SSR entry the runtime resolved (for example `remoteEntry.ssr.js`). The call drops this loader's caches for the remote and re-registers it, so the next `loadRemote()` reads the new manifest and snapshot. `revalidate()` with no argument resets every loaded remote. A module reference the host already holds stays on the previous build. Convention-resolved entries with no manifest still have no version for `maxAgeMs` to compare.
 
 The SSR remote entry is emitted as `<filename base>.ssr.js` next to the browser entry, or under the exact name given by `ssrFilename`, and is advertised as `metaData.ssrRemoteEntry` in `mf-manifest.json`. It keeps `@module-federation/runtime`, `@module-federation/runtime-core` and `@module-federation/sdk` external by default so Node resolves them from the host. Hosts that cannot resolve those packages, such as a plain `@module-federation/enhanced` host using the SDK's reference Node loader, need a self-contained entry: opt the packages back in with Vite's `ssr.noExternal` (for example `ssr: { noExternal: true }`) on the remote.
 
