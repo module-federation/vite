@@ -85,6 +85,10 @@ interface SsrEntryLoaderState {
   tempFileRecords: Map<string, TempFileRecord>;
   scheduledTempFileCleanup: Set<string>;
   vmStrategyModulePromise: Promise<typeof import('./ssrVmStrategy')> | undefined;
+  /** Manifest URL → version key of the manifest the MF runtime last loaded. */
+  manifestVersionKeys: Map<string, string>;
+  /** Federation instance → remote name → version the loaded container came from. */
+  remoteVersions: WeakMap<object, Map<string, LoadedRemoteVersion>>;
 }
 
 export const SSR_ENTRY_LOADER_STATE_KEY = Symbol.for('module-federation.vite.ssrEntryLoader.state');
@@ -105,6 +109,8 @@ function getLoaderState(): SsrEntryLoaderState {
   state.tempFilePathCache ??= new Map();
   state.tempFileRecords ??= new Map();
   state.scheduledTempFileCleanup ??= new Set();
+  state.manifestVersionKeys ??= new Map();
+  state.remoteVersions ??= new WeakMap();
   return state as SsrEntryLoaderState;
 }
 
@@ -463,6 +469,15 @@ function computeManifestVersionKey(manifest: Manifest): string {
 interface SsrEntryCacheRecord {
   promise: Promise<SsrEntryCandidate | null>;
   resolvedAt: number;
+  /** Manifest version the runtime reported for a direct `.ssr.js` entry. */
+  versionHint?: string;
+}
+
+interface LoadedRemoteVersion {
+  manifestUrl: string;
+  versionKey: string;
+  checkedAt: number;
+  checking?: Promise<void>;
 }
 
 // Process-level cache: remote entry URL → resolved SSR entry (+ resolution time
@@ -690,13 +705,17 @@ async function resolveFirstReachableCandidate(
 async function resolveSSREntryImpl(
   remoteEntryUrl: string,
   fetchTimeoutMs: number,
-  fetchMaxBytes: number
+  fetchMaxBytes: number,
+  versionHint?: string
 ): Promise<SsrEntryCandidate | null> {
   if (isSsrEntry(remoteEntryUrl)) {
+    // The runtime resolved this entry from a manifest it already fetched; its
+    // version (when known) keys the import so a redeploy gets fresh files.
+    const unversioned = getUnversionedVersionKey(remoteEntryUrl);
     return {
       url: remoteEntryUrl,
       type: 'module',
-      versionKey: getUnversionedVersionKey(remoteEntryUrl),
+      versionKey: versionHint ? `${versionHint}-${unversioned}` : unversioned,
     };
   }
 
@@ -729,12 +748,14 @@ async function resolveSSREntryImpl(
 function setSsrEntryCache(
   remoteEntryUrl: string,
   fetchTimeoutMs: number,
-  fetchMaxBytes: number
+  fetchMaxBytes: number,
+  versionHint?: string
 ): SsrEntryCacheRecord {
   const cacheKey = makeUrlCacheKey(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes);
   const record: SsrEntryCacheRecord = {
-    promise: resolveSSREntryImpl(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes),
+    promise: resolveSSREntryImpl(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes, versionHint),
     resolvedAt: Date.now(),
+    versionHint,
   };
   ssrEntryCache.set(cacheKey, record);
   void record.promise.then(
@@ -752,14 +773,18 @@ async function getSSREntry(
   remoteEntryUrl: string,
   maxAgeMs: number | undefined,
   fetchTimeoutMs: number,
-  fetchMaxBytes: number
+  fetchMaxBytes: number,
+  versionHint?: string
 ): Promise<SsrEntryCandidate | null> {
   const cacheKey = makeUrlCacheKey(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes);
   const cached = ssrEntryCache.get(cacheKey);
-  if (!cached) return setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes).promise;
+  if (!cached) {
+    return setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes, versionHint).promise;
+  }
 
   const isStale =
-    typeof maxAgeMs === 'number' && maxAgeMs >= 0 && Date.now() - cached.resolvedAt >= maxAgeMs;
+    (versionHint !== undefined && cached.versionHint !== versionHint) ||
+    (typeof maxAgeMs === 'number' && maxAgeMs >= 0 && Date.now() - cached.resolvedAt >= maxAgeMs);
   if (!isStale) return cached.promise;
 
   // Stale: re-fetch the manifest and re-resolve. If the version key changed
@@ -770,7 +795,7 @@ async function getSSREntry(
   manifestFetchCache.delete(
     makeUrlCacheKey(getManifestUrl(remoteEntryUrl), fetchTimeoutMs, fetchMaxBytes)
   );
-  const record = setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes);
+  const record = setSsrEntryCache(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes, versionHint);
   const next = await record.promise.catch(() => null);
 
   if (previous && next && previous.versionKey !== next.versionKey) {
@@ -887,46 +912,162 @@ function invalidateRuntimeRemoteEntry(remoteEntryUrl?: string): void {
   }
 }
 
+interface FederationRemoteLike {
+  name: string;
+  alias?: string;
+  entry?: string;
+}
+
+interface FederationInstanceLike {
+  options?: { remotes?: FederationRemoteLike[] };
+  moduleCache?: Map<string, { remoteInfo?: { entry?: string } } | undefined>;
+  registerRemotes?: (remotes: FederationRemoteLike[], options?: { force?: boolean }) => void;
+}
+
+function getFederationInstances(): FederationInstanceLike[] {
+  const federation = (
+    globalThis as { __FEDERATION__?: { __INSTANCES__?: FederationInstanceLike[] } }
+  ).__FEDERATION__;
+  // removeRemote() splices __INSTANCES__, so iterate over a copy.
+  return [...(federation?.__INSTANCES__ ?? [])];
+}
+
+/** Drop this loader's caches for one remote entry URL (any form). */
+function invalidateLoaderEntry(remoteEntryUrl: string): void {
+  bumpUnversionedGeneration(remoteEntryUrl);
+  for (const key of ssrEntryCache.keys()) {
+    if (key.endsWith(`::${remoteEntryUrl}`)) ssrEntryCache.delete(key);
+  }
+  const manifestUrl = getManifestUrl(remoteEntryUrl);
+  for (const key of manifestFetchCache.keys()) {
+    if (key.endsWith(`::${manifestUrl}`)) manifestFetchCache.delete(key);
+  }
+  if (isManifestEntry(remoteEntryUrl)) loaderState.manifestVersionKeys.delete(remoteEntryUrl);
+  void invalidateRemoteCaches(remoteEntryUrl);
+}
+
 /**
- * Drop the loader's caches so the next `loadEntry` re-resolves and re-fetches
- * remote SSR entries. Pass a remote entry URL to scope the invalidation to one
- * remote; call with no arguments to invalidate everything.
+ * Reset one remote end to end: this loader's caches for both the configured
+ * entry and the entry the runtime actually loaded (a manifest resolves to its
+ * `.ssr.js`), then runtime-core's container, module and snapshot state through
+ * its public `registerRemotes(..., { force: true })`, so the next `loadRemote`
+ * re-reads the manifest and re-emits `loadEntry`.
+ */
+function refreshRuntimeRemote(
+  instance: FederationInstanceLike,
+  remote: FederationRemoteLike
+): void {
+  const loadedEntry = instance.moduleCache?.get(remote.name)?.remoteInfo?.entry;
+  for (const url of new Set([remote.entry, loadedEntry])) {
+    if (url) invalidateLoaderEntry(url);
+  }
+  loaderState.remoteVersions.get(instance)?.delete(remote.name);
+  if (typeof instance.registerRemotes === 'function') {
+    instance.registerRemotes([remote], { force: true });
+  } else {
+    instance.moduleCache?.delete(remote.name);
+  }
+}
+
+/**
+ * Drop the loader's caches so the next `loadRemote` / `loadEntry` re-resolves
+ * and re-fetches remote SSR entries. Pass a remote name, its configured entry
+ * (e.g. the `mf-manifest.json` URL from `remotes`) or the SSR entry URL it
+ * resolved to, to scope the invalidation to that remote; call with no
+ * arguments to invalidate everything.
  *
- * Note: the MF runtime keeps its own container/module caches per federation
- * instance. This function best-effort clears the module caches of all global
- * federation instances so re-renders load fresh remote modules, but hosts that
- * hold direct references to previously loaded modules keep those references.
+ * Matching remotes are re-registered on every global federation instance with
+ * `registerRemotes([remote], { force: true })`, which also resets the runtime's
+ * manifest snapshot. Hosts that hold direct references to previously loaded
+ * modules keep those references.
  */
 export function revalidate(remoteEntryUrl?: string): void {
+  const instances = getFederationInstances();
+
   if (remoteEntryUrl) {
-    bumpUnversionedGeneration(remoteEntryUrl);
-    for (const key of ssrEntryCache.keys()) {
-      if (key.endsWith(`::${remoteEntryUrl}`)) ssrEntryCache.delete(key);
+    let matched = false;
+    for (const instance of instances) {
+      for (const remote of [...(instance.options?.remotes ?? [])]) {
+        const loadedEntry = instance.moduleCache?.get(remote.name)?.remoteInfo?.entry;
+        if (
+          remote.name !== remoteEntryUrl &&
+          remote.entry !== remoteEntryUrl &&
+          loadedEntry !== remoteEntryUrl
+        ) {
+          continue;
+        }
+        matched = true;
+        refreshRuntimeRemote(instance, remote);
+      }
     }
-    const manifestUrl = getManifestUrl(remoteEntryUrl);
-    for (const key of manifestFetchCache.keys()) {
-      if (key.endsWith(`::${manifestUrl}`)) manifestFetchCache.delete(key);
+    if (matched) return;
+    // Not a registered remote (e.g. a loader used without a runtime instance):
+    // keep the previous URL-scoped behaviour.
+    invalidateLoaderEntry(remoteEntryUrl);
+    for (const instance of instances) {
+      try {
+        instance?.moduleCache?.clear?.();
+      } catch {
+        /* ignore */
+      }
     }
-    void invalidateRemoteCaches(remoteEntryUrl);
-  } else {
-    loaderState.unversionedGlobalGeneration += 1;
-    ssrEntryCache.clear();
-    manifestFetchCache.clear();
-    invalidateAllRemoteCaches();
+    return;
   }
 
-  const federation = (
-    globalThis as {
-      __FEDERATION__?: { __INSTANCES__?: Array<{ moduleCache?: Map<string, unknown> }> };
+  loaderState.unversionedGlobalGeneration += 1;
+  ssrEntryCache.clear();
+  manifestFetchCache.clear();
+  loaderState.manifestVersionKeys.clear();
+  invalidateAllRemoteCaches();
+  for (const instance of instances) {
+    for (const remote of [...(instance.options?.remotes ?? [])]) {
+      if (instance.moduleCache?.has(remote.name)) refreshRuntimeRemote(instance, remote);
     }
-  ).__FEDERATION__;
-  for (const instance of federation?.__INSTANCES__ ?? []) {
     try {
       instance?.moduleCache?.clear?.();
     } catch {
       /* ignore */
     }
   }
+}
+
+/**
+ * Mirrors runtime-core's `matchRemoteWithNameAndExpose` name/alias prefix match.
+ * Kept local: importing `@module-federation/runtime/helpers` here could load a
+ * second runtime-core copy next to the host's.
+ */
+function matchRemoteForRequest(
+  remotes: FederationRemoteLike[] | undefined,
+  id: string
+): FederationRemoteLike | undefined {
+  return remotes?.find((remote) =>
+    [remote.name, remote.alias].some(
+      (prefix) => !!prefix && (id === prefix || id.startsWith(`${prefix}/`))
+    )
+  );
+}
+
+/**
+ * `maxAgeMs` check on the request path. runtime-core serves a loaded remote
+ * from its own caches and never emits `loadEntry` again, so the check cannot
+ * live in `loadEntry` alone: re-read the remote's manifest once it is older
+ * than `maxAgeMs` and reset that remote when its version key changed.
+ */
+async function checkRemoteVersion(
+  instance: FederationInstanceLike,
+  remote: FederationRemoteLike,
+  loaded: LoadedRemoteVersion,
+  options: ResolvedLoaderOptions
+): Promise<void> {
+  const manifest = await fetchManifest(
+    loaded.manifestUrl,
+    options.fetchTimeoutMs,
+    options.fetchMaxBytes
+  ).catch(() => null);
+  loaded.checkedAt = Date.now();
+  // Unreachable or invalid manifest: keep serving the version already loaded.
+  if (!manifest || computeManifestVersionKey(manifest) === loaded.versionKey) return;
+  refreshRuntimeRemote(instance, remote);
 }
 
 // ---------------------------------------------------------------------------
@@ -1703,11 +1844,23 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
         ? { ...resolved, cacheContext: origin, federationInstance: origin }
         : resolved;
 
+      const instance = origin as FederationInstanceLike | undefined;
+      const configured = instance?.options?.remotes?.find((r) => r.name === remoteInfo.name);
+      const configuredManifest =
+        configured?.entry && isManifestEntry(configured.entry) ? configured.entry : undefined;
+      // Manifest remotes reach us as their `.ssr.js` URL; the runtime already
+      // fetched the manifest, so take its version instead of an unversioned key.
+      const versionHint =
+        configuredManifest && isSsrEntry(remoteInfo.entry)
+          ? loaderState.manifestVersionKeys.get(configuredManifest)
+          : undefined;
+
       const ssrEntry = await getSSREntry(
         remoteInfo.entry,
         loadOptions.maxAgeMs,
         loadOptions.fetchTimeoutMs,
-        loadOptions.fetchMaxBytes
+        loadOptions.fetchMaxBytes,
+        versionHint
       );
       if (!ssrEntry) return;
 
@@ -1722,7 +1875,52 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
       );
       if (!mod) return;
 
+      const versionKey =
+        versionHint ??
+        (ssrEntry.versionKey.startsWith(UNVERSIONED) ? undefined : ssrEntry.versionKey);
+      if (instance && configured?.entry && versionKey) {
+        let versions = loaderState.remoteVersions.get(instance);
+        if (!versions) {
+          versions = new Map();
+          loaderState.remoteVersions.set(instance, versions);
+        }
+        versions.set(remoteInfo.name, {
+          manifestUrl: getManifestUrl(configured.entry),
+          versionKey,
+          checkedAt: Date.now(),
+        });
+      }
       return mod;
+    },
+    afterLoadManifest({
+      manifestUrl,
+      manifestJson,
+    }: {
+      manifestUrl: string;
+      manifestJson?: unknown;
+    }) {
+      if (!isNodeServer()) return;
+      const manifest = parseManifest(manifestJson);
+      if (manifest)
+        loaderState.manifestVersionKeys.set(manifestUrl, computeManifestVersionKey(manifest));
+    },
+    async beforeRequest<T extends { id: string; origin?: object }>(args: T): Promise<T> {
+      const { maxAgeMs } = resolved;
+      if (typeof maxAgeMs !== 'number' || maxAgeMs < 0 || !args.origin || !isNodeServer()) {
+        return args;
+      }
+      const instance = args.origin as FederationInstanceLike;
+      const versions = loaderState.remoteVersions.get(instance);
+      if (!versions?.size) return args;
+      const remote = matchRemoteForRequest(instance.options?.remotes, args.id);
+      const loaded = remote && versions.get(remote.name);
+      if (!remote || !loaded) return args;
+      if (!loaded.checking && Date.now() - loaded.checkedAt < maxAgeMs) return args;
+      loaded.checking ??= checkRemoteVersion(instance, remote, loaded, resolved).finally(() => {
+        loaded.checking = undefined;
+      });
+      await loaded.checking;
+      return args;
     },
   };
 }

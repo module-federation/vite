@@ -845,13 +845,14 @@ export type SsrEntryLoaderConfig = {
    */
   strategy?: SsrEntryLoaderStrategy;
   /**
-   * Re-check each remote's manifest when the cached SSR entry resolution is
-   * older than this many milliseconds. When the manifest's version changes
-   * (remote redeployed at the same URL), the loader drops its caches for that
-   * remote so subsequent loads use the new build. Omit to cache until process
-   * exit or an explicit `revalidate()` call. Only manifest-resolved entries
-   * can be revalidated this way — convention-resolved entries have no version
-   * source.
+   * Re-check each remote's manifest on the next `loadRemote()` when it was
+   * last checked more than this many milliseconds ago. When the manifest
+   * version changes (remote redeployed at the same URL), the loader drops its
+   * caches for that remote and re-registers it so the next load uses the new
+   * build. Omit to cache until process exit or an explicit `revalidate()`
+   * call. `revalidate(name | manifestUrl | ssrUrl)` resets one remote;
+   * `revalidate()` resets every loaded remote. Convention-resolved entries
+   * have no manifest, so `maxAgeMs` cannot refresh them.
    */
   maxAgeMs?: number;
   /**
