@@ -1089,6 +1089,12 @@ describe('resolveModulePath', () => {
     expect(resolveModulePath('node:fs', from)).toBe('node:fs');
   });
 
+  it('resolves a package importing itself through its exports (#1565)', () => {
+    const { root, from } = createProject();
+
+    expect(resolveModulePath('host/sub', from)).toBe(path.join(root, 'apps/host/index.js'));
+  });
+
   it('rejects a package that only NODE_PATH reaches', async () => {
     const { root, from } = createProject();
 

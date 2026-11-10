@@ -32,6 +32,7 @@ import {
   writeLoadShareModule,
   writePreBuildLibPath,
 } from '../virtualShared_preBuild';
+import { findPackageFrom, getInstalledPackageJson } from '../../utils/packageUtils';
 
 const { writeSyncSpy, mfWarnSpy } = vi.hoisted(() => ({
   writeSyncSpy: vi.fn(),
@@ -84,6 +85,9 @@ function expectLiveSingletonProxy(generatedCode: string, pkg: string, namedExpor
   expect(generatedCode).toContain(`export { ${exportList} };`);
   expect(generatedCode).not.toMatch(/const \{[^}]+\} = exportModule;/);
 }
+
+// The mocked graph has one copy of each package, wherever it is looked up from.
+vi.mocked(findPackageFrom).mockImplementation((name) => getInstalledPackageJson(name));
 
 describe('tree-shaking graph ids', () => {
   it('adds, reads, replaces, and strips the graph token without losing other query data', () => {
@@ -247,6 +251,7 @@ vi.mock('../../utils/packageUtils', async (importOriginal) => ({
       return '/repo/packages/workspace-parent-dual-format/dist/index.js';
     }
   }),
+  findPackageFrom: vi.fn(),
   getInstalledPackageJson: vi.fn((pkg: string, opts?: { fromResolvedEntry?: string }) => {
     if (opts?.fromResolvedEntry) {
       opts = {
@@ -4857,6 +4862,117 @@ describe('writeLoadShareModule', () => {
     });
     expect(code).toContain('import * as __mfLocalShare from "/resolved/vue";');
     expect(code).not.toContain('Promise.race([');
+  });
+
+  it('walks a large unshared dependency graph once, where its dependents install it (#1565)', () => {
+    // Each layer depends on every package of the next one: 3^8 paths, 24 packages.
+    const width = 3;
+    const depth = 8;
+    const layer = (i: number) => Array.from({ length: width }, (_, j) => `tool-${i}-${j}`);
+    let dependencyReads = 0;
+    const manifest = (name: string, dependencies: string[]) => ({
+      path: `/repo/node_modules/${name}/package.json`,
+      dir: `/repo/node_modules/${name}`,
+      packageJson: {
+        name,
+        get dependencies() {
+          dependencyReads++;
+          return Object.fromEntries(dependencies.map((dependency) => [dependency, '*']));
+        },
+      },
+    });
+    const graph = new Map([
+      ['tooling-1565', manifest('tooling-1565', ['@module-federation/runtime', ...layer(0)])],
+      ...Array.from({ length: depth }, (_, i) =>
+        layer(i).map((name) => [name, manifest(name, i + 1 < depth ? layer(i + 1) : [])] as const)
+      ).flat(),
+    ]);
+    const installedPackageJson = vi.mocked(getInstalledPackageJson);
+    const original = installedPackageJson.getMockImplementation()!;
+    installedPackageJson.mockImplementation((pkg, opts) => graph.get(pkg) ?? original(pkg, opts));
+    installedPackageJson.mockClear();
+    try {
+      const code = entryInjectedCode('vue', {
+        vue: { singleton: true },
+        pinia: { singleton: true },
+        'tooling-1565': { singleton: true },
+      });
+      expect(code).toContain('Promise.race([');
+      const firstKeyReads = dependencyReads;
+      // Another share key of the same options reuses the walked graph.
+      writeLoadShareModule(
+        'pinia',
+        {
+          name: 'pinia',
+          from: '',
+          version: '1.0.0',
+          shareConfig: { singleton: true, requiredVersion: '*' },
+          scope: 'default',
+        },
+        'build',
+        getNormalizeModuleFederationOptions()
+      );
+      expect(dependencyReads).toBe(firstKeyReads);
+      // Resolving unshared packages from the project root falls back to a
+      // whole-graph search per name and warns about packages nobody shares.
+      // Calls without options are the mocked findPackageFrom delegating here.
+      const rootLookups = installedPackageJson.mock.calls.filter(
+        ([pkg, opts]) => opts && pkg.startsWith('tool-')
+      );
+      expect(rootLookups).toEqual([]);
+      expect(dependencyReads).toBeLessThanOrEqual(2 * (width * depth + 1));
+    } finally {
+      installedPackageJson.mockImplementation(original);
+    }
+  });
+
+  it('finds an unshared runtime bridge the app installs but its dependent does not (#1565)', () => {
+    // peer-consumer -> (peer) bridge -> federation runtime, with bridge linked
+    // only into the app's node_modules.
+    const graph = new Map([
+      [
+        'peer-consumer-1565',
+        {
+          path: '/repo/packages/peer-consumer-1565/package.json',
+          dir: '/repo/packages/peer-consumer-1565',
+          packageJson: {
+            name: 'peer-consumer-1565',
+            dependencies: { vue: '^3.5.0' },
+            peerDependencies: { 'bridge-1565': '*' },
+          },
+        },
+      ],
+    ]);
+    const bridge = {
+      path: '/repo/apps/remote/node_modules/bridge-1565/package.json',
+      dir: '/repo/apps/remote/node_modules/bridge-1565',
+      packageJson: {
+        name: 'bridge-1565',
+        dependencies: { '@module-federation/runtime': '^2.9.2' },
+      },
+    };
+    const installedPackageJson = vi.mocked(getInstalledPackageJson);
+    const original = installedPackageJson.getMockImplementation()!;
+    installedPackageJson.mockImplementation((pkg, opts) => graph.get(pkg) ?? original(pkg, opts));
+    const originalFindPackageFrom = vi.mocked(findPackageFrom).getMockImplementation()!;
+    vi.mocked(findPackageFrom).mockImplementation((name, fromDir) =>
+      name === 'bridge-1565'
+        ? fromDir === '/repo/apps/remote'
+          ? bridge
+          : undefined
+        : originalFindPackageFrom(name, fromDir)
+    );
+    try {
+      const code = entryInjectedCode('vue', {
+        vue: { singleton: true },
+        'peer-consumer-1565': { singleton: true },
+      });
+      expect(code).toContain('import * as __mfLocalShare from "/resolved/vue";');
+      expect(code).not.toContain('Promise.race([');
+    } finally {
+      installedPackageJson.mockImplementation(original);
+      vi.mocked(findPackageFrom).mockImplementation(originalFindPackageFrom);
+    }
   });
 
   function versionFirstHostCode(

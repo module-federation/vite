@@ -27,6 +27,7 @@ import {
   type ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
 import {
+  findPackageFrom,
   getDependencyNames,
   getInstalledPackageEntry,
   getInstalledPackageJson,
@@ -1035,8 +1036,37 @@ function resolveSharedDependencyGraphPackageJson(pkg: string) {
   return getWorkspacePackageJson(pkg);
 }
 
+// Unshared packages are only edges of the walk below. Read each one where its
+// dependent installs it, as Node would: resolving it by name from the project
+// root misses under isolated installs, and that fallback searches the whole
+// graph per name and warns about packages nobody shares (#1565). A package the
+// app installs but the dependent does not (a peer, say) is still found by the
+// same node_modules lookup from the project root.
+const unsharedDependencyGraphPackageCache = new Map<
+  string,
+  { packageJson?: Record<string, unknown>; dir: string }
+>();
+
+function getUnsharedDependencyGraphPackage(pkg: string, fromDir: string) {
+  const projectRoot = getPackageDetectionCwd();
+  const cacheKey = `${projectRoot}\0${fromDir}\0${pkg}`;
+  if (!unsharedDependencyGraphPackageCache.has(cacheKey)) {
+    unsharedDependencyGraphPackageCache.set(
+      cacheKey,
+      findPackageFrom(pkg, fromDir) ?? findPackageFrom(pkg, projectRoot) ?? { dir: fromDir }
+    );
+  }
+  return unsharedDependencyGraphPackageCache.get(cacheKey)!;
+}
+
 // Called from config, resolveId and every loadShare load with the same inputs.
 const sharedSingletonConsumedByPeerCache = new WeakMap<object, Map<string, boolean>>();
+// What each shared singleton's graph reaches depends on the options, not on the
+// share key asked about: walk each graph once instead of once per key (#1565).
+const sharedSingletonGraphCache = new WeakMap<
+  object,
+  Map<string, { reachesRuntime?: boolean; reached?: Set<string> }>
+>();
 
 function isSharedSingletonConsumedByPeer(
   pkg: string,
@@ -1087,13 +1117,27 @@ function computeSharedSingletonConsumedByPeer(
       }
     });
 
+  type GraphNode = { name: string; packageJson?: Record<string, unknown>; dir: string };
+  const sharedNode = (key: string): GraphNode => ({
+    name: key,
+    packageJson: getSharedDependencyGraphPackageJson(key),
+    dir:
+      getInstalledPackageJson(key, { packageName: getPackageName(key) })?.dir ??
+      getPackageDetectionCwd(),
+  });
+  const dependencyNode = (dependency: string, from: GraphNode): GraphNode => {
+    const sharedDependency = sharedKeyByPackageName.get(dependency);
+    if (sharedDependency) return sharedNode(sharedDependency);
+    return { name: dependency, ...getUnsharedDependencyGraphPackage(dependency, from.dir) };
+  };
+
   // A shared consumer can reach the federation runtime through an unshared
   // package. Rolldown may then place that consumer on the remote entry's static
   // graph, where its top-level reads happen before hostInit publishes shares.
   const runtimeDependencyCache = new Map<string, boolean>();
-  const reachesFederationRuntime = (current: string, seen: Set<string>): boolean => {
-    if (runtimeDependencyCache.has(current)) return runtimeDependencyCache.get(current)!;
-    const dependencies = getDependencyNames(getSharedDependencyGraphPackageJson(current));
+  const reachesFederationRuntime = (current: GraphNode, seen: Set<string>): boolean => {
+    if (runtimeDependencyCache.has(current.name)) return runtimeDependencyCache.get(current.name)!;
+    const dependencies = getDependencyNames(current.packageJson);
     const result = dependencies.some((dependency) => {
       if (
         dependency === '@module-federation/enhanced' ||
@@ -1104,11 +1148,11 @@ function computeSharedSingletonConsumedByPeer(
       }
       if (seen.has(dependency)) return false;
       seen.add(dependency);
-      const reachable = reachesFederationRuntime(dependency, seen);
+      const reachable = reachesFederationRuntime(dependencyNode(dependency, current), seen);
       seen.delete(dependency);
       return reachable;
     });
-    runtimeDependencyCache.set(current, result);
+    runtimeDependencyCache.set(current.name, result);
     return result;
   };
 
@@ -1119,29 +1163,43 @@ function computeSharedSingletonConsumedByPeer(
   // cache, leaving the consumer's top-level read of `pkg`'s bindings undefined.
   // This covers both cyclic graphs and acyclic ones where a package is shared
   // together with one of its subpath exports (see issue #823).
-  const reachesPkg = (current: string, seen: Set<string>): boolean => {
-    const packageJson = getSharedDependencyGraphPackageJson(current);
-    const dependencies = getDependencyNames(packageJson);
-    for (const dependency of dependencies) {
+  // `seen` only grows: a package already searched is not searched again.
+  const collectReachedSharedKeys = (
+    current: GraphNode,
+    seen: Set<string>,
+    reached: Set<string>
+  ): void => {
+    for (const dependency of getDependencyNames(current.packageJson)) {
       const sharedDependency = sharedKeyByPackageName.get(dependency);
-      if (sharedDependency === pkg) return true;
+      if (sharedDependency) reached.add(sharedDependency);
       if (!sharedDependency && !requireFederationRuntimeDependency) continue;
       const next = sharedDependency || dependency;
       if (seen.has(next)) continue;
       seen.add(next);
-      if (reachesPkg(next, seen)) return true;
-      seen.delete(next);
+      collectReachedSharedKeys(dependencyNode(dependency, current), seen, reached);
     }
-    return false;
   };
 
-  return Array.from(sharedKeyByPackageName.values()).some(
-    (sharedPkg) =>
-      sharedPkg !== pkg &&
-      (!requireFederationRuntimeDependency ||
-        reachesFederationRuntime(sharedPkg, new Set([sharedPkg]))) &&
-      reachesPkg(sharedPkg, new Set([sharedPkg]))
-  );
+  return Array.from(sharedKeyByPackageName.values()).some((sharedPkg) => {
+    if (sharedPkg === pkg) return false;
+    let graphs = sharedSingletonGraphCache.get(options);
+    if (!graphs) sharedSingletonGraphCache.set(options, (graphs = new Map()));
+    const cacheKey = `${getPackageDetectionCwd()}\0${requireFederationRuntimeDependency}\0${sharedPkg}`;
+    let graph = graphs.get(cacheKey);
+    if (!graph) graphs.set(cacheKey, (graph = {}));
+    if (requireFederationRuntimeDependency) {
+      graph.reachesRuntime ??= reachesFederationRuntime(
+        sharedNode(sharedPkg),
+        new Set([sharedPkg])
+      );
+      if (!graph.reachesRuntime) return false;
+    }
+    if (!graph.reached) {
+      graph.reached = new Set();
+      collectReachedSharedKeys(sharedNode(sharedPkg), new Set([sharedPkg]), graph.reached);
+    }
+    return graph.reached.has(pkg);
+  });
 }
 
 function tryResolveImportFromPackageRoot(pkg: string, root: string): string | undefined {
