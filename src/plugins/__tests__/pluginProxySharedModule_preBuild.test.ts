@@ -175,8 +175,10 @@ import {
   excludeSharedSubDependencies,
   findSharedKey,
   getRuntimeImportSpecifiers,
+  isSharedPackageDependency,
   proxySharedModule,
 } from '../pluginProxySharedModule_preBuild';
+import { getInstalledPackageJson } from '../../utils/packageUtils';
 
 const sourceFile = (name: string) => ({ name, isDirectory: () => false, isFile: () => true });
 
@@ -2517,6 +2519,32 @@ describe('pluginProxySharedModule_preBuild', () => {
     existsSyncMock.mockReset().mockReturnValue(false);
     readFileSyncMock.mockReset().mockReturnValue('{}');
     readdirSyncMock.mockReset().mockReturnValue([]);
+  });
+
+  it('treats a dependency missing under node_modules as uninstalled, without the resolver fallback (#1565)', () => {
+    // tooling -> (optional-binary: not installed) and -> helper
+    existsSyncMock.mockImplementation(
+      (p: string) =>
+        p === '/repo/apps/remote/node_modules/tooling-1565/package.json' ||
+        p === '/repo/apps/remote/node_modules/helper-1565/package.json'
+    );
+    readFileSyncMock.mockImplementation((p: string) =>
+      p.endsWith('/tooling-1565/package.json')
+        ? '{"dependencies":{"helper-1565":"1"},"optionalDependencies":{"optional-binary-1565":"1"}}'
+        : '{}'
+    );
+    vi.mocked(getInstalledPackageJson).mockClear();
+    try {
+      expect(isSharedPackageDependency('tooling-1565', 'helper-1565')).toBe(true);
+      // From a node_modules directory the walk-up is Node's lookup; the resolver's
+      // fallbacks would search the whole graph again from every such directory.
+      expect(vi.mocked(getInstalledPackageJson).mock.calls.map(([pkg]) => pkg)).toEqual([
+        'tooling-1565',
+      ]);
+    } finally {
+      existsSyncMock.mockReset().mockReturnValue(false);
+      readFileSyncMock.mockReset().mockReturnValue('{}');
+    }
   });
 
   it('does not proxy internal imports for wildcard shared package keys during build', async () => {

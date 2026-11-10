@@ -726,7 +726,13 @@ function isDirOrLink(entry: Dirent) {
 }
 
 function getPnpmStorePackageIndex(startDir: string): Map<string, string[]> {
-  const cached = pnpmStorePackageIndexCache.get(startDir);
+  // Keyed by the stores found, not by `startDir`: lookups start from many
+  // dependents' directories, which all reach the same store (#1565).
+  const pnpmStoreDirs = [...ancestorDirs(startDir)]
+    .map((dir) => path.join(dir, 'node_modules', '.pnpm'))
+    .filter((dir) => existsSync(dir));
+  const cacheKey = pnpmStoreDirs.join('\0');
+  const cached = pnpmStorePackageIndexCache.get(cacheKey);
   if (cached) return cached;
 
   const index = new Map<string, string[]>();
@@ -735,8 +741,7 @@ function getPnpmStorePackageIndex(startDir: string): Map<string, string[]> {
     if (paths) paths.push(packageJsonPath);
     else index.set(name, [packageJsonPath]);
   };
-  for (const dir of ancestorDirs(startDir)) {
-    const pnpmStoreDir = path.join(dir, 'node_modules', '.pnpm');
+  for (const pnpmStoreDir of pnpmStoreDirs) {
     for (const entry of readDirEntries(pnpmStoreDir)) {
       if (!entry.isDirectory()) continue;
       const storeNodeModules = path.join(pnpmStoreDir, entry.name, 'node_modules');
@@ -757,7 +762,7 @@ function getPnpmStorePackageIndex(startDir: string): Map<string, string[]> {
       }
     }
   }
-  pnpmStorePackageIndexCache.set(startDir, index);
+  pnpmStorePackageIndexCache.set(cacheKey, index);
   return index;
 }
 
@@ -890,7 +895,10 @@ function warnOnAmbiguousDependents(
 const realpath = process.platform === 'win32' ? realpathSync : realpathSync.native;
 
 /** The package Node's `node_modules` lookup finds from `fromDir`, read at its real path. */
-function findPackageFrom(packageName: string, fromDir: string): InstalledPackageJson | undefined {
+export function findPackageFrom(
+  packageName: string,
+  fromDir: string
+): InstalledPackageJson | undefined {
   const entry = findNodeModulesEntry(packageName, fromDir);
   if (!entry) return undefined;
   try {
@@ -953,6 +961,13 @@ export function resolveModulePath(specifier: string, from: string): string {
     return resolved;
   }
   if (findNodeModulesEntry(getPackageName(specifier), path.dirname(from))) return resolved;
+  // A package importing itself through its `exports` has no node_modules entry (#1565).
+  if (
+    resolved.startsWith(path.dirname(from) + path.sep) &&
+    tryReadPackageJson(from, getPackageName(specifier))
+  ) {
+    return resolved;
+  }
   const error = new Error(
     `Cannot find module '${specifier}' from '${from}'`
   ) as NodeJS.ErrnoException;

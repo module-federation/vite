@@ -301,7 +301,12 @@ function getDependencyManifest(dep: string, fromDir: string): InstalledPackageJs
     if (parentDir === currentDir) break;
     currentDir = parentDir;
   }
-  found ??= getInstalledPackageJson(dep, { cwd: fromDir, packageName: dep });
+  // Inside node_modules the walk-up is Node's own lookup, so a miss there is an
+  // uninstalled optional dependency, and the resolver's fallbacks would search
+  // the whole graph from every such directory (#1565).
+  if (!isNodeModulePath(fromDir)) {
+    found ??= getInstalledPackageJson(dep, { cwd: fromDir, packageName: dep });
+  }
   dependencyManifestCache.set(cacheKey, found);
   return found;
 }
@@ -459,6 +464,17 @@ function resolveLocalRuntimeImport(importer: string, specifier: string): string 
 }
 
 function collectReachableRuntimeImports(entry: string, dir: string, into: Set<string>): boolean {
+  // pnpm links a workspace package into node_modules, so `dir` can be the link
+  // while the entry was resolved to its real path: compare them as real paths.
+  const real = (file: string) => {
+    try {
+      return realpathSync(file);
+    } catch {
+      return file;
+    }
+  };
+  dir = real(dir);
+  entry = real(entry);
   const visited = new Set<string>();
   const queue = [{ file: entry, isEntry: true }];
   let scanned = false;
