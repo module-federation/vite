@@ -1031,7 +1031,11 @@ export function revalidate(remoteEntryUrl?: string): void {
   }
 }
 
-/** Mirrors runtime-core's `matchRemoteWithNameAndExpose` name/alias prefix match. */
+/**
+ * Mirrors runtime-core's `matchRemoteWithNameAndExpose` name/alias prefix match.
+ * Kept local: importing `@module-federation/runtime/helpers` here could load a
+ * second runtime-core copy next to the host's.
+ */
 function matchRemoteForRequest(
   remotes: FederationRemoteLike[] | undefined,
   id: string
@@ -1041,15 +1045,6 @@ function matchRemoteForRequest(
       (prefix) => !!prefix && (id === prefix || id.startsWith(`${prefix}/`))
     )
   );
-}
-
-function getRemoteVersions(instance: object): Map<string, LoadedRemoteVersion> {
-  let versions = loaderState.remoteVersions.get(instance);
-  if (!versions) {
-    versions = new Map();
-    loaderState.remoteVersions.set(instance, versions);
-  }
-  return versions;
 }
 
 /**
@@ -1884,7 +1879,12 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
         versionHint ??
         (ssrEntry.versionKey.startsWith(UNVERSIONED) ? undefined : ssrEntry.versionKey);
       if (instance && configured?.entry && versionKey) {
-        getRemoteVersions(instance).set(remoteInfo.name, {
+        let versions = loaderState.remoteVersions.get(instance);
+        if (!versions) {
+          versions = new Map();
+          loaderState.remoteVersions.set(instance, versions);
+        }
+        versions.set(remoteInfo.name, {
           manifestUrl: getManifestUrl(configured.entry),
           versionKey,
           checkedAt: Date.now(),
