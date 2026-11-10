@@ -99,7 +99,7 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
   ${
     hasRemotes(options)
       ? `import { hostInitPromise } from ${JSON.stringify(getSsrHostInitId(options))};`
-      : 'import { init as runtimeInit } from "@module-federation/runtime";'
+      : 'import { createInstance } from "@module-federation/runtime";'
   }
 
   const sharedSingletons = ${JSON.stringify(sharedSingletons)};
@@ -119,6 +119,23 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
     return new AggregateError(errors.map(({ error }) => error), message);
   }
 
+  ${
+    hasRemotes(options)
+      ? ''
+      : `// Not runtime init(): it would make this instance the one the host's loadRemote() uses
+  // when both import the same runtime copy. Reuse by name so a re-evaluated entry does not
+  // register another instance.
+  function getRemoteRuntime() {
+    const options = { name: ${JSON.stringify(options.name)}, remotes: [], shared: {} };
+    const existing = globalThis.__FEDERATION__?.__INSTANCES__?.find(
+      (instance) => instance.options.name === options.name && !instance.options.version
+    );
+    if (!existing) return createInstance(options);
+    existing.initOptions(options);
+    return existing;
+  }`
+  }
+
   async function getExposesMap() {
     exposesMapPromise ??= import(${JSON.stringify(virtualExposesSSRId)}).then((mod) => mod.default ?? mod);
     return exposesMapPromise;
@@ -130,15 +147,7 @@ export function generateRemoteEntrySSR(options: NormalizedModuleFederationOption
    * to set up a minimal runtime instance for the remote container.
    */
   async function init(shared = {}, initScope = []) {
-    const initRes = ${
-      hasRemotes(options)
-        ? 'await hostInitPromise'
-        : `runtimeInit({
-      name: ${JSON.stringify(options.name)},
-      remotes: [],
-      shared: {},
-    })`
-    };
+    const initRes = ${hasRemotes(options) ? 'await hostInitPromise' : 'getRemoteRuntime()'};
     if (initScope.indexOf(initToken) >= 0) return;
     initScope.push(initToken);
     const shareScopeNames = Array.isArray(${JSON.stringify(options.shareScope)})

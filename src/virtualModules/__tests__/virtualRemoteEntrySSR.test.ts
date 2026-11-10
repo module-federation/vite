@@ -25,34 +25,29 @@ function singleton(name: string) {
 
 function evaluateGeneratedEntry(
   code: string,
-  runtimeInit: () => Record<string, unknown>,
+  createInstance: (options: { name: string }) => Record<string, unknown>,
   dynamicImport: (id: string) => Promise<unknown> = () =>
     Promise.reject(new Error('unexpected import'))
 ): SsrEntry {
   const runnable = code
-    .replace('import { init as runtimeInit } from "@module-federation/runtime";', '')
-    .replace(
-      'const sharedSingletons =',
-      'const runtimeInitImpl = __runtimeInit;\n  const sharedSingletons ='
-    )
-    .replace(/runtimeInit\(/g, 'runtimeInitImpl(')
+    .replace('import { createInstance } from "@module-federation/runtime";', '')
     .replace(/import\(("virtual:[^"]+")\)/, '__dynamicImport($1)')
     .replace('export { init, getExposes as get };', 'return { init, get: getExposes };');
 
-  return new Function('__runtimeInit', '__dynamicImport', runnable)(
-    runtimeInit,
+  return new Function('createInstance', '__dynamicImport', runnable)(
+    createInstance,
     dynamicImport
   ) as SsrEntry;
 }
 
 function createEntry(
-  runtimeInit: () => Record<string, unknown>,
+  createInstance: (options: { name: string }) => Record<string, unknown>,
   options: Record<string, unknown> = {},
   dynamicImport?: (id: string) => Promise<unknown>
 ) {
   return evaluateGeneratedEntry(
     generateRemoteEntrySSR(getDefaultMockOptions({ name: 'remote', ...options } as any)),
-    runtimeInit,
+    createInstance,
     dynamicImport
   );
 }
@@ -72,6 +67,7 @@ function createRuntime(
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>).__mf_module_cache__;
+  delete (globalThis as Record<string, unknown>).__FEDERATION__;
 });
 
 describe('virtualRemoteEntrySSR', () => {
@@ -220,10 +216,10 @@ describe('virtualRemoteEntrySSR', () => {
     const initializeSharing = vi.fn(async () => {
       throw new Error('share negotiation failed');
     });
-    const runtimeInit = createRuntime(initializeSharing);
+    const createInstance = createRuntime(initializeSharing);
     const dynamicImport = vi.fn(async () => ({ default: {} }));
     const entry = createEntry(
-      runtimeInit,
+      createInstance,
       { exposes: { './Widget': { import: './Widget.ts' } as any } },
       dynamicImport
     );
@@ -250,10 +246,29 @@ describe('virtualRemoteEntrySSR', () => {
     expect(initializeSharing).toHaveBeenCalledTimes(2);
   });
 
+  it('reuses its registered runtime instance when the entry is evaluated again', async () => {
+    const instances: Array<Record<string, unknown>> = [];
+    (globalThis as Record<string, unknown>).__FEDERATION__ = { __INSTANCES__: instances };
+    const initOptions = vi.fn();
+    const createInstance = vi.fn((options: { name: string }) => {
+      const instance = { ...createRuntime()(), options, initOptions };
+      instances.push(instance);
+      return instance;
+    });
+
+    const first = await createEntry(createInstance).init({}, []);
+    const second = await createEntry(createInstance).init({}, []);
+
+    expect(second).toBe(first);
+    expect(createInstance).toHaveBeenCalledOnce();
+    expect(createInstance).toHaveBeenCalledWith({ name: 'remote', remotes: [], shared: {} });
+    expect(initOptions).toHaveBeenCalledOnce();
+  });
+
   it('allows the SSR local fallback when a singleton is absent from the host share scope', async () => {
     const loadShare = vi.fn();
-    const runtimeInit = createRuntime(undefined, loadShare);
-    const entry = createEntry(runtimeInit, { shared: { react: singleton('react') } });
+    const createInstance = createRuntime(undefined, loadShare);
+    const entry = createEntry(createInstance, { shared: { react: singleton('react') } });
 
     await expect(entry.init({})).resolves.toBeDefined();
     expect(loadShare).not.toHaveBeenCalled();
@@ -261,8 +276,8 @@ describe('virtualRemoteEntrySSR', () => {
 
   it('rejects init when runtime cannot select a compatible singleton provider', async () => {
     const loadShare = vi.fn(async () => false);
-    const runtimeInit = createRuntime(undefined, loadShare);
-    const entry = createEntry(runtimeInit, { shared: { react: singleton('react') } });
+    const createInstance = createRuntime(undefined, loadShare);
+    const entry = createEntry(createInstance, { shared: { react: singleton('react') } });
 
     await expect(entry.init({ react: {} })).rejects.toThrow(
       'scope "default" package "react": No compatible host provider was selected'
@@ -277,8 +292,8 @@ describe('virtualRemoteEntrySSR', () => {
     const loadShare = vi.fn(async (pkg: string) => {
       throw new Error(`${pkg} negotiation failed`);
     });
-    const runtimeInit = createRuntime(initializeSharing, loadShare);
-    const entry = createEntry(runtimeInit, {
+    const createInstance = createRuntime(initializeSharing, loadShare);
+    const entry = createEntry(createInstance, {
       shareScope: ['default', 'scope1'],
       shared: {
         react: singleton('react'),
@@ -313,8 +328,8 @@ describe('virtualRemoteEntrySSR', () => {
       if (pkg === 'react-dom') throw new Error('react-dom negotiation failed');
       return () => ({ marker: 'react' });
     });
-    const runtimeInit = createRuntime(undefined, loadShare);
-    const entry = createEntry(runtimeInit, {
+    const createInstance = createRuntime(undefined, loadShare);
+    const entry = createEntry(createInstance, {
       shared: {
         react: singleton('react'),
         'react-dom': singleton('react-dom'),
@@ -333,8 +348,8 @@ describe('virtualRemoteEntrySSR', () => {
   it('keeps normal host singleton initialization successful', async () => {
     const loadShare = vi.fn(async () => () => ({ marker: 'host-react' }));
     const runtime = { marker: 'runtime' };
-    const runtimeInit = createRuntime(undefined, loadShare, runtime);
-    const entry = createEntry(runtimeInit, { shared: { react: singleton('react') } });
+    const createInstance = createRuntime(undefined, loadShare, runtime);
+    const entry = createEntry(createInstance, { shared: { react: singleton('react') } });
 
     await expect(entry.init({ react: {} })).resolves.toMatchObject({ runtime });
     expect(loadShare).toHaveBeenCalledWith('react', expect.any(Object));
