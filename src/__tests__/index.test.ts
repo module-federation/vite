@@ -909,6 +909,25 @@ describe('module-federation-esm-shims', () => {
 
     runConfig(plugin, {} as ConfigPluginContext, config, { command: 'build', mode: 'test' });
 
+    (plugin.generateBundle as Function).call(
+      {},
+      {},
+      {
+        'assets/dist-abc.js': {
+          type: 'chunk',
+          fileName: 'assets/dist-abc.js',
+          code: '',
+          moduleIds: ['/repo/node_modules/@module-federation/runtime/dist/index.js'],
+        },
+        'assets/dist-def.js': {
+          type: 'chunk',
+          fileName: 'assets/dist-def.js',
+          code: '',
+          moduleIds: ['/repo/node_modules/some-widget/dist/index.js'],
+        },
+      }
+    );
+
     const deps = config.build.modulePreload.resolveDependencies(
       'mf-entry-bootstrap-0.js',
       [
@@ -916,13 +935,15 @@ describe('module-federation-esm-shims', () => {
         'assets/rolldown-runtime-abc.js',
         'assets/preload-helper-abc.js',
         'assets/dist-abc.js',
+        'assets/dist-def.js',
         'assets/__mfe_internal__host__H_A_I__hostAutoInit__H_A_I__-abc.js',
         'assets/virtual_mf-REMOTE_ENTRY_ID__remoteEntry_js-abc.js',
       ],
       { hostId: 'index.html', hostType: 'html' }
     );
 
-    expect(deps).toEqual(['assets/index.js']);
+    // A `dist` chunk is the federation runtime only when it holds runtime modules.
+    expect(deps).toEqual(['assets/index.js', 'assets/dist-def.js']);
   });
 
   it.each([true, 'src/entry-server.ts'])(

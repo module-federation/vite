@@ -13,7 +13,8 @@ import {
 import { rpc, type DTSManagerOptions } from '@module-federation/dts-plugin/core';
 import * as path from 'node:path';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
-import { isHttpUrl, normalizePathForImport } from '../utils/buildPaths';
+import { normalizePathForImport } from '../utils/buildPaths';
+import { getBasePathname } from '../utils/pathNormalization';
 import { watchFileEvents } from '../utils/devServerHost';
 import { DEFAULT_PUBLIC_TYPES_FOLDER } from '../utils/dtsConstants';
 import type { NormalizedModuleFederationOptions } from '../utils/normalizeModuleFederationOptions';
@@ -217,17 +218,8 @@ export const resolveDtsPluginOptions = (
   };
 };
 
-const getBasePath = (base: string): string => {
-  if (isHttpUrl(base)) {
-    return new URL(base).pathname.replace(/\/$/, '') || '/';
-  }
-  return base.replace(/\/$/, '') || '/';
-};
-
-const joinBaseAndAsset = (base: string, assetFileName: string): string => {
-  const basePath = getBasePath(base);
-  return `${basePath === '/' ? '' : basePath}/${assetFileName}`.replace(/\/{2,}/g, '/');
-};
+const joinBaseAndAsset = (base: string, assetFileName: string): string =>
+  `${getBasePathname(base)}/${assetFileName}`.replace(/\/{2,}/g, '/');
 
 type DevDtsAssetPaths = {
   apiFilePath: string;

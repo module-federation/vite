@@ -188,6 +188,18 @@ describe('pluginDts build', () => {
     expect(res.body()).toContain('RemoteKeys');
   });
 
+  it('serves dev dts assets under the path of a URL base', () => {
+    const paths = getDevDtsAssetPaths({
+      root: '/project',
+      outputDir: 'dist',
+      publicTypesFolder: '@mf-types',
+      base: 'https://cdn.example.com/foo/',
+    });
+
+    expect(paths.apiRequestPath).toBe('/foo/@mf-types.d.ts');
+    expect(paths.zipRequestPath).toBe('/foo/@mf-types.zip');
+  });
+
   it('returns 404 for missing public dev dts assets instead of falling through', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-dts-missing-'));
     const middleware = createDevDtsAssetMiddleware(

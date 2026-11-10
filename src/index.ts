@@ -167,6 +167,13 @@ const patchedManualChunks = new WeakSet<Function>();
 // isn't mistaken for one of ours and dropped.
 const federationGroups = new WeakSet<object>();
 
+// Chunks that hold the federation runtime, recorded per bundle. Module-level: the
+// plugin instance that runs generateBundle is not always the one whose config hook
+// installed resolveDependencies (`builder.sharedPlugins`).
+const federationRuntimeChunkFiles = new Set<string>();
+const FEDERATION_RUNTIME_MODULE_ID_RE =
+  /[\\/]@module-federation[\\/](?:runtime|runtime-core|runtime-tools|sdk|error-codes)[\\/]/;
+
 // Rolldown injects the `__vite_preload` helper as a special runtime module and,
 // left to automatic chunking, hoists it into whichever loadShare chunk first uses
 // it. When that shared singleton's source statically imports another shared
@@ -283,6 +290,7 @@ type BundleChunkLike = {
   fileName: string;
   code: string;
   imports?: string[];
+  moduleIds?: string[];
   modules?: Record<string, unknown>;
 };
 type BundleAssetLike = { type: 'asset'; fileName: string };
@@ -372,7 +380,8 @@ function isFederationHtmlPreloadDependency(dep: string, includeSharedRuntime = f
     includeSharedRuntime &&
     (file.includes('preload-helper') ||
       file.includes('rolldown-runtime') ||
-      file.startsWith('dist-'))
+      // Rolldown names the runtime chunk `dist`, and so it does any package entry at `dist/index.js`.
+      (file.startsWith('dist-') && federationRuntimeChunkFiles.has(file)))
   );
 }
 
@@ -2092,6 +2101,16 @@ function federation(mfUserOptions: ModuleFederationOptions): any[] {
         _isWrite: boolean
       ) {
         inlineDeferredPrebuildNamespaceHelper(bundle);
+        for (const chunk of Object.values(bundle)) {
+          if (
+            isOutputChunk(chunk) &&
+            (chunk.moduleIds ?? Object.keys(chunk.modules ?? {})).some((id) =>
+              FEDERATION_RUNTIME_MODULE_ID_RE.test(id)
+            )
+          ) {
+            federationRuntimeChunkFiles.add(path.basename(chunk.fileName));
+          }
+        }
         for (const [fileName, fallbacks] of findEagerFallbacksInSharedChunk(bundle)) {
           mfWarn(
             `A shared-dependency fallback was merged into the loadShare chunk ${fileName}: ` +
