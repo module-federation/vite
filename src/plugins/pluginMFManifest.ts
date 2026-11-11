@@ -45,15 +45,29 @@ import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntryS
 /**
  * Resolves the build version for the module federation manifest.
  *
- * Priority:
+ * Mirrors `getBuildVersion()` from `@module-federation/managers` used by the
+ * webpack/rspack plugins. Priority:
  * 1. `MF_BUILD_VERSION` environment variable (set by CI or manually)
- * 2. Falls back to `'1.0.0'` to preserve backward compatibility
- *
- * This mirrors the behavior of the webpack/rspack plugins via
- * `getBuildVersion()` from `@module-federation/managers`.
+ * 2. `version` from the nearest package.json at or above `root`
+ * 3. Falls back to `'1.0.0'` to preserve backward compatibility (instead of 'local')
  */
-export function getBuildVersion(): string {
-  return process.env['MF_BUILD_VERSION'] ?? '1.0.0';
+export function getBuildVersion(root: string): string {
+  const envVersion = process.env['MF_BUILD_VERSION'];
+  if (envVersion) return envVersion;
+  let dir = path.resolve(root);
+  while (true) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const version = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))?.version;
+        if (typeof version === 'string' && version) return version;
+      } catch {}
+      return '1.0.0';
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return '1.0.0';
+    dir = parent;
+  }
 }
 
 /**
@@ -726,7 +740,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         name,
         type: 'app',
         buildInfo: {
-          buildVersion: getBuildVersion(),
+          buildVersion: getBuildVersion(root),
           buildName: name,
           ...getTreeShakingBuildInfo(options),
         },
