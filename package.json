@@ -78,7 +78,6 @@
   },
   "dependencies": {
     "@module-federation/dts-plugin": "2.9.3",
-    "@module-federation/managers": "2.9.3",
     "@module-federation/runtime": "2.9.3",
     "@module-federation/sdk": "2.9.3"
   },
