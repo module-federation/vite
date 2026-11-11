@@ -33,6 +33,9 @@ importers:
       '@module-federation/dts-plugin':
         specifier: 2.9.3
         version: 2.9.3(typescript@7.0.2)
+      '@module-federation/managers':
+        specifier: 2.9.3
+        version: 2.9.3
       '@module-federation/runtime':
         specifier: 2.9.3
         version: 2.9.3

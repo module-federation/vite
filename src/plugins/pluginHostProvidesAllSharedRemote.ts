@@ -27,6 +27,7 @@ export function pluginHostProvidesAllSharedRemote(
   const isExternal = (id: string) => sharedKeys.includes(id) || isRemoteSpecifier(id, remoteKeys);
   const unsharedSubpaths = new Map<string, string>();
   let publicPath = '/';
+  let root = process.cwd();
 
   return {
     name: 'module-federation:host-provides-all-shared-remote',
@@ -57,6 +58,7 @@ export function pluginHostProvidesAllSharedRemote(
     configResolved(config) {
       // `auto` is a valid manifest value: the host infers it from the manifest URL.
       publicPath = options.publicPath ?? config.base;
+      root = config.root;
     },
     buildStart() {
       unsharedSubpaths.clear();
@@ -100,7 +102,7 @@ export function pluginHostProvidesAllSharedRemote(
         metaData: {
           name,
           type: 'app',
-          buildInfo: { buildVersion: getBuildVersion(), buildName: name },
+          buildInfo: { buildVersion: getBuildVersion(root), buildName: name },
           globalName: name,
           pluginVersion: packageJson.version,
           publicPath,

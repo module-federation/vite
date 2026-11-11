@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   EmitFile,
   NormalizedOutputOptions,
@@ -17,7 +20,7 @@ import type {
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
 import packageJson from '../../../package.json' with { type: 'json' };
 
-import manifestPlugin from '../pluginMFManifest';
+import manifestPlugin, { getBuildVersion } from '../pluginMFManifest';
 
 const {
   getNormalizeModuleFederationOptions,
@@ -1544,5 +1547,54 @@ describe('pluginMFManifest dev middleware', () => {
 
     expect(manifest.metaData.getPublicPath).toBe(getPublicPath);
     expect(manifest.metaData.publicPath).toBeUndefined();
+  });
+});
+
+describe('getBuildVersion', () => {
+  let tmpDir: string;
+  let root: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-build-version-'));
+    root = path.join(tmpDir, 'project');
+    fs.mkdirSync(root);
+    vi.stubEnv('MF_BUILD_VERSION', undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const writePackageJson = (dir: string, content: string) =>
+    fs.writeFileSync(path.join(dir, 'package.json'), content);
+
+  it('uses MF_BUILD_VERSION before the package.json version', () => {
+    vi.stubEnv('MF_BUILD_VERSION', '9.9.9');
+    writePackageJson(root, JSON.stringify({ version: '2.3.4' }));
+    expect(getBuildVersion(root)).toBe('9.9.9');
+  });
+
+  it('uses the package.json version when MF_BUILD_VERSION is not set', () => {
+    writePackageJson(root, JSON.stringify({ version: '2.3.4' }));
+    expect(getBuildVersion(root)).toBe('2.3.4');
+  });
+
+  it('uses the nearest parent package.json when root has none', () => {
+    writePackageJson(tmpDir, JSON.stringify({ version: '3.0.0' }));
+    expect(getBuildVersion(root)).toBe('3.0.0');
+  });
+
+  it('falls back to 1.0.0 when no package.json is found', () => {
+    expect(getBuildVersion(root)).toBe('1.0.0');
+  });
+
+  it.each([
+    ['has no version', JSON.stringify({ name: 'project' })],
+    ['has a non-string version', JSON.stringify({ version: 42 })],
+    ['is not valid JSON', '{ not json'],
+  ])('falls back to 1.0.0 when package.json %s', (_case, content) => {
+    writePackageJson(root, content);
+    expect(getBuildVersion(root)).toBe('1.0.0');
   });
 });

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { utils } from '@module-federation/managers';
 import { Plugin } from 'vite';
 import packageJson from '../../package.json' with { type: 'json' };
 import {
@@ -45,15 +46,15 @@ import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntryS
 /**
  * Resolves the build version for the module federation manifest.
  *
- * Priority:
+ * Uses `utils.getBuildVersion()` from `@module-federation/managers`, the same
+ * as the webpack/rspack plugins. Priority:
  * 1. `MF_BUILD_VERSION` environment variable (set by CI or manually)
- * 2. Falls back to `'1.0.0'` to preserve backward compatibility
- *
- * This mirrors the behavior of the webpack/rspack plugins via
- * `getBuildVersion()` from `@module-federation/managers`.
+ * 2. `version` from the project's package.json, found from `root`
+ * 3. Falls back to `'1.0.0'` to preserve backward compatibility (instead of 'local')
  */
-export function getBuildVersion(): string {
-  return process.env['MF_BUILD_VERSION'] ?? '1.0.0';
+export function getBuildVersion(root: string): string {
+  const version = utils.getBuildVersion(root);
+  return version === 'local' ? '1.0.0' : version;
 }
 
 /**
@@ -726,7 +727,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         name,
         type: 'app',
         buildInfo: {
-          buildVersion: getBuildVersion(),
+          buildVersion: getBuildVersion(root),
           buildName: name,
           ...getTreeShakingBuildInfo(options),
         },
