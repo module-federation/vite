@@ -1,5 +1,6 @@
 import { chromium } from '@playwright/test';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer, type ViteDevServer } from 'vite';
@@ -13,9 +14,23 @@ const servers: ViteDevServer[] = [];
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(servers.splice(0).map((server) => server.close()));
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(servers.splice(0).map((server) => server.close().catch(() => undefined)));
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true }).catch(() => undefined))
+  );
 });
+
+async function reservePort() {
+  const probe = createNetServer();
+  await new Promise<void>((resolve, reject) => {
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', resolve);
+  });
+  const address = probe.address();
+  if (!address || typeof address === 'string') throw new Error('Port probe did not bind');
+  await new Promise<void>((resolve, reject) => probe.close((error) => (error ? reject(error) : resolve())));
+  return address.port;
+}
 
 function packageJson(name: string, version: string, extra: Record<string, unknown> = {}) {
   return JSON.stringify({ name, version, type: 'module', ...extra }, null, 2);
@@ -92,8 +107,10 @@ export function boundProbe() {
 }
 
 async function startServer(root: string, options: Parameters<typeof federation>[0]) {
+  const port = await reservePort();
   const server = await createServer({
     root,
+    cacheDir: path.join(root, 'node_modules/.vite'),
     logLevel: 'error',
     appType: 'spa',
     resolve: {
@@ -106,7 +123,7 @@ async function startServer(root: string, options: Parameters<typeof federation>[
     server: {
       cors: true,
       host: '127.0.0.1',
-      port: 0,
+      port,
       strictPort: true,
       fs: { allow: [root, REPO_ROOT] },
     },
