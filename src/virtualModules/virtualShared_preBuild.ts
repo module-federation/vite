@@ -744,8 +744,11 @@ function getNamedExportsViaRegex(
           // ESM barrels can re-export a CommonJS entry (Vue's Node entry does
           // this). Preserve its runtime keys so consumers such as vue-demi do
           // not receive an empty namespace during SSR bundling.
+          // An empty list is a successful read of a module with no runtime
+          // exports (a CommonJS file that only re-exports types). Only a failed
+          // read leaves the barrel's export list unknown.
           const requiredNames = getRequiredNamedExports(resolvedPath);
-          if (!requiredNames?.length) {
+          if (requiredNames === undefined) {
             scanState.complete = false;
             continue;
           }
