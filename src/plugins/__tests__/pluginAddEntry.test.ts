@@ -2569,6 +2569,140 @@ describe('pluginAddEntry', () => {
     );
   });
 
+  describe('host init preload manifest', () => {
+    function buildPreloads({
+      inject = 'entry',
+      html = false,
+      modulePreload = true,
+      ssr = false,
+      consumer,
+      entryName = 'hostInit',
+    }: {
+      inject?: 'html' | 'entry';
+      html?: boolean;
+      modulePreload?: boolean;
+      ssr?: boolean;
+      consumer?: 'client' | 'server';
+      entryName?: string;
+    } = {}) {
+      mockHasPackageDependency.mockReturnValue(false);
+      const federationOptions = {
+        ...mockNormalizedOptions,
+        remotes: {
+          remote: {
+            name: 'remote',
+            entry: '/cdn/remoteEntry.js',
+            type: 'module',
+            entryGlobalName: 'remote',
+            shareScope: 'default',
+          },
+        },
+      } as unknown as NormalizedModuleFederationOptions;
+      addUsedRemote('remote', 'remote/ui', federationOptions);
+      const plugin = addEntry({
+        entryName,
+        entryPath: '/virtual/hostInit.js',
+        inject,
+        federationOptions,
+      })[1];
+      const bundle = {
+        ...(html
+          ? {
+              'index.html': {
+                type: 'asset',
+                source: '<html><head></head><body></body></html>',
+              },
+            }
+          : {}),
+        'assets/hostInit.js': {
+          type: 'chunk',
+          name: 'hostInit',
+          fileName: 'assets/hostInit.js',
+          imports: ['assets/helper.js'],
+        },
+        'assets/helper.js': {
+          type: 'chunk',
+          name: 'helper',
+          fileName: 'assets/helper.js',
+          imports: ['assets/hostInit.js'],
+        },
+        'assets/app.js': {
+          type: 'chunk',
+          name: 'app',
+          isEntry: inject === 'html',
+          fileName: 'assets/app.js',
+          facadeModuleId: '/repo/host/src/main.ts?mf-entry-bootstrap',
+        },
+        'assets/lazy.js': {
+          type: 'chunk',
+          name: 'lazy',
+          fileName: 'assets/lazy.js',
+        },
+      } as unknown as Rollup.OutputBundle;
+      runConfigResolved(plugin, {
+        root: '/repo/host',
+        base: '/app/',
+        command: 'build',
+        build: { rollupOptions: {}, modulePreload, ssr },
+      } as unknown as ResolvedConfig);
+      const emitFile = vi.fn((_file: Rollup.EmittedFile) => 'ref');
+      const ctx = {
+        emitFile,
+        getFileName: () => 'assets/hostInit.js',
+        ...(consumer ? { environment: { name: 'custom', config: { consumer } } } : {}),
+      } as unknown as Rollup.PluginContext;
+      runBuildStart(plugin, ctx, {} as Rollup.NormalizedInputOptions);
+      runGenerateBundle(plugin, ctx, {} as Rollup.NormalizedOutputOptions, bundle);
+      const asset = emitFile.mock.calls
+        .map(([file]) => file as Rollup.EmittedAsset)
+        .find((file) => file.fileName === '.vite/mf-preload.json');
+      return { asset, bundle };
+    }
+
+    it.each(['html', 'entry'] as const)('matches HTML hints with %s injection', (inject) => {
+      const { asset, bundle } = buildPreloads({ inject, html: true });
+      expect(asset).toBeDefined();
+      const preloads = JSON.parse(String(asset!.source));
+      expect(preloads.remoteEntries).toEqual(['/cdn/remoteEntry.js']);
+      expect(preloads.hostInit).toEqual([
+        'assets/hostInit.js',
+        'assets/app.js',
+        'assets/helper.js',
+      ]);
+      const html = String((bundle['index.html'] as Rollup.OutputAsset).source);
+      const hrefs = Array.from(
+        html.matchAll(/rel="modulepreload" crossorigin href="([^"]+)"/g),
+        (match) => match[1]
+      );
+      expect(hrefs).toEqual([
+        ...preloads.remoteEntries,
+        ...preloads.hostInit.map((file: string) => `/app/${file}`),
+      ]);
+    });
+
+    it.each(['html', 'entry'] as const)('emits without HTML with %s injection', (inject) => {
+      const { asset } = buildPreloads({ inject });
+      expect(asset).toBeDefined();
+      expect(JSON.parse(String(asset!.source))).toEqual({
+        hostInit: ['assets/hostInit.js', 'assets/app.js', 'assets/helper.js'],
+        remoteEntries: ['/cdn/remoteEntry.js'],
+      });
+    });
+
+    it.each([
+      { modulePreload: false },
+      { ssr: true },
+      { consumer: 'server' as const },
+      { entryName: 'remoteEntry' },
+    ])('does not emit for %j', (options) => {
+      expect(buildPreloads(options).asset).toBeUndefined();
+    });
+
+    it('uses the client hook environment when the last resolved config is SSR', () => {
+      expect(buildPreloads({ ssr: true, consumer: 'client' }).asset).toBeDefined();
+    });
+  });
+
   it('injects host init chunk-chain modulepreloads during build', () => {
     const plugins = addEntry({
       entryName: 'hostInit',
@@ -3234,6 +3368,7 @@ describe('pluginAddEntry', () => {
 
     const html = String(bundle['index.html'].source);
     expect(html).not.toContain('rel="modulepreload"');
+    expect(emitted.some((file) => file.fileName === '.vite/mf-preload.json')).toBe(false);
   });
 
   it('wraps SvelteKit static inline startup behind host init during build', () => {
@@ -3279,6 +3414,7 @@ describe('pluginAddEntry', () => {
       buildPlugin,
       {
         getFileName: () => 'assets/hostInit.js',
+        emitFile: (file: Rollup.EmittedFile) => (emitted.push(file), 'preload-ref'),
       } as unknown as Rollup.PluginContext,
       {} as Rollup.NormalizedOutputOptions,
       bundle as unknown as Rollup.OutputBundle,

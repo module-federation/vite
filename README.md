@@ -259,6 +259,32 @@ You can specify the place the host initialization file is injected with the **ho
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
 
+## Preload hints with server-rendered documents
+
+Client builds emit `.vite/mf-preload.json` in `build.outDir` whenever the host
+waits for federation initialization and `build.modulePreload !== false`. This
+works with both `hostInitInjectLocation: "html"` and `"entry"`, including builds
+without an HTML asset (for example Nitro, custom SSR, or CMS templates). SSR
+builds do not emit this file. Multiple federation configurations in one client
+build contribute to the same file.
+
+```json
+{
+  "hostInit": ["assets/hostInit-abc.js", "assets/remoteEntry-def.js"],
+  "remoteEntries": ["https://remote.example/remoteEntry.js"]
+}
+```
+
+Read this file from the **client build** when rendering your document and emit
+`<link rel="modulepreload" crossorigin href="…">` for each target. `hostInit`
+contains bundle-relative chunk filenames: prepend your public asset base or CDN
+URL. `remoteEntries` contains remote entry URLs as configured (including
+root-relative URLs); use these unchanged. The lists use the same targets as the
+plugin's HTML hints and include transitive static imports, excluding lazy share
+providers. They do not include remote chunks whose hashes are only known to the
+remote build. If you use `experimental.renderBuiltUrl`, apply the corresponding
+URL mapping in your renderer as well.
+
 ## SSR runtime initialization
 
 For applications with configured remotes, SSR entries and modules importing

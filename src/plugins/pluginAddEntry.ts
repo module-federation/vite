@@ -155,25 +155,31 @@ function getExistingHrefSet(html: string) {
   return new Set(Array.from(html.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi), (match) => match[1]));
 }
 
-function injectHostInitPreloads(
-  html: string,
+function collectHostInitPreloads(
   bundle: Rollup.OutputBundle,
-  resolvePath: (fileName: string) => string,
-  externalHrefs: string[] = [],
+  remoteEntries: string[],
   isExtraSeed: (chunk: Rollup.OutputChunk) => boolean = () => false
 ) {
-  const existingHrefs = getExistingHrefSet(html);
-  const hrefs: string[] = [];
-  for (const href of externalHrefs) {
-    if (existingHrefs.has(href)) continue;
-    existingHrefs.add(href);
-    hrefs.push(href);
-  }
   const chunksByFileName = getChunksByFileName(bundle);
   const seeds = Array.from(chunksByFileName.values()).filter(
     (chunk) => isHostInitPreloadSeed(chunk) || isExtraSeed(chunk)
   );
-  for (const fileName of collectPreloadChunkFiles(chunksByFileName, seeds)) {
+  return { hostInit: collectPreloadChunkFiles(chunksByFileName, seeds), remoteEntries };
+}
+
+function injectHostInitPreloads(
+  html: string,
+  preloads: ReturnType<typeof collectHostInitPreloads>,
+  resolvePath: (fileName: string) => string
+) {
+  const existingHrefs = getExistingHrefSet(html);
+  const hrefs: string[] = [];
+  for (const href of preloads.remoteEntries) {
+    if (existingHrefs.has(href)) continue;
+    existingHrefs.add(href);
+    hrefs.push(href);
+  }
+  for (const fileName of preloads.hostInit) {
     const href = resolvePath(fileName);
     if (existingHrefs.has(href)) continue;
     existingHrefs.add(href);
@@ -1219,10 +1225,45 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             appendRemoteEntryWarmup(bundle, remoteEntryFile);
           }
         }
-        // Entry injection leaves the HTML script alone, but the page still
-        // benefits from hints for the init chain the bootstrap walks serially.
-        const preloadsEntryHtml =
-          inject === 'entry' && waitsForInit && !isSsr && viteConfig.build.modulePreload !== false;
+        // Server-rendered documents have no HTML asset to rewrite. Expose the
+        // same targets without a base so their renderer can resolve the URLs.
+        const preloads =
+          waitsForInit && !isSsr && viteConfig.build.modulePreload !== false
+            ? collectHostInitPreloads(
+                bundle,
+                getRemoteEntryPreloadUrls(isSsr),
+                // With entry injection the app is the bootstrap's dynamic import.
+                (chunk) =>
+                  inject === 'entry' &&
+                  !!chunk.facadeModuleId &&
+                  hasEntryBootstrapParam(chunk.facadeModuleId)
+              )
+            : undefined;
+        if (preloads) {
+          const manifestFileName = '.vite/mf-preload.json';
+          const existing = bundle[manifestFileName];
+          if (existing?.type === 'asset') {
+            // Several federation configs can share one client output. Preserve
+            // every config's remote URLs without emitting conflicting assets.
+            const previous = JSON.parse(existing.source.toString()) as typeof preloads;
+            existing.source = JSON.stringify(
+              {
+                hostInit: [...new Set([...previous.hostInit, ...preloads.hostInit])],
+                remoteEntries: [...new Set([...previous.remoteEntries, ...preloads.remoteEntries])],
+              },
+              null,
+              2
+            );
+          } else {
+            this.emitFile({
+              type: 'asset',
+              fileName: manifestFileName,
+              source: JSON.stringify(preloads, null, 2),
+            });
+          }
+        }
+        // Entry injection leaves the HTML script alone, but still adds hints.
+        const preloadsEntryHtml = inject === 'entry' && !!preloads;
         if (!injectHtml() && !preloadsEntryHtml) return;
         if (!emitFileId) return;
         const htmlFileNames = Object.keys(bundle).filter((fileName) => fileName.endsWith('.html'));
@@ -1287,12 +1328,8 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
             if (htmlAsset.type === 'chunk') continue;
             htmlAsset.source = injectHostInitPreloads(
               htmlAsset.source.toString(),
-              bundle,
-              (builtFileName) => resolvePath(builtFileName, fileName),
-              getRemoteEntryPreloadUrls(isSsr),
-              // The app code is the bootstrap's dynamic import here, not the
-              // HTML entry chunk as with html injection.
-              (chunk) => !!chunk.facadeModuleId && hasEntryBootstrapParam(chunk.facadeModuleId)
+              preloads!,
+              (builtFileName) => resolvePath(builtFileName, fileName)
             );
           }
           return;
@@ -1362,12 +1399,9 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
               htmlContent = htmlContent.replace('<head>', `<head>${scriptContent}`);
             }
           }
-          if (waitsForInit && viteConfig.build.modulePreload !== false) {
-            htmlContent = injectHostInitPreloads(
-              htmlContent,
-              bundle,
-              (builtFileName) => resolvePath(builtFileName, fileName),
-              getRemoteEntryPreloadUrls(isSsr)
+          if (preloads) {
+            htmlContent = injectHostInitPreloads(htmlContent, preloads, (builtFileName) =>
+              resolvePath(builtFileName, fileName)
             );
           }
           htmlAsset.source = htmlContent;
