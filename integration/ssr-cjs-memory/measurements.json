@@ -5,10 +5,7 @@
     "unchangedBReleases": 1,
     "heapAllowanceMiB": 64,
     "baseline": "after first replacement",
-    "checkpoints": [
-      100,
-      1000
-    ],
+    "checkpoints": [100, 1000],
     "repeatsPerNodeAndTrigger": 3,
     "gc": "six synchronous major GCs with event-loop turns",
     "snapshots": false,
@@ -20,18 +17,24 @@
     "viteVersion": "8.2.4",
     "reactVersion": "19.2.4",
     "lifecycleDependencyOriginalSha": "988efe5",
-    "supportedBuiltHostSha256": "78c3d7b478bb224abe17419c2db8f3e0c70b65cf56c3f170454c9bc362c2ec9b",
-    "supportedRuns": "Final six runs, after the readonly graph and dual-package resolver fixes; rawResultSha256 identifies the original result JSON.",
-    "negativeRuns": "Six Node 22 runs before the public version guard; one passed and five failed the predeclared bound. No exact V8 retaining root is claimed."
+    "lifecycleDependencyFinalSha": "21ab90ee3ebf5470bc5b21798bf8a4af1834ef99",
+    "measuredFeatureSourceSha": "6f865cc",
+    "supportedBuiltHostSha256": "4bbc1a298b9c7a227976b3dc14868fb51189956bfd72a34c5497fb4ec0f0c837",
+    "artifactManifestSha256": "b415a8cbb35dd19018a54b1003045c56848ce51f1441a3c854e16e6d9e8323f6",
+    "workerFingerprints": {
+      "original": "4943d914490fd5e3c48febe98e50ae7cce5707760b59d750abd12f0889aab15f",
+      "cryptoImportOnly": "d91c82f6e35985e5dc82d3fe3b44e132a3a79f3fec6028b883f274dd806410de",
+      "metadata": "dca8d4c479fa454b839e0d3beb6028c76d86ac707da54a5dd0ac671278403b67"
+    },
+    "supportedRuns": "Six fresh final-host runs of the original predeclared protocol; host provenance was computed externally.",
+    "negativeRuns": "Six Node 22 pre-guard runs: one passed, five failed. Additional Node 24 instrumentation/load counterevidence is retained below."
   },
   "runs": [
     {
       "node": "v22.23.5",
       "trigger": "maxAge",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
+      "execArgv": ["--expose-gc"],
       "startedAt": "2026-11-12T15:11:22.345Z",
       "heapBoundMiB": 64,
       "passed": true,
@@ -89,9 +92,7 @@
       "node": "v22.23.5",
       "trigger": "maxAge",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
+      "execArgv": ["--expose-gc"],
       "startedAt": "2026-11-12T15:11:23.125Z",
       "heapBoundMiB": 64,
       "passed": false,
@@ -149,9 +150,7 @@
       "node": "v22.23.5",
       "trigger": "maxAge",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
+      "execArgv": ["--expose-gc"],
       "startedAt": "2026-11-12T15:11:21.897Z",
       "heapBoundMiB": 64,
       "passed": false,
@@ -209,9 +208,7 @@
       "node": "v22.23.5",
       "trigger": "revalidate",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
+      "execArgv": ["--expose-gc"],
       "startedAt": "2026-11-12T15:09:57.051Z",
       "heapBoundMiB": 64,
       "passed": false,
@@ -269,9 +266,7 @@
       "node": "v22.23.5",
       "trigger": "revalidate",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
+      "execArgv": ["--expose-gc"],
       "startedAt": "2026-11-12T15:09:57.049Z",
       "heapBoundMiB": 64,
       "passed": false,
@@ -329,9 +324,7 @@
       "node": "v22.23.5",
       "trigger": "revalidate",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
+      "execArgv": ["--expose-gc"],
       "startedAt": "2026-11-12T15:09:57.049Z",
       "heapBoundMiB": 64,
       "passed": false,
@@ -386,22 +379,21 @@
       "bUnchangedFetches": true
     },
     {
+      "label": "controlled24-v24-revalidate-2",
       "node": "v24.19.0",
-      "trigger": "maxAge",
+      "trigger": "revalidate",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
-      "startedAt": "2026-11-12T15:26:04.435Z",
+      "execArgv": ["--expose-gc"],
+      "startedAt": "2026-11-12T22:51:35.226Z",
       "heapBoundMiB": 64,
       "passed": true,
       "samples": [
         {
           "index": 1,
           "afterHeldRelease": false,
-          "heapMiB": 22.046844482421875,
+          "heapMiB": 21.676010131835938,
           "externalMiB": 15.34826946258545,
-          "rssMiB": 88.4453125,
+          "rssMiB": 87.890625,
           "listeners": {
             "default:react": 3
           },
@@ -410,81 +402,9 @@
         {
           "index": 10,
           "afterHeldRelease": false,
-          "heapMiB": 33.75518798828125,
-          "externalMiB": 30.251840591430664,
-          "rssMiB": 118.28125,
-          "listeners": {
-            "default:react": 3
-          },
-          "initGlobals": 0
-        },
-        {
-          "index": 100,
-          "afterHeldRelease": false,
-          "heapMiB": 37.611900329589844,
-          "externalMiB": 33.979371070861816,
-          "rssMiB": 140.39453125,
-          "listeners": {
-            "default:react": 3
-          },
-          "initGlobals": 0
-        },
-        {
-          "index": 1000,
-          "afterHeldRelease": false,
-          "heapMiB": 39.005027770996094,
-          "externalMiB": 33.979376792907715,
-          "rssMiB": 135.73046875,
-          "listeners": {
-            "default:react": 3
-          },
-          "initGlobals": 0
-        },
-        {
-          "index": 1000,
-          "afterHeldRelease": true,
-          "heapMiB": 35.91558074951172,
-          "externalMiB": 30.251842498779297,
-          "rssMiB": 128.94921875,
-          "listeners": {
-            "default:react": 2
-          },
-          "initGlobals": 0
-        }
-      ],
-      "exactHostReact": true,
-      "heldOldComponent": true,
-      "bUnchangedFetches": true,
-      "rawResultSha256": "eaeaa0a0ed00a8e25f8640d9aa6db71cc9853e379396a0041b0f13177d25511c"
-    },
-    {
-      "node": "v24.19.0",
-      "trigger": "maxAge",
-      "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
-      "startedAt": "2026-11-12T15:26:04.748Z",
-      "heapBoundMiB": 64,
-      "passed": true,
-      "samples": [
-        {
-          "index": 1,
-          "afterHeldRelease": false,
-          "heapMiB": 22.046218872070312,
-          "externalMiB": 15.34826946258545,
-          "rssMiB": 88.4375,
-          "listeners": {
-            "default:react": 3
-          },
-          "initGlobals": 0
-        },
-        {
-          "index": 10,
-          "afterHeldRelease": false,
-          "heapMiB": 36.84876251220703,
+          "heapMiB": 36.819427490234375,
           "externalMiB": 33.97936534881592,
-          "rssMiB": 125.265625,
+          "rssMiB": 124.15234375,
           "listeners": {
             "default:react": 3
           },
@@ -493,9 +413,9 @@
         {
           "index": 100,
           "afterHeldRelease": false,
-          "heapMiB": 37.60758972167969,
+          "heapMiB": 37.48004150390625,
           "externalMiB": 33.979371070861816,
-          "rssMiB": 140.6796875,
+          "rssMiB": 140.1796875,
           "listeners": {
             "default:react": 3
           },
@@ -504,9 +424,9 @@
         {
           "index": 1000,
           "afterHeldRelease": false,
-          "heapMiB": 39.013031005859375,
+          "heapMiB": 38.928070068359375,
           "externalMiB": 33.979376792907715,
-          "rssMiB": 148.67578125,
+          "rssMiB": 148.1484375,
           "listeners": {
             "default:react": 3
           },
@@ -515,37 +435,184 @@
         {
           "index": 1000,
           "afterHeldRelease": true,
-          "heapMiB": 35.923583984375,
+          "heapMiB": 35.838623046875,
           "externalMiB": 30.251842498779297,
-          "rssMiB": 141.890625,
+          "rssMiB": 141.35546875,
           "listeners": {
             "default:react": 2
           },
           "initGlobals": 0
         }
       ],
+      "sampleSource": "original result JSON",
+      "rawResultSha256": "7d3509f1cf84fb2bf3fac51616d3c57a10fc7dd98cd515ef8de91bf83ea64862",
+      "logSha256": "edf03872f410b54c12e0b4b225354d9671fca1282e3589600ba5a09c931777c8",
       "exactHostReact": true,
       "heldOldComponent": true,
-      "bUnchangedFetches": true,
-      "rawResultSha256": "b52d93cac8aa0e16f257b7d05217b60bbd124bff92cf745b00c25b43543956c5"
+      "bUnchangedFetches": true
     },
     {
+      "label": "controlled24-v24-revalidate-0",
+      "node": "v24.19.0",
+      "trigger": "revalidate",
+      "runtimeVersion": "2.9.3",
+      "execArgv": ["--expose-gc"],
+      "startedAt": "2026-11-12T22:51:35.226Z",
+      "heapBoundMiB": 64,
+      "passed": true,
+      "samples": [
+        {
+          "index": 1,
+          "afterHeldRelease": false,
+          "heapMiB": 21.675758361816406,
+          "externalMiB": 15.34826946258545,
+          "rssMiB": 87.33984375,
+          "listeners": {
+            "default:react": 3
+          },
+          "initGlobals": 0
+        },
+        {
+          "index": 10,
+          "afterHeldRelease": false,
+          "heapMiB": 39.9102783203125,
+          "externalMiB": 37.706899642944336,
+          "rssMiB": 131.01953125,
+          "listeners": {
+            "default:react": 3
+          },
+          "initGlobals": 0
+        },
+        {
+          "index": 100,
+          "afterHeldRelease": false,
+          "heapMiB": 37.487464904785156,
+          "externalMiB": 33.979371070861816,
+          "rssMiB": 137.81640625,
+          "listeners": {
+            "default:react": 3
+          },
+          "initGlobals": 0
+        },
+        {
+          "index": 1000,
+          "afterHeldRelease": false,
+          "heapMiB": 38.93293762207031,
+          "externalMiB": 33.979376792907715,
+          "rssMiB": 147.1953125,
+          "listeners": {
+            "default:react": 3
+          },
+          "initGlobals": 0
+        },
+        {
+          "index": 1000,
+          "afterHeldRelease": true,
+          "heapMiB": 35.84349060058594,
+          "externalMiB": 30.251842498779297,
+          "rssMiB": 140.40234375,
+          "listeners": {
+            "default:react": 2
+          },
+          "initGlobals": 0
+        }
+      ],
+      "sampleSource": "original result JSON",
+      "rawResultSha256": "7739d4e256cd85ab742273d40afbee5be972b8796eabe16adc0a7d3dbc32d4fe",
+      "logSha256": "3c617e4decb37c3301611fd62728d66d707d5bce6673fc0cdfc6752bfb878ede",
+      "exactHostReact": true,
+      "heldOldComponent": true,
+      "bUnchangedFetches": true
+    },
+    {
+      "label": "controlled24-v24-revalidate-1",
+      "node": "v24.19.0",
+      "trigger": "revalidate",
+      "runtimeVersion": "2.9.3",
+      "execArgv": ["--expose-gc"],
+      "startedAt": "2026-11-12T22:51:35.233Z",
+      "heapBoundMiB": 64,
+      "passed": true,
+      "samples": [
+        {
+          "index": 1,
+          "afterHeldRelease": false,
+          "heapMiB": 21.675811767578125,
+          "externalMiB": 15.34826946258545,
+          "rssMiB": 87.48046875,
+          "listeners": {
+            "default:react": 3
+          },
+          "initGlobals": 0
+        },
+        {
+          "index": 10,
+          "afterHeldRelease": false,
+          "heapMiB": 36.81891632080078,
+          "externalMiB": 33.97936534881592,
+          "rssMiB": 124.48828125,
+          "listeners": {
+            "default:react": 3
+          },
+          "initGlobals": 0
+        },
+        {
+          "index": 100,
+          "afterHeldRelease": false,
+          "heapMiB": 37.48706817626953,
+          "externalMiB": 33.979371070861816,
+          "rssMiB": 139.89453125,
+          "listeners": {
+            "default:react": 3
+          },
+          "initGlobals": 0
+        },
+        {
+          "index": 1000,
+          "afterHeldRelease": false,
+          "heapMiB": 38.93043518066406,
+          "externalMiB": 33.979376792907715,
+          "rssMiB": 148.41015625,
+          "listeners": {
+            "default:react": 3
+          },
+          "initGlobals": 0
+        },
+        {
+          "index": 1000,
+          "afterHeldRelease": true,
+          "heapMiB": 35.84126281738281,
+          "externalMiB": 30.251842498779297,
+          "rssMiB": 141.6171875,
+          "listeners": {
+            "default:react": 2
+          },
+          "initGlobals": 0
+        }
+      ],
+      "sampleSource": "original result JSON",
+      "rawResultSha256": "d7d48ddbe95e11d4d7bee78cead939980c5a5fbaa619845141b121329e962376",
+      "logSha256": "e310fec2905b8637cc12e4a5b2a192bea21afc5c61bbf8a903bec08497bcd0f5",
+      "exactHostReact": true,
+      "heldOldComponent": true,
+      "bUnchangedFetches": true
+    },
+    {
+      "label": "controlled24-v24-maxAge-0",
       "node": "v24.19.0",
       "trigger": "maxAge",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
-      "startedAt": "2026-11-12T15:26:05.321Z",
+      "execArgv": ["--expose-gc"],
+      "startedAt": "2026-11-12T22:52:32.690Z",
       "heapBoundMiB": 64,
       "passed": true,
       "samples": [
         {
           "index": 1,
           "afterHeldRelease": false,
-          "heapMiB": 22.046890258789062,
+          "heapMiB": 22.04772186279297,
           "externalMiB": 15.34826946258545,
-          "rssMiB": 88.9296875,
+          "rssMiB": 88.671875,
           "listeners": {
             "default:react": 3
           },
@@ -554,9 +621,9 @@
         {
           "index": 10,
           "afterHeldRelease": false,
-          "heapMiB": 33.748069763183594,
+          "heapMiB": 33.75218200683594,
           "externalMiB": 30.251840591430664,
-          "rssMiB": 117.78515625,
+          "rssMiB": 118.06640625,
           "listeners": {
             "default:react": 3
           },
@@ -565,9 +632,9 @@
         {
           "index": 100,
           "afterHeldRelease": false,
-          "heapMiB": 37.61181640625,
+          "heapMiB": 37.61712646484375,
           "externalMiB": 33.979371070861816,
-          "rssMiB": 140.48828125,
+          "rssMiB": 140.6875,
           "listeners": {
             "default:react": 3
           },
@@ -576,9 +643,9 @@
         {
           "index": 1000,
           "afterHeldRelease": false,
-          "heapMiB": 39.01226043701172,
+          "heapMiB": 39.00630187988281,
           "externalMiB": 33.979376792907715,
-          "rssMiB": 149.4453125,
+          "rssMiB": 148.765625,
           "listeners": {
             "default:react": 3
           },
@@ -587,37 +654,38 @@
         {
           "index": 1000,
           "afterHeldRelease": true,
-          "heapMiB": 35.922813415527344,
+          "heapMiB": 35.91685485839844,
           "externalMiB": 30.251842498779297,
-          "rssMiB": 142.65234375,
+          "rssMiB": 141.97265625,
           "listeners": {
             "default:react": 2
           },
           "initGlobals": 0
         }
       ],
+      "sampleSource": "original result JSON",
+      "rawResultSha256": "15af017b3f1608cdd7e74f62940f7ce0a3ee3126f36b4489674bd0469b815771",
+      "logSha256": "f540e64fee28d7bc684dc305e80c2d7dea27e2b1f47b954dbdfb34e8695053f8",
       "exactHostReact": true,
       "heldOldComponent": true,
-      "bUnchangedFetches": true,
-      "rawResultSha256": "e4b25159cc3cf6bce0a1677e4d8c129d74f1e980286c54b90be9327531fb3722"
+      "bUnchangedFetches": true
     },
     {
+      "label": "controlled24-v24-maxAge-2",
       "node": "v24.19.0",
-      "trigger": "revalidate",
+      "trigger": "maxAge",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
-      "startedAt": "2026-11-12T15:24:58.865Z",
+      "execArgv": ["--expose-gc"],
+      "startedAt": "2026-11-12T22:52:32.724Z",
       "heapBoundMiB": 64,
       "passed": true,
       "samples": [
         {
           "index": 1,
           "afterHeldRelease": false,
-          "heapMiB": 21.68682861328125,
+          "heapMiB": 22.04804229736328,
           "externalMiB": 15.34826946258545,
-          "rssMiB": 87.12890625,
+          "rssMiB": 88.86328125,
           "listeners": {
             "default:react": 3
           },
@@ -626,9 +694,9 @@
         {
           "index": 10,
           "afterHeldRelease": false,
-          "heapMiB": 39.9283447265625,
-          "externalMiB": 37.706899642944336,
-          "rssMiB": 132.0078125,
+          "heapMiB": 36.84391784667969,
+          "externalMiB": 33.97936534881592,
+          "rssMiB": 125.32421875,
           "listeners": {
             "default:react": 3
           },
@@ -637,9 +705,9 @@
         {
           "index": 100,
           "afterHeldRelease": false,
-          "heapMiB": 37.49060821533203,
+          "heapMiB": 37.619171142578125,
           "externalMiB": 33.979371070861816,
-          "rssMiB": 141.765625,
+          "rssMiB": 128.25390625,
           "listeners": {
             "default:react": 3
           },
@@ -648,9 +716,9 @@
         {
           "index": 1000,
           "afterHeldRelease": false,
-          "heapMiB": 38.949066162109375,
+          "heapMiB": 39.00732421875,
           "externalMiB": 33.979376792907715,
-          "rssMiB": 149.48046875,
+          "rssMiB": 148.984375,
           "listeners": {
             "default:react": 3
           },
@@ -659,37 +727,38 @@
         {
           "index": 1000,
           "afterHeldRelease": true,
-          "heapMiB": 35.858009338378906,
+          "heapMiB": 35.917877197265625,
           "externalMiB": 30.251842498779297,
-          "rssMiB": 142.6875,
+          "rssMiB": 142.19140625,
           "listeners": {
             "default:react": 2
           },
           "initGlobals": 0
         }
       ],
+      "sampleSource": "original result JSON",
+      "rawResultSha256": "74c2bda8b423df5febe61c57653577d59499703086bf61515d7c3f4d5dfabc98",
+      "logSha256": "1a8ed129ee86667be3a9944eb44fe0ac446de13539807d55e14c799934dfc321",
       "exactHostReact": true,
       "heldOldComponent": true,
-      "bUnchangedFetches": true,
-      "rawResultSha256": "8578b85481fb9a0d99d281250b22a8c936f76e77028fa9f00ae2642bfd392c56"
+      "bUnchangedFetches": true
     },
     {
+      "label": "controlled24-v24-maxAge-1",
       "node": "v24.19.0",
-      "trigger": "revalidate",
+      "trigger": "maxAge",
       "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
-      "startedAt": "2026-11-12T15:24:58.855Z",
+      "execArgv": ["--expose-gc"],
+      "startedAt": "2026-11-12T22:52:32.690Z",
       "heapBoundMiB": 64,
       "passed": true,
       "samples": [
         {
           "index": 1,
           "afterHeldRelease": false,
-          "heapMiB": 21.67572784423828,
+          "heapMiB": 22.0477294921875,
           "externalMiB": 15.34826946258545,
-          "rssMiB": 87.11328125,
+          "rssMiB": 88.41796875,
           "listeners": {
             "default:react": 3
           },
@@ -698,9 +767,9 @@
         {
           "index": 10,
           "afterHeldRelease": false,
-          "heapMiB": 43.001373291015625,
-          "externalMiB": 41.434433937072754,
-          "rssMiB": 138.23046875,
+          "heapMiB": 33.753936767578125,
+          "externalMiB": 30.251840591430664,
+          "rssMiB": 118.8203125,
           "listeners": {
             "default:react": 3
           },
@@ -709,9 +778,9 @@
         {
           "index": 100,
           "afterHeldRelease": false,
-          "heapMiB": 37.472328186035156,
+          "heapMiB": 37.622291564941406,
           "externalMiB": 33.979371070861816,
-          "rssMiB": 141.15234375,
+          "rssMiB": 142.1796875,
           "listeners": {
             "default:react": 3
           },
@@ -720,9 +789,9 @@
         {
           "index": 1000,
           "afterHeldRelease": false,
-          "heapMiB": 38.939720153808594,
+          "heapMiB": 38.99848175048828,
           "externalMiB": 33.979376792907715,
-          "rssMiB": 149.01171875,
+          "rssMiB": 135.21484375,
           "listeners": {
             "default:react": 3
           },
@@ -731,91 +800,874 @@
         {
           "index": 1000,
           "afterHeldRelease": true,
-          "heapMiB": 35.848609924316406,
+          "heapMiB": 35.909034729003906,
           "externalMiB": 30.251842498779297,
-          "rssMiB": 142.23046875,
+          "rssMiB": 128.4453125,
           "listeners": {
             "default:react": 2
           },
           "initGlobals": 0
         }
       ],
+      "sampleSource": "original result JSON",
+      "rawResultSha256": "f80fee25a29bce49f6ca2cc748bbb9f20b59f60342e1fbf01451327ae0b70481",
+      "logSha256": "b006d650670794b11ec0d48db101f42fe47941fc8d52796706d18bcc0f9e4d81",
       "exactHostReact": true,
       "heldOldComponent": true,
-      "bUnchangedFetches": true,
-      "rawResultSha256": "c5e2f56aca3dff1187515bcf125e0dfd7586643c338fd7ef281c4cd83b9d1c74"
-    },
-    {
-      "node": "v24.19.0",
-      "trigger": "revalidate",
-      "runtimeVersion": "2.9.3",
-      "execArgv": [
-        "--expose-gc"
-      ],
-      "startedAt": "2026-11-12T15:24:58.861Z",
-      "heapBoundMiB": 64,
-      "passed": true,
-      "samples": [
-        {
-          "index": 1,
-          "afterHeldRelease": false,
-          "heapMiB": 21.675621032714844,
-          "externalMiB": 15.34826946258545,
-          "rssMiB": 87.94921875,
-          "listeners": {
-            "default:react": 3
-          },
-          "initGlobals": 0
-        },
-        {
-          "index": 10,
-          "afterHeldRelease": false,
-          "heapMiB": 43.00004577636719,
-          "externalMiB": 41.434433937072754,
-          "rssMiB": 139.55859375,
-          "listeners": {
-            "default:react": 3
-          },
-          "initGlobals": 0
-        },
-        {
-          "index": 100,
-          "afterHeldRelease": false,
-          "heapMiB": 40.57423400878906,
-          "externalMiB": 37.70690631866455,
-          "rssMiB": 149.0390625,
-          "listeners": {
-            "default:react": 4
-          },
-          "initGlobals": 0
-        },
-        {
-          "index": 1000,
-          "afterHeldRelease": false,
-          "heapMiB": 38.93156433105469,
-          "externalMiB": 33.979376792907715,
-          "rssMiB": 149.43359375,
-          "listeners": {
-            "default:react": 3
-          },
-          "initGlobals": 0
-        },
-        {
-          "index": 1000,
-          "afterHeldRelease": true,
-          "heapMiB": 35.84217071533203,
-          "externalMiB": 30.251842498779297,
-          "rssMiB": 142.65234375,
-          "listeners": {
-            "default:react": 2
-          },
-          "initGlobals": 0
-        }
-      ],
-      "exactHostReact": true,
-      "heldOldComponent": true,
-      "bUnchangedFetches": true,
-      "rawResultSha256": "f41cbc259b67273f49c94275607881081ef4b7a6ef68efec7d489cacd9ac9f8b"
+      "bUnchangedFetches": true
     }
-  ]
+  ],
+  "diagnostics": {
+    "description": "Same final host/releases/bound and three concurrent worker processes per case. The first metadata matrix also overlapped unit/typecheck jobs. These results do not establish an exact V8 retaining root or a universal memory guarantee.",
+    "cryptoImportOnly": [
+      {
+        "label": "cryptoimport24-v24-revalidate-2",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "startedAt": "2026-11-12T22:54:05.133Z",
+        "heapBoundMiB": 64,
+        "passed": true,
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.71282196044922,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.4921875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 36.85517120361328,
+            "externalMiB": 34.03571605682373,
+            "rssMiB": 125.3515625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.50200653076172,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 142.53515625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.954010009765625,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 149.0390625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.86456298828125,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 142.24609375,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "sampleSource": "original result JSON",
+        "rawResultSha256": "7e61599bed151de88c64d947656a363c109b17fa3625c5aea7756108a563fdc1",
+        "logSha256": "3227dcefe0ea0f9314d1ffc6f4f89b3b942ceb56fae3b39e38a4b529da93bd43",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      },
+      {
+        "label": "cryptoimport24-v24-revalidate-1",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "startedAt": "2026-11-12T22:54:05.133Z",
+        "heapBoundMiB": 64,
+        "passed": true,
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.713470458984375,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.3125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 36.856651306152344,
+            "externalMiB": 34.03571605682373,
+            "rssMiB": 125.65234375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.51142883300781,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 128.33984375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.95985412597656,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 149.4375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.87040710449219,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 142.65234375,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "sampleSource": "original result JSON",
+        "rawResultSha256": "07ea13a14c3e51b71c9e038e2ac19b82e1d43e230ecbf919cf45db7f9a543ebb",
+        "logSha256": "d17156009052f412d064aa1ad70f1428ae250ae827f7b27941b45f17c952de4a",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      },
+      {
+        "label": "cryptoimport24-v24-revalidate-0",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "startedAt": "2026-11-12T22:54:05.133Z",
+        "heapBoundMiB": 64,
+        "passed": true,
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.71282196044922,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.08984375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 43.038475036621094,
+            "externalMiB": 41.490784645080566,
+            "rssMiB": 138.37890625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.51182556152344,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 140.21875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.964935302734375,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 134.81640625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.875648498535156,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 128.06640625,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "sampleSource": "original result JSON",
+        "rawResultSha256": "1b0f4d93051956a0aac6bea9be4542856c091cb698a48c910a8505219ef92fd1",
+        "logSha256": "c1c3f0e61f157ddd51d6302aa247bda45332958e6d4a1015f214f29e88d43288",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      }
+    ],
+    "metadataQuiet": [
+      {
+        "label": "metadataquiet24-v24-revalidate-1",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "startedAt": "2026-11-12T22:55:27.979Z",
+        "heapBoundMiB": 64,
+        "passed": true,
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.731849670410156,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.23046875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 36.86228942871094,
+            "externalMiB": 34.03571605682373,
+            "rssMiB": 124.70703125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.51756286621094,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 140.1875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.97081756591797,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 149.1328125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.881370544433594,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 142.33984375,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "sampleSource": "original result JSON",
+        "rawResultSha256": "3c2df5a12b4751c8d14c75d9fcb85453341e19baef60b3d4f3d3417a1c64d1b7",
+        "logSha256": "b6a6d7f7f4392b10838e33714453b2a8d2b3c5d4c6f6ed1f715f62b7736d1d0c",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      },
+      {
+        "label": "metadataquiet24-v24-revalidate-0",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "heapBoundMiB": 64,
+        "passed": false,
+        "failure": "final subscription count 3 rather than 2",
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.731719970703125,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.296875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 39.95317077636719,
+            "externalMiB": 37.76325035095215,
+            "rssMiB": 130.81640625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.51707458496094,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 138.8125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.99510192871094,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 148.078125,
+            "listeners": {
+              "default:react": 4
+            },
+            "initGlobals": 0
+          }
+        ],
+        "afterHeldReleaseListeners": 3,
+        "sampleSource": "original stdout before cleanup assertion",
+        "logSha256": "e5dc487232e879fda23f75f6c2c478ee62306bc4d0b1c42aefaba6155dd0cf24",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      },
+      {
+        "label": "metadataquiet24-v24-revalidate-2",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "startedAt": "2026-11-12T22:55:27.983Z",
+        "heapBoundMiB": 64,
+        "passed": true,
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.731956481933594,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.39453125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 43.045433044433594,
+            "externalMiB": 41.490784645080566,
+            "rssMiB": 137.9453125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.516754150390625,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 141.76953125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.965362548828125,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 135.70703125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.87591552734375,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 128.9140625,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "sampleSource": "original result JSON",
+        "rawResultSha256": "a7dbf6757dfbf78581181cf5d1c8efc9ec80257246b6f6d95645a5d6ebf53ee9",
+        "logSha256": "30a2a7f1280ae7e932558efa3a2b3bc9b7e306be314c7feb4cf9aafdd8f5f923",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      }
+    ],
+    "metadataUnderTestLoad": [
+      {
+        "label": "rebased24-v24-revalidate-1",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "heapBoundMiB": 64,
+        "passed": false,
+        "failure": "final subscription count 3 rather than 2",
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.739044189453125,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.203125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 36.859161376953125,
+            "externalMiB": 34.03571605682373,
+            "rssMiB": 124.578125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.51708221435547,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 127.58984375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 42.06230163574219,
+            "externalMiB": 37.76326370239258,
+            "rssMiB": 142.46875,
+            "listeners": {
+              "default:react": 4
+            },
+            "initGlobals": 0
+          }
+        ],
+        "afterHeldReleaseListeners": 3,
+        "sampleSource": "original stdout before cleanup assertion",
+        "logSha256": "84c0e0118a0efe06f919b210bb392bd1314b23677490ff0bf6ae8dcfad5ab797",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      },
+      {
+        "label": "rebased24-v24-revalidate-2",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "startedAt": "2026-11-12T22:47:16.402Z",
+        "heapBoundMiB": 64,
+        "passed": true,
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.73943328857422,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.19140625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 33.76825714111328,
+            "externalMiB": 30.308191299438477,
+            "rssMiB": 118.1640625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.51225280761719,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 139.76953125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 85.25559997558594,
+            "externalMiB": 89.9487133026123,
+            "rssMiB": 243.3984375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 82.1658706665039,
+            "externalMiB": 86.22117900848389,
+            "rssMiB": 236.609375,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "sampleSource": "original result JSON",
+        "rawResultSha256": "5dfe3285ac293bcd15fe6b9cf17bdc8bc5afb0902ac81726647f0bb7e3a94eb3",
+        "logSha256": "f5cc5006e03b31e07b34aa98e6961dd56e8a73e6e0445deb07ac9587efbebdba",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      },
+      {
+        "label": "rebased24-v24-revalidate-0",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "startedAt": "2026-11-12T22:47:16.381Z",
+        "heapBoundMiB": 64,
+        "passed": false,
+        "failure": "heap bound at 1000",
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.739280700683594,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.50390625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 43.04463195800781,
+            "externalMiB": 41.490784645080566,
+            "rssMiB": 138.1328125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.51593780517578,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 140.1953125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 94.52515411376953,
+            "externalMiB": 101.13132190704346,
+            "rssMiB": 264.31640625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 91.43570709228516,
+            "externalMiB": 97.40378761291504,
+            "rssMiB": 257.5390625,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "sampleSource": "original result JSON",
+        "rawResultSha256": "817a7b4441d3e849a2c222df2f5c28710ef01298bd43f974e83455cdf47db17b",
+        "logSha256": "d7c9afe8372e2ba5927ad603f4329c7ca49847b0d226b43e5f4ef8082a00b4d1",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      },
+      {
+        "label": "rebased24-v24-maxAge-0",
+        "node": "v24.19.0",
+        "trigger": "maxAge",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "startedAt": "2026-11-12T22:48:31.379Z",
+        "heapBoundMiB": 64,
+        "passed": true,
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 22.093765258789062,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 90.46875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 33.78919982910156,
+            "externalMiB": 30.308191299438477,
+            "rssMiB": 119.6328125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.67108154296875,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 141.16796875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 39.048683166503906,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 149.9765625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.95923614501953,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 143.18359375,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "sampleSource": "original result JSON",
+        "rawResultSha256": "e8f533a73c242ccd057373df471581695c532fee345ab86961944cad0a0a0964",
+        "logSha256": "556398d2e0eb619dca24313922f8a1bda9307d2f5a13e55d4ed00ccffc16c3d4",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      },
+      {
+        "label": "rebased24-v24-maxAge-1",
+        "node": "v24.19.0",
+        "trigger": "maxAge",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "heapBoundMiB": 64,
+        "passed": false,
+        "failure": "final subscription count 3 rather than 2",
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 22.09332275390625,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 90.50390625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 36.90619659423828,
+            "externalMiB": 34.035725593566895,
+            "rssMiB": 127.2578125,
+            "listeners": {
+              "default:react": 4
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.665138244628906,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 140.7890625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 42.14476013183594,
+            "externalMiB": 37.76326370239258,
+            "rssMiB": 157.12890625,
+            "listeners": {
+              "default:react": 4
+            },
+            "initGlobals": 0
+          }
+        ],
+        "afterHeldReleaseListeners": 3,
+        "sampleSource": "original stdout before cleanup assertion",
+        "logSha256": "eac1f592f9179be44c7637b98c82b4ab8a5098cf85450e43842bc34b6fd9ebc3",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      },
+      {
+        "label": "rebased24-v24-maxAge-2",
+        "node": "v24.19.0",
+        "trigger": "maxAge",
+        "runtimeVersion": "2.9.3",
+        "execArgv": ["--expose-gc"],
+        "startedAt": "2026-11-12T22:48:41.204Z",
+        "heapBoundMiB": 64,
+        "passed": true,
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 22.0936279296875,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 90.04296875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 33.789878845214844,
+            "externalMiB": 30.308191299438477,
+            "rssMiB": 120.2109375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.64995574951172,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 142.69140625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 39.05180358886719,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 136.8671875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.96235656738281,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 130.11328125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "sampleSource": "original result JSON",
+        "rawResultSha256": "5b89a3a3a430f110be601756379cae62937a23e7a0b64c10ff066c704486d03f",
+        "logSha256": "cbf133750d77f0aca98d2adbce751035c7357b99bf7ca6c6c4edcb72f50a3100",
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true
+      }
+    ]
+  }
 }

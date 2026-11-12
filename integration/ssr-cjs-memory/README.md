@@ -1,9 +1,11 @@
 # CommonJS SSR replacement memory protocol
 
-The public `strategy: 'cjs'` currently supports Node 24 only. The measured release
-is Node 24.19.0, with runtime 2.9.3 and React/react-dom 19.2.4 from the repository
-lockfile. Node 22.23.5 failed the declared heap bound; its negative measurements
-are retained alongside the supported results rather than averaged away.
+The experimental `strategy: 'cjs'` currently permits Node 24 only. The measured
+release is Node 24.19.0, with runtime 2.9.3 and React/react-dom 19.2.4 from the
+repository lockfile. **Bounded-memory acceptance remains incomplete.** The
+original protocol passed six final-host runs, but additional instrumentation
+exposed a heap-bound failure and delayed subscription cleanup. Node 22.23.5 also
+failed the declared heap bound. All counterevidence is retained below.
 
 Before measuring, the allowance is fixed at **+64 MiB heapUsed above the sample
 after the first replacement**, checked independently at 100 and 1,000 replacements.
@@ -48,27 +50,48 @@ For a short harness smoke check, set `MF_CJS_MEMORY_COUNT=2` and
 it does not claim the full memory protocol or immediate V8 collection of small
 scripts. Full runs always use the defaults, 1,000 replacements and 400,000 numbers.
 
-`measurements.json` records every final supported run and the six pre-guard Node 22
+`measurements.json` records all six final original-protocol runs and the six pre-guard Node 22
 diagnostic runs, including failed checkpoints, External and RSS. The latter used
 the public loader before the Node-version guard was added, with the immutable
 built-host SHA-256 recorded in the file. The public loader now rejects Node 22
 before fetching; reproducing those unsupported measurements requires deliberately
 removing that guard in a diagnostic checkout. This is not a supported loader option.
 
-The six supported Windows x64 runs measured these ranges (MiB):
+The six final original-protocol Windows x64 runs measured these ranges (MiB):
 
-| Trigger | Heap at replacement 1 | Heap at 100 | Heap at 1,000 | Maximum sampled External | Maximum sampled RSS |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `revalidate('a')` | 21.68–21.69 | 37.47–40.57 | 38.93–38.95 | 41.44 | 149.49 |
-| `maxAgeMs: 0` | 22.05 | 37.61 | 39.01 | 33.98 | 149.45 |
+| Trigger           | Heap at replacement 1 | Heap at 100 | Heap at 1,000 | Maximum sampled External | Maximum sampled RSS |
+| ----------------- | --------------------: | ----------: | ------------: | -----------------------: | ------------------: |
+| `revalidate('a')` |                 21.68 | 37.48–37.49 |         38.93 |                    37.71 |              148.42 |
+| `maxAgeMs: 0`     |                 22.05 |       37.62 |   39.00–39.01 |                    33.98 |              148.99 |
 
 All six stayed inside the predeclared allowance at both checkpoints. Five of six
 Node 22 diagnostic runs exceeded it. Subscription cleanup alone did not make
 Node 22 bounded; these measurements do not establish an exact V8 retaining root.
-The summary includes the immutable built-host fingerprint and hashes of the
-supported raw result files. Rebuilding the host from the final source reproduced
-the same fingerprint. The original lifecycle dependency was commit `988efe5`;
-rebasing that dependency does not itself establish a new memory measurement.
+The summary includes the immutable built-host fingerprint and hashes of the raw
+result files. These six runs used the final lifecycle dependency `21ab90e`,
+after rebasing the feature onto current main. Provenance was computed in a
+separate process so it did not change the measured worker's imports or heap.
+
+Additional controls used that same final host, releases, +64 MiB allowance,
+ordinary GC protocol and three parallel fresh workers per case:
+
+| Worker variation                     | Trigger                                   | Passed | Counterevidence                                                                              |
+| ------------------------------------ | ----------------------------------------- | -----: | -------------------------------------------------------------------------------------------- |
+| Original worker                      | Both, three runs each                     |    6/6 | None in this case                                                                            |
+| Only an added `node:crypto` import   | Targeted revalidation                     |    3/3 | None in this case                                                                            |
+| Added host-file hashing and metadata | Targeted revalidation, no unit/build jobs |    2/3 | One final listener count was 3 rather than 2                                                 |
+| Added host-file hashing and metadata | Both, while unit/typecheck jobs also ran  |    3/6 | One heap was 94.53 MiB versus 21.74 + 64 MiB; two final listener counts were 3 rather than 2 |
+
+The extra metadata worker imported `createHash` from `node:crypto`, read and
+hashed the built host before loading it, then included its fingerprint, platform,
+Vite and React versions in the result. The import-only control did not reproduce
+the failures. The quiet metadata control reproduced a cleanup timing miss, so
+concurrent test load alone does not explain all observed failures. These controls
+do not establish an exact V8 retaining root or prove that hashing caused the heap
+failure. Passing the original protocol is insufficient to claim a general bounded
+memory guarantee. The negative JSON samples and log/result hashes are retained in
+the `diagnostics` section of `measurements.json`; cleanup failures are identified
+as stdout-derived because their assertion occurred before the original JSON write.
 
 The bound describes this replacement workload, not arbitrary application or
 external-package allocations. Held application references intentionally keep their

@@ -2,7 +2,6 @@ import path from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:http';
-import { createHash } from 'node:crypto';
 import v8 from 'node:v8';
 import assert from 'node:assert/strict';
 import { setImmediate as turn, setTimeout as sleep } from 'node:timers/promises';
@@ -29,9 +28,6 @@ assert.equal(
   'build all distinct releases first'
 );
 const hostInfo = JSON.parse(await readFile(path.join(work, 'host.json'), 'utf8'));
-const builtHostSha256 = createHash('sha256')
-  .update(await readFile(hostInfo.entry))
-  .digest('hex');
 const { createInstance, ssrEntryLoader, revalidate, React } = await import(
   pathToFileURL(hostInfo.entry).href
 );
@@ -213,10 +209,6 @@ const first = samples.find((x) => x.index === 1);
 const boundSamples = samples.filter((x) => [100, 1000].includes(x.index) && !x.afterHeldRelease);
 const result = {
   startedAt,
-  platform: `${process.platform} ${process.arch}`,
-  builtHostSha256,
-  viteVersion: requireRepo('vite/package.json').version,
-  reactVersion: React.version,
   runtimeVersion,
   heapBoundMiB,
   node: process.version,
