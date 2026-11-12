@@ -43,6 +43,14 @@ function isNativeFunction(value: unknown): boolean {
   );
 }
 
+function ownDescriptors(value: object): PropertyDescriptor[] {
+  const descriptors = Object.getOwnPropertyDescriptors(value) as Record<
+    PropertyKey,
+    PropertyDescriptor
+  >;
+  return Reflect.ownKeys(descriptors).map((key) => descriptors[key]);
+}
+
 function isShared(value: object): boolean {
   if (externals.has(value)) return true;
   for (const key of ['__mf_module_cache__', '__mf_module_cache_react_server__']) {
@@ -52,7 +60,7 @@ function isShared(value: object): boolean {
       for (const source of [shared, shared?.default]) {
         if (value === source) return true;
         if (!source || (typeof source !== 'object' && typeof source !== 'function')) continue;
-        for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(source))) {
+        for (const descriptor of ownDescriptors(source)) {
           if ('value' in descriptor && descriptor.value === value) return true;
         }
       }
@@ -67,8 +75,12 @@ export function registerSsrBuildExternal<T>(value: T): T {
   const target = value as object;
   if (externals.has(target)) return value;
   externals.add(target);
-  for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(target))) {
+  for (const descriptor of ownDescriptors(target)) {
     if ('value' in descriptor) registerSsrBuildExternal(descriptor.value);
+    else {
+      registerSsrBuildExternal(descriptor.get);
+      registerSsrBuildExternal(descriptor.set);
+    }
   }
   return value;
 }
@@ -143,7 +155,7 @@ export class SsrBuildGraph {
     }
     // Frozen export properties cannot be replaced by a proxy. Weak-key ownership
     // also keeps extracted original methods alive without mutating the export.
-    for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(target))) {
+    for (const descriptor of ownDescriptors(target)) {
       if ('value' in descriptor) this.own(descriptor.value);
       else {
         this.own(descriptor.get);
@@ -153,20 +165,62 @@ export class SsrBuildGraph {
     return value;
   }
 
+  private hasCode(value: unknown, seen = new WeakSet<object>()): boolean {
+    if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return false;
+    const target = value as object;
+    if (seen.has(target) || isShared(target) || isNativeFunction(value)) return false;
+    seen.add(target);
+    if (typeof value === 'function') return true;
+    for (const descriptor of ownDescriptors(target)) {
+      if (
+        'value' in descriptor
+          ? this.hasCode(descriptor.value, seen)
+          : this.hasCode(descriptor.get, seen) || this.hasCode(descriptor.set, seen)
+      )
+        return true;
+    }
+    const prototype = Object.getPrototypeOf(target);
+    return (
+      !!prototype &&
+      prototype !== Object.prototype &&
+      !isNativeFunction(prototype.constructor) &&
+      this.hasCode(prototype, seen)
+    );
+  }
+
   private retain<T>(
     value: T,
     mode: 'container' | 'init' | 'get' | 'factory' | 'export' = 'export',
     wrapNative = false
   ): T {
     if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return value;
-    const target = value as object;
-    if (isShared(target) || (!wrapNative && isNativeFunction(value))) return value;
-    const existing = this.wrappers.get(target);
+    const original = value as object;
+    if (isShared(original) || (!wrapNative && isNativeFunction(value))) return value;
+    const existing = this.wrappers.get(original);
     if (existing) return existing as T;
     const graph = this;
+    const readonlyView = Reflect.ownKeys(original).some((key) => {
+      const descriptor = Reflect.getOwnPropertyDescriptor(original, key)!;
+      return (
+        key !== 'prototype' &&
+        !descriptor.configurable &&
+        'value' in descriptor &&
+        !descriptor.writable &&
+        graph.hasCode(descriptor.value)
+      );
+    });
+    // A separate target lets readonly properties contain managed functions
+    // without violating the invariants of a proxy over the original object.
+    const target = !readonlyView
+      ? original
+      : typeof original === 'function'
+        ? function () {}.bind(undefined)
+        : Array.isArray(original)
+          ? []
+          : Object.create(Object.getPrototypeOf(original));
     const proxy: object = new Proxy(target, {
       get(target, property, receiver) {
-        const result = Reflect.get(target, property, graph.originals.get(receiver) ?? receiver);
+        const result = Reflect.get(original, property, graph.originals.get(receiver) ?? receiver);
         // Proxy invariants require frozen properties to retain their identity.
         const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
         if (
@@ -175,12 +229,12 @@ export class SsrBuildGraph {
           'value' in descriptor &&
           !descriptor.writable
         ) {
-          return graph.own(result);
+          return descriptor.value;
         }
         if (property === 'prototype') return result;
-        const prototype = Object.getPrototypeOf(target);
+        const prototype = Object.getPrototypeOf(original);
         const nativeReceiver =
-          typeof target !== 'function' &&
+          typeof original !== 'function' &&
           prototype &&
           prototype !== Object.prototype &&
           isNativeFunction(prototype.constructor);
@@ -194,21 +248,21 @@ export class SsrBuildGraph {
           nativeReceiver
         );
       },
-      set(target, property, value, receiver) {
+      set(_target, property, value, receiver) {
         return graph.run(() =>
           Reflect.set(
-            target,
+            original,
             property,
             graph.originals.get(value) ?? value,
             graph.originals.get(receiver) ?? receiver
           )
         );
       },
-      apply(target, receiver, args) {
+      apply(_target, receiver, args) {
         return graph.run(() => {
           const originalReceiver = graph.originals.get(receiver) ?? receiver;
           const originalArgs = args.map((argument) => graph.originals.get(argument) ?? argument);
-          const result = Reflect.apply(target as Function, originalReceiver, originalArgs);
+          const result = Reflect.apply(original as Function, originalReceiver, originalArgs);
           // A pending invocation must keep the graph alive even if its caller
           // releases the function before the invocation settles.
           const retainResult = (resolved: unknown) => {
@@ -226,7 +280,9 @@ export class SsrBuildGraph {
               ? graph.retain(resolved, 'factory')
               : mode === 'factory'
                 ? graph.retain(resolved)
-                : graph.own(resolved);
+                : graph.hasCode(resolved)
+                  ? graph.retain(resolved)
+                  : resolved;
           };
           if (result && typeof result.then === 'function') {
             return Promise.resolve(result).then(retainResult);
@@ -234,21 +290,43 @@ export class SsrBuildGraph {
           return retainResult(result);
         });
       },
-      construct(target, args, newTarget): object {
-        graph.own(target);
+      construct(_target, args, newTarget): object {
+        graph.own(original);
         return graph.run(() =>
-          graph.own(
+          graph.retain(
             Reflect.construct(
-              target as Function,
+              original as Function,
               args.map((argument) => graph.originals.get(argument) ?? argument),
-              newTarget === proxy ? (target as Function) : newTarget
+              newTarget === proxy ? (original as Function) : newTarget
             )
           )
         );
       },
     });
-    this.wrappers.set(target, proxy);
-    this.originals.set(proxy, target);
+    this.wrappers.set(original, proxy);
+    this.originals.set(proxy, original);
+    if (readonlyView) {
+      for (const key of Reflect.ownKeys(original)) {
+        const descriptor = Reflect.getOwnPropertyDescriptor(original, key)!;
+        if (
+          key !== 'prototype' &&
+          'value' in descriptor &&
+          !descriptor.configurable &&
+          !descriptor.writable
+        ) {
+          descriptor.value = graph.retain(
+            descriptor.value,
+            mode === 'container' && key === 'get'
+              ? 'get'
+              : mode === 'container' && key === 'init'
+                ? 'init'
+                : 'export'
+          );
+        }
+        Object.defineProperty(target, key, descriptor);
+      }
+      if (!Object.isExtensible(original)) Object.preventExtensions(target);
+    }
     return proxy as T;
   }
 }

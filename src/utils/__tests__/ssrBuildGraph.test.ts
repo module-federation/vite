@@ -92,7 +92,8 @@ describe('managed SSR build graphs', () => {
       Widget,
       async read() {
         await Promise.resolve();
-        return current();
+        expect(current()).toBe(graph);
+        return 'async';
       },
     };
     const container = graph.wrapContainer({
@@ -113,7 +114,7 @@ describe('managed SSR build graphs', () => {
     expect(instance).toBeInstanceOf(Extracted);
     expect(instance.read()).toBe('old');
     const read = module.read;
-    expect(await read()).toBe(graph);
+    expect(await read()).toBe('async');
   });
 
   it('preserves frozen properties, private fields and returned object identity', async () => {
@@ -219,7 +220,8 @@ describe('managed SSR build graphs', () => {
 
   it('preserves exact shared singleton objects and live export getters', async () => {
     const graph = await createSsrBuildGraph();
-    const shared = { createElement() {} };
+    const symbol = Symbol('shared-method');
+    const shared = { createElement() {}, [symbol]() {} };
     const holder = globalThis as any;
     const previous = holder.__mf_module_cache__;
     holder.__mf_module_cache__ = { share: { 'default:react': shared } };
@@ -227,6 +229,7 @@ describe('managed SSR build graphs', () => {
       let marker = 'v1';
       const exports = graph.wrapContainer({
         shared,
+        symbolMethod: shared[symbol],
         hostArray: Array,
         get marker() {
           return marker;
@@ -235,6 +238,7 @@ describe('managed SSR build graphs', () => {
       expect(exports.shared).toBe(shared);
       expect(exports.hostArray).toBe(Array);
       expect(exports.shared.createElement).toBe(shared.createElement);
+      expect(exports.symbolMethod).toBe(shared[symbol]);
       marker = 'v2';
       expect(exports.marker).toBe('v2');
     } finally {
@@ -242,19 +246,110 @@ describe('managed SSR build graphs', () => {
     }
   });
 
+  it('runs frozen containers, nested methods and returned callbacks in their graph', async () => {
+    const graph = await createSsrBuildGraph();
+    const cache: any = {};
+    const owner = `frozen-lazy-${Math.random()}`;
+    const lazy = Function(
+      'cache',
+      `${getRuntimeInitResolveBootstrapCode(false, owner)}
+      ${sharedCacheHelperCode}
+      __mfSubscribeSharedCache(cache, { canonical: 'default:frozen', aliases: [] }, () => {});
+      return __mfResolveState;
+    `
+    );
+    const frozen = Object.freeze({ run: () => lazy(cache) });
+    const container = graph.wrapContainer(
+      Object.freeze({
+        init: () => undefined,
+        get: async () => {
+          lazy(cache);
+          return () => Object.freeze({ nested: frozen, returned: () => frozen });
+        },
+      })
+    );
+    const exports = (await container.get())();
+    exports.nested.run();
+    exports.returned().run();
+    expect(graph.initStates.size).toBe(1);
+    expect((globalThis as any)[`__mf_init__${owner}__`]).toBeUndefined();
+    expect(Object.isFrozen(exports)).toBe(true);
+    expect(Object.isFrozen(exports.nested)).toBe(true);
+    expect(Reflect.set(exports.nested, 'run', () => {})).toBe(false);
+    const subscribers =
+      cache[Symbol.for('module-federation.shared-cache-listeners')]['default:frozen'];
+    expect(subscribers.size).toBe(3);
+  });
+
+  it.skipIf(!SourceTextModule)(
+    'keeps VM lazy imports from frozen methods in the managed graph',
+    async () => {
+      const graph = await createSsrBuildGraph();
+      const owner = `vm-frozen-${Math.random()}`;
+      const cacheKey = `__${owner}`;
+      const holder = globalThis as any;
+      holder[cacheKey] = {};
+      const sources: Record<string, string> = {
+        'http://localhost:5997/entry.ssr.js': `export const container = Object.freeze({
+        init() {}, get: async () => {
+          await import('./lazy.js');
+          return () => ({ nested: Object.freeze({ run: () => import('./nested.js') }) });
+        }
+      });`,
+      };
+      for (const name of ['lazy', 'nested'])
+        sources[`http://localhost:5997/${name}.js`] = `
+      ${getRuntimeInitResolveBootstrapCode(false, `${owner}-${name}`)}
+      ${sharedCacheHelperCode}
+      __mfSubscribeSharedCache(globalThis[${JSON.stringify(cacheKey)}], { canonical: 'default:frozen', aliases: [] }, () => {});
+    `;
+      const fetch = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (url) => new Response(sources[String(url)]));
+      try {
+        const namespace = (await graph.run(() =>
+          loadViaVmStrategy('http://localhost:5997/entry.ssr.js', {
+            resolvedShared: {},
+            shareScopeName: 'default',
+            versionKey: owner,
+            cacheContext: {},
+          })
+        )) as any;
+        const container = graph.wrapContainer(namespace.container);
+        const exports = (await container.get())();
+        await exports.nested.run();
+        expect(graph.initStates.size).toBe(2);
+        for (const name of ['lazy', 'nested'])
+          expect(holder[`__mf_init__${owner}-${name}__`]).toBeUndefined();
+        expect(
+          holder[cacheKey][Symbol.for('module-federation.shared-cache-listeners')]['default:frozen']
+            .size
+        ).toBe(2);
+      } finally {
+        fetch.mockRestore();
+        delete holder[cacheKey];
+      }
+    }
+  );
+
   it.skipIf(!global.gc)(
     'collects retired subscriptions after 100 replacements while held and in-flight exports remain live',
     async () => {
       const cache: any = {};
       const runtime = { hook() {} };
+      const symbol = Symbol.for('graph-returned-callback');
+      const externalSymbol = Symbol('external');
+      const symbolExternal = () => {};
       const create = async () => {
         const graph = await createSsrBuildGraph();
         graph.registerExternal({ readFile });
+        graph.registerExternal({ [externalSymbol]: symbolExternal });
         const exports = graph.run(() =>
           Function(
             'cache',
             'readFile',
             'runtime',
+            'symbolExternal',
             `${sharedCacheHelperCode}
         let value;
         __mfSubscribeSharedCache(cache, { canonical: 'default:test', aliases: [] }, next => value = next);
@@ -267,10 +362,12 @@ describe('managed SSR build graphs', () => {
           error: () => new Error('remote'),
           regexp: () => /remote/,
           nested: () => ({ props: { onClick: () => value } }),
+          symbolCallback: () => ({ [Symbol.for('graph-returned-callback')]: () => value }),
           external: () => readFile,
+          externalSymbol: () => symbolExternal,
         };
       `
-          )(cache, readFile, runtime)
+          )(cache, readFile, runtime, symbolExternal)
         );
         return graph.wrapContainer(exports) as {
           read(): unknown;
@@ -282,6 +379,8 @@ describe('managed SSR build graphs', () => {
           regexp(): RegExp;
           nested(): { props: { onClick(): unknown } };
           external(): typeof readFile;
+          externalSymbol(): typeof symbolExternal;
+          symbolCallback(): Record<symbol, () => unknown>;
         };
       };
       const gc6 = async () => {
@@ -293,6 +392,7 @@ describe('managed SSR build graphs', () => {
       };
       let held: (() => unknown) | undefined = (await create()).frozen.read;
       let nested: (() => unknown) | undefined = (await create()).nested().props.onClick;
+      let heldSymbol: (() => unknown) | undefined = (await create()).symbolCallback()[symbol];
       let release!: () => void;
       let pending: Promise<unknown> | undefined = (await create()).wait(
         new Promise<void>((resolve) => {
@@ -306,6 +406,7 @@ describe('managed SSR build graphs', () => {
         current.error();
         current.regexp();
         expect(current.external()).toBe(readFile);
+        expect(current.externalSymbol()).toBe(symbolExternal);
         current = await create();
       }
       await gc6();
@@ -314,11 +415,12 @@ describe('managed SSR build graphs', () => {
           runtime.hook
         )
       ).toBeUndefined();
-      expect(cache[listenersKey][descriptor.canonical].size).toBe(4);
+      expect(cache[listenersKey][descriptor.canonical].size).toBe(5);
       const updated = 'updated';
       helpers().write(cache, descriptor, updated);
       expect(held()).toBe(updated);
       expect(nested()).toBe(updated);
+      expect(heldSymbol()).toBe(updated);
       expect(current.read()).toBe(updated);
       release();
       await expect(pending).resolves.toBe(updated);
@@ -326,6 +428,7 @@ describe('managed SSR build graphs', () => {
       release = () => {};
       held = undefined;
       nested = undefined;
+      heldSymbol = undefined;
       await gc6();
       expect(cache[listenersKey][descriptor.canonical].size).toBe(1);
       expect(current.read()).toBe(updated);
