@@ -122,6 +122,28 @@ describe('normalizeModuleFederationOption', () => {
     ).toMatchObject({ ssrFormat: 'cjs', ssrEntryLoader: { strategy: 'cjs' } });
   });
 
+  it('rejects a custom CJS runtime implementation instead of silently replacing it', () => {
+    const implementation = '/custom/runtime-wrapper.js';
+    expect(() =>
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        implementation,
+        ssrFormat: 'cjs',
+      })
+    ).toThrow(/CJS SSR does not support a custom runtime implementation/);
+    expect(
+      normalizeModuleFederationOptions({ ...minimalOptions, implementation }).implementation
+    ).toBe(implementation);
+    const defaultImplementation = normalizeModuleFederationOptions(minimalOptions).implementation;
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        implementation: defaultImplementation,
+        ssrFormat: 'cjs',
+      }).implementation
+    ).toBe(defaultImplementation);
+  });
+
   it('drops invalid ssrEntryLoader.strategy values', () => {
     expect(
       normalizeModuleFederationOptions({

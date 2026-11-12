@@ -1104,6 +1104,16 @@ export function normalizeModuleFederationOptions(
   options: ModuleFederationOptions
 ): NormalizedModuleFederationOptions {
   warnOnReservedInternalNamePrefix(options.name, 'containerName');
+  if (
+    options.ssrFormat === 'cjs' &&
+    options.implementation &&
+    normalizePathForImport(options.implementation) !==
+      normalizePathForImport(resolveRuntimeImplementation())
+  ) {
+    throw createModuleFederationError(
+      'CJS SSR does not support a custom runtime implementation; it requires the host @module-federation/runtime external.'
+    );
+  }
   if (options.virtualModuleDir && options.virtualModuleDir.includes('/')) {
     throw createModuleFederationError(
       `Invalid virtualModuleDir: "${options.virtualModuleDir}". ` +
