@@ -1,0 +1,1275 @@
+{
+  "protocol": {
+    "sourceHead": "838b045377cc91d181bdc0cf194925e55c3f31c7",
+    "hostSha256": "d89086948d88660d4a225919f9a59d20f6542d506a6d71870acce1615f4d49dc",
+    "artifactManifestSha256": "b415a8cbb35dd19018a54b1003045c56848ce51f1441a3c854e16e6d9e8323f6",
+    "originalWorkerSha256": "228e238d6956dd2bab67b221ca2f7be9559ae4bf4bf12a918ab2049f5e2a8303",
+    "metadataWorkerSha256": "9a0438bca61e73d7687ec11692361fcac968359fbdaa9e42aa0adcd51bc9d310",
+    "concurrentProcesses": 3,
+    "heapAllowanceMiB": 64,
+    "node": "v24.19.0",
+    "scope": "All original and metadata cases are predeclared before running; no extra tests/builds planned during these quiet cases.",
+    "largeLiteralNumbers": 400000,
+    "distinctAReleases": 1001,
+    "unchangedBReleases": 1,
+    "checkpoints": [100, 1000],
+    "baseline": "after first replacement",
+    "gc": "six synchronous major GCs separated by event-loop turns",
+    "snapshots": false,
+    "extraV8Flags": false,
+    "runtimeVersion": "2.9.3",
+    "viteVersion": "8.2.4",
+    "reactVersion": "19.2.4"
+  },
+  "cases": {
+    "original": [
+      {
+        "label": "transportfix-original-revalidate-1",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "passed": true,
+        "startedAt": "2026-11-12T23:16:28.809Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.677574157714844,
+            "externalMiB": 15.34826946258545,
+            "rssMiB": 87.390625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 39.91437530517578,
+            "externalMiB": 37.706899642944336,
+            "rssMiB": 131.48046875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.48481750488281,
+            "externalMiB": 33.979371070861816,
+            "rssMiB": 128.390625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.92632293701172,
+            "externalMiB": 33.979376792907715,
+            "rssMiB": 149.64453125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.836875915527344,
+            "externalMiB": 30.251842498779297,
+            "rssMiB": 142.8515625,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 17.248748779296875,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "27029e02a51fd4aa97a4a63e204ecf252cb613f3d5a8d9953adfc0f4b75d3694"
+      },
+      {
+        "label": "transportfix-original-revalidate-0",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "passed": true,
+        "startedAt": "2026-11-12T23:16:28.798Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.677902221679688,
+            "externalMiB": 15.34826946258545,
+            "rssMiB": 87.18359375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 36.822608947753906,
+            "externalMiB": 33.97936534881592,
+            "rssMiB": 124.65625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.476318359375,
+            "externalMiB": 33.979371070861816,
+            "rssMiB": 140.828125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.92499542236328,
+            "externalMiB": 33.979376792907715,
+            "rssMiB": 134.61328125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.835548400878906,
+            "externalMiB": 30.251842498779297,
+            "rssMiB": 127.96484375,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 17.247093200683594,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "1383876834d3ba53182cce19d0a9f2cb243f1206a30c76b27fd8ca4a58842da2"
+      },
+      {
+        "label": "transportfix-original-revalidate-2",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "passed": true,
+        "startedAt": "2026-11-12T23:16:28.806Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.677650451660156,
+            "externalMiB": 15.34826946258545,
+            "rssMiB": 87.27734375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 39.913612365722656,
+            "externalMiB": 37.706899642944336,
+            "rssMiB": 131.31640625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.47606658935547,
+            "externalMiB": 33.979371070861816,
+            "rssMiB": 127.70703125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.922706604003906,
+            "externalMiB": 33.979376792907715,
+            "rssMiB": 147.9921875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.83325958251953,
+            "externalMiB": 30.251842498779297,
+            "rssMiB": 141.19921875,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 17.24505615234375,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "b530b3311c21a87150f6af60312061d67cce5caa7d2a2316714495584c739d27"
+      },
+      {
+        "label": "transportfix-original-maxAge-0",
+        "node": "v24.19.0",
+        "trigger": "maxAge",
+        "passed": true,
+        "startedAt": "2026-11-12T23:17:24.245Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 22.04834747314453,
+            "externalMiB": 15.34826946258545,
+            "rssMiB": 88.3515625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 36.84959411621094,
+            "externalMiB": 33.97936534881592,
+            "rssMiB": 124.3671875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.623687744140625,
+            "externalMiB": 33.979371070861816,
+            "rssMiB": 139.31640625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 39.00305938720703,
+            "externalMiB": 33.979376792907715,
+            "rssMiB": 148.609375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.913612365722656,
+            "externalMiB": 30.251842498779297,
+            "rssMiB": 141.81640625,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 16.9547119140625,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "cf7d164d55c3fbf2bcad4e716b9ef5d52dee3d58bddc1cb1a665ff0dbccf72d7"
+      },
+      {
+        "label": "transportfix-original-maxAge-2",
+        "node": "v24.19.0",
+        "trigger": "maxAge",
+        "passed": true,
+        "startedAt": "2026-11-12T23:17:24.245Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 22.048385620117188,
+            "externalMiB": 15.34826946258545,
+            "rssMiB": 87.296875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 39.94090270996094,
+            "externalMiB": 37.706899642944336,
+            "rssMiB": 132.1640625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.63011932373047,
+            "externalMiB": 33.979371070861816,
+            "rssMiB": 142.52734375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 39.01145935058594,
+            "externalMiB": 33.979376792907715,
+            "rssMiB": 149.38671875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.92201232910156,
+            "externalMiB": 30.251842498779297,
+            "rssMiB": 142.59765625,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 16.96307373046875,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "dfd0b3ed09605ac5578c4cda0842288bdd409ca26f87dd2665fb67a5df410d17"
+      },
+      {
+        "label": "transportfix-original-maxAge-1",
+        "node": "v24.19.0",
+        "trigger": "maxAge",
+        "passed": true,
+        "startedAt": "2026-11-12T23:17:24.245Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 22.050811767578125,
+            "externalMiB": 15.34826946258545,
+            "rssMiB": 87.9296875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 36.85527801513672,
+            "externalMiB": 33.97936534881592,
+            "rssMiB": 124.3203125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.627159118652344,
+            "externalMiB": 33.979371070861816,
+            "rssMiB": 127.44140625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 39.00688171386719,
+            "externalMiB": 33.979376792907715,
+            "rssMiB": 148.5,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.91743469238281,
+            "externalMiB": 30.251842498779297,
+            "rssMiB": 141.70703125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 16.956069946289062,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "9a91007d4d4ca73788e4861314dfc21058566fc51afe4c63455709cf4d94b06b"
+      }
+    ],
+    "metadata": [
+      {
+        "label": "transportfix-metadata-revalidate-0",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "passed": true,
+        "startedAt": "2026-11-12T23:18:28.819Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.734825134277344,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.91796875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 43.050392150878906,
+            "externalMiB": 41.490784645080566,
+            "rssMiB": 138.2578125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.51954650878906,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 141.7421875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.977455139160156,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 148.75390625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.88976287841797,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 141.96875,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 17.242630004882812,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "f2743268b49511dde2408d5ec468a24e6d43ecb4de85cf512fd250a0b961f1b7"
+      },
+      {
+        "label": "transportfix-metadata-revalidate-1",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "passed": true,
+        "startedAt": "2026-11-12T23:18:28.819Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.735008239746094,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.82421875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 43.04997253417969,
+            "externalMiB": 41.490784645080566,
+            "rssMiB": 138.83984375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.529396057128906,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 140.5546875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.981719970703125,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 148.9921875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.89387512207031,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 142.19921875,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 17.24671173095703,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "b1b5b8402141ee6dff4e76096445f10731652f2a55265176db80e2f86204c562"
+      },
+      {
+        "label": "transportfix-metadata-revalidate-2",
+        "node": "v24.19.0",
+        "trigger": "revalidate",
+        "passed": true,
+        "startedAt": "2026-11-12T23:18:28.819Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 21.734542846679688,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.63671875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 46.13951110839844,
+            "externalMiB": 45.218318939208984,
+            "rssMiB": 144.91015625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.531219482421875,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 127.4296875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 38.981048583984375,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 134.28125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.89320373535156,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 127.53125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 17.246505737304688,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "7f34578ea80a0d35220a78bba5bf007793fa6a2a286a661a4fb2e11e41e11b1c"
+      },
+      {
+        "label": "transportfix-metadata-maxAge-2",
+        "node": "v24.19.0",
+        "trigger": "maxAge",
+        "passed": true,
+        "startedAt": "2026-11-12T23:19:24.235Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 22.09589385986328,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 88.2109375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 39.976905822753906,
+            "externalMiB": 37.76325035095215,
+            "rssMiB": 132.390625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.672454833984375,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 143.296875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 39.04912567138672,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 149.87109375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.959678649902344,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 143.078125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 16.953231811523438,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "9364034a03a15469e91032f1d9df9f08bf6ffc0913a6e4786dbe2e4f35c18c4d"
+      },
+      {
+        "label": "transportfix-metadata-maxAge-1",
+        "node": "v24.19.0",
+        "trigger": "maxAge",
+        "passed": true,
+        "startedAt": "2026-11-12T23:19:24.235Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 22.09571075439453,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.984375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 39.97692108154297,
+            "externalMiB": 37.76325035095215,
+            "rssMiB": 131.11328125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.66289520263672,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 127.8203125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 39.049102783203125,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 147.74609375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.95965576171875,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 140.953125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 16.953392028808594,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "20df4fc9aa6b1dd03d2db675662942dee12b04297b46b428590f4ce5fe0d4ebc"
+      },
+      {
+        "label": "transportfix-metadata-maxAge-0",
+        "node": "v24.19.0",
+        "trigger": "maxAge",
+        "passed": true,
+        "startedAt": "2026-11-12T23:19:24.235Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 22.094924926757812,
+            "externalMiB": 15.404620170593262,
+            "rssMiB": 87.98046875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 36.882347106933594,
+            "externalMiB": 34.03571605682373,
+            "rssMiB": 124.046875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 37.6627197265625,
+            "externalMiB": 34.03572177886963,
+            "rssMiB": 127.671875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 39.055015563964844,
+            "externalMiB": 34.03572750091553,
+            "rssMiB": 135.9609375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 35.96556854248047,
+            "externalMiB": 30.30819320678711,
+            "rssMiB": 129.16796875,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 16.96009063720703,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "fb71146a9f90db8b0c6ae5d5d15cac696749fb5ee74b7481a7bde9c0df161f88"
+      }
+    ],
+    "cachedControl": [
+      {
+        "label": "transportfix-original-control-0",
+        "node": "v24.19.0",
+        "trigger": "control",
+        "passed": true,
+        "startedAt": "2026-11-12T23:21:14.246Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 18.364044189453125,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 79.80078125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 18.70836639404297,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 83.00390625,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 18.829360961914062,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 83.41796875,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 19.143264770507812,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 92.4140625,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 19.147560119628906,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 92.546875,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 0.7792205810546875,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "db94788dcba205007764e8bc9f246df36a9ed0aec2ae236bfc5f2636c724f9ff"
+      },
+      {
+        "label": "transportfix-original-control-1",
+        "node": "v24.19.0",
+        "trigger": "control",
+        "passed": true,
+        "startedAt": "2026-11-12T23:21:14.246Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 18.36412811279297,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 79.9296875,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 18.708404541015625,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 83.296875,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 18.829261779785156,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 83.3671875,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 19.143333435058594,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 92.43359375,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 19.147628784179688,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 92.43359375,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 0.779205322265625,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "300b1f24e31d1448eb8b056453909953bb2fbe0308f16a148f4bcd8f4c164bb4"
+      },
+      {
+        "label": "transportfix-original-control-2",
+        "node": "v24.19.0",
+        "trigger": "control",
+        "passed": true,
+        "startedAt": "2026-11-12T23:21:14.259Z",
+        "execArgv": ["--expose-gc"],
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 18.36406707763672,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 80.109375,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 18.708389282226562,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 83.3125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 18.82860565185547,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 84.4453125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": false,
+            "heapMiB": 19.143287658691406,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 92.55078125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 1000,
+            "afterHeldRelease": true,
+            "heapMiB": 19.1475830078125,
+            "externalMiB": 11.620735168457031,
+            "rssMiB": 92.55078125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "maxCheckpointHeapDeltaMiB": 0.7792205810546875,
+        "exactHostReact": true,
+        "heldOldComponent": true,
+        "bUnchangedFetches": true,
+        "rawResultSha256": "58464d2440f3cd9708d1adbdab300730215b18876ca36f494c9c3e1ef8947f4f"
+      }
+    ]
+  },
+  "node22Diagnostic": {
+    "provenance": {
+      "sourceHead": "838b045377cc91d181bdc0cf194925e55c3f31c7",
+      "publicBuiltHostSha256": "d89086948d88660d4a225919f9a59d20f6542d506a6d71870acce1615f4d49dc",
+      "diagnosticBuiltHostSha256": "81990113f235cf21b2ec56bb16ffa6ff8e9ff5a97c40f8d5008c14b8fa83b8f3",
+      "workerSha256": "5e5f8f6429591cad1e72ee47a296b102f47fd1ba3e04de57c1386b0d151bcd2d",
+      "count": 100,
+      "size": 400000,
+      "heapAllowanceMiB": 64,
+      "guardRemovedOnlyInScratch": true,
+      "changes": "Public Node24 guard disabled only in scratch host; worker capped at100 replacements with all1001 artifacts retained."
+    },
+    "publicGuardUnchanged": true,
+    "runs": [
+      {
+        "label": "single initial probe",
+        "node": "v22.23.5",
+        "count": 100,
+        "passed": true,
+        "samples": [
+          {
+            "index": 1,
+            "afterHeldRelease": false,
+            "heapMiB": 32.40312957763672,
+            "externalMiB": 3.8060312271118164,
+            "rssMiB": 80.09765625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "afterHeldRelease": false,
+            "heapMiB": 66.14060974121094,
+            "externalMiB": 3.7991294860839844,
+            "rssMiB": 116.3046875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": false,
+            "heapMiB": 66.79051971435547,
+            "externalMiB": 3.7991294860839844,
+            "rssMiB": 131.32421875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "afterHeldRelease": true,
+            "heapMiB": 59.95390319824219,
+            "externalMiB": 3.7991294860839844,
+            "rssMiB": 124.53125,
+            "listeners": {
+              "default:react": 2
+            },
+            "initGlobals": 0
+          }
+        ],
+        "rawResultSha256": "dfb8160bcdc2b8e86afa4d62851175a626948b35e47512a1b1c24dbd60284b6b"
+      },
+      {
+        "label": "transportfix-node22-revalidate-0",
+        "node": "v22.23.5",
+        "count": 100,
+        "passed": false,
+        "stoppedAfter": "failed checkpoint100; no1000 measurement claimed",
+        "sampleSource": "original stdout, before normal result JSON write",
+        "samples": [
+          {
+            "index": 1,
+            "heapMiB": 32.400413513183594,
+            "externalMiB": 3.807112693786621,
+            "rssMiB": 80.15234375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "heapMiB": 94.82769775390625,
+            "externalMiB": 3.807112693786621,
+            "rssMiB": 144.90625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "heapMiB": 380.4740905761719,
+            "externalMiB": 3.800210952758789,
+            "rssMiB": 434.06640625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          }
+        ],
+        "logSha256": "2ed002eeaacded49941b6473c6b0ee1026cb618a331fed012c5f13b23cbc620a"
+      },
+      {
+        "label": "transportfix-node22-revalidate-1",
+        "node": "v22.23.5",
+        "count": 100,
+        "passed": false,
+        "stoppedAfter": "failed checkpoint100; no1000 measurement claimed",
+        "sampleSource": "original stdout, before normal result JSON write",
+        "samples": [
+          {
+            "index": 1,
+            "heapMiB": 32.400840759277344,
+            "externalMiB": 3.807112693786621,
+            "rssMiB": 79.85546875,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "heapMiB": 94.82904052734375,
+            "externalMiB": 3.807112693786621,
+            "rssMiB": 143.9375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "heapMiB": 407.7512664794922,
+            "externalMiB": 3.800210952758789,
+            "rssMiB": 461.28515625,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          }
+        ],
+        "logSha256": "9c7bd973c9f66fff8cdb94ed0765ae1b825fbb653f99d964c7badfbb43ff2e73"
+      },
+      {
+        "label": "transportfix-node22-revalidate-2",
+        "node": "v22.23.5",
+        "count": 100,
+        "passed": false,
+        "stoppedAfter": "failed checkpoint100; no1000 measurement claimed",
+        "sampleSource": "original stdout, before normal result JSON write",
+        "samples": [
+          {
+            "index": 1,
+            "heapMiB": 32.399314880371094,
+            "externalMiB": 3.807112693786621,
+            "rssMiB": 80.08203125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 10,
+            "heapMiB": 86.6015625,
+            "externalMiB": 3.800210952758789,
+            "rssMiB": 137.3359375,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          },
+          {
+            "index": 100,
+            "heapMiB": 366.81612396240234,
+            "externalMiB": 3.800210952758789,
+            "rssMiB": 419.8125,
+            "listeners": {
+              "default:react": 3
+            },
+            "initGlobals": 0
+          }
+        ],
+        "logSha256": "bf13d9d5dbee65bf0e43798127add2a23174d0947e41d3084fbdca25231a9bf7"
+      }
+    ]
+  },
+  "conclusion": "All15 Node24 post-isolation cases passed. Node22 remains unsupported because three fresh post-fix targeted runs failed the unchanged bound at100; the preceding single passing100 probe is retained. This does not prove the exact root of the earlier94.53MiB failure, and pre-fix counterevidence remains in measurements.json."
+}

@@ -296,7 +296,7 @@ federation({
 
 - `"temp-file"` (default) fetches the remote graph, rewrites imports to host-resolved shared packages, writes temporary files, and loads them with `import()`.
 - `"vm"` evaluates the graph in memory with `vm.SourceTextModule` and resolves shared packages through the Module Federation share scope.
-- `"cjs"` is an experimental strategy that evaluates a fully bundled CommonJS SSR companion with `vm.compileFunction` in the host realm. It currently permits the **Node 24 line only**, tested on 24.19.0. Remote generations do not enter Node's ESM or `require.cache` module caches. Its bounded-memory acceptance remains incomplete: additional instrumented runs exposed a heap-bound failure and delayed subscription cleanup.
+- `"cjs"` evaluates a fully bundled CommonJS SSR companion with `vm.compileFunction` in the host realm. It currently supports the **Node 24 line only**, validated on 24.19.0. Remote generations do not enter Node's ESM or `require.cache` module caches. HTTP fetch and complete body consumption run outside remote graph context; evaluation and container calls retain it.
 
 The `"vm"` strategy requires Node.js to run with `--experimental-vm-modules`. When unavailable, the loader warns once and falls back to `"temp-file"`. Vite 8 development uses `ModuleRunner`; this option primarily affects build and preview SSR entry loading.
 
