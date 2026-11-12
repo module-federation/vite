@@ -1632,8 +1632,13 @@ async function loadSSRRemoteEntry(
       );
     }
     if (!isHttpUrl(url)) throw new Error(`CJS SSR strategy requires an HTTP SSR companion: ${url}`);
-    const response = await fetchWithTimeout(url, {}, options.fetchTimeoutMs);
-    const source = await readResponseTextBounded(response, options.fetchMaxBytes, url);
+    // HTTP pools and parser timers outlive a request. Do not let their async
+    // resources inherit the remote graph; evaluation resumes in its context.
+    const { response, source } = await withoutSsrBuildGraph(async () => {
+      const response = await fetchWithTimeout(url, {}, options.fetchTimeoutMs);
+      const source = await readResponseTextBounded(response, options.fetchMaxBytes, url);
+      return { response, source };
+    });
     if (!response.ok)
       throw new SsrEntryHttpError(
         url,
