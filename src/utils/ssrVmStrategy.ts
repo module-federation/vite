@@ -197,7 +197,9 @@ async function withRemoteCreateRequire(
       const resolve = ((id, options) =>
         require.resolve(pin(id), options)) as NodeRequire['resolve'];
       resolve.paths = require.resolve.paths;
-      return Object.assign((id: string) => require(pin(id)), require, { resolve });
+      return Object.assign((id: string) => registerSsrBuildExternal(require(pin(id))), require, {
+        resolve,
+      });
     },
   };
 }

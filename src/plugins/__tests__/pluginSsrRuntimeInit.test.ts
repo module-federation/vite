@@ -69,10 +69,17 @@ describe('pluginSsrRuntimeInit', () => {
     expect(result?.code).toContain('plugins: [applicationRemotePlugin,');
     const graph = await createSsrBuildGraph();
     const runtime = { marker: 'managed-host' };
-    const source = result.code!
-      .replace(/^\s*import[^\n]+;[ \t]*$/gm, '')
+    const source = result
+      .code!.replace(/^\s*import[^\n]+;[ \t]*$/gm, '')
       .replace('export { initHost, hostInitPromise };', '');
-    const initialized = graph.run(() => Function('init', 'usedShared', 'usedRemotes', `${source}; return hostInitPromise;`)(() => runtime, {}, []));
+    const initialized = graph.run(() =>
+      Function(
+        'init',
+        'usedShared',
+        'usedRemotes',
+        `${source}; return hostInitPromise;`
+      )(() => runtime, {}, [])
+    );
     await expect(initialized).resolves.toBe(runtime);
     expect([...graph.initStates.values()][0].ssrInitStarted).toBe(true);
   });

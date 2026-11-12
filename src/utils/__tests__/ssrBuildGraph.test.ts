@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { setImmediate } from 'node:timers/promises';
 import { readFile } from 'node:fs';
 import { Module } from 'node:module';
+import { EventEmitter } from 'node:events';
 import { SourceTextModule } from 'node:vm';
 import { createSsrBuildGraph, SSR_BUILD_CONTEXT_KEY } from '../ssrBuildGraph';
 import { sharedCacheHelperCode } from '../packageUtils';
@@ -210,6 +211,44 @@ describe('managed SSR build graphs', () => {
         expect(
           (globalThis as any)[Symbol.for('module-federation.vite.ssr-build-export-owners')].get(
             Module
+          )
+        ).toBeUndefined();
+      } finally {
+        fetch.mockRestore();
+      }
+    }
+  );
+
+  it.skipIf(!SourceTextModule)(
+    'keeps host constructors returned by VM createRequire outside graph ownership',
+    async () => {
+      const graph = await createSsrBuildGraph();
+      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(`
+      import { createRequire } from 'node:module';
+      const require = createRequire(import.meta.url);
+      const { EventEmitter } = require('node:events');
+      export const init = () => {};
+      export const get = async () => () => ({ EventEmitter });
+    `)
+      );
+      try {
+        const container = graph.wrapContainer(
+          await graph.run(() =>
+            loadViaVmStrategy('http://localhost:5996/remoteEntry.ssr.js', {
+              resolvedShared: {},
+              shareScopeName: 'default',
+              versionKey: 'external-require',
+              cacheContext: {},
+            })
+          )
+        ) as any;
+        const exports = (await container.get('./Events'))();
+        expect(exports.EventEmitter).toBe(EventEmitter);
+        expect(new exports.EventEmitter()).toBeInstanceOf(EventEmitter);
+        expect(
+          (globalThis as any)[Symbol.for('module-federation.vite.ssr-build-export-owners')].get(
+            EventEmitter
           )
         ).toBeUndefined();
       } finally {
