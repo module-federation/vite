@@ -244,6 +244,7 @@ describe('managed SSR build graphs', () => {
     'collects retired subscriptions after 100 replacements while held and in-flight exports remain live',
     async () => {
       const cache: any = {};
+      const runtime = { hook() {} };
       const create = async () => {
         const graph = await createSsrBuildGraph();
         graph.registerExternal({ readFile });
@@ -251,10 +252,12 @@ describe('managed SSR build graphs', () => {
           Function(
             'cache',
             'readFile',
+            'runtime',
             `${sharedCacheHelperCode}
         let value;
         __mfSubscribeSharedCache(cache, { canonical: 'default:test', aliases: [] }, next => value = next);
         return {
+          init: async () => runtime,
           read: () => value,
           frozen: Object.freeze({ read: (() => value).bind(null) }),
           wait: async gate => { await gate; return value; },
@@ -265,10 +268,11 @@ describe('managed SSR build graphs', () => {
           external: () => readFile,
         };
       `
-          )(cache, readFile)
+          )(cache, readFile, runtime)
         );
         return graph.wrapContainer(exports) as {
           read(): unknown;
+          init(): Promise<typeof runtime>;
           frozen: { read(): unknown };
           wait(gate: Promise<void>): Promise<unknown>;
           builtin(): Date;
@@ -295,6 +299,7 @@ describe('managed SSR build graphs', () => {
       );
       let current = await create();
       for (let index = 0; index < 100; index++) {
+        expect(await current.init()).toBe(runtime);
         current.builtin();
         current.error();
         current.regexp();
@@ -302,6 +307,11 @@ describe('managed SSR build graphs', () => {
         current = await create();
       }
       await gc6();
+      expect(
+        (globalThis as any)[Symbol.for('module-federation.vite.ssr-build-export-owners')].get(
+          runtime.hook
+        )
+      ).toBeUndefined();
       expect(cache[listenersKey][descriptor.canonical].size).toBe(4);
       const updated = 'updated';
       helpers().write(cache, descriptor, updated);

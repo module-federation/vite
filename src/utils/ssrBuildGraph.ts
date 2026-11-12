@@ -221,7 +221,7 @@ export class SsrBuildGraph {
           graph.own(
             Reflect.construct(
               target as Function,
-              args,
+              args.map((argument) => graph.originals.get(argument) ?? argument),
               newTarget === proxy ? (target as Function) : newTarget
             )
           )
