@@ -957,6 +957,9 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
               instance?.options?.name === provider?.from &&
               instance?.shareScopeMap?.[scopeName] === shared
             );
+            // That later container already loaded this version. Restoring the
+            // snapshot and calling its get() evaluates a second copy.
+            if (selectedFromLaterInstance && (provider?.loaded || typeof provider?.lib === 'function')) return undefined;
             return selectedFromLaterInstance ? scopeRootProvider : undefined;
           };
           const __mfResolveExternalSharedProvider = (
@@ -1608,7 +1611,6 @@ export function generateRemoteEntry(
   const __mfMaterializedShareBatches = ${materializedShareBatches}
   let localSharedImportMapPromise
   let __mfLateBridgeShared
-  let __mfPublishBoundShares = () => {}
   const shouldRetrySharedInitError = ${command !== 'build'} && ((error) => {
     const message = String((error && error.message) || error || '');
     return message.includes('Importing a module script failed') ||
@@ -2295,17 +2297,6 @@ export function generateRemoteEntry(
           !scopeRootProvider &&
           !__mfMatchesSharedProvider(liveProvider, provider)
         ) return;
-        // The scope-root snapshot can name the parent after a nested container
-        // has already bound this singleton. Loading the parent then evaluates a
-        // second copy and overwrites the cache. A higher version is another
-        // slot and still loads while the cache is empty (#1527).
-        if (
-          cachedShare !== undefined &&
-          scopeRootProvider &&
-          cachedShareOwner &&
-          provider?.from &&
-          cachedShareOwner !== provider.from
-        ) return;
         const loadedShare = await __mfLoadPinnedRuntimeShare(
           pkg,
           usedShare.shareConfig,
@@ -2580,99 +2571,6 @@ export function generateRemoteEntry(
     };`
         : ''
     }
-    const __mfBoundShareVersionLess = (left, right) => {
-      const parts = (version) => String(version).split(".").map((part) => {
-        const match = /^(\\d+)/.exec(part);
-        return match ? Number(match[1]) : NaN;
-      });
-      const a = parts(left);
-      const b = parts(right);
-      const length = Math.max(a.length, b.length);
-      for (let i = 0; i < length; i++) {
-        const av = a[i] ?? 0;
-        const bv = b[i] ?? 0;
-        if (Number.isNaN(av) || Number.isNaN(bv)) return false;
-        if (av < bv) return true;
-        if (av > bv) return false;
-      }
-      return false;
-    };
-    // A dev wrapper can bind the module cache without calling the Runtime getter,
-    // and a same-version remote can win the scope slot while still unloaded.
-    // Publish the bound module onto every scope once negotiation has finished.
-    // A higher registered version stays selectable: version-first will not move
-    // off a provider once it has lib (#1527).
-    __mfPublishBoundShares = () => {
-      const instances = globalThis.__FEDERATION__?.__INSTANCES__ || [];
-      for (const [pkg, share] of Object.entries(usedShared)) {
-        if (!share || share.treeShaking || share.shareConfig?.import === false) continue;
-        const cacheDescriptor = __mfGetSharedCacheDescriptor(pkg, share.shareConfig?.singleton, share.version, share.scope);
-        const cachedModule = __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
-        if (cachedModule === undefined) continue;
-        const owner = __mfReadSharedCacheOwner(__mfModuleCache.share, cacheDescriptor);
-        if (!owner) continue;
-        let ownerShare;
-        if (owner === mfName) ownerShare = share;
-        else if (share.shareConfig?.singleton) {
-          const instance = instances.find((item) => item?.options?.name === owner);
-          const configured = instance?.options?.shared?.[pkg];
-          const list = Array.isArray(configured) ? configured : configured ? [configured] : [];
-          ownerShare = list.find((candidate) => candidate?.version === share.version) || (list.length === 1 ? list[0] : undefined);
-        }
-        if (!ownerShare || ownerShare.treeShaking || ownerShare.shareConfig?.import === false) continue;
-        const publishVersion = ownerShare.version || share.version;
-        const boundFactory = () => {
-          const current = __mfReadSharedCache(__mfModuleCache.share, cacheDescriptor);
-          return current === undefined ? cachedModule : current;
-        };
-        const seen = new WeakSet();
-        const versionMaps = [];
-        const consider = (versions) => {
-          if (!versions || seen.has(versions)) return;
-          seen.add(versions);
-          versionMaps.push(versions);
-        };
-        const scopeNames = getShareScopeNames(share);
-        for (const instance of instances) {
-          for (const scopeName of scopeNames) consider(instance?.shareScopeMap?.[scopeName]?.[pkg]);
-        }
-        for (const scopeName of scopeNames) {
-          consider(initRes.shareScopeMap?.[scopeName]?.[pkg]);
-          const tracked = __mfRuntimeShareScopes?.[scopeName];
-          consider(tracked?.host?.[pkg]);
-          consider(tracked?.runtime?.[pkg]);
-        }
-        const mapsHaveHigher = versionMaps.some((versions) => Object.entries(versions).some(([version, provider]) =>
-          version !== publishVersion &&
-          provider?.shareConfig?.import !== false &&
-          __mfBoundShareVersionLess(publishVersion, version)
-        ));
-        for (const versions of versionMaps) {
-          const hasHigher = Object.entries(versions).some(([version, provider]) =>
-            version !== publishVersion &&
-            provider?.shareConfig?.import !== false &&
-            __mfBoundShareVersionLess(publishVersion, version)
-          );
-          if (hasHigher) continue;
-          let provider = versions[publishVersion];
-          if (!provider || provider.loaded) continue;
-          if (provider.lib && provider.from === owner) {
-            provider.lib = boundFactory;
-            provider.loaded = true;
-            continue;
-          }
-          if (Object.values(versions).some((other) => other !== provider && other?.shareConfig?.import !== false && (other?.lib || other?.loaded))) continue;
-          if (!mapsHaveHigher && !ownerShare.lib) ownerShare.lib = boundFactory;
-          if (provider.get !== ownerShare.get) {
-            versions[publishVersion] = { ...ownerShare, from: owner, lib: boundFactory, loaded: true };
-          } else {
-            provider.lib = boundFactory;
-            provider.loaded = true;
-          }
-        }
-      }
-    };
-    __mfPublishBoundShares()
     initResolve(initRes)
     return initRes
     } finally {
@@ -2689,13 +2587,11 @@ export function generateRemoteEntry(
     if (__mfModuleCache.pendingShareLoads) {
       await Promise.all(__mfModuleCache.pendingShareLoads)
     }
-    __mfPublishBoundShares()
     const res = await exposesMap[moduleName]()
     // Wrappers evaluated by the expose import may queue share loads only now (#1535).
     if (__mfModuleCache.pendingShareLoads) {
       await Promise.all(__mfModuleCache.pendingShareLoads)
     }
-    __mfPublishBoundShares()
     return () => res
   }
   ${
