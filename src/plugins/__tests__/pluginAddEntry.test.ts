@@ -2574,6 +2574,7 @@ describe('pluginAddEntry', () => {
       inject = 'entry',
       html = false,
       modulePreload = true,
+      preloadManifest = true,
       ssr = false,
       consumer,
       entryName = 'hostInit',
@@ -2581,6 +2582,7 @@ describe('pluginAddEntry', () => {
       inject?: 'html' | 'entry';
       html?: boolean;
       modulePreload?: boolean;
+      preloadManifest?: boolean;
       ssr?: boolean;
       consumer?: 'client' | 'server';
       entryName?: string;
@@ -2588,6 +2590,7 @@ describe('pluginAddEntry', () => {
       mockHasPackageDependency.mockReturnValue(false);
       const federationOptions = {
         ...mockNormalizedOptions,
+        preloadManifest,
         remotes: {
           remote: {
             name: 'remote',
@@ -2691,6 +2694,7 @@ describe('pluginAddEntry', () => {
 
     it.each([
       { modulePreload: false },
+      { preloadManifest: false },
       { ssr: true },
       { consumer: 'server' as const },
       { entryName: 'remoteEntry' },

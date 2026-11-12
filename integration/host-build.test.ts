@@ -78,25 +78,39 @@ describe('host build', () => {
     }
   );
 
-  it('emits preload data for an entry-injected client build without HTML', async () => {
+  it.each(['entry', undefined] as const)(
+    'emits preload data without HTML with %s injection',
+    async (inject) => {
+      const output = await buildFixture({
+        fixture: 'basic-host',
+        mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: inject },
+        viteConfig: {
+          build: { rollupOptions: { input: resolve(FIXTURES, 'basic-host', 'entry.js') } },
+        },
+      });
+      expect(output.output.some((item) => item.fileName.endsWith('.html'))).toBe(false);
+      const asset = output.output.find(
+        (item) => item.type === 'asset' && item.fileName === '.vite/mf-preload.json'
+      );
+      if (asset?.type !== 'asset') throw new Error('missing preload manifest');
+      const preloads = JSON.parse(String(asset.source));
+      const app = output.output.find(
+        (item) => item.type === 'chunk' && item.facadeModuleId?.includes('mf-entry-bootstrap')
+      );
+      expect(app).toBeDefined();
+      expect(preloads.hostInit).toContain(app!.fileName);
+    }
+  );
+
+  it('can disable preload data while retaining HTML hints', async () => {
     const output = await buildFixture({
       fixture: 'basic-host',
-      mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: 'entry' },
-      viteConfig: {
-        build: { rollupOptions: { input: resolve(FIXTURES, 'basic-host', 'entry.js') } },
-      },
+      mfOptions: { ...HOST_BASE_MF_OPTIONS, preloadManifest: false },
     });
-    expect(output.output.some((item) => item.fileName.endsWith('.html'))).toBe(false);
-    const asset = output.output.find(
-      (item) => item.type === 'asset' && item.fileName === '.vite/mf-preload.json'
+    expect(output.output.some((item) => item.fileName === '.vite/mf-preload.json')).toBe(false);
+    expect(String(getHtmlAsset(output)?.source)).toContain(
+      '<link rel="modulepreload" crossorigin href="http://localhost:3001/remoteEntry.js">'
     );
-    if (asset?.type !== 'asset') throw new Error('missing preload manifest');
-    const preloads = JSON.parse(String(asset.source));
-    const app = output.output.find(
-      (item) => item.type === 'chunk' && item.facadeModuleId?.includes('mf-entry-bootstrap')
-    );
-    expect(app).toBeDefined();
-    expect(preloads.hostInit).toContain(app!.fileName);
   });
 
   it('combines preload data from multiple federation configurations', async () => {

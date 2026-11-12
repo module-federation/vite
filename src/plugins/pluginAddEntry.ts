@@ -1234,12 +1234,12 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
                 getRemoteEntryPreloadUrls(isSsr),
                 // With entry injection the app is the bootstrap's dynamic import.
                 (chunk) =>
-                  inject === 'entry' &&
+                  injectEntry() &&
                   !!chunk.facadeModuleId &&
                   hasEntryBootstrapParam(chunk.facadeModuleId)
               )
             : undefined;
-        if (preloads) {
+        if (preloads && getFederationOptions().preloadManifest !== false) {
           const manifestFileName = '.vite/mf-preload.json';
           const existing = bundle[manifestFileName];
           if (existing?.type === 'asset') {

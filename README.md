@@ -198,6 +198,8 @@ export default defineConfig({
       // initHost() completes before hydrateRoot and @module-federation/bridge-react
       // remotes render on first paint.
       hostInitInjectLocation: "html", // or "entry"
+      // Emit client preload targets for server-rendered documents, including builds without HTML.
+      preloadManifest: true, // Set false to disable .vite/mf-preload.json.
       // Controls whether all CSS assets from the bundle should be added to every exposed module.
       // When false (default), the plugin will not process any CSS assets.
       // When true, all CSS assets are bundled into every exposed module.
@@ -268,6 +270,10 @@ without an HTML asset (for example Nitro, custom SSR, or CMS templates). SSR
 builds do not emit this file. Multiple federation configurations in one client
 build contribute to the same file.
 
+The file is enabled by default. Set federation's `preloadManifest: false` to
+disable the asset while keeping the plugin's HTML preload hints. Vite's
+`build.modulePreload: false` disables both the asset and those hints.
+
 ```json
 {
   "hostInit": ["assets/hostInit-abc.js", "assets/remoteEntry-def.js"],
@@ -284,6 +290,33 @@ plugin's HTML hints and include transitive static imports, excluding lazy share
 providers. They do not include remote chunks whose hashes are only known to the
 remote build. If you use `experimental.renderBuiltUrl`, apply the corresponding
 URL mapping in your renderer as well.
+
+Only statically known module/ESM entry URLs are included. Manifest URLs,
+unresolved relative URLs, script remotes, and entries registered only at runtime
+are omitted. Both lists are deduplicated and may be empty.
+
+For example, render the links in your server document's `<head>`:
+
+```js
+import { readFile } from 'node:fs/promises';
+
+const targets = JSON.parse(
+  await readFile('./dist/client/.vite/mf-preload.json', 'utf8')
+);
+const clientBase = '/application/'; // Match the client build's base.
+const hrefs = new Set([
+  ...targets.remoteEntries,
+  ...targets.hostInit.map((file) => clientBase + file),
+]);
+const escapeAttr = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+const preloadLinks = [...hrefs]
+  .map((href) => `<link rel="modulepreload" crossorigin href="${escapeAttr(href)}">`)
+  .join('');
+// Insert preloadLinks in the server-rendered <head>.
+```
+
+These are fetch hints; the existing host initialization still runs before the
+application entry.
 
 ## SSR runtime initialization
 

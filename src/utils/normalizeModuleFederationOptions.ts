@@ -723,6 +723,8 @@ export type ModuleFederationOptions = {
   ignoreOrigin?: boolean;
   virtualModuleDir?: string;
   hostInitInjectLocation?: HostInitInjectLocationOptions;
+  /** Emit `.vite/mf-preload.json` in client builds. Defaults to true. */
+  preloadManifest?: boolean;
   /**
    * Timeout for parsing modules in seconds.
    * Defaults to 10 seconds.
@@ -1126,6 +1128,7 @@ export function normalizeModuleFederationOptions(
     ignoreOrigin: options.ignoreOrigin || false,
     virtualModuleDir: options.virtualModuleDir || '__mf__virtual',
     hostInitInjectLocation: options.hostInitInjectLocation || 'html',
+    preloadManifest: options.preloadManifest ?? true,
     bundleAllCSS: options.bundleAllCSS || false,
     treeShakingDir: options.treeShakingDir,
     injectTreeShakingUsedExports: options.injectTreeShakingUsedExports,
