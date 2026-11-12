@@ -1932,7 +1932,9 @@ describe('ssrEntryLoaderPlugin — Vite 8+ ModuleRunner dev-mode path', () => {
     });
 
     expect(mockImport).toHaveBeenCalledWith('/__mf_ssr__/remoteEntry.ssr.js');
-    expect(result).toBe(mockMod);
+    expect(result).toHaveProperty('init', expect.any(Function));
+    (result as typeof mockMod).init();
+    expect(mockMod.init).toHaveBeenCalledOnce();
   });
 
   it('clears the matching ModuleRunner cache on explicit revalidation', async () => {

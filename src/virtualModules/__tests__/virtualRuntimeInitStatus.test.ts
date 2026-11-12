@@ -258,9 +258,7 @@ describe('virtualRuntimeInitStatus', () => {
     );
 
     writeRuntimeInitStatus('serve');
-    expect(writeSyncSpy.mock.calls.at(-1)?.[0]).toContain(
-      'module.exports = globalThis[globalKey];'
-    );
+    expect(writeSyncSpy.mock.calls.at(-1)?.[0]).toContain('module.exports = __mfInitState;');
   });
 
   it('serializes SSR remotes into build init code', async () => {

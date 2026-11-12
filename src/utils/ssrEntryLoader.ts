@@ -38,6 +38,7 @@ import { decodeViteId, EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
 import { mfWarn } from './logger';
+import { createSsrBuildGraph, type SsrBuildGraph } from './ssrBuildGraph';
 import type { SsrEntryLoaderConfig } from './normalizeModuleFederationOptions';
 
 // No static Node.js imports — this module is safe to import in the browser.
@@ -89,6 +90,8 @@ interface SsrEntryLoaderState {
   manifestVersionKeys: Map<string, string>;
   /** Federation instance → remote name → version the loaded container came from. */
   remoteVersions: WeakMap<object, Map<string, LoadedRemoteVersion>>;
+  /** Current remote generation per host. Retired generations are owned by exports. */
+  buildGraphs: WeakMap<object, Map<string, { identity: string; graph: Promise<SsrBuildGraph> }>>;
 }
 
 export const SSR_ENTRY_LOADER_STATE_KEY = Symbol.for('module-federation.vite.ssrEntryLoader.state');
@@ -111,6 +114,7 @@ function getLoaderState(): SsrEntryLoaderState {
   state.scheduledTempFileCleanup ??= new Set();
   state.manifestVersionKeys ??= new Map();
   state.remoteVersions ??= new WeakMap();
+  state.buildGraphs ??= new WeakMap();
   return state as SsrEntryLoaderState;
 }
 
@@ -1866,14 +1870,42 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
 
       // A direct `.ssr.js` entry (e.g. a manifest's `ssrRemoteEntry`) carries
       // its module format on remoteInfo, such as Rspack's `commonjs-module`.
-      const mod = await loadSSRRemoteEntry(
-        ssrEntry.url === remoteInfo.entry && remoteInfo.type
-          ? { ...ssrEntry, type: remoteInfo.type }
-          : ssrEntry,
-        loadOptions,
-        remoteInfo.entry
-      );
-      if (!mod) return;
+      let graphs = loaderState.buildGraphs.get(loadOptions.cacheContext);
+      if (!graphs) {
+        graphs = new Map();
+        loaderState.buildGraphs.set(loadOptions.cacheContext, graphs);
+      }
+      const identity = JSON.stringify([ssrEntry.url, ssrEntry.versionKey, loadOptions.strategy]);
+      const previous = graphs.get(remoteInfo.entry);
+      const record =
+        previous?.identity === identity ? previous : { identity, graph: createSsrBuildGraph() };
+      graphs.set(remoteInfo.entry, record);
+      const graph = await record.graph;
+      let mod;
+      try {
+        mod = await graph.run(() =>
+          loadSSRRemoteEntry(
+            ssrEntry.url === remoteInfo.entry && remoteInfo.type
+              ? { ...ssrEntry, type: remoteInfo.type }
+              : ssrEntry,
+            loadOptions,
+            remoteInfo.entry
+          )
+        );
+      } catch (error) {
+        if (graphs.get(remoteInfo.entry) === record) {
+          if (previous) graphs.set(remoteInfo.entry, previous);
+          else graphs.delete(remoteInfo.entry);
+        }
+        throw error;
+      }
+      if (!mod) {
+        if (graphs.get(remoteInfo.entry) === record) {
+          if (previous) graphs.set(remoteInfo.entry, previous);
+          else graphs.delete(remoteInfo.entry);
+        }
+        return;
+      }
 
       const versionKey =
         versionHint ??
@@ -1890,7 +1922,7 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
           checkedAt: Date.now(),
         });
       }
-      return mod;
+      return graph.wrapContainer(mod);
     },
     afterLoadManifest({
       manifestUrl,

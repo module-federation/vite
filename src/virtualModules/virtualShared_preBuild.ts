@@ -1864,17 +1864,18 @@ function generateLazyWorkspaceSingletonExports(
   // pins the shared pendingShareLoads barrier and the entry never runs. A
   // sibling container publishes into the same cache; that write has to unblock
   // the local fallback too. The local import still happens only when
-  // neither init nor the cache produced a provider. The cache subscription is
-  // never removed (listener sets have no unsubscribe); a settled promise
-  // ignores later notifications.
-  const deferredEntryLoad = `Promise.race([
+  // neither init nor the cache produced a provider. The one-shot subscription
+  // is removed as soon as either branch settles.
+  const deferredEntryLoad = `(() => {
+        let unsubscribe;
+        return Promise.race([
           initPromise.then(() => ${readDeferredShare}),
           new Promise((resolve) => {
             const current = ${readDeferredShare};
             if (current !== undefined) resolve(current);
-            else __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, resolve);
+            else unsubscribe = __mfSubscribeSharedCache(__mfModuleCache.share, ${cacheDescriptor}, resolve);
           })
-        ]).then((cached) => {
+        ]).finally(() => unsubscribe?.()).then((cached) => {
           exportModule = cached;
           if (exportModule !== undefined) {
             __mfApplyLazyShareExports(exportModule);
@@ -1884,7 +1885,8 @@ function generateLazyWorkspaceSingletonExports(
             exportModule = __mfNormalizeShareModule(mod);
             __mfWriteSharedCache(__mfModuleCache.share, ${cacheDescriptor}, exportModule, ${cacheOwner});
           });
-        })`;
+        });
+      })()`;
   const deferredInitLoad = `initPromise.then(() => {
           exportModule = ${readDeferredShare};
           if (exportModule !== undefined) {
