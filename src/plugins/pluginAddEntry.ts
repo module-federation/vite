@@ -1239,7 +1239,9 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
                   hasEntryBootstrapParam(chunk.facadeModuleId)
               )
             : undefined;
-        if (preloads && getFederationOptions().preloadManifest !== false) {
+        // Opt in through Vite's own manifest flag: renderers that compute
+        // preloads already enable it, other builds get no extra file.
+        if (preloads && viteConfig.build.manifest) {
           const manifestFileName = '.vite/mf-preload.json';
           const existing = bundle[manifestFileName];
           if (existing?.type === 'asset') {

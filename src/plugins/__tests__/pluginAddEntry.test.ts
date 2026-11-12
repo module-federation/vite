@@ -2574,7 +2574,7 @@ describe('pluginAddEntry', () => {
       inject = 'entry',
       html = false,
       modulePreload = true,
-      preloadManifest = true,
+      manifest = true,
       ssr = false,
       consumer,
       entryName = 'hostInit',
@@ -2582,7 +2582,7 @@ describe('pluginAddEntry', () => {
       inject?: 'html' | 'entry';
       html?: boolean;
       modulePreload?: boolean;
-      preloadManifest?: boolean;
+      manifest?: boolean | string;
       ssr?: boolean;
       consumer?: 'client' | 'server';
       entryName?: string;
@@ -2590,7 +2590,6 @@ describe('pluginAddEntry', () => {
       mockHasPackageDependency.mockReturnValue(false);
       const federationOptions = {
         ...mockNormalizedOptions,
-        preloadManifest,
         remotes: {
           remote: {
             name: 'remote',
@@ -2646,7 +2645,7 @@ describe('pluginAddEntry', () => {
         root: '/repo/host',
         base: '/app/',
         command: 'build',
-        build: { rollupOptions: {}, modulePreload, ssr },
+        build: { rollupOptions: {}, modulePreload, manifest, ssr },
       } as unknown as ResolvedConfig);
       const emitFile = vi.fn((_file: Rollup.EmittedFile) => 'ref');
       const ctx = {
@@ -2694,12 +2693,16 @@ describe('pluginAddEntry', () => {
 
     it.each([
       { modulePreload: false },
-      { preloadManifest: false },
+      { manifest: false },
       { ssr: true },
       { consumer: 'server' as const },
       { entryName: 'remoteEntry' },
     ])('does not emit for %j', (options) => {
       expect(buildPreloads(options).asset).toBeUndefined();
+    });
+
+    it('emits when build.manifest is a custom path', () => {
+      expect(buildPreloads({ manifest: 'assets/manifest.json' }).asset).toBeDefined();
     });
 
     it('uses the client hook environment when the last resolved config is SSR', () => {

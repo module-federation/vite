@@ -48,7 +48,6 @@ describe('normalizeModuleFederationOption', () => {
       ignoreOrigin: false,
       virtualModuleDir: '__mf__virtual',
       hostInitInjectLocation: 'html',
-      preloadManifest: true,
       bundleAllCSS: false,
       treeShakingDir: undefined,
       injectTreeShakingUsedExports: undefined,
@@ -72,15 +71,6 @@ describe('normalizeModuleFederationOption', () => {
         hostProvidesAllShared: false,
       },
     });
-  });
-
-  it('preserves preloadManifest: false', () => {
-    expect(
-      normalizeModuleFederationOptions({
-        ...minimalOptions,
-        preloadManifest: false,
-      }).preloadManifest
-    ).toBe(false);
   });
 
   it('preserves moduleParseTimeout: 0', () => {

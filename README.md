@@ -198,8 +198,6 @@ export default defineConfig({
       // initHost() completes before hydrateRoot and @module-federation/bridge-react
       // remotes render on first paint.
       hostInitInjectLocation: "html", // or "entry"
-      // Emit client preload targets for server-rendered documents, including builds without HTML.
-      preloadManifest: true, // Set false to disable .vite/mf-preload.json.
       // Controls whether all CSS assets from the bundle should be added to every exposed module.
       // When false (default), the plugin will not process any CSS assets.
       // When true, all CSS assets are bundled into every exposed module.
@@ -263,16 +261,18 @@ The **moduleParseIdleTimeout** option is an alternative that resets the timer on
 
 ## Preload hints with server-rendered documents
 
-Client builds emit `.vite/mf-preload.json` in `build.outDir` whenever the host
-waits for federation initialization and `build.modulePreload !== false`. This
+Client builds with Vite's `build.manifest` enabled (`true` or a custom path)
+emit `.vite/mf-preload.json` in `build.outDir` whenever the host waits for
+federation initialization and `build.modulePreload !== false`. This
 works with both `hostInitInjectLocation: "html"` and `"entry"`, including builds
 without an HTML asset (for example Nitro, custom SSR, or CMS templates). SSR
 builds do not emit this file. Multiple federation configurations in one client
 build contribute to the same file.
 
-The file is enabled by default. Set federation's `preloadManifest: false` to
-disable the asset while keeping the plugin's HTML preload hints. Vite's
-`build.modulePreload: false` disables both the asset and those hints.
+The file path is fixed, even when `build.manifest` is a custom path. Without
+`build.manifest` the file is not emitted, while the plugin's HTML preload hints
+are unchanged. Vite's `build.modulePreload: false` disables both the asset and
+those hints.
 
 ```json
 {

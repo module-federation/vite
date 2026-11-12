@@ -48,7 +48,7 @@ describe('host build', () => {
       const output = await buildFixture({
         fixture: 'basic-host',
         mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: inject },
-        viteConfig: { base: '/app/' },
+        viteConfig: { base: '/app/', build: { manifest: true } },
       });
       const asset = output.output.find(
         (item) => item.type === 'asset' && item.fileName === '.vite/mf-preload.json'
@@ -85,7 +85,10 @@ describe('host build', () => {
         fixture: 'basic-host',
         mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: inject },
         viteConfig: {
-          build: { rollupOptions: { input: resolve(FIXTURES, 'basic-host', 'entry.js') } },
+          build: {
+            manifest: true,
+            rollupOptions: { input: resolve(FIXTURES, 'basic-host', 'entry.js') },
+          },
         },
       });
       expect(output.output.some((item) => item.fileName.endsWith('.html'))).toBe(false);
@@ -102,11 +105,8 @@ describe('host build', () => {
     }
   );
 
-  it('can disable preload data while retaining HTML hints', async () => {
-    const output = await buildFixture({
-      fixture: 'basic-host',
-      mfOptions: { ...HOST_BASE_MF_OPTIONS, preloadManifest: false },
-    });
+  it('skips preload data without build.manifest while retaining HTML hints', async () => {
+    const output = await buildFixture({ fixture: 'basic-host', mfOptions: HOST_BASE_MF_OPTIONS });
     expect(output.output.some((item) => item.fileName === '.vite/mf-preload.json')).toBe(false);
     expect(String(getHtmlAsset(output)?.source)).toContain(
       '<link rel="modulepreload" crossorigin href="http://localhost:3001/remoteEntry.js">'
@@ -127,7 +127,11 @@ describe('host build', () => {
         },
       },
     }));
-    const output = await buildFixture({ fixture: 'basic-host', mfOptions: options });
+    const output = await buildFixture({
+      fixture: 'basic-host',
+      mfOptions: options,
+      viteConfig: { build: { manifest: true } },
+    });
     const assets = output.output.filter((item) => item.fileName === '.vite/mf-preload.json');
     expect(assets).toHaveLength(1);
     if (assets[0].type !== 'asset') throw new Error('missing preload manifest');
