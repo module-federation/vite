@@ -39,6 +39,7 @@ import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
 import { mfWarn } from './logger';
 import { createSsrBuildGraph, withoutSsrBuildGraph, type SsrBuildGraph } from './ssrBuildGraph';
+import { evaluateSsrCommonJs } from './ssrCjsStrategy';
 import type { SsrEntryLoaderConfig } from './normalizeModuleFederationOptions';
 
 // No static Node.js imports — this module is safe to import in the browser.
@@ -597,7 +598,7 @@ function isManifestEntry(remoteEntryUrl: string): boolean {
 }
 
 function isSsrEntry(remoteEntryUrl: string): boolean {
-  return /\.ssr\.js(?:[?#].*)?$/.test(remoteEntryUrl);
+  return /\.ssr\.(?:js|cjs)(?:[?#].*)?$/.test(remoteEntryUrl);
 }
 
 function getManifestUrl(remoteEntryUrl: string): string {
@@ -1624,6 +1625,27 @@ async function loadSSRRemoteEntry(
   const { url, type, versionKey } = ssrEntry;
   const { resolvedShared } = options;
 
+  if (options.strategy === 'cjs') {
+    if (type !== 'commonjs-module' && type !== 'commonjs') {
+      throw new Error(
+        `CJS SSR strategy requires a manifest advertising a CommonJS SSR companion (ssrFormat: 'cjs'): ${url}`
+      );
+    }
+    if (!isHttpUrl(url)) throw new Error(`CJS SSR strategy requires an HTTP SSR companion: ${url}`);
+    const response = await fetchWithTimeout(url, {}, options.fetchTimeoutMs);
+    const source = await readResponseTextBounded(response, options.fetchMaxBytes, url);
+    if (!response.ok)
+      throw new SsrEntryHttpError(
+        url,
+        response.status,
+        response.statusText,
+        getBodyPreview(source)
+      );
+    return evaluateSsrCommonJs(source, url, resolvedShared, {
+      '@module-federation/vite/ssrEntryLoader': cjsLoaderExternal,
+    });
+  }
+
   if (type === 'commonjs-module' || type === 'commonjs') {
     // CJS: use createRequire so we get the same Node module-cache singleton
     // as react-dom/server (guarantees the React instance is shared).
@@ -1771,7 +1793,7 @@ interface SsrEntryLoaderOptions extends SsrEntryLoaderConfig {
 
 interface ResolvedLoaderOptions {
   resolvedShared: Record<string, string>;
-  strategy: 'temp-file' | 'vm';
+  strategy: 'temp-file' | 'vm' | 'cjs';
   shareScopeName: string;
   maxAgeMs?: number;
   fetchTimeoutMs: number;
@@ -1845,6 +1867,12 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
     async loadEntry({ remoteInfo, origin }: { remoteInfo: RemoteInfo; origin?: object }) {
       // Only intercept on the server — browser should use the normal path.
       if (!isNodeServer()) return;
+      if (resolved.strategy === 'cjs' && process.versions.node.split('.')[0] !== '24') {
+        throw new Error(
+          'CJS SSR bounded-memory strategy currently supports Node 24 (validated on 24.19.0); ' +
+            'Node 22 failed the ordinary-GC memory bound. Use an existing SSR strategy on other Node versions.'
+        );
+      }
 
       // Internal flag the Vite plugin sets for `vite build` output only.
       if ((options as { rebaseSharedAtRuntime?: boolean }).rebaseSharedAtRuntime) {
@@ -1872,19 +1900,34 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
         configured?.entry && isManifestEntry(configured.entry) ? configured.entry : undefined;
       // Manifest remotes reach us as their `.ssr.js` URL; the runtime already
       // fetched the manifest, so take its version instead of an unversioned key.
+      const isCommonJsEntry =
+        loadOptions.strategy === 'cjs' &&
+        (remoteInfo.type === 'commonjs' || remoteInfo.type === 'commonjs-module');
       const versionHint =
-        configuredManifest && isSsrEntry(remoteInfo.entry)
+        configuredManifest && (isSsrEntry(remoteInfo.entry) || isCommonJsEntry)
           ? loaderState.manifestVersionKeys.get(configuredManifest)
           : undefined;
 
-      const ssrEntry = await getSSREntry(
-        remoteInfo.entry,
-        loadOptions.maxAgeMs,
-        loadOptions.fetchTimeoutMs,
-        loadOptions.fetchMaxBytes,
-        versionHint
-      );
-      if (!ssrEntry) return;
+      const ssrEntry = isCommonJsEntry
+        ? {
+            url: remoteInfo.entry,
+            type: remoteInfo.type!,
+            versionKey: `${versionHint ?? UNVERSIONED}-${getUnversionedVersionKey(remoteInfo.entry)}`,
+          }
+        : await getSSREntry(
+            remoteInfo.entry,
+            loadOptions.maxAgeMs,
+            loadOptions.fetchTimeoutMs,
+            loadOptions.fetchMaxBytes,
+            versionHint
+          );
+      if (!ssrEntry) {
+        if (loadOptions.strategy === 'cjs')
+          throw new Error(
+            `CJS SSR strategy requires an advertised CommonJS SSR companion (ssrFormat: 'cjs'): ${remoteInfo.entry}`
+          );
+        return;
+      }
 
       // A direct `.ssr.js` entry (e.g. a manifest's `ssrRemoteEntry`) carries
       // its module format on remoteInfo, such as Rspack's `commonjs-module`.
@@ -1981,3 +2024,10 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
     },
   };
 }
+
+// CJS default interop differs between Rollup and Rolldown's Node mode. A
+// callable facade supports both without loading this ESM package via require.
+const cjsLoaderExternal = Object.assign(
+  (options?: SsrEntryLoaderOptions) => ssrEntryLoaderPlugin(options),
+  { __esModule: true, default: ssrEntryLoaderPlugin, revalidate }
+);

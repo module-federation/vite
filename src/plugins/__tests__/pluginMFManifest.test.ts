@@ -198,6 +198,7 @@ async function runGenerateBundleWithManifest(
     >;
     dts?: unknown;
     filename?: string;
+    ssrFormat?: 'esm' | 'cjs';
     varFilename?: string;
     remotes?: Record<
       string,
@@ -215,6 +216,7 @@ async function runGenerateBundleWithManifest(
     name: 'basicRemote',
     internalName: 'basicRemote',
     filename: runtime.filename || 'remoteEntry.js',
+    ssrFormat: runtime.ssrFormat,
     getPublicPath: undefined,
     varFilename: runtime.varFilename,
     dts: runtime.dts,
@@ -592,6 +594,20 @@ describe('pluginMFManifest', () => {
       name: 'remoteEntry.ssr.js',
       type: 'module',
     });
+  });
+
+  it('advertises the emitted CJS companion and its CommonJS type', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      ssrFormat: 'cjs',
+      bundle: withSsrEntry(makeBundle(), 'remoteEntry.ssr.cjs'),
+    });
+    for (const filename of ['mf-manifest.json', 'mf-stats.json']) {
+      expect(JSON.parse(emitted[filename]).metaData.ssrRemoteEntry).toEqual({
+        name: 'remoteEntry.ssr.cjs',
+        path: '',
+        type: 'commonjs-module',
+      });
+    }
   });
 
   // A plain `vite build` emits no SSR entry. Advertising `remoteEntry.ssr.js`
@@ -1351,10 +1367,16 @@ describe('pluginMFManifest', () => {
     write('mf-manifest.json', 'remoteEntry.ssr.js');
     write('mf-stats.json', 'remoteEntry.ssr.js');
 
-    const makePlugin = (filename: string, build: Record<string, unknown> = {}) => {
+    const makePlugin = (
+      filename: string,
+      build: Record<string, unknown> = {},
+      ssrFormat?: 'esm' | 'cjs'
+    ) => {
       getNormalizeModuleFederationOptions.mockReturnValue({
         name: 'remote',
         filename,
+        ssrFilename: ssrFormat ? 'remoteEntry.server.ssr.js' : undefined,
+        ssrFormat,
         manifest: true,
         exposes: { './App': { import: './src/App.tsx', name: 'App' } },
         remotes: {},
@@ -1410,6 +1432,20 @@ describe('pluginMFManifest', () => {
     runWriteBundle(makePlugin('remoteEntry.server.js'), 'ssr');
     expect(read('mf-manifest.json')).toBe('remoteEntry.server.ssr.js');
     expect(read('mf-stats.json')).toBe('remoteEntry.server.ssr.js');
+
+    // Reusing a custom SSR filename when changing format must update its type.
+    runWriteBundle(makePlugin('remoteEntry.server.js', {}, 'cjs'), 'ssr');
+    for (const filename of ['mf-manifest.json', 'mf-stats.json']) {
+      expect(
+        JSON.parse(fs.readFileSync(path.join(outDir, filename), 'utf8')).metaData.ssrRemoteEntry
+          .type
+      ).toBe('commonjs-module');
+    }
+    runWriteBundle(makePlugin('remoteEntry.server.js', {}, 'esm'), 'ssr');
+    expect(
+      JSON.parse(fs.readFileSync(path.join(outDir, 'mf-manifest.json'), 'utf8')).metaData
+        .ssrRemoteEntry.type
+    ).toBe('module');
 
     // The builder may run `ssr` before `client`: the client build then finds
     // the SSR entry already on disk and advertises it.

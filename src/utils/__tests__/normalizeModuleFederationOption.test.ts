@@ -32,6 +32,8 @@ describe('normalizeModuleFederationOption', () => {
     expect(normalizeModuleFederationOptions(minimalOptions)).toEqual({
       exposes: {},
       filename: 'remoteEntry-[hash]',
+      ssrFilename: undefined,
+      ssrFormat: 'esm',
       internalName: '__mfe_internal__test-module',
       library: undefined,
       name: 'test-module',
@@ -111,6 +113,13 @@ describe('normalizeModuleFederationOption', () => {
         ssrEntryLoader: { strategy: 'temp-file' },
       }).ssrEntryLoader
     ).toEqual({ strategy: 'temp-file' });
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrFormat: 'cjs',
+        ssrEntryLoader: { strategy: 'cjs' },
+      })
+    ).toMatchObject({ ssrFormat: 'cjs', ssrEntryLoader: { strategy: 'cjs' } });
   });
 
   it('drops invalid ssrEntryLoader.strategy values', () => {

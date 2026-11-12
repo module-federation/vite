@@ -643,7 +643,11 @@ function normalizeSsrEntryLoader(
   if (!ssrEntryLoader) return undefined;
 
   const normalized: SsrEntryLoaderConfig = {};
-  if (ssrEntryLoader.strategy === 'temp-file' || ssrEntryLoader.strategy === 'vm') {
+  if (
+    ssrEntryLoader.strategy === 'temp-file' ||
+    ssrEntryLoader.strategy === 'vm' ||
+    ssrEntryLoader.strategy === 'cjs'
+  ) {
     normalized.strategy = ssrEntryLoader.strategy;
   }
   if (Number.isFinite(ssrEntryLoader.maxAgeMs)) {
@@ -667,6 +671,12 @@ export type ModuleFederationOptions = {
    * entry when both builds share an output directory. `[hash]` is not supported.
    */
   ssrFilename?: string;
+  /**
+   * SSR companion format. 'cjs' bundles the complete remote graph into one
+   * CommonJS file for Node 24 hosts using ssrEntryLoader.strategy: 'cjs'.
+   * Defaults to 'esm'; ssrFilename overrides the default .ssr.cjs name.
+   */
+  ssrFormat?: 'esm' | 'cjs';
   library?: any;
   name: string;
   // remoteType?: string;
@@ -826,7 +836,7 @@ export interface PluginExperimentsOptions {
   hostProvidesAllShared?: boolean;
 }
 
-export type SsrEntryLoaderStrategy = 'temp-file' | 'vm';
+export type SsrEntryLoaderStrategy = 'temp-file' | 'vm' | 'cjs';
 
 export type SsrEntryLoaderConfig = {
   /**
@@ -842,6 +852,10 @@ export type SsrEntryLoaderConfig = {
    *   restoring version negotiation. Requires `--experimental-vm-modules`; the
    *   loader emits a single warning and falls back to `'temp-file'` when that
    *   API is unavailable.
+   * - 'cjs': evaluate a fully bundled CommonJS SSR companion in the host realm
+   *   using vm.compileFunction without caching the remote in Node's module
+   *   caches. Requires a remote built with ssrFormat: 'cjs' and Node 24.
+   *   Unsupported formats or Node versions fail without fallback.
    */
   strategy?: SsrEntryLoaderStrategy;
   /**
@@ -1105,6 +1119,7 @@ export function normalizeModuleFederationOptions(
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
     ssrFilename: options.ssrFilename || undefined,
+    ssrFormat: options.ssrFormat === 'cjs' ? 'cjs' : 'esm',
     internalName: toInternalModuleFederationName(options.name),
     library: normalizeLibrary(options.library),
     name: options.name,

@@ -415,6 +415,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         if (!mfManifestName || _command !== 'build' || isConsumerProject) return;
 
         const ssrEntryName = getSsrRemoteEntryFileName(mfOptions);
+        const ssrEntryType = mfOptions.ssrFormat === 'cjs' ? 'commonjs-module' : 'module';
         const outDirs = [
           ...new Set(
             [
@@ -436,11 +437,19 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             try {
               const data = JSON.parse(fs.readFileSync(file, 'utf8'));
               const entry = data?.metaData?.ssrRemoteEntry;
-              if (!data?.metaData || entry?.name === ssrEntryName) continue;
+              if (!data?.metaData || (entry?.name === ssrEntryName && entry?.type === ssrEntryType))
+                continue;
               data.metaData.ssrRemoteEntry = Object.assign(
-                { name: ssrEntryName, path: '', type: 'module' },
+                {
+                  name: ssrEntryName,
+                  path: '',
+                  type: ssrEntryType,
+                },
                 typeof entry === 'object' ? entry : null,
-                { name: ssrEntryName }
+                {
+                  name: ssrEntryName,
+                  type: ssrEntryType,
+                }
               );
               fs.writeFileSync(file, JSON.stringify(data));
             } catch {
@@ -622,7 +631,8 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
       ? {
           name: resolvedSsrRemoteEntryFile,
           path: _command === 'serve' ? '/__mf_ssr__/' : '',
-          type: 'module',
+          type:
+            _command !== 'serve' && mfOptions.ssrFormat === 'cjs' ? 'commonjs-module' : 'module',
         }
       : undefined;
 

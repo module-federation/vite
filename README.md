@@ -296,8 +296,23 @@ federation({
 
 - `"temp-file"` (default) fetches the remote graph, rewrites imports to host-resolved shared packages, writes temporary files, and loads them with `import()`.
 - `"vm"` evaluates the graph in memory with `vm.SourceTextModule` and resolves shared packages through the Module Federation share scope.
+- `"cjs"` evaluates a fully bundled CommonJS SSR companion with `vm.compileFunction` in the host realm. It currently supports the **Node 24 line only**, validated on 24.19.0. Remote generations do not enter Node's ESM or `require.cache` module caches.
 
 The `"vm"` strategy requires Node.js to run with `--experimental-vm-modules`. When unavailable, the loader warns once and falls back to `"temp-file"`. Vite 8 development uses `ModuleRunner`; this option primarily affects build and preview SSR entry loading.
+
+For `"cjs"`, build each remote with `ssrFormat: "cjs"`, and configure its host with `ssrEntryLoader: { strategy: "cjs" }`. A remote that also consumes nested remotes needs the same loader option. Build the client and SSR outputs as usual. The SSR companion defaults to `remoteEntry.ssr.cjs` (or your exact `ssrFilename`) and the manifest advertises it as `commonjs-module`.
+
+```ts
+// Remote
+federation({ name: "remote", ssrFormat: "cjs", exposes: { "./Widget": "./src/Widget.tsx" } });
+// Host
+federation({ name: "host", remotes: { remote: "https://remote.example/mf-manifest.json" },
+  ssrEntryLoader: { strategy: "cjs" } });
+```
+
+This is a production HTTP loading strategy; it needs an advertised CommonJS companion and fails without falling back to an ESM loader. Shared packages, React, and the federation runtime use the host's CommonJS exports. A dual package must offer a `require` condition. Top-level await, runtime `import.meta`, native dynamic imports, unbundled relative `require`, and ESM-only externals are unsupported and produce errors. Runtime packages stay external even with `ssr.noExternal`.
+
+Held exports and pending calls retain their build graph. After replacement, unused generations can be collected independently of Node's module caches; this does not impose a memory limit on application references or process-lifetime external packages. The [reproducible memory protocol](integration/ssr-cjs-memory/README.md) checks 100 and 1,000 replacements of large React remotes against a fixed +64 MiB heap allowance. Node 22 failed that ordinary-GC bound despite graph subscriptions being released, so this strategy rejects it before fetching a remote. Existing SSR strategies remain available on other Node versions.
 
 `ssrEntryLoader` also accepts network and cache options:
 

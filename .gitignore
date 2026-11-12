@@ -9,5 +9,6 @@ dist
 lib
 reports/*
 nohup.out
+.mf-cjs-memory/
 .playwright-mcp
 examples/vite-vite/shared-lib/src/*.js

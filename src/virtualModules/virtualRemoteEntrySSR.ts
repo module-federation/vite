@@ -46,12 +46,12 @@ function getSsrFileNameParts(browserFilename: string): { base: string; ext: stri
 }
 
 export function getSsrRemoteEntryFileName(
-  options: Pick<NormalizedModuleFederationOptions, 'filename' | 'ssrFilename'>,
+  options: Pick<NormalizedModuleFederationOptions, 'filename' | 'ssrFilename' | 'ssrFormat'>,
   browserFilename: string = options.filename
 ): string {
   if (options.ssrFilename) return options.ssrFilename;
   const { base, ext } = getSsrFileNameParts(browserFilename);
-  return `${base}.ssr${ext ?? '.js'}`;
+  return options.ssrFormat === 'cjs' ? `${base}.ssr.cjs` : `${base}.ssr${ext ?? '.js'}`;
 }
 
 export function getSsrExposesFileName(browserFilename: string): string {
