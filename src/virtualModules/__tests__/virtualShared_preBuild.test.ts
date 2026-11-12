@@ -148,6 +148,9 @@ vi.mock('../../utils/packageUtils', async (importOriginal) => ({
     if (pkg === 'mock-package-cjs-star-entry') {
       return '/repo/apps/remote/node_modules/mock-package-cjs-star-entry/index.mjs';
     }
+    if (pkg === 'mock-package-empty-cjs-star-entry') {
+      return '/repo/apps/remote/node_modules/mock-package-empty-cjs-star-entry/index.mjs';
+    }
     if (pkg === 'mock-package-nested-template-literal') {
       return '/repo/apps/remote/node_modules/mock-package-nested-template-literal/index.js';
     }
@@ -457,6 +460,10 @@ vi.mock('fs', () => ({
       filePath.endsWith('/mock-package-cjs-star-entry/index.mjs') ||
       filePath.endsWith('node_modules/mock-package-cjs-star-entry/index.cjs') ||
       filePath.endsWith('/mock-package-cjs-star-entry/index.cjs') ||
+      filePath.endsWith('node_modules/mock-package-empty-cjs-star-entry/index.mjs') ||
+      filePath.endsWith('/mock-package-empty-cjs-star-entry/index.mjs') ||
+      filePath.endsWith('node_modules/mock-package-empty-cjs-star-entry/models.cjs') ||
+      filePath.endsWith('/mock-package-empty-cjs-star-entry/models.cjs') ||
       filePath.endsWith('node_modules/mock-package-nested-template-literal/index.js') ||
       filePath.endsWith('/mock-package-nested-template-literal/index.js') ||
       filePath.endsWith('node_modules/mock-package-dual-shape/dist/browser.js') ||
@@ -708,6 +715,13 @@ export const buttonBase = 1;`;
     }
     if (filePath.endsWith('node_modules/mock-package-cjs-star-entry/index.cjs')) {
       return 'module.exports = { fromCommonJs: true };';
+    }
+    if (filePath.endsWith('node_modules/mock-package-empty-cjs-star-entry/index.mjs')) {
+      return "export const visible = 1;\nexport * from './models.cjs';";
+    }
+    if (filePath.endsWith('node_modules/mock-package-empty-cjs-star-entry/models.cjs')) {
+      // What TypeScript emits for a module that only re-exports types.
+      return '"use strict";\nObject.defineProperty(exports, "__esModule", { value: true });';
     }
     if (filePath.endsWith('node_modules/mock-package-nested-template-literal/index.js')) {
       // Markup assembled from template literals nested inside the `${...}`
@@ -1168,6 +1182,12 @@ vi.mock('module', async (importOriginal) => {
           return {
             fromCommonJs: true,
           };
+        }
+        if (pkg.endsWith('/mock-package-empty-cjs-star-entry/models.cjs')) {
+          return { __esModule: true };
+        }
+        if (pkg.endsWith('/repo/packages/hidden.cjs')) {
+          throw new ReferenceError('window is not defined');
         }
         if (pkg.endsWith('/react/jsx-runtime.js')) {
           return {
@@ -3289,6 +3309,16 @@ describe('writeLoadShareModule', () => {
     expect(
       getSharedNamedExports('mock-package-cjs-star-entry', undefined, ['node', 'import', 'default'])
     ).toEqual(['fromCommonJs']);
+  });
+
+  it('keeps a barrel complete when a CommonJS re-export has no runtime exports', () => {
+    expect(
+      getSharedNamedExports('mock-package-empty-cjs-star-entry', undefined, [
+        'node',
+        'import',
+        'default',
+      ])
+    ).toEqual(['visible']);
   });
 
   it('detects named exports past a nested template literal interpolation', () => {
