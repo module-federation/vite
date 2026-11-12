@@ -957,6 +957,9 @@ export const externalSharedProviderSelectionHelperCode = `const __mfSelectExtern
               instance?.options?.name === provider?.from &&
               instance?.shareScopeMap?.[scopeName] === shared
             );
+            // That later container already loaded this version. Restoring the
+            // snapshot and calling its get() evaluates a second copy.
+            if (selectedFromLaterInstance && (provider?.loaded || typeof provider?.lib === 'function')) return undefined;
             return selectedFromLaterInstance ? scopeRootProvider : undefined;
           };
           const __mfResolveExternalSharedProvider = (
