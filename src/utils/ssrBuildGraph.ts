@@ -218,9 +218,12 @@ export class SsrBuildGraph {
         : Array.isArray(original)
           ? []
           : Object.create(Object.getPrototypeOf(original));
+    if (readonlyView) Object.setPrototypeOf(target, Object.getPrototypeOf(original));
     const proxy: object = new Proxy(target, {
       get(target, property, receiver) {
-        const result = Reflect.get(original, property, graph.originals.get(receiver) ?? receiver);
+        const result = graph.run(() =>
+          Reflect.get(original, property, graph.originals.get(receiver) ?? receiver)
+        );
         // Proxy invariants require frozen properties to retain their identity.
         const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
         if (

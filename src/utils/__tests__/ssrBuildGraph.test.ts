@@ -258,7 +258,12 @@ describe('managed SSR build graphs', () => {
       return __mfResolveState;
     `
     );
-    const frozen = Object.freeze({ run: () => lazy(cache) });
+    const frozen = Object.freeze({
+      run: () => lazy(cache),
+      get lazyValue() {
+        return lazy(cache);
+      },
+    });
     const container = graph.wrapContainer(
       Object.freeze({
         init: () => undefined,
@@ -271,6 +276,7 @@ describe('managed SSR build graphs', () => {
     const exports = (await container.get())();
     exports.nested.run();
     exports.returned().run();
+    void exports.nested.lazyValue;
     expect(graph.initStates.size).toBe(1);
     expect((globalThis as any)[`__mf_init__${owner}__`]).toBeUndefined();
     expect(Object.isFrozen(exports)).toBe(true);
@@ -278,7 +284,23 @@ describe('managed SSR build graphs', () => {
     expect(Reflect.set(exports.nested, 'run', () => {})).toBe(false);
     const subscribers =
       cache[Symbol.for('module-federation.shared-cache-listeners')]['default:frozen'];
-    expect(subscribers.size).toBe(3);
+    expect(subscribers.size).toBe(4);
+  });
+
+  it('preserves custom prototypes on readonly arrays and functions', async () => {
+    const graph = await createSsrBuildGraph();
+    class CustomArray extends Array<unknown> {}
+    const array = Object.freeze(new CustomArray(() => 'array'));
+    const functionPrototype = { marker: 'custom' };
+    const fn = Object.assign(function () {}, { run: () => 'function' });
+    Object.setPrototypeOf(fn, functionPrototype);
+    Object.freeze(fn);
+    const exports = graph.wrapContainer({ array, fn });
+    expect(Array.isArray(exports.array)).toBe(true);
+    expect(exports.array).toBeInstanceOf(CustomArray);
+    expect(Object.getPrototypeOf(exports.array)).toBe(CustomArray.prototype);
+    expect(Object.getPrototypeOf(exports.fn)).toBe(functionPrototype);
+    expect(exports.fn.run()).toBe('function');
   });
 
   it.skipIf(!SourceTextModule)(
