@@ -52,6 +52,7 @@ interface VmModule {
   status: 'unlinked' | 'linking' | 'linked' | 'evaluating' | 'evaluated' | 'errored';
   identifier: string;
   namespace: unknown;
+  dependencySpecifiers?: readonly string[];
   link(linker: Linker): Promise<void>;
   evaluate(): Promise<void>;
 }
@@ -240,6 +241,7 @@ const namespaceCache = new Map<string, Promise<unknown>>();
 const httpModuleCacheOwners = new Map<string, Set<string>>();
 const namespaceCacheOwners = new Map<string, Set<string>>();
 const linkQueues = new WeakMap<object, Promise<void>>();
+const moduleDependencies = new WeakMap<VmModule, Promise<Map<string, VmModule>>>();
 
 const contextIds = new WeakMap<object, number>();
 let nextContextId = 1;
@@ -367,11 +369,48 @@ async function linkModule(
   return createSyntheticModule(vm, specifier, await loadBareModule(specifier, options));
 }
 
-async function linkModuleGraph(
+async function prepareModuleGraph(
+  vm: VmApi,
   module: VmModule,
-  linker: Linker,
-  cacheContext: object
+  options: VmStrategyOptions
+): Promise<Linker> {
+  const graph = new Map<VmModule, Map<string, VmModule>>();
+  const visit = async (module: VmModule): Promise<void> => {
+    if (graph.has(module) || module.status !== 'unlinked') return;
+    // Mark before following dependencies so ordinary static cycles terminate.
+    graph.set(module, new Map());
+    let dependencies = moduleDependencies.get(module);
+    if (!dependencies) {
+      dependencies = Promise.all(
+        (module.dependencySpecifiers ?? []).map(async (specifier) => {
+          const dependency = await linkModule(vm, specifier, module, options);
+          return [specifier, dependency] as const;
+        })
+      ).then((entries) => new Map(entries));
+      moduleDependencies.set(module, dependencies);
+      void dependencies.catch(() => moduleDependencies.delete(module));
+    }
+    const resolved = await dependencies;
+    graph.set(module, resolved);
+    await Promise.all([...resolved.values()].map(visit));
+  };
+
+  // loadShare can initialize another remote in this same cache context. Do
+  // that work before taking the native link queue, otherwise the nested entry
+  // waits behind the graph whose share resolution is waiting for that entry.
+  await visit(module);
+  return (specifier, referencingModule) => graph.get(referencingModule)!.get(specifier)!;
+}
+
+async function linkModuleGraph(
+  vm: VmApi,
+  module: VmModule,
+  options: VmStrategyOptions
 ): Promise<void> {
+  const linker = await prepareModuleGraph(vm, module, options);
+  // Concurrent native links can race on a shared, still-linking descendant.
+  // Keep them serialized after share resolution has finished.
+  const { cacheContext } = options;
   const previous = linkQueues.get(cacheContext) ?? Promise.resolve();
   const current = previous
     .catch(() => {})
@@ -392,9 +431,8 @@ async function importDynamically(
   referencingModule: VmModule,
   options: VmStrategyOptions
 ): Promise<VmModule> {
-  const linker: Linker = (spec, referencer) => linkModule(vm, spec, referencer, options);
-  const module = await linker(specifier, referencingModule);
-  await linkModuleGraph(module, linker, options.cacheContext);
+  const module = await linkModule(vm, specifier, referencingModule, options);
+  await linkModuleGraph(vm, module, options);
   if (module.status === 'linked') await module.evaluate();
   return module;
 }
@@ -420,9 +458,7 @@ export async function loadViaVmStrategy(
       cacheKey,
       (async () => {
         const entryModule = await getHttpModule(vm, entryUrl, graphOptions);
-        const linker: Linker = (specifier, referencingModule) =>
-          linkModule(vm, specifier, referencingModule, graphOptions);
-        await linkModuleGraph(entryModule, linker, options.cacheContext);
+        await linkModuleGraph(vm, entryModule, graphOptions);
         if (entryModule.status === 'linked') await entryModule.evaluate();
         return entryModule.namespace;
       })().catch((error) => {

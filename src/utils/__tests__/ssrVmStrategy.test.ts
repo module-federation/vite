@@ -237,6 +237,116 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(namespace.def.name).toBe('host-shared');
   });
 
+  it('lets share initialization load concurrent remote graphs in the same context', async () => {
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/entry.js': {
+        ok: true,
+        text: 'import { value } from "shared-lib"; export { value };',
+      },
+      'http://localhost:5001/first.js': {
+        ok: true,
+        text: 'export { value } from "./shared.js";',
+      },
+      'http://localhost:5001/second.js': {
+        ok: true,
+        text: 'export { value } from "./shared.js";',
+      },
+      'http://localhost:5001/shared.js': {
+        ok: true,
+        text: 'export { value } from "./leaf.js";',
+      },
+      'http://localhost:5001/leaf.js': { ok: true, text: 'export const value = "nested";' },
+    }) as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+    const options: Parameters<typeof strategy.loadViaVmStrategy>[1] = { ...baseOptions };
+    const loadShare = vi.fn(async () => {
+      const [first, second] = (await Promise.all([
+        strategy.loadViaVmStrategy('http://localhost:5001/first.js', options),
+        strategy.loadViaVmStrategy('http://localhost:5001/second.js', options),
+      ])) as [{ value: string }, { value: string }];
+      expect(first.value).toBe(second.value);
+      return () => first;
+    });
+    options.federationInstance = { options: { shared: { 'shared-lib': {} } }, loadShare };
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/entry.js',
+      options
+    )) as { value: string };
+    expect(namespace.value).toBe('nested');
+    expect(global.fetch).toHaveBeenCalledTimes(5);
+  }, 1000);
+
+  it('continues linking other graphs after a link failure', async () => {
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/broken.js': {
+        ok: true,
+        text: 'import { missing } from "./leaf.js"; export { missing };',
+      },
+      'http://localhost:5001/valid.js': {
+        ok: true,
+        text: 'export { value } from "./leaf.js";',
+      },
+      'http://localhost:5001/leaf.js': { ok: true, text: 'export const value = "valid";' },
+    }) as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+
+    await expect(
+      strategy.loadViaVmStrategy('http://localhost:5001/broken.js', { ...baseOptions })
+    ).rejects.toThrow("does not provide an export named 'missing'");
+    await expect(
+      strategy.loadViaVmStrategy('http://localhost:5001/valid.js', { ...baseOptions })
+    ).resolves.toMatchObject({ value: 'valid' });
+  });
+
+  it('retries dependency preparation after a transient bare import failure', async () => {
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/entry.js': {
+        ok: true,
+        text: 'import { value } from "vm-transient-shared-lib"; export { value };',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+    const loadShare = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('share temporarily unavailable'))
+      .mockResolvedValue(() => ({ value: 'recovered' }));
+    const options = {
+      ...baseOptions,
+      federationInstance: {
+        options: { shared: { 'vm-transient-shared-lib': {} } },
+        loadShare,
+      },
+    };
+
+    await expect(
+      strategy.loadViaVmStrategy('http://localhost:5001/entry.js', options)
+    ).rejects.toThrow('vm-transient-shared-lib');
+    await expect(
+      strategy.loadViaVmStrategy('http://localhost:5001/entry.js', options)
+    ).resolves.toMatchObject({ value: 'recovered' });
+    expect(loadShare).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('links cyclic static module graphs', async () => {
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/first.js': {
+        ok: true,
+        text: 'import { getValue } from "./second.js"; export const value = "cycle"; export { getValue };',
+      },
+      'http://localhost:5001/second.js': {
+        ok: true,
+        text: 'import { value } from "./first.js"; export function getValue() { return value; }',
+      },
+    }) as unknown as typeof globalThis.fetch;
+    const strategy = await freshStrategy();
+    const namespace = (await strategy.loadViaVmStrategy('http://localhost:5001/first.js', {
+      ...baseOptions,
+    })) as { getValue: () => string };
+    expect(namespace.getValue()).toBe('cycle');
+  });
+
   it('negotiates static and dynamic common shared subpaths through the parent share', async () => {
     const fallbackFile = await createFallbackSharedModule('mf-vm-subpath-');
 
