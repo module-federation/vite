@@ -168,7 +168,7 @@ async function loadBareModule(specifier: string, options: VmStrategyOptions): Pr
   const namespace = await import(/* @vite-ignore */ specifier);
   return registerSsrBuildExternal(
     specifier === 'module' || specifier === 'node:module'
-      ? withRemoteCreateRequire(namespace as typeof import('module'), options.resolvedShared)
+      ? await withRemoteCreateRequire(namespace as typeof import('module'), options.resolvedShared)
       : namespace
   );
 }

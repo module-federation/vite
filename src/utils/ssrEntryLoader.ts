@@ -90,8 +90,18 @@ interface SsrEntryLoaderState {
   manifestVersionKeys: Map<string, string>;
   /** Federation instance → remote name → version the loaded container came from. */
   remoteVersions: WeakMap<object, Map<string, LoadedRemoteVersion>>;
-  /** Current remote generation per host. Retired generations are owned by exports. */
-  buildGraphs: WeakMap<object, Map<string, { identity: string; graph: Promise<SsrBuildGraph> }>>;
+  /** Runtime containers own graphs; this index must not keep reset graphs alive. */
+  buildGraphs: WeakMap<
+    object,
+    Map<
+      string,
+      {
+        identity: string;
+        graph?: WeakRef<SsrBuildGraph>;
+        pending?: WeakRef<Promise<SsrBuildGraph>>;
+      }
+    >
+  >;
 }
 
 export const SSR_ENTRY_LOADER_STATE_KEY = Symbol.for('module-federation.vite.ssrEntryLoader.state');
@@ -1876,11 +1886,18 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
         loaderState.buildGraphs.set(loadOptions.cacheContext, graphs);
       }
       const identity = JSON.stringify([ssrEntry.url, ssrEntry.versionKey, loadOptions.strategy]);
-      const previous = graphs.get(remoteInfo.entry);
-      const record =
-        previous?.identity === identity ? previous : { identity, graph: createSsrBuildGraph() };
-      graphs.set(remoteInfo.entry, record);
-      const graph = await record.graph;
+      const owner = configured?.name ?? remoteInfo.name;
+      const previous = graphs.get(owner);
+      const record = previous?.identity === identity ? previous : { identity };
+      graphs.set(owner, record);
+      let graph = record.graph?.deref();
+      if (!graph) {
+        const pending = record.pending?.deref() ?? createSsrBuildGraph();
+        record.pending = new WeakRef(pending);
+        graph = await pending;
+        record.graph = new WeakRef(graph);
+        record.pending = undefined;
+      }
       let mod;
       try {
         mod = await graph.run(() =>
@@ -1893,16 +1910,16 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
           )
         );
       } catch (error) {
-        if (graphs.get(remoteInfo.entry) === record) {
-          if (previous) graphs.set(remoteInfo.entry, previous);
-          else graphs.delete(remoteInfo.entry);
+        if (graphs.get(owner) === record) {
+          if (previous) graphs.set(owner, previous);
+          else graphs.delete(owner);
         }
         throw error;
       }
       if (!mod) {
-        if (graphs.get(remoteInfo.entry) === record) {
-          if (previous) graphs.set(remoteInfo.entry, previous);
-          else graphs.delete(remoteInfo.entry);
+        if (graphs.get(owner) === record) {
+          if (previous) graphs.set(owner, previous);
+          else graphs.delete(owner);
         }
         return;
       }

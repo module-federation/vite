@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { setImmediate } from 'node:timers/promises';
 import { readFile } from 'node:fs';
+import { Module } from 'node:module';
+import { SourceTextModule } from 'node:vm';
 import { createSsrBuildGraph, SSR_BUILD_CONTEXT_KEY } from '../ssrBuildGraph';
 import { sharedCacheHelperCode } from '../packageUtils';
+import { loadViaVmStrategy } from '../ssrVmStrategy';
 import {
   getRuntimeInitBootstrapCode,
   getRuntimeInitPromiseBootstrapCode,
@@ -139,6 +142,80 @@ describe('managed SSR build graphs', () => {
     expect(new regular.PrivateWidget().read()).toBe('private');
     expect(regular.read()).toBe(result);
   });
+
+  it('preserves setters, fluent receivers and argument identity on exposed objects', async () => {
+    const graph = await createSsrBuildGraph();
+    class Counter {
+      #value = 0;
+      get value() {
+        return this.#value;
+      }
+      set value(next) {
+        this.#value = next;
+      }
+      self() {
+        return this;
+      }
+      async selfAsync() {
+        return this;
+      }
+    }
+    const counter = new Counter();
+    const object = {};
+    const exports = graph.wrapContainer({
+      counter,
+      object,
+      isSame: (argument: unknown) => argument === object,
+      echo: (argument: unknown) => argument,
+      map: new Map(),
+    });
+    exports.counter.value = 2;
+    expect(exports.counter.value).toBe(2);
+    expect(exports.counter.self()).toBe(exports.counter);
+    expect(await exports.counter.selfAsync()).toBe(exports.counter);
+    expect(exports.isSame(exports.object)).toBe(true);
+    expect(exports.echo(exports.object)).toBe(exports.object);
+    expect(exports.map.set('object', exports.object)).toBe(exports.map);
+    expect(exports.map.get('object')).toBe(exports.object);
+  });
+
+  it.skipIf(!SourceTextModule)(
+    'registers the resolved node:module facade as a host external',
+    async () => {
+      const graph = await createSsrBuildGraph();
+      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(`
+      import { Module } from 'node:module';
+      export const init = () => {};
+      export const get = async () => () => ({ getModule: () => Module });
+    `)
+      );
+      try {
+        const container = graph.wrapContainer(
+          await graph.run(() =>
+            loadViaVmStrategy('http://localhost:5998/remoteEntry.ssr.js', {
+              resolvedShared: {},
+              shareScopeName: 'default',
+              versionKey: 'external-facade',
+              cacheContext: {},
+            })
+          )
+        ) as any;
+        const exports = (await container.get('./Module'))();
+        expect(exports.getModule()).toBe(Module);
+        expect(
+          (globalThis as any)[Symbol.for('module-federation.vite.ssr-build-externals')].has(Module)
+        ).toBe(true);
+        expect(
+          (globalThis as any)[Symbol.for('module-federation.vite.ssr-build-export-owners')].get(
+            Module
+          )
+        ).toBeUndefined();
+      } finally {
+        fetch.mockRestore();
+      }
+    }
+  );
 
   it('preserves exact shared singleton objects and live export getters', async () => {
     const graph = await createSsrBuildGraph();

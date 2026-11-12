@@ -142,7 +142,10 @@ export class SsrBuildGraph {
     return value;
   }
 
-  private retain<T>(value: T, mode: 'container' | 'get' | 'factory' | 'export' = 'export'): T {
+  private retain<T>(
+    value: T,
+    mode: 'container' | 'init' | 'get' | 'factory' | 'export' = 'export'
+  ): T {
     if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return value;
     const target = value as object;
     if (isShared(target)) return value;
@@ -163,24 +166,49 @@ export class SsrBuildGraph {
           return graph.own(result);
         }
         if (property === 'prototype') return result;
-        return graph.retain(result, mode === 'container' && property === 'get' ? 'get' : 'export');
+        return graph.retain(
+          result,
+          mode === 'container' && property === 'get'
+            ? 'get'
+            : mode === 'container' && property === 'init'
+              ? 'init'
+              : 'export'
+        );
+      },
+      set(target, property, value, receiver) {
+        return graph.run(() =>
+          Reflect.set(
+            target,
+            property,
+            graph.originals.get(value) ?? value,
+            graph.originals.get(receiver) ?? receiver
+          )
+        );
       },
       apply(target, receiver, args) {
         return graph.run(() => {
-          const result = Reflect.apply(
-            target as Function,
-            graph.originals.get(receiver) ?? receiver,
-            args
-          );
-          if (mode === 'export' && (result === receiver || args.includes(result))) return result;
+          const originalReceiver = graph.originals.get(receiver) ?? receiver;
+          const originalArgs = args.map((argument) => graph.originals.get(argument) ?? argument);
+          const result = Reflect.apply(target as Function, originalReceiver, originalArgs);
           // A pending invocation must keep the graph alive even if its caller
           // releases the function before the invocation settles.
-          const retainResult = (resolved: unknown) =>
-            mode === 'get'
+          const retainResult = (resolved: unknown) => {
+            // Federation init returns a process-owned runtime instance, not a
+            // remote export. Its global hooks must never own this graph.
+            if (mode === 'init') return resolved;
+            if (resolved === originalReceiver) return receiver;
+            const index = originalArgs.indexOf(resolved);
+            if (index !== -1) return args[index];
+            if (resolved && (typeof resolved === 'object' || typeof resolved === 'function')) {
+              const wrapper = graph.wrappers.get(resolved);
+              if (wrapper) return wrapper;
+            }
+            return mode === 'get'
               ? graph.retain(resolved, 'factory')
               : mode === 'factory'
                 ? graph.retain(resolved)
                 : graph.own(resolved);
+          };
           if (result && typeof result.then === 'function') {
             return Promise.resolve(result).then(retainResult);
           }

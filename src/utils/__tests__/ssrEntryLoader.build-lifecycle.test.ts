@@ -3,7 +3,7 @@ import { SourceTextModule } from 'node:vm';
 import { setImmediate } from 'node:timers/promises';
 import { createInstance, type ModuleFederationRuntimePlugin } from '@module-federation/runtime';
 import { describe, expect, it } from 'vitest';
-import ssrEntryLoaderPlugin, { revalidate } from '../ssrEntryLoader';
+import ssrEntryLoaderPlugin, { revalidate, SSR_ENTRY_LOADER_STATE_KEY } from '../ssrEntryLoader';
 import { sharedCacheHelperCode } from '../packageUtils';
 import {
   getRuntimeInitPromiseBootstrapCode,
@@ -22,6 +22,7 @@ describe.skipIf(!SourceTextModule)('SSR generated build lifecycle through loadRe
       const singleton = { createElement: () => 'host' };
       cache[cacheKey] = singleton;
       let version = 0;
+      let unavailable = false;
       let entryHits = 0;
       const owners: string[] = [];
       const server = createServer((request, response) => {
@@ -36,7 +37,11 @@ describe.skipIf(!SourceTextModule)('SSR generated build lifecycle through loadRe
                 type: 'app',
                 buildInfo: { buildVersion: `${version}`, buildName: name },
                 remoteEntry: { name: 'remoteEntry.js', path: '', type: 'module' },
-                ssrRemoteEntry: { name: 'remoteEntry.ssr.js', path: '', type: 'module' },
+                ssrRemoteEntry: {
+                  name: 'remoteEntry.ssr.js',
+                  path: `release-${version}/`,
+                  type: 'module',
+                },
                 types: { path: '', name: '', zip: '', api: '' },
                 globalName: name,
                 publicPath: 'auto',
@@ -46,8 +51,12 @@ describe.skipIf(!SourceTextModule)('SSR generated build lifecycle through loadRe
               exposes: [],
             })
           );
-        } else if (request.url?.startsWith('/remoteEntry.ssr.js')) {
+        } else if (request.url?.includes('/remoteEntry.ssr.js')) {
           entryHits++;
+          if (unavailable) {
+            response.writeHead(503).end('unavailable');
+            return;
+          }
           const owner = `${name}_${version}`;
           owners.push(`__mf_init__${owner}__`);
           response.end(`
@@ -110,7 +119,16 @@ describe.skipIf(!SourceTextModule)('SSR generated build lifecycle through loadRe
         version = 100;
         expect((await load())!.marker).toBe(100);
         expect(entryHits).toBe(hits);
+        expect(cacheHolder[SSR_ENTRY_LOADER_STATE_KEY].buildGraphs.get(host).size).toBe(1);
         expect(owners.every((key) => !Object.hasOwn(globalThis, key))).toBe(true);
+        version = 101;
+        unavailable = true;
+        revalidate(name);
+        await expect(load()).rejects.toThrow();
+        unavailable = false;
+        version = 100;
+        revalidate(name);
+        expect((await load())!.marker).toBe(100);
         for (let index = 0; global.gc && index < 6; index++) {
           await setImmediate();
           global.gc({ type: 'major', execution: 'sync' });
