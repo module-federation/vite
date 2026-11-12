@@ -42,6 +42,107 @@ async function createWorkspaceFixture() {
 }
 
 describe('host build', () => {
+  it.each(['html', 'entry'] as const)(
+    'emits preload data matching HTML with %s injection',
+    async (inject) => {
+      const output = await buildFixture({
+        fixture: 'basic-host',
+        mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: inject },
+        viteConfig: { base: '/app/', build: { manifest: true } },
+      });
+      const asset = output.output.find(
+        (item) => item.type === 'asset' && item.fileName === '.vite/mf-preload.json'
+      );
+      expect(asset?.type).toBe('asset');
+      if (asset?.type !== 'asset') throw new Error('missing preload manifest');
+      const preloads = JSON.parse(String(asset.source));
+      expect(preloads.remoteEntries).toEqual(['http://localhost:3001/remoteEntry.js']);
+      expect(preloads.hostInit.length).toBeGreaterThan(0);
+      for (const file of preloads.hostInit) {
+        expect(output.output.some((item) => item.type === 'chunk' && item.fileName === file)).toBe(
+          true
+        );
+      }
+      const hrefs = Array.from(
+        String(getHtmlAsset(output)?.source).matchAll(
+          /<link\b[^>]*rel="modulepreload"[^>]*href="([^"]+)"/g
+        ),
+        (match) => match[1]
+      );
+      expect(new Set(hrefs)).toEqual(
+        new Set([
+          ...preloads.remoteEntries,
+          ...preloads.hostInit.map((file: string) => `/app/${file}`),
+        ])
+      );
+    }
+  );
+
+  it.each(['entry', undefined] as const)(
+    'emits preload data without HTML with %s injection',
+    async (inject) => {
+      const output = await buildFixture({
+        fixture: 'basic-host',
+        mfOptions: { ...HOST_BASE_MF_OPTIONS, hostInitInjectLocation: inject },
+        viteConfig: {
+          build: {
+            manifest: true,
+            rollupOptions: { input: resolve(FIXTURES, 'basic-host', 'entry.js') },
+          },
+        },
+      });
+      expect(output.output.some((item) => item.fileName.endsWith('.html'))).toBe(false);
+      const asset = output.output.find(
+        (item) => item.type === 'asset' && item.fileName === '.vite/mf-preload.json'
+      );
+      if (asset?.type !== 'asset') throw new Error('missing preload manifest');
+      const preloads = JSON.parse(String(asset.source));
+      const app = output.output.find(
+        (item) => item.type === 'chunk' && item.facadeModuleId?.includes('mf-entry-bootstrap')
+      );
+      expect(app).toBeDefined();
+      expect(preloads.hostInit).toContain(app!.fileName);
+    }
+  );
+
+  it('skips preload data without build.manifest while retaining HTML hints', async () => {
+    const output = await buildFixture({ fixture: 'basic-host', mfOptions: HOST_BASE_MF_OPTIONS });
+    expect(output.output.some((item) => item.fileName === '.vite/mf-preload.json')).toBe(false);
+    expect(String(getHtmlAsset(output)?.source)).toContain(
+      '<link rel="modulepreload" crossorigin href="http://localhost:3001/remoteEntry.js">'
+    );
+  });
+
+  it('combines preload data from multiple federation configurations', async () => {
+    const options = ['one', 'two'].map((name) => ({
+      ...HOST_BASE_MF_OPTIONS,
+      name,
+      filename: `${name}/remoteEntry.js`,
+      hostInitInjectLocation: 'entry' as const,
+      remotes: {
+        remote1: {
+          name: 'remote1',
+          type: 'module',
+          entry: `https://${name}.example/remoteEntry.js`,
+        },
+      },
+    }));
+    const output = await buildFixture({
+      fixture: 'basic-host',
+      mfOptions: options,
+      viteConfig: { build: { manifest: true } },
+    });
+    const assets = output.output.filter((item) => item.fileName === '.vite/mf-preload.json');
+    expect(assets).toHaveLength(1);
+    if (assets[0].type !== 'asset') throw new Error('missing preload manifest');
+    const preloads = JSON.parse(String(assets[0].source));
+    expect(preloads.remoteEntries).toEqual([
+      'https://one.example/remoteEntry.js',
+      'https://two.example/remoteEntry.js',
+    ]);
+    expect(new Set(preloads.hostInit).size).toBe(preloads.hostInit.length);
+  });
+
   it('does not emit SSR loader chunks for a client-only build with remotes', async () => {
     const output = await buildFixture({
       fixture: 'basic-host',
