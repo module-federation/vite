@@ -4598,6 +4598,15 @@ describe('virtualRemoteEntry', () => {
     expect(state.localLibLoads).toBe(0);
     expect(state.cachedLib).toBeUndefined();
     expect(state.deferredSeedKeys).toEqual(['shared-lib']);
+    // Once a nested container has bound the singleton, restoring the scope-root
+    // provider must not evaluate another copy. The bound module is published
+    // onto every scope before init resolves.
+    expect(code).toContain('cachedShareOwner !== provider.from');
+    expect(code).toContain('let __mfPublishBoundShares = () => {}');
+    expect(code.indexOf('__mfPublishBoundShares()')).toBeLessThan(
+      code.indexOf('initResolve(initRes)')
+    );
+    expect(code).toContain('__mfBoundShareVersionLess');
   });
 
   it('orders package subpath shares discovered after remoteEntry codegen before their package root', async () => {
