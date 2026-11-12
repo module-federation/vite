@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import pluginSsrRuntimeInit from '../pluginSsrRuntimeInit';
 import { normalizeModuleFederationOptions } from '../../utils/normalizeModuleFederationOptions';
 import { getHostAutoInitPath, writeHostAutoInit } from '../../virtualModules/virtualRemoteEntry';
+import { createSsrBuildGraph } from '../../utils/ssrBuildGraph';
 
 function getHook<T>(hook: T | { handler: T } | undefined): T {
   if (!hook) throw new Error('hook missing');
@@ -66,5 +67,13 @@ describe('pluginSsrRuntimeInit', () => {
     expect(result?.code).toContain('const bootstrapRemoteNames = new Set(bootstrapRemotes.map');
     expect(result?.code).toContain("name: 'vite-ssr-application-remote-plugin'");
     expect(result?.code).toContain('plugins: [applicationRemotePlugin,');
+    const graph = await createSsrBuildGraph();
+    const runtime = { marker: 'managed-host' };
+    const source = result.code!
+      .replace(/^\s*import[^\n]+;[ \t]*$/gm, '')
+      .replace('export { initHost, hostInitPromise };', '');
+    const initialized = graph.run(() => Function('init', 'usedShared', 'usedRemotes', `${source}; return hostInitPromise;`)(() => runtime, {}, []));
+    await expect(initialized).resolves.toBe(runtime);
+    expect([...graph.initStates.values()][0].ssrInitStarted).toBe(true);
   });
 });
