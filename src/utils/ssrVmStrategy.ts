@@ -29,7 +29,7 @@ import {
 import { EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
 import { findSharedKey, type SharedKeyLookup } from './sharedKeyMatcher';
 import { resolveSharedPath } from './ssrEntryLoader';
-import { registerSsrBuildExternal } from './ssrBuildGraph';
+import { registerSsrBuildExternal, withoutSsrBuildGraph } from './ssrBuildGraph';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
@@ -82,7 +82,7 @@ interface VmApi {
 let vmApiPromise: Promise<VmApi | null> | undefined;
 async function getVmApi(): Promise<VmApi | null> {
   if (!vmApiPromise) {
-    vmApiPromise = (async () => {
+    vmApiPromise = withoutSsrBuildGraph(async () => {
       try {
         const vm = (await import(/* @vite-ignore */ 'vm')) as unknown as Partial<VmApi>;
         if (typeof vm.SourceTextModule !== 'function' || typeof vm.SyntheticModule !== 'function') {
@@ -92,7 +92,7 @@ async function getVmApi(): Promise<VmApi | null> {
       } catch {
         return null;
       }
-    })();
+    });
   }
   return vmApiPromise;
 }

@@ -4,6 +4,13 @@ export const SSR_BUILD_CONTEXT_KEY = Symbol.for('module-federation.vite.ssr-buil
 interface BuildContext {
   getStore(): SsrBuildGraph | undefined;
   run<T>(graph: SsrBuildGraph, callback: () => T): T;
+  exit<T>(callback: () => T): T;
+}
+
+/** Process-owned import/cache promises must not inherit a remote's ALS store. */
+export function withoutSsrBuildGraph<T>(callback: () => T): T {
+  const context = (globalThis as any)[SSR_BUILD_CONTEXT_KEY] as BuildContext | undefined;
+  return context ? context.exit(callback) : callback();
 }
 
 type Listener = (value: unknown) => void;

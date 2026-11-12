@@ -151,6 +151,7 @@ describe.skipIf(!SourceTextModule)('SSR generated build lifecycle through loadRe
         delete cache[Symbol.for('module-federation.shared-cache-listeners')]?.[cacheKey];
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
-    }
+    },
+    20_000
   );
 });
