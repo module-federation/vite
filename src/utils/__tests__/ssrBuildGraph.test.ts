@@ -227,11 +227,13 @@ describe('managed SSR build graphs', () => {
       let marker = 'v1';
       const exports = graph.wrapContainer({
         shared,
+        hostArray: Array,
         get marker() {
           return marker;
         },
       });
       expect(exports.shared).toBe(shared);
+      expect(exports.hostArray).toBe(Array);
       expect(exports.shared.createElement).toBe(shared.createElement);
       marker = 'v2';
       expect(exports.marker).toBe('v2');

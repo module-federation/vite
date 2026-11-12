@@ -35,6 +35,14 @@ function weakDispatcher(graph: WeakRef<SsrBuildGraph>, id: number): Listener {
   return (value) => graph.deref()?.notify(id, value);
 }
 
+function isNativeFunction(value: unknown): boolean {
+  return (
+    typeof value === 'function' &&
+    /\{\s*\[native code\]\s*\}$/.test(Function.prototype.toString.call(value)) &&
+    !value.name.startsWith('bound ')
+  );
+}
+
 function isShared(value: object): boolean {
   if (externals.has(value)) return true;
   for (const key of ['__mf_module_cache__', '__mf_module_cache_react_server__']) {
@@ -128,11 +136,7 @@ export class SsrBuildGraph {
     if (typeof value === 'function') {
       // Native functions/prototypes have process lifetime and must never own
       // a remote graph merely because an exposed function returned a Date etc.
-      if (
-        /\{\s*\[native code\]\s*\}$/.test(Function.prototype.toString.call(value)) &&
-        !(value as Function).name.startsWith('bound ')
-      )
-        return value;
+      if (isNativeFunction(value)) return value;
       let owners = exportOwners.get(target);
       if (!owners) exportOwners.set(target, (owners = new Set()));
       owners.add(this);
@@ -151,11 +155,12 @@ export class SsrBuildGraph {
 
   private retain<T>(
     value: T,
-    mode: 'container' | 'init' | 'get' | 'factory' | 'export' = 'export'
+    mode: 'container' | 'init' | 'get' | 'factory' | 'export' = 'export',
+    wrapNative = false
   ): T {
     if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return value;
     const target = value as object;
-    if (isShared(target)) return value;
+    if (isShared(target) || (!wrapNative && isNativeFunction(value))) return value;
     const existing = this.wrappers.get(target);
     if (existing) return existing as T;
     const graph = this;
@@ -173,13 +178,20 @@ export class SsrBuildGraph {
           return graph.own(result);
         }
         if (property === 'prototype') return result;
+        const prototype = Object.getPrototypeOf(target);
+        const nativeReceiver =
+          typeof target !== 'function' &&
+          prototype &&
+          prototype !== Object.prototype &&
+          isNativeFunction(prototype.constructor);
         return graph.retain(
           result,
           mode === 'container' && property === 'get'
             ? 'get'
             : mode === 'container' && property === 'init'
               ? 'init'
-              : 'export'
+              : 'export',
+          nativeReceiver
         );
       },
       set(target, property, value, receiver) {
