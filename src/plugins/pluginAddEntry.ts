@@ -11,7 +11,11 @@ import {
 import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import { isCSSFile } from '../utils/cssModuleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
-import { isClientEnvironment, isServerBuildContext } from '../utils/remoteConsumerTarget';
+import {
+  isClientEnvironment,
+  isDedicatedSsrEnvironment,
+  isServerBuildContext,
+} from '../utils/remoteConsumerTarget';
 
 import {
   findModuleImportSources,
@@ -1159,6 +1163,8 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         // RSC environments) must still emit their entry chunks normally.
         const environmentName = (this as { environment?: { name?: string } }).environment?.name;
         if (environmentName === 'ssr') return;
+        // The dedicated SSR remote entry build holds only the published SSR graph.
+        if (isDedicatedSsrEnvironment(this, getFederationOptions())) return;
         const hasHash = fileName?.includes?.('[hash');
         const emitFileOptions: any = {
           name: entryName,

@@ -658,6 +658,20 @@ function normalizeSsrEntryLoader(
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
+const VITE_ENVIRONMENT_NAME_RE = /^[\w$]+$/;
+
+function normalizeSsrEnvironment(name: string | undefined): string | undefined {
+  // `ssr` is the default: the SSR entry is built inside the app's server bundle.
+  if (!name || name === 'ssr') return undefined;
+  if (name === 'client' || !VITE_ENVIRONMENT_NAME_RE.test(name)) {
+    throw createModuleFederationError(
+      `Invalid ssrEnvironment: "${name}". Use a Vite environment name made of letters, ` +
+        `digits, "$" and "_" that is not "client", e.g. "mf_ssr".`
+    );
+  }
+  return name;
+}
+
 export type ModuleFederationOptions = {
   exposes?: Record<string, string | { import: string }> | undefined;
   filename?: string;
@@ -667,6 +681,22 @@ export type ModuleFederationOptions = {
    * entry when both builds share an output directory. `[hash]` is not supported.
    */
   ssrFilename?: string;
+  /**
+   * Name of a dedicated Vite environment that builds the SSR remote entry
+   * (`remoteEntry.ssr.js`) and the exposes it imports. The plugin creates the
+   * environment (it inherits the `ssr` environment's resolve options), builds it
+   * after the app with Vite's app builder, and publishes only that graph next to
+   * the browser assets.
+   *
+   * By default the SSR entry is built inside the app's `ssr` environment, so
+   * the published graph is compiled exactly like the app's private server
+   * bundle. A framework integration that compiles server-only code (such as
+   * TanStack Start server function handlers) can compile this environment
+   * differently, so the published entry only contains code that is safe to
+   * serve. Requires Vite 7+ and the app builder (`builder` config or
+   * `vite build --app`).
+   */
+  ssrEnvironment?: string;
   library?: any;
   name: string;
   // remoteType?: string;
@@ -881,6 +911,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
   exposes: Record<string, ExposesItem>;
   filename: string;
   ssrFilename?: string;
+  ssrEnvironment?: string;
   internalName: string;
   library: any;
   remotes: Record<string, RemoteObjectConfig>;
@@ -1105,6 +1136,7 @@ export function normalizeModuleFederationOptions(
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
     ssrFilename: options.ssrFilename || undefined,
+    ssrEnvironment: normalizeSsrEnvironment(options.ssrEnvironment),
     internalName: toInternalModuleFederationName(options.name),
     library: normalizeLibrary(options.library),
     name: options.name,
