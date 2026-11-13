@@ -377,6 +377,17 @@ With `maxAgeMs`, a running host re-checks a remote's manifest on the next `loadR
 
 The SSR remote entry is emitted as `<filename base>.ssr.js` next to the browser entry, or under the exact name given by `ssrFilename`, and is advertised as `metaData.ssrRemoteEntry` in `mf-manifest.json`. It keeps `@module-federation/runtime`, `@module-federation/runtime-core` and `@module-federation/sdk` external by default so Node resolves them from the host. Hosts that cannot resolve those packages, such as a plain `@module-federation/enhanced` host using the SDK's reference Node loader, need a self-contained entry: opt the packages back in with Vite's `ssr.noExternal` (for example `ssr: { noExternal: true }`) on the remote.
 
+The SSR remote entry and the chunks it imports are published next to the browser assets, so hosts can fetch them. By default they are built inside the app's `ssr` environment and compiled exactly like the remote's private server bundle. That is a problem when a framework compiles server-only code there, such as TanStack Start server function handlers: the handler body would be served publicly, and a host rendering the remote would run it in its own process. Set `ssrEnvironment` to build the published SSR entry in a dedicated environment instead:
+
+```ts
+federation({
+  // ...
+  ssrEnvironment: "mf_ssr",
+});
+```
+
+The plugin creates the environment (a server consumer that inherits the `ssr` environment's resolve options and writes next to its output, for example `dist/mf_ssr`), builds it after the app's own environments, and publishes only its graph. The app's `ssr` environment no longer emits an SSR remote entry. A framework integration can then compile `mf_ssr` differently from the app's server bundle, for example turning each server function into an RPC caller. `ssrEnvironment` applies to `vite build` with the app builder (a `builder` config, `vite build --app`, or a framework that uses it) on Vite 7 and later; development is unchanged.
+
 ## Runtime capability optimization
 
 Runtime features that a build never uses can be removed at build time:

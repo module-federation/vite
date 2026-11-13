@@ -1,7 +1,8 @@
 import * as fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import * as path from 'node:path';
-import { Plugin, ResolvedConfig } from 'vite';
+import { version as viteVersion } from 'vite';
+import type { EnvironmentOptions, Plugin, ResolvedConfig } from 'vite';
 import {
   isRemoteContainer,
   hasRemotes,
@@ -19,6 +20,8 @@ import {
   VITE_FS_PREFIX,
 } from '../utils/pathNormalization';
 import { findSharedKey } from '../utils/sharedKeyMatcher';
+import { createModuleFederationError, mfWarn } from '../utils/logger';
+import { isDedicatedSsrEnvironment } from '../utils/remoteConsumerTarget';
 import { decodeViteId } from '../utils/VirtualModule';
 import { getHostAutoInitPath } from '../virtualModules/virtualRemoteEntry';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
@@ -29,6 +32,12 @@ import {
   getSsrHostInitId,
   getSsrRemoteEntryFileName,
 } from '../virtualModules/virtualRemoteEntrySSR';
+
+// `rolldownOptions` is Vite 8's name for `rollupOptions`; both may be present.
+type BuildInputOptions = NonNullable<EnvironmentOptions['build']> & {
+  rolldownOptions?: { input?: unknown };
+  rollupOptions?: { input?: unknown };
+};
 
 const MAX_RUNNER_BODY_BYTES = 1024 * 1024;
 const MAX_RUNNER_START_OFFSET = 1024 * 1024;
@@ -231,6 +240,11 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let ssrOutputFiles = new Set<string>();
   let ssrOutputDir = '';
   let clientOutputDir = '';
+  // `ssrEnvironment` moves the published SSR entry graph out of the app's
+  // `ssr` environment into one that only builds that graph, so frameworks can
+  // compile it as public code (e.g. server functions as RPC callers).
+  const dedicatedEnvironment = isRemoteContainer(options) ? options.ssrEnvironment : undefined;
+  const ssrEnvironmentName = dedicatedEnvironment ?? 'ssr';
 
   // MF internal packages must be external for the SSR entry (Node resolves
   // them via its module cache) but must NOT be global externals — they need
@@ -273,9 +287,17 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   let viteConfig: ResolvedConfig | undefined;
   let isNuxtProject = false;
   let reactIslandExposes: ReadonlySet<string> = new Set();
+  let ssrEnvironmentOptions: EnvironmentOptions | undefined;
+  let hasDedicatedOutDir = false;
+  let hasDedicatedInput = false;
+  let clientOutDir: string | undefined;
+  let warnedNoBuilder = false;
+  let projectRoot = process.cwd();
 
   const isSsrRemoteEntryBuild = (environment?: { name?: string; config?: ResolvedConfig }) => {
     const environmentName = environment?.name;
+    // Never fall back to the legacy `build.ssr` build: it is the app's private server bundle.
+    if (dedicatedEnvironment) return environmentName === dedicatedEnvironment;
     const hasSsrEnvironment = Boolean(viteConfig?.environments?.ssr);
     const isLegacySsrBuild = Boolean(environment?.config?.build?.ssr ?? viteConfig?.build?.ssr);
 
@@ -339,7 +361,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       configResolved(config) {
         isServe = config.command === 'serve';
         noExternal =
-          config.environments?.ssr?.resolve?.noExternal ??
+          config.environments?.[ssrEnvironmentName]?.resolve?.noExternal ??
           (config.ssr as { noExternal?: typeof noExternal } | undefined)?.noExternal;
         // Build a map of alias target abs-path → bare package name for each
         // SSR-only external. This lets resolveId intercept the post-alias path.
@@ -404,10 +426,130 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       // No `apply: 'build'` — resolveId/load must run in serve too.
       // buildStart and generateBundle are guarded internally.
 
+      config(config, { command }) {
+        if (!dedicatedEnvironment || command !== 'build') return;
+        // Return defaults instead of mutating: Vite resolves the config again
+        // for each environment, and user and framework settings must win.
+        projectRoot = path.resolve(config.root ?? process.cwd());
+        const userEnvironment = config.environments?.[dedicatedEnvironment];
+        const build = userEnvironment?.build as BuildInputOptions | undefined;
+        hasDedicatedOutDir = build?.outDir !== undefined;
+        hasDedicatedInput =
+          build?.rollupOptions?.input !== undefined || build?.rolldownOptions?.input !== undefined;
+        return {
+          environments: {
+            [dedicatedEnvironment]: {
+              ...(userEnvironment?.consumer ? {} : { consumer: 'server' as const }),
+              // Turns an inherited string `input` (often `index.html`, which a
+              // server build rejects) into an array; `options` then drops it.
+              ...(hasDedicatedInput ? {} : { build: { rollupOptions: { input: [] } } }),
+            },
+          },
+        };
+      },
+
+      configEnvironment(name, environment) {
+        if (!dedicatedEnvironment) return;
+        if (name === 'client') {
+          clientOutDir = environment.build?.outDir;
+          return;
+        }
+        if (name === 'ssr') {
+          ssrEnvironmentOptions = environment;
+          return;
+        }
+        if (name !== dedicatedEnvironment) return;
+        const overrides: EnvironmentOptions = {};
+        // Every environment inherits the top-level `build.outDir`, usually the
+        // client output, which this build would empty. Default to a sibling of
+        // the app's server output (`dist/server` → `dist/<name>`), or a
+        // subdirectory when the app writes everything to one directory.
+        if (!hasDedicatedOutDir) {
+          const ssrOutDir =
+            ssrEnvironmentOptions?.build?.outDir ?? environment.build?.outDir ?? 'dist';
+          const parent = path.dirname(ssrOutDir);
+          const directory = path.resolve(projectRoot, parent) === projectRoot ? ssrOutDir : parent;
+          // e.g. `ssrEnvironment: 'server'` next to `dist/server`: never reuse,
+          // and so empty, an output the app writes.
+          const appOutDirs = [ssrOutDir, clientOutDir ?? 'dist'].map((dir) =>
+            path.resolve(projectRoot, dir)
+          );
+          let outDir = path.join(directory, dedicatedEnvironment);
+          if (appOutDirs.includes(path.resolve(projectRoot, outDir))) {
+            outDir = path.join(directory, `mf-${dedicatedEnvironment}`);
+          }
+          overrides.build = { outDir };
+        }
+        // Resolve the published graph like the app's server bundle, which the
+        // remote's SSR consumers already rely on (externals, conditions).
+        const ssrResolve = ssrEnvironmentOptions?.resolve;
+        if (ssrResolve) {
+          const resolve = environment.resolve ?? {};
+          overrides.resolve = {
+            ...(resolve.conditions ? {} : { conditions: ssrResolve.conditions }),
+            ...(resolve.externalConditions
+              ? {}
+              : { externalConditions: ssrResolve.externalConditions }),
+            ...(resolve.external ? {} : { external: ssrResolve.external }),
+            ...(resolve.noExternal ? {} : { noExternal: ssrResolve.noExternal }),
+          };
+        }
+        return overrides;
+      },
+
+      options(inputOptions) {
+        // Top-level `build` inputs reach every environment, merged into ours.
+        // The SSR remote entry, emitted in buildStart, is this build's only entry.
+        if (hasDedicatedInput || !isDedicatedSsrEnvironment(this, options)) return;
+        return { ...inputOptions, input: [] };
+      },
+
       configResolved(config) {
         viteConfig = config;
         isNuxtProject = isNuxtProjectRoot(config.root);
         reactIslandExposes = getReactIslandExposes(options, config.root);
+        // Plugin `buildApp` hooks, which build this environment, exist since Vite 7.
+        if (
+          dedicatedEnvironment &&
+          config.command === 'build' &&
+          (parseInt(viteVersion, 10) < 7 || !config.environments?.[dedicatedEnvironment])
+        ) {
+          throw createModuleFederationError(
+            `ssrEnvironment "${dedicatedEnvironment}" needs Vite 7 or later.`
+          );
+        }
+        // Without the app builder only `client` (or `ssr` with --ssr) is built.
+        if (
+          dedicatedEnvironment &&
+          config.command === 'build' &&
+          !config.builder &&
+          !warnedNoBuilder
+        ) {
+          warnedNoBuilder = true;
+          mfWarn(
+            `ssrEnvironment "${dedicatedEnvironment}" is only built by Vite's app builder ` +
+              `(\`builder\` config or \`vite build --app\`); this build emits no SSR remote entry.`
+          );
+        }
+      },
+
+      buildApp: {
+        // After the configured `builder.buildApp` (e.g. a framework's), so the
+        // published SSR entry is built once the app's own environments exist.
+        order: 'post',
+        async handler(builder) {
+          const environment = dedicatedEnvironment && builder.environments[dedicatedEnvironment];
+          if (!environment || environment.isBuilt) return;
+          const environments = Object.values(builder.environments);
+          // Vite builds every environment only when no buildApp hook built one.
+          // Building ours would skip that default, so build the others first.
+          if (environments.every((env) => !env.isBuilt)) {
+            for (const env of environments) {
+              if (env !== environment) await builder.build(env);
+            }
+          }
+          await builder.build(environment);
+        },
       },
 
       configureServer(server) {
@@ -591,7 +733,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
         // Rollup emits the SSR container as an asset. Its host bootstrap must
         // have a stable exported facade that this asset can import as well.
-        if (!isRolldown && hasRemotes(options)) {
+        if (!isRolldown && !dedicatedEnvironment && hasRemotes(options)) {
           hostInitChunkRef = this.emitFile({
             type: 'chunk',
             id: ssrHostInitId,
@@ -600,9 +742,10 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
           });
         }
 
-        if (isRolldown) {
+        if (isRolldown || dedicatedEnvironment) {
           // Vite 8+ (Rolldown): emit as a proper chunk. Rolldown handles multiple
           // entry chunks without code-splitting side effects on the browser entry.
+          // A dedicated `ssrEnvironment` build has no other entry, so Rollup can too.
           this.emitFile({
             type: 'chunk',
             id: remoteEntrySSRId,
@@ -634,7 +777,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
             }
           ).environment;
           const exposesChunk = findNuxtExposesChunk(bundle) ?? findEmittedExposesChunk(bundle);
-          if (!isRolldown && isSsrRemoteEntryBuild(environment)) {
+          if (!isRolldown && !dedicatedEnvironment && isSsrRemoteEntryBuild(environment)) {
             let source = getSsrRemoteEntrySource();
             if (hasRemotes(options) && hostInitChunkRef) {
               source = source.replace(
@@ -661,7 +804,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
             });
           }
 
-          if ((this as { environment?: { name?: string } }).environment?.name === 'ssr') {
+          if (environment?.name === ssrEnvironmentName) {
             ssrOutputFiles = collectEntryOutputFiles(bundle, ssrOutputFilename);
           }
         },
@@ -669,7 +812,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
       writeBundle(outputOptions) {
         const environmentName = (this as { environment?: { name?: string } }).environment?.name;
-        if (environmentName === 'ssr' && outputOptions.dir) {
+        if (environmentName === ssrEnvironmentName && outputOptions.dir) {
           ssrOutputDir = outputOptions.dir;
         } else if (environmentName === 'client' && outputOptions.dir) {
           clientOutputDir = outputOptions.dir;
