@@ -2,13 +2,15 @@ import * as fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import * as path from 'node:path';
 import { Plugin, ResolvedConfig } from 'vite';
+import { buildSsrCjs } from '../utils/buildSsrCjs';
+import { isServerContext } from '../utils/remoteConsumerTarget';
 import {
   isRemoteContainer,
   hasRemotes,
   NormalizedModuleFederationOptions,
 } from '../utils/normalizeModuleFederationOptions';
 import { resolveExposeImport } from '../utils/buildPaths';
-import { getIsRolldown, isNuxtProjectRoot } from '../utils/packageUtils';
+import { getIsRolldown, isNuxtProjectRoot, resolveImportPath } from '../utils/packageUtils';
 import { getReactIslandExposes } from '../utils/reactIsland';
 import {
   getBasePath,
@@ -18,7 +20,7 @@ import {
   toRelativeImport,
   VITE_FS_PREFIX,
 } from '../utils/pathNormalization';
-import { findSharedKey } from '../utils/sharedKeyMatcher';
+import { findSharedKey, getSharedRequest } from '../utils/sharedKeyMatcher';
 import { decodeViteId } from '../utils/VirtualModule';
 import { getHostAutoInitPath } from '../virtualModules/virtualRemoteEntry';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
@@ -241,7 +243,18 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
     '@module-federation/runtime-core',
     '@module-federation/sdk',
   ];
-  const ssrOnlyExternals = [...mfRuntimePackages, ...(options.ssrExternals ?? [])];
+  const ssrOnlyExternals = [
+    ...mfRuntimePackages,
+    ...(options.ssrFormat === 'cjs'
+      ? [
+          '@module-federation/vite/ssrEntryLoader',
+          ...Object.entries(options.shared).map(([key, share]) =>
+            getSharedRequest(key, share).replace(/\/$/, '')
+          ),
+        ]
+      : []),
+    ...(options.ssrExternals ?? []),
+  ];
   const ssrOnlyExternalPattern = new RegExp(
     `^(${ssrOnlyExternals.map((e) => e.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|')})(\\/.*)?$`
   );
@@ -251,6 +264,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
   // SSR entry. Explicit `ssrExternals` always stay external.
   let noExternal: string | RegExp | (string | RegExp)[] | true | undefined;
   const isNoExternal = (id: string) => {
+    if (options.ssrFormat === 'cjs') return false;
     const pkg = ssrOnlyExternalPattern.exec(id)?.[1] ?? id;
     if (!noExternal || !mfRuntimePackages.includes(pkg)) return false;
     if (noExternal === true) return true;
@@ -336,11 +350,35 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       // serve so Vite's dev server can respond to virtual SSR module requests
       // from ssrEntryLoader.
 
+      config(config) {
+        if (options.ssrFormat !== 'cjs') return;
+        // Vite normally externalizes remote-local npm packages for SSR. They
+        // must be bundled before the emitted graph can become a self-contained
+        // companion; the resolver below preserves the selected host externals.
+        config.ssr ??= {};
+        config.ssr.noExternal = true;
+        for (const [name, environment] of Object.entries(config.environments ?? {})) {
+          if (!isServerContext({ environment: { name, config: environment } }, false)) continue;
+          environment.resolve ??= {};
+          environment.resolve.noExternal = true;
+        }
+      },
+
       configResolved(config) {
         isServe = config.command === 'serve';
         noExternal =
           config.environments?.ssr?.resolve?.noExternal ??
           (config.ssr as { noExternal?: typeof noExternal } | undefined)?.noExternal;
+        if (options.ssrFormat === 'cjs') {
+          resolvedAbsToPackage.set(options.implementation, '@module-federation/runtime');
+          for (const pkg of ssrOnlyExternals) {
+            try {
+              resolvedAbsToPackage.set(resolveImportPath(pkg), pkg);
+            } catch {
+              // An optional external may only exist in the consuming host.
+            }
+          }
+        }
         // Build a map of alias target abs-path → bare package name for each
         // SSR-only external. This lets resolveId intercept the post-alias path.
         for (const pkg of ssrOnlyExternals) {
@@ -354,45 +392,60 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         }
       },
 
-      resolveId(id, importer) {
-        // Register virtual SSR module IDs so they resolve to themselves.
-        if (id === remoteEntrySSRId || id.startsWith(remoteEntrySSRId)) return id;
-        if (id === virtualExposesSSRId || id.startsWith(virtualExposesSSRId)) return id;
-        if (importer === virtualExposesSSRId && id.startsWith('.')) {
-          return this.resolve(resolveExposeImport(id, viteConfig?.root), undefined, {
-            skipSelf: true,
-          });
-        }
-        // Not shared during build, so this is the instance that builds the current environment.
-        if (id === ssrHostInitId) {
-          return this.resolve(getHostAutoInitPath(options), importer, { skipSelf: true });
-        }
+      resolveId: {
+        order: options.ssrFormat === 'cjs' ? 'pre' : undefined,
+        handler(id, importer, resolveOptions) {
+          // A nested remote's host bootstrap can be resolved before the emitted
+          // SSR entry discovers it. Keep host infrastructure external throughout
+          // this CJS server build instead of depending on graph traversal order.
+          const server = isServerContext(
+            this,
+            resolveOptions?.ssr || Boolean(viteConfig?.build.ssr)
+          );
+          if (options.ssrFormat === 'cjs' && server) {
+            if (ssrOnlyExternalPattern.test(id)) return { id, external: true };
+            const pkg = resolvedAbsToPackage.get(id);
+            if (pkg) return { id: pkg, external: true };
+          }
+          // Register virtual SSR module IDs so they resolve to themselves.
+          if (id === remoteEntrySSRId || id.startsWith(remoteEntrySSRId)) return id;
+          if (id === virtualExposesSSRId || id.startsWith(virtualExposesSSRId)) return id;
+          if (importer === virtualExposesSSRId && id.startsWith('.')) {
+            return this.resolve(resolveExposeImport(id, viteConfig?.root), undefined, {
+              skipSelf: true,
+            });
+          }
+          // Not shared during build, so this is the instance that builds the current environment.
+          if (id === ssrHostInitId) {
+            return this.resolve(getHostAutoInitPath(options), importer, { skipSelf: true });
+          }
 
-        if (!importer || !ssrModuleIds.has(importer)) return;
+          if (!importer || !ssrModuleIds.has(importer)) return;
 
-        // Bare specifier match — fires when the alias hasn't run yet
-        // (e.g. for runtime-core, sdk which aren't aliased by Vite internals).
-        if (ssrOnlyExternalPattern.test(id) && !isNoExternal(id)) {
-          return { id, external: true };
-        }
+          // Bare specifier match — fires when the alias hasn't run yet
+          // (e.g. for runtime-core, sdk which aren't aliased by Vite internals).
+          if (ssrOnlyExternalPattern.test(id) && !isNoExternal(id)) {
+            return { id, external: true };
+          }
 
-        // Abs-path match — fires when Vite's alias already resolved a bare
-        // specifier (e.g. @module-federation/runtime → /abs/.../dist/index.js).
-        // Re-externalise using the original package name so Node can resolve it.
-        const pkg = resolvedAbsToPackage.get(id);
-        if (pkg) {
-          return { id: pkg, external: true };
-        }
+          // Abs-path match — fires when Vite's alias already resolved a bare
+          // specifier (e.g. @module-federation/runtime → /abs/.../dist/index.js).
+          // Re-externalise using the original package name so Node can resolve it.
+          const pkg = resolvedAbsToPackage.get(id);
+          if (pkg) {
+            return { id: pkg, external: true };
+          }
 
-        // Track other SSR imports so their transitive deps are also scoped.
-        // Skip bare specifiers — they're either SSR externals (handled above)
-        // or shared packages that should not be followed into the SSR graph.
-        if (id.startsWith('.') || id.startsWith('/') || id.startsWith('file:')) {
-          return this.resolve(id, importer, { skipSelf: true }).then((resolved) => {
-            if (resolved) ssrModuleIds.add(resolved.id);
-            return resolved;
-          });
-        }
+          // Track other SSR imports so their transitive deps are also scoped.
+          // Skip bare specifiers — they're either SSR externals (handled above)
+          // or shared packages that should not be followed into the SSR graph.
+          if (id.startsWith('.') || id.startsWith('/') || id.startsWith('file:')) {
+            return this.resolve(id, importer, { skipSelf: true }).then((resolved) => {
+              if (resolved) ssrModuleIds.add(resolved.id);
+              return resolved;
+            });
+          }
+        },
       },
     },
     {
@@ -626,7 +679,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
 
       generateBundle: {
         order: 'post',
-        handler(_options, bundle) {
+        async handler(_options, bundle) {
           const isRolldown = getIsRolldown(this);
           const environment = (
             this as {
@@ -659,6 +712,15 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
               fileName: ssrOutputFilename,
               source,
             });
+          }
+
+          if (options.ssrFormat === 'cjs' && isSsrRemoteEntryBuild(environment)) {
+            const source = await buildSsrCjs(bundle, ssrOutputFilename, (source) =>
+              this.parse(source)
+            );
+            // Replace the intermediate ESM entry only after the complete graph bundles.
+            delete bundle[ssrOutputFilename];
+            this.emitFile({ type: 'asset', fileName: ssrOutputFilename, source });
           }
 
           if ((this as { environment?: { name?: string } }).environment?.name === 'ssr') {

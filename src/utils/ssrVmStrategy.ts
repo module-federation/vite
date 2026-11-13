@@ -29,6 +29,7 @@ import {
 import { EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
 import { findSharedKey, type SharedKeyLookup } from './sharedKeyMatcher';
 import { resolveSharedPath } from './ssrEntryLoader';
+import { registerSsrBuildExternal, withoutSsrBuildGraph } from './ssrBuildGraph';
 
 interface VmStrategyOptions {
   resolvedShared: Record<string, string>;
@@ -81,7 +82,7 @@ interface VmApi {
 let vmApiPromise: Promise<VmApi | null> | undefined;
 async function getVmApi(): Promise<VmApi | null> {
   if (!vmApiPromise) {
-    vmApiPromise = (async () => {
+    vmApiPromise = withoutSsrBuildGraph(async () => {
       try {
         const vm = (await import(/* @vite-ignore */ 'vm')) as unknown as Partial<VmApi>;
         if (typeof vm.SourceTextModule !== 'function' || typeof vm.SyntheticModule !== 'function') {
@@ -91,7 +92,7 @@ async function getVmApi(): Promise<VmApi | null> {
       } catch {
         return null;
       }
-    })();
+    });
   }
   return vmApiPromise;
 }
@@ -151,7 +152,7 @@ async function loadBareModule(specifier: string, options: VmStrategyOptions): Pr
       const factory = await instance.loadShare(specifier);
       if (typeof factory === 'function') {
         const shared = factory();
-        if (shared) return shared;
+        if (shared) return registerSsrBuildExternal(shared);
       }
     } catch {
       // Try the next instance / fallback chain.
@@ -161,13 +162,15 @@ async function loadBareModule(specifier: string, options: VmStrategyOptions): Pr
   const resolvedPath = await resolveSharedPath(specifier, options.resolvedShared);
   if (resolvedPath) {
     const url = EXTERNAL_URL_RE.test(resolvedPath) ? resolvedPath : `file://${resolvedPath}`;
-    return import(/* @vite-ignore */ url);
+    return registerSsrBuildExternal(await import(/* @vite-ignore */ url));
   }
 
   const namespace = await import(/* @vite-ignore */ specifier);
-  return specifier === 'module' || specifier === 'node:module'
-    ? withRemoteCreateRequire(namespace as typeof import('module'), options.resolvedShared)
-    : namespace;
+  return registerSsrBuildExternal(
+    specifier === 'module' || specifier === 'node:module'
+      ? await withRemoteCreateRequire(namespace as typeof import('module'), options.resolvedShared)
+      : namespace
+  );
 }
 
 /**
@@ -194,7 +197,9 @@ async function withRemoteCreateRequire(
       const resolve = ((id, options) =>
         require.resolve(pin(id), options)) as NodeRequire['resolve'];
       resolve.paths = require.resolve.paths;
-      return Object.assign((id: string) => require(pin(id)), require, { resolve });
+      return Object.assign((id: string) => registerSsrBuildExternal(require(pin(id))), require, {
+        resolve,
+      });
     },
   };
 }

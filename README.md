@@ -355,8 +355,23 @@ federation({
 
 - `"temp-file"` (default) fetches the remote graph, rewrites imports to host-resolved shared packages, writes temporary files, and loads them with `import()`.
 - `"vm"` evaluates the graph in memory with `vm.SourceTextModule` and resolves shared packages through the Module Federation share scope.
+- `"cjs"` evaluates a fully bundled CommonJS SSR companion with `vm.compileFunction` in the host realm. It currently supports the **Node 24 line only**, validated on 24.19.0. Remote generations do not enter Node's ESM or `require.cache` module caches. HTTP fetch and complete body consumption run outside remote graph context; evaluation and container calls retain it.
 
 The `"vm"` strategy requires Node.js to run with `--experimental-vm-modules`. When unavailable, the loader warns once and falls back to `"temp-file"`. Vite 8 development uses `ModuleRunner`; this option primarily affects build and preview SSR entry loading.
+
+For `"cjs"`, build each remote with `ssrFormat: "cjs"`, and configure its host with `ssrEntryLoader: { strategy: "cjs" }`. A remote that also consumes nested remotes needs the same loader option. Build the client and SSR outputs as usual. The SSR companion defaults to `remoteEntry.ssr.cjs` (or your exact `ssrFilename`) and the manifest advertises it as `commonjs-module`.
+
+```ts
+// Remote
+federation({ name: "remote", ssrFormat: "cjs", exposes: { "./Widget": "./src/Widget.tsx" } });
+// Host
+federation({ name: "host", remotes: { remote: "https://remote.example/mf-manifest.json" },
+  ssrEntryLoader: { strategy: "cjs" } });
+```
+
+This is a production HTTP loading strategy; it needs an advertised CommonJS companion and fails without falling back to an ESM loader. Shared packages, React, and the federation runtime use the host's CommonJS exports. A custom runtime `implementation` is unsupported and rejected during configuration. A dual package must offer a `require` condition. Top-level await, runtime `import.meta`, native dynamic imports, unbundled relative `require`, and ESM-only externals are unsupported and produce errors. Runtime packages stay external even with `ssr.noExternal`.
+
+Held exports and pending calls retain their build graph. After replacement, unused generations can be collected independently of Node's module caches; this does not impose a memory limit on application references or process-lifetime external packages. The [reproducible memory protocol](integration/ssr-cjs-memory/README.md) checks 100 and 1,000 replacements of large React remotes against a fixed +64 MiB heap allowance and retains both passing results and counterexamples. Node 22 failed that ordinary-GC bound despite graph subscriptions being released, so this strategy rejects it before fetching a remote. Existing SSR strategies remain available on other Node versions.
 
 `ssrEntryLoader` also accepts network and cache options:
 
@@ -374,6 +389,10 @@ federation({
 With `maxAgeMs`, a running host re-checks a remote's manifest on the next `loadRemote()` once that interval has elapsed, and picks up a redeploy at the same URL when the manifest version changes. Omit `maxAgeMs` to keep the loaded build until process exit.
 
 `revalidate(name | manifestUrl | ssrUrl)` resets that one remote. `name` is the configured remote name, `manifestUrl` is the entry from `remotes` (for example `mf-manifest.json`), and `ssrUrl` is the SSR entry the runtime resolved (for example `remoteEntry.ssr.js`). The call drops this loader's caches for the remote and re-registers it, so the next `loadRemote()` reads the new manifest and snapshot. `revalidate()` with no argument resets every loaded remote. A module reference the host already holds stays on the previous build. Convention-resolved entries with no manifest still have no version for `maxAgeMs` to compare.
+
+Generated shared subscriptions and initialization state loaded through the SSR entry loader belong to that remote's build graph. Held exports, factories, and pending calls keep their graph subscribed to shared updates. Replacing a loaded build releases the loader's ownership; garbage collection removes subscriptions once their graph is unreachable. A manifest check that finds the same version keeps the existing graph. Browser modules and modules loaded outside this SSR loader retain their existing behavior.
+
+Native ESM, VM, and development module caches can keep evaluated graphs alive after invalidation. This ownership model removes strong callback roots from the process-global listener tables and keeps managed initialization promises out of globals; it does not evict native modules or bound the total memory used by the existing loading strategies.
 
 The SSR remote entry is emitted as `<filename base>.ssr.js` next to the browser entry, or under the exact name given by `ssrFilename`, and is advertised as `metaData.ssrRemoteEntry` in `mf-manifest.json`. It keeps `@module-federation/runtime`, `@module-federation/runtime-core` and `@module-federation/sdk` external by default so Node resolves them from the host. Hosts that cannot resolve those packages, such as a plain `@module-federation/enhanced` host using the SDK's reference Node loader, need a self-contained entry: opt the packages back in with Vite's `ssr.noExternal` (for example `ssr: { noExternal: true }`) on the remote.
 

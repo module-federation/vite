@@ -77,7 +77,7 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
             import { usedShared, usedRemotes } from ${toSafeJsLiteral(getLocalSharedImportMapPath(options))};
             ${pluginImports}
             ${getRuntimeInitBootstrapCode(false, getRuntimeInitStatusImportId(options))}
-            globalThis[globalKey].ssrInitStarted = true;
+            __mfInitState.ssrInitStarted = true;
             // These remotes are registered before application code, under owner-scoped
             // names aliased to their configured names, and the runtime resolves an id
             // against the first remote whose name or alias matches. Drop the alias once the
@@ -108,7 +108,7 @@ export default function pluginSsrRuntimeInit(options: NormalizedModuleFederation
               shareStrategy: ${toSafeJsLiteral(options.shareStrategy)},
             });
             const hostInitPromise = Promise.resolve(runtime);
-            globalThis[globalKey].initResolve(runtime);
+            __mfInitState.initResolve(runtime);
             function initHost() { return hostInitPromise; }
             export { initHost, hostInitPromise };
           `,

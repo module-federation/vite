@@ -484,8 +484,12 @@ export const sharedCacheHelperCode = `const __mfGetSharedCacheDescriptor = ${cre
             return listeners;
           };
           const __mfSubscribeSharedCache = (cache, descriptor, listener) => {
+            const graph = globalThis[Symbol.for("module-federation.vite.ssr-build-context")]?.getStore();
+            if (graph) return graph.subscribe(cache, descriptor.canonical, listener);
             const listeners = __mfGetSharedCacheListeners(cache);
-            (listeners[descriptor.canonical] ||= new Set()).add(listener);
+            const subscribers = (listeners[descriptor.canonical] ||= new Set());
+            subscribers.add(listener);
+            return () => subscribers.delete(listener);
           };
           const __mfSharedCacheOwnersKey = Symbol.for("module-federation.shared-cache-owners");
           const __mfGetSharedCacheOwners = (cache) => {

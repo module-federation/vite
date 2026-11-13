@@ -32,6 +32,8 @@ describe('normalizeModuleFederationOption', () => {
     expect(normalizeModuleFederationOptions(minimalOptions)).toEqual({
       exposes: {},
       filename: 'remoteEntry-[hash]',
+      ssrFilename: undefined,
+      ssrFormat: 'esm',
       internalName: '__mfe_internal__test-module',
       library: undefined,
       name: 'test-module',
@@ -111,6 +113,35 @@ describe('normalizeModuleFederationOption', () => {
         ssrEntryLoader: { strategy: 'temp-file' },
       }).ssrEntryLoader
     ).toEqual({ strategy: 'temp-file' });
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrFormat: 'cjs',
+        ssrEntryLoader: { strategy: 'cjs' },
+      })
+    ).toMatchObject({ ssrFormat: 'cjs', ssrEntryLoader: { strategy: 'cjs' } });
+  });
+
+  it('rejects a custom CJS runtime implementation instead of silently replacing it', () => {
+    const implementation = '/custom/runtime-wrapper.js';
+    expect(() =>
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        implementation,
+        ssrFormat: 'cjs',
+      })
+    ).toThrow(/CJS SSR does not support a custom runtime implementation/);
+    expect(
+      normalizeModuleFederationOptions({ ...minimalOptions, implementation }).implementation
+    ).toBe(implementation);
+    const defaultImplementation = normalizeModuleFederationOptions(minimalOptions).implementation;
+    expect(
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        implementation: defaultImplementation,
+        ssrFormat: 'cjs',
+      }).implementation
+    ).toBe(defaultImplementation);
   });
 
   it('drops invalid ssrEntryLoader.strategy values', () => {

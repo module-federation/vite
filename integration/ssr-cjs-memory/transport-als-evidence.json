@@ -1,0 +1,159 @@
+{
+  "description": "Minimal real-fetch ALS witness on Node22/24. Observer retains only WeakRefs and primitive metadata. The post3400ms extra-GC phase is diagnostic and never changes benchmark checkpoints.",
+  "witnesses": [
+    {
+      "rawOutputSha256": "aeeca3e7db4168c3bc5e31c49ae467e52609a6529701b81375732f940b0763f1",
+      "phases": [
+        {
+          "phase": "six ordinary major GCs",
+          "node": "v22.23.5",
+          "graphs": [
+            {
+              "label": "inside-0",
+              "alive": true
+            },
+            {
+              "label": "outside-0",
+              "alive": false
+            },
+            {
+              "label": "inside-1",
+              "alive": false
+            },
+            {
+              "label": "outside-1",
+              "alive": false
+            },
+            {
+              "label": "inside-2",
+              "alive": false
+            },
+            {
+              "label": "outside-2",
+              "alive": false
+            }
+          ],
+          "liveTimers": [
+            {
+              "id": 609,
+              "graphLabel": "inside-0",
+              "duration": 3000,
+              "callback": "function onParserTimeout(parser) {\r\n      const { socket, timeoutType, client, paused } = parser.deref();\r\n      if (timeoutType === TIMEOUT_HEADERS) {\r\n        if (!socket[kWriting] || socket.writableNeedDrain || client[kRunning] > 1) {\r\n          assert(!paused, \"cannot be paused while waiting for headers\");\r\n          util.destroy(socket, new HeadersTimeoutError());\r\n        }\r\n      } else if ",
+              "creationStack": "    at Parser.setTimeout (node:internal/deps/undici/undici:6147:30)\n    at resumeH1 (node:internal/deps/undici/undici:6701:29)\n    at Object.resume (node:internal/deps/undici/undici:6613:11)\n    at _resume (node:internal/deps/undici/undici:8371:32)"
+            }
+          ],
+          "timeoutResourcesCreatedInsideGraphs": 6
+        },
+        {
+          "phase": "diagnostic 3400ms wait, then six more GCs",
+          "node": "v22.23.5",
+          "graphs": [
+            {
+              "label": "inside-0",
+              "alive": false
+            },
+            {
+              "label": "outside-0",
+              "alive": false
+            },
+            {
+              "label": "inside-1",
+              "alive": false
+            },
+            {
+              "label": "outside-1",
+              "alive": false
+            },
+            {
+              "label": "inside-2",
+              "alive": false
+            },
+            {
+              "label": "outside-2",
+              "alive": false
+            }
+          ],
+          "liveTimers": [],
+          "timeoutResourcesCreatedInsideGraphs": 6
+        }
+      ]
+    },
+    {
+      "rawOutputSha256": "77832530337b6391f0e42d0776b574f433f16ebf93578b0d611c584aa0018f85",
+      "phases": [
+        {
+          "phase": "six ordinary major GCs",
+          "node": "v24.19.0",
+          "graphs": [
+            {
+              "label": "inside-0",
+              "alive": true
+            },
+            {
+              "label": "outside-0",
+              "alive": false
+            },
+            {
+              "label": "inside-1",
+              "alive": false
+            },
+            {
+              "label": "outside-1",
+              "alive": false
+            },
+            {
+              "label": "inside-2",
+              "alive": false
+            },
+            {
+              "label": "outside-2",
+              "alive": false
+            }
+          ],
+          "liveTimers": [
+            {
+              "id": 473,
+              "graphLabel": "inside-0",
+              "duration": 3000,
+              "callback": "function onParserTimeout(parserWeakRef) {\r\n      const parser = parserWeakRef.deref();\r\n      if (!parser) {\r\n        return;\r\n      }\r\n      const { socket, timeoutType, client, paused } = parser;\r\n      if (timeoutType === TIMEOUT_HEADERS) {\r\n        if (!socket[kWriting] || socket.writableNeedDrain || client[kRunning] > 1) {\r\n          assert(!paused, \"cannot be paused while waiting for headers",
+              "creationStack": "    at Parser.setTimeout (node:internal/deps/undici/undici:7306:30)\n    at resumeH1 (node:internal/deps/undici/undici:7929:29)\n    at Object.resume (node:internal/deps/undici/undici:7761:11)\n    at _resume (node:internal/deps/undici/undici:9610:32)"
+            }
+          ],
+          "timeoutResourcesCreatedInsideGraphs": 8
+        },
+        {
+          "phase": "diagnostic 3400ms wait, then six more GCs",
+          "node": "v24.19.0",
+          "graphs": [
+            {
+              "label": "inside-0",
+              "alive": false
+            },
+            {
+              "label": "outside-0",
+              "alive": false
+            },
+            {
+              "label": "inside-1",
+              "alive": false
+            },
+            {
+              "label": "outside-1",
+              "alive": false
+            },
+            {
+              "label": "inside-2",
+              "alive": false
+            },
+            {
+              "label": "outside-2",
+              "alive": false
+            }
+          ],
+          "liveTimers": [],
+          "timeoutResourcesCreatedInsideGraphs": 8
+        }
+      ]
+    }
+  ]
+}
