@@ -38,6 +38,7 @@ import { decodeViteId, EXTERNAL_URL_RE, isHttpUrl } from './buildPaths';
 import { createCodePositionMap } from './codePositionMap';
 import { CodeRewriter } from './codeRewriter';
 import { mfWarn } from './logger';
+import { createSsrBuildGraph, withoutSsrBuildGraph, type SsrBuildGraph } from './ssrBuildGraph';
 import type { SsrEntryLoaderConfig } from './normalizeModuleFederationOptions';
 
 // No static Node.js imports — this module is safe to import in the browser.
@@ -45,7 +46,11 @@ import type { SsrEntryLoaderConfig } from './normalizeModuleFederationOptions';
 // away when the caller is guarded by a Node environment check.
 const importCache = new Map<string, Promise<unknown>>();
 async function nodeImport(id: string): Promise<unknown> {
-  if (!importCache.has(id)) importCache.set(id, import(/* @vite-ignore */ id));
+  if (!importCache.has(id))
+    importCache.set(
+      id,
+      withoutSsrBuildGraph(() => import(/* @vite-ignore */ id))
+    );
   return importCache.get(id);
 }
 
@@ -89,6 +94,18 @@ interface SsrEntryLoaderState {
   manifestVersionKeys: Map<string, string>;
   /** Federation instance → remote name → version the loaded container came from. */
   remoteVersions: WeakMap<object, Map<string, LoadedRemoteVersion>>;
+  /** Runtime containers own graphs; this index must not keep reset graphs alive. */
+  buildGraphs: WeakMap<
+    object,
+    Map<
+      string,
+      {
+        identity: string;
+        graph?: WeakRef<SsrBuildGraph>;
+        pending?: WeakRef<Promise<SsrBuildGraph>>;
+      }
+    >
+  >;
 }
 
 export const SSR_ENTRY_LOADER_STATE_KEY = Symbol.for('module-federation.vite.ssrEntryLoader.state');
@@ -111,6 +128,7 @@ function getLoaderState(): SsrEntryLoaderState {
   state.scheduledTempFileCleanup ??= new Set();
   state.manifestVersionKeys ??= new Map();
   state.remoteVersions ??= new WeakMap();
+  state.buildGraphs ??= new WeakMap();
   return state as SsrEntryLoaderState;
 }
 
@@ -309,7 +327,7 @@ async function getOrCreateRunner(
   const cacheKey = getRunnerCacheKey(remoteOrigin, resolvedShared, fetchTimeoutMs, fetchMaxBytes);
   const cached = runnerCache.get(cacheKey);
   if (cached) return cached.promise;
-  const promise = (async () => {
+  const promise = withoutSsrBuildGraph(async () => {
     const viteRunner = await getModuleRunnerModule();
     if (!viteRunner) return null;
     const { ModuleRunner, ESModulesEvaluator } = viteRunner;
@@ -357,7 +375,7 @@ async function getOrCreateRunner(
     } catch {
       return null;
     }
-  })();
+  });
   runnerCache.set(cacheKey, { remoteOrigin, promise });
   return promise;
 }
@@ -548,7 +566,9 @@ async function fetchManifestCached(
 ): Promise<Manifest | null> {
   const cacheKey = makeUrlCacheKey(manifestUrl, fetchTimeoutMs, fetchMaxBytes);
   if (!manifestFetchCache.has(cacheKey)) {
-    const promise = fetchManifest(manifestUrl, fetchTimeoutMs, fetchMaxBytes);
+    const promise = withoutSsrBuildGraph(() =>
+      fetchManifest(manifestUrl, fetchTimeoutMs, fetchMaxBytes)
+    );
     manifestFetchCache.set(cacheKey, promise);
     void promise.then(
       (manifest) => {
@@ -753,7 +773,9 @@ function setSsrEntryCache(
 ): SsrEntryCacheRecord {
   const cacheKey = makeUrlCacheKey(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes);
   const record: SsrEntryCacheRecord = {
-    promise: resolveSSREntryImpl(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes, versionHint),
+    promise: withoutSsrBuildGraph(() =>
+      resolveSSREntryImpl(remoteEntryUrl, fetchTimeoutMs, fetchMaxBytes, versionHint)
+    ),
     resolvedAt: Date.now(),
     versionHint,
   };
@@ -1167,13 +1189,13 @@ function getRequireShimUrl(
   const cacheKey = JSON.stringify([tmpDir, contextKey]);
   const cached = requireShimCache.get(cacheKey);
   if (cached) return cached;
-  const promise = (async () => {
+  const promise = withoutSsrBuildGraph(async () => {
     const { join } = await _path();
     const { writeFileSync } = await _fs();
     const file = join(tmpDir, `node-module-${hashString(contextKey)}.mjs`);
     writeFileSync(file, createRequireShimSource(sharedPkgMap), 'utf8');
     return `file://${file}`;
-  })();
+  });
   requireShimCache.set(cacheKey, promise);
   void promise.catch(() => {
     if (requireShimCache.get(cacheKey) === promise) requireShimCache.delete(cacheKey);
@@ -1192,7 +1214,7 @@ function getSsrTransformContextKey(
 let ssrCacheDirPromise: Promise<string> | undefined;
 async function getSSRCacheDir(): Promise<string> {
   if (!ssrCacheDirPromise) {
-    ssrCacheDirPromise = (async () => {
+    ssrCacheDirPromise = withoutSsrBuildGraph(async () => {
       const { join } = await _path();
       const { rmSync } = await _fs();
       // Use process.cwd() (the running app's root) rather than the plugin
@@ -1212,7 +1234,7 @@ async function getSSRCacheDir(): Promise<string> {
         }
       });
       return dir;
-    })();
+    });
   }
   return ssrCacheDirPromise;
 }
@@ -1417,15 +1439,15 @@ async function fetchEsmToTempFile(url: string, graph: TempFileGraph): Promise<st
     return tmpFile;
   }
 
-  const tmpFilePromise = (async () => {
+  const tmpFilePromise = withoutSsrBuildGraph(async () => {
     const { createHash } = await _crypto();
     const { join } = await _path();
     const hash = createHash('sha1').update(cacheKey).digest('hex').slice(0, 12);
     return join(tmpDir, `${hash}${extension}`);
-  })();
+  });
   tempFilePathCache.set(cacheKey, tmpFilePromise);
 
-  const promise = (async () => {
+  const promise = withoutSsrBuildGraph(async () => {
     // Reserve the destination before descending into imports. A circular edge
     // can then reference the ancestor's future file instead of awaiting the
     // ancestor's still-pending fetch promise.
@@ -1477,7 +1499,7 @@ async function fetchEsmToTempFile(url: string, graph: TempFileGraph): Promise<st
     const { writeFileSync } = await _fs();
     writeFileSync(tmpFile, code, 'utf8');
     return tmpFile;
-  })();
+  });
 
   const record: TempFileRecord = {
     cacheKey,
@@ -1542,7 +1564,7 @@ let warnedVmUnavailable = false;
 
 function getVmStrategyModule(): Promise<typeof import('./ssrVmStrategy')> {
   if (!loaderState.vmStrategyModulePromise) {
-    loaderState.vmStrategyModulePromise = import('./ssrVmStrategy');
+    loaderState.vmStrategyModulePromise = withoutSsrBuildGraph(() => import('./ssrVmStrategy'));
   }
   return loaderState.vmStrategyModulePromise;
 }
@@ -1866,14 +1888,49 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
 
       // A direct `.ssr.js` entry (e.g. a manifest's `ssrRemoteEntry`) carries
       // its module format on remoteInfo, such as Rspack's `commonjs-module`.
-      const mod = await loadSSRRemoteEntry(
-        ssrEntry.url === remoteInfo.entry && remoteInfo.type
-          ? { ...ssrEntry, type: remoteInfo.type }
-          : ssrEntry,
-        loadOptions,
-        remoteInfo.entry
-      );
-      if (!mod) return;
+      let graphs = loaderState.buildGraphs.get(loadOptions.cacheContext);
+      if (!graphs) {
+        graphs = new Map();
+        loaderState.buildGraphs.set(loadOptions.cacheContext, graphs);
+      }
+      const identity = JSON.stringify([ssrEntry.url, ssrEntry.versionKey, loadOptions.strategy]);
+      const owner = configured?.name ?? remoteInfo.name;
+      const previous = graphs.get(owner);
+      const record = previous?.identity === identity ? previous : { identity };
+      graphs.set(owner, record);
+      let graph = record.graph?.deref();
+      if (!graph) {
+        const pending = record.pending?.deref() ?? createSsrBuildGraph();
+        record.pending = new WeakRef(pending);
+        graph = await pending;
+        record.graph = new WeakRef(graph);
+        record.pending = undefined;
+      }
+      let mod;
+      try {
+        mod = await graph.run(() =>
+          loadSSRRemoteEntry(
+            ssrEntry.url === remoteInfo.entry && remoteInfo.type
+              ? { ...ssrEntry, type: remoteInfo.type }
+              : ssrEntry,
+            loadOptions,
+            remoteInfo.entry
+          )
+        );
+      } catch (error) {
+        if (graphs.get(owner) === record) {
+          if (previous) graphs.set(owner, previous);
+          else graphs.delete(owner);
+        }
+        throw error;
+      }
+      if (!mod) {
+        if (graphs.get(owner) === record) {
+          if (previous) graphs.set(owner, previous);
+          else graphs.delete(owner);
+        }
+        return;
+      }
 
       const versionKey =
         versionHint ??
@@ -1890,7 +1947,7 @@ export default function ssrEntryLoaderPlugin(options: SsrEntryLoaderOptions = {}
           checkedAt: Date.now(),
         });
       }
-      return mod;
+      return graph.wrapContainer(mod);
     },
     afterLoadManifest({
       manifestUrl,

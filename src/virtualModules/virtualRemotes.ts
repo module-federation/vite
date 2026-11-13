@@ -473,7 +473,7 @@ export function generateRemotes(
     hostAutoInitPath,
     exportConditions
   )}
-    const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = globalThis[globalKey];`;
+    const { initPromise, initResolve, initReject, moduleCache: __mfModuleCache } = __mfInitState;`;
   const devHostInitLine = command === 'serve' && consumer !== 'server' ? browserHostInitCode : '';
   // Build reaches hostInitPromise through a dynamic import, like dev. A static
   // import would make hostAutoInit a module shared between the emitted hostInit

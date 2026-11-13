@@ -152,14 +152,19 @@ function getRuntimeInitStateBootstrapCode(options: {
 }) {
   return `
 const ${options.globalKeyVar} = ${toSafeJsLiteral(getRuntimeInitGlobalKey(options.ownerImportId))};
-let ${options.stateVar} = globalThis[${options.globalKeyVar}];
+const ${options.stateVar}States = globalThis[Symbol.for("module-federation.vite.ssr-build-context")]?.getStore()?.initStates;
+let ${options.stateVar} = ${options.stateVar}States
+  ? ${options.stateVar}States.get(${options.globalKeyVar})
+  : globalThis[${options.globalKeyVar}];
 if (!${options.stateVar}) {
   ${getDeferredInitPromiseCode()}
-  ${options.stateVar} = globalThis[${options.globalKeyVar}] = {
+  ${options.stateVar} = {
     initPromise,
     initResolve,
     initReject,
   };
+  if (${options.stateVar}States) ${options.stateVar}States.set(${options.globalKeyVar}, ${options.stateVar});
+  else globalThis[${options.globalKeyVar}] = ${options.stateVar};
   ${getSsrNoopResolveCode(
     options.enableSsrInit,
     options.hostInitImportId,
@@ -180,31 +185,35 @@ export function getRuntimeInitBootstrapCode(
 ) {
   return `
 const globalKey = ${toSafeJsLiteral(getRuntimeInitGlobalKey(ownerImportId))};
+const __mfInitStates = globalThis[Symbol.for("module-federation.vite.ssr-build-context")]?.getStore()?.initStates;
+let __mfInitState = __mfInitStates ? __mfInitStates.get(globalKey) : globalThis[globalKey];
 const moduleCacheGlobalKey = ${toSafeJsLiteral(getModuleCacheGlobalKey(exportConditions))};
 globalThis[moduleCacheGlobalKey] ||= { share: {}, remote: {} };
 globalThis[moduleCacheGlobalKey].share ||= {};
 globalThis[moduleCacheGlobalKey].remote ||= {};
-if (!globalThis[globalKey]) {
+if (!__mfInitState) {
   ${getDeferredInitPromiseCode()}
-globalThis[globalKey] = {
+__mfInitState = {
     initPromise,
     initResolve,
     initReject,
     moduleCache: globalThis[moduleCacheGlobalKey],
   };
+  if (__mfInitStates) __mfInitStates.set(globalKey, __mfInitState);
+  else globalThis[globalKey] = __mfInitState;
 }
 ${
   enableSsrInit
     ? `
-if (${SERVER_ENV_GUARD} && !globalThis[globalKey].ssrInitStarted) {
-  globalThis[globalKey].ssrInitStarted = true;
-  ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId, 'globalThis[globalKey].initResolve', ssrRemotes)}
+if (${SERVER_ENV_GUARD} && !__mfInitState.ssrInitStarted) {
+  __mfInitState.ssrInitStarted = true;
+  ${getSsrNoopResolveCode(enableSsrInit, hostInitImportId, '__mfInitState.initResolve', ssrRemotes)}
 }`
     : ''
 }
-globalThis[globalKey].moduleCache = globalThis[moduleCacheGlobalKey];
-globalThis[globalKey].moduleCache.share ||= {};
-globalThis[globalKey].moduleCache.remote ||= {};
+__mfInitState.moduleCache = globalThis[moduleCacheGlobalKey];
+__mfInitState.moduleCache.share ||= {};
+__mfInitState.moduleCache.remote ||= {};
 `;
 }
 
@@ -292,9 +301,9 @@ export function writeRuntimeInitStatus(
 ) {
   const exportStatement =
     command === 'build'
-      ? `const { initPromise, initResolve, initReject, moduleCache } = globalThis[globalKey];
+      ? `const { initPromise, initResolve, initReject, moduleCache } = __mfInitState;
 export { initPromise, initResolve, initReject, moduleCache };`
-      : `module.exports = globalThis[globalKey];`;
+      : `module.exports = __mfInitState;`;
 
   const ownerImportId = options ? getRuntimeInitStatusImportId(options) : hostInitImportId;
   getRuntimeInitModule(options).writeSync(`

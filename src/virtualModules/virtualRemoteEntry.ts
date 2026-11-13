@@ -1594,7 +1594,7 @@ export function generateRemoteEntry(
           undefined,
           undefined,
           exportConditions
-        ) + '\n  const { initResolve, initReject } = globalThis[globalKey];'
+        ) + '\n  const { initResolve, initReject } = __mfInitState;'
   }
   // A failed seed must settle initPromise, or every pending share load hangs forever.
   const __mfRejectInit = (err) => {
