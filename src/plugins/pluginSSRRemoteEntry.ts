@@ -21,7 +21,7 @@ import {
 } from '../utils/pathNormalization';
 import { findSharedKey } from '../utils/sharedKeyMatcher';
 import { createModuleFederationError, mfWarn } from '../utils/logger';
-import { isDedicatedSsrEnvironment } from '../utils/remoteConsumerTarget';
+import { getPluginEnvironmentName, isDedicatedSsrEnvironment } from '../utils/remoteConsumerTarget';
 import { decodeViteId } from '../utils/VirtualModule';
 import { getHostAutoInitPath } from '../virtualModules/virtualRemoteEntry';
 import { generateExposesSSR, getVirtualExposesSSRId } from '../virtualModules/virtualExposesSSR';
@@ -811,7 +811,7 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
       },
 
       writeBundle(outputOptions) {
-        const environmentName = (this as { environment?: { name?: string } }).environment?.name;
+        const environmentName = getPluginEnvironmentName(this);
         if (environmentName === ssrEnvironmentName && outputOptions.dir) {
           ssrOutputDir = outputOptions.dir;
         } else if (environmentName === 'client' && outputOptions.dir) {

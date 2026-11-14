@@ -41,7 +41,7 @@ import { DEFAULT_PUBLIC_TYPES_FOLDER } from '../utils/dtsConstants';
 import { normalizeVirtualModuleId } from '../utils/VirtualModule';
 import { getVirtualExposesId } from '../virtualModules/virtualExposes';
 import { getSsrRemoteEntryFileName } from '../virtualModules/virtualRemoteEntrySSR';
-import { isDedicatedSsrEnvironment } from '../utils/remoteConsumerTarget';
+import { getPluginEnvironmentName, isDedicatedSsrEnvironment } from '../utils/remoteConsumerTarget';
 
 /**
  * Resolves the build version for the module federation manifest.
@@ -464,7 +464,8 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         // The SSR manifest references chunks that externalize framework
         // dependencies, so it must not overwrite the browser-safe manifest
         // emitted by the client environment into the public output directory.
-        if (this.environment?.name === 'ssr' || isDedicatedSsrEnvironment(this, mfOptions)) return;
+        if (getPluginEnvironmentName(this) === 'ssr' || isDedicatedSsrEnvironment(this, mfOptions))
+          return;
 
         let filesMap: PreloadMap = {};
 

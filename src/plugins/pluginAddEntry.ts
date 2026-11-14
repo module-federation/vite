@@ -12,6 +12,7 @@ import { findRemoteEntryFile } from '../utils/bundleHelpers';
 import { isCSSFile } from '../utils/cssModuleHelpers';
 import { mapCodeToCodeWithSourcemap } from '../utils/mapCodeToCodeWithSourcemap';
 import {
+  getPluginEnvironmentName,
   isClientEnvironment,
   isDedicatedSsrEnvironment,
   isServerBuildContext,
@@ -1161,7 +1162,7 @@ for (const __mfRemoteEntryPrefetchUrl of __mfRemoteEntryPrefetchUrls) {
         // instead of the real framework SSR entry, causing
         // "mod.fetch is not a function". Other SSR environments (e.g. Vinext's
         // RSC environments) must still emit their entry chunks normally.
-        const environmentName = (this as { environment?: { name?: string } }).environment?.name;
+        const environmentName = getPluginEnvironmentName(this);
         if (environmentName === 'ssr') return;
         // The dedicated SSR remote entry build holds only the published SSR graph.
         if (isDedicatedSsrEnvironment(this, getFederationOptions())) return;
