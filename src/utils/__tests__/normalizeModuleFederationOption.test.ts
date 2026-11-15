@@ -1475,4 +1475,25 @@ describe('normalizeModuleFederationOption', () => {
       ).toEqual('__mf__virtual');
     });
   });
+  describe('ssrEnvironment (internal)', () => {
+    const withSsrEnvironment = (ssrEnvironment: string | undefined) =>
+      normalizeModuleFederationOptions({
+        ...minimalOptions,
+        ssrEnvironment,
+      } as ModuleFederationOptions).ssrEnvironment;
+
+    it('keeps a valid environment name', () => {
+      expect(withSsrEnvironment('mf_server')).toBe('mf_server');
+    });
+
+    it('treats missing and "ssr" as the default', () => {
+      expect(withSsrEnvironment(undefined)).toBeUndefined();
+      expect(withSsrEnvironment('ssr')).toBeUndefined();
+    });
+
+    it('rejects "client" and names Vite does not accept', () => {
+      expect(() => withSsrEnvironment('client')).toThrow(/Invalid ssrEnvironment/);
+      expect(() => withSsrEnvironment('mf-server')).toThrow(/Invalid ssrEnvironment/);
+    });
+  });
 });

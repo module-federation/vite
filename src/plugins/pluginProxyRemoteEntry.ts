@@ -20,7 +20,7 @@ import {
 import { isRemoteSpecifier } from '../utils/hostProvidesAllShared';
 import { getReactIslandExposes } from '../utils/reactIsland';
 import { collectRemoteDependencies, type RemoteDependencyCache } from '../utils/remoteDependencies';
-import { isServerBuildContext } from '../utils/remoteConsumerTarget';
+import { isDedicatedSsrEnvironment, isServerBuildContext } from '../utils/remoteConsumerTarget';
 import { formatDevServerHostForOrigin } from '../utils/devServerHost';
 import { ensureTrailingSlash, filterId, resolvePublicPath } from '../utils/pathNormalization';
 import {
@@ -159,6 +159,8 @@ export default function ({
         // emitted here. Preserve those entries for other Vite integrations,
         // where they keep exposed modules separated from the host entry.
         if (_command !== 'build' || isTanStackStart) return;
+        // The dedicated SSR remote entry build only holds the SSR entry graph.
+        if (isDedicatedSsrEnvironment(this, options)) return;
         for (const expose of Object.values(options.exposes)) {
           const resolved = await resolveExpose(this, expose.import);
           if (resolved) {

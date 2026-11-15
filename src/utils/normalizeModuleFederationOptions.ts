@@ -658,6 +658,20 @@ function normalizeSsrEntryLoader(
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
+const VITE_ENVIRONMENT_NAME_RE = /^[\w$]+$/;
+
+function normalizeSsrEnvironment(name: string | undefined): string | undefined {
+  // `ssr` is the default: the SSR entry is built inside the app's server bundle.
+  if (!name || name === 'ssr') return undefined;
+  if (name === 'client' || !VITE_ENVIRONMENT_NAME_RE.test(name)) {
+    throw createModuleFederationError(
+      `Invalid ssrEnvironment: "${name}". Use a Vite environment name made of letters, ` +
+        `digits, "$" and "_" that is not "client", e.g. "mf_ssr".`
+    );
+  }
+  return name;
+}
+
 export type ModuleFederationOptions = {
   exposes?: Record<string, string | { import: string }> | undefined;
   filename?: string;
@@ -881,6 +895,7 @@ export interface NormalizedModuleFederationOptions extends Omit<
   exposes: Record<string, ExposesItem>;
   filename: string;
   ssrFilename?: string;
+  ssrEnvironment?: string;
   internalName: string;
   library: any;
   remotes: Record<string, RemoteObjectConfig>;
@@ -1105,6 +1120,10 @@ export function normalizeModuleFederationOptions(
     exposes: normalizeExposes(options.exposes),
     filename: options.filename || 'remoteEntry-[hash]',
     ssrFilename: options.ssrFilename || undefined,
+    // Internal: set by framework integrations (e.g. @module-federation/tanstack), not public.
+    ssrEnvironment: normalizeSsrEnvironment(
+      (options as { ssrEnvironment?: string }).ssrEnvironment
+    ),
     internalName: toInternalModuleFederationName(options.name),
     library: normalizeLibrary(options.library),
     name: options.name,

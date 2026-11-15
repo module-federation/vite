@@ -64,3 +64,15 @@ export function resolveRemoteConsumer(ctx: unknown, hasMultiEnvironment: boolean
   if (!hasMultiEnvironment) return 'unified';
   return resolveEnvironmentConsumerTarget(ctx) ?? 'client';
 }
+
+/**
+ * Whether a hook builds the dedicated `ssrEnvironment`. That build contains only
+ * the SSR remote entry graph, so the browser remote entry, host bootstrap and
+ * manifest are not emitted there.
+ */
+export function isDedicatedSsrEnvironment(
+  ctx: unknown,
+  options: { ssrEnvironment?: string }
+): boolean {
+  return !!options.ssrEnvironment && getPluginEnvironmentName(ctx) === options.ssrEnvironment;
+}
