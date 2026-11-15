@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isClientEnvironment,
+  isDedicatedSsrEnvironment,
   isServerBuildContext,
   resolveEnvironmentConsumerTarget,
   resolveRemoteConsumer,
@@ -97,5 +98,18 @@ describe('isServerBuildContext', () => {
     expect(isServerBuildContext({}, { build: { ssr: 'src/entry.ts' } })).toBe(true);
     expect(isServerBuildContext({}, {})).toBe(false);
     expect(isServerBuildContext({}, undefined)).toBe(false);
+  });
+});
+
+describe('isDedicatedSsrEnvironment', () => {
+  it('matches only the configured environment', () => {
+    const options = { ssrEnvironment: 'mf_server' };
+    expect(isDedicatedSsrEnvironment({ environment: { name: 'mf_server' } }, options)).toBe(true);
+    expect(isDedicatedSsrEnvironment({ environment: { name: 'ssr' } }, options)).toBe(false);
+    expect(isDedicatedSsrEnvironment({}, options)).toBe(false);
+  });
+
+  it('is false without ssrEnvironment', () => {
+    expect(isDedicatedSsrEnvironment({ environment: { name: 'ssr' } }, {})).toBe(false);
   });
 });

@@ -509,14 +509,17 @@ export function pluginSSRRemoteEntry(options: NormalizedModuleFederationOptions)
         isNuxtProject = isNuxtProjectRoot(config.root);
         reactIslandExposes = getReactIslandExposes(options, config.root);
         // Plugin `buildApp` hooks, which build this environment, exist since Vite 7.
-        if (
-          dedicatedEnvironment &&
-          config.command === 'build' &&
-          (parseInt(viteVersion, 10) < 7 || !config.environments?.[dedicatedEnvironment])
-        ) {
-          throw createModuleFederationError(
-            `ssrEnvironment "${dedicatedEnvironment}" needs Vite 7 or later.`
-          );
+        if (dedicatedEnvironment && config.command === 'build') {
+          if (parseInt(viteVersion, 10) < 7) {
+            throw createModuleFederationError(
+              `ssrEnvironment "${dedicatedEnvironment}" needs Vite 7 or later.`
+            );
+          }
+          if (!config.environments?.[dedicatedEnvironment]) {
+            throw createModuleFederationError(
+              `ssrEnvironment "${dedicatedEnvironment}" was not created as a Vite environment.`
+            );
+          }
         }
         // Without the app builder only `client` (or `ssr` with --ssr) is built.
         if (
