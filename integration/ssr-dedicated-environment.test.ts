@@ -6,7 +6,11 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { createBuilder, version, type Plugin } from 'vite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { federation } from '../src';
+import { federation as publicFederation, type ModuleFederationOptions } from '../src';
+
+// `ssrEnvironment` is internal: framework integrations set it, users don't.
+const federation = (options: ModuleFederationOptions & { ssrEnvironment?: string }) =>
+  publicFederation(options);
 
 const HANDLER_MARKER = 'LEAK_MARKER_HANDLER_BODY';
 const CALLER_MARKER = 'RPC_CALLER_MARKER';
