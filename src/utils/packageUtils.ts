@@ -1016,8 +1016,8 @@ export function getInstalledPackageEntry(
     exportsEntry ||
     (typeof packageJson.module === 'string' ? packageJson.module : undefined) ||
     (typeof packageJson.main === 'string' ? packageJson.main : undefined) ||
-    'index.js';
-  return path.join(installed.dir, explicitEntry);
+    (packageJson.exports === undefined ? 'index.js' : undefined);
+  return explicitEntry && path.join(installed.dir, explicitEntry);
 }
 
 /** Detect Vite 8+ (Rolldown) from the Vite version on the plugin hook context. */
