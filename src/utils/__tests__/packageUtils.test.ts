@@ -414,6 +414,49 @@ describe('getInstalledPackageJson', () => {
     expect(normalizePathForImport(entry || '')).toContain('/components/button.tsx');
   });
 
+  it('does not invent an entry for a package root its exports field does not expose', () => {
+    const packageName = 'mf-test-subpath-only';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-subpath-only-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: packageName, exports: { './button': './button.js' } })
+    );
+    writeFileSync(path.join(packageDir, 'button.js'), 'export const Button = () => null;');
+
+    expect(
+      getInstalledPackageEntry(packageName, { cwd: hostDir, resolveSubpathWithRequire: false })
+    ).toBeUndefined();
+    expect(
+      getInstalledPackageEntry(`${packageName}/button`, {
+        cwd: hostDir,
+        resolveSubpathWithRequire: false,
+      })
+    ).toBe(realpathSync(path.join(packageDir, 'button.js')));
+  });
+
+  it('falls back to index.js only for a package without an exports field', () => {
+    const packageName = 'mf-test-no-exports-index';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-no-exports-index-'));
+    tempDirs.push(root);
+
+    const hostDir = path.join(root, 'apps/host');
+    const packageDir = path.join(hostDir, 'node_modules', packageName);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(path.join(hostDir, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ name: packageName }));
+    writeFileSync(path.join(packageDir, 'index.js'), 'module.exports = {};');
+
+    expect(getInstalledPackageEntry(packageName, { cwd: hostDir })).toBe(
+      realpathSync(path.join(packageDir, 'index.js'))
+    );
+  });
+
   it('substitutes the wildcard into conditional exports targets', () => {
     const packageName = 'mf-test-wildcard-conditions';
     const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-wildcard-cond-'));
