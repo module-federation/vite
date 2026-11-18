@@ -1654,7 +1654,7 @@ async function loadSSRRemoteEntry(
     }
 
     // Opt-in vm.SourceTextModule strategy: evaluates the remote's ESM graph in
-    // the current context and links bare shared imports through the host's
+    // its own vm.Context and links bare shared imports through the host's
     // federation share scope (true version negotiation) instead of rewriting
     // them to file:// paths. Falls back to the temp-file strategy when the
     // SourceTextModule API is unavailable or evaluation fails.
