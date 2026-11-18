@@ -3,8 +3,8 @@
  *
  * Unlike the temp-file strategy (which rewrites bare shared imports to
  * host-resolved file:// paths at fetch time), this strategy evaluates the
- * remote's ESM graph with `vm.SourceTextModule` in the current context and
- * resolves bare imports through a linker, in order:
+ * remote's ESM graph with `vm.SourceTextModule` in a fresh context per loaded
+ * build (see createIsolatedContext) and resolves bare imports through a linker, in order:
  *
  *  1. The host's federation share scope — `instance.loadShare(name)` on the
  *     global `__FEDERATION__` instances. This restores real share-scope
@@ -44,6 +44,8 @@ interface VmStrategyOptions {
    * SSR entry URL being loaded.
    */
   rootEntryUrl?: string;
+  /** The entry graph's own `vm.Context` (set by loadViaVmStrategy). */
+  context?: object;
 }
 
 // Minimal structural typings for the experimental vm module APIs so this file
@@ -64,6 +66,7 @@ interface VmApi {
     code: string,
     options: {
       identifier?: string;
+      context?: object;
       initializeImportMeta?: (meta: { url?: string }) => void;
       importModuleDynamically?: (
         specifier: string,
@@ -74,8 +77,10 @@ interface VmApi {
   SyntheticModule: new (
     exportNames: string[],
     evaluateCallback: () => void,
-    options?: { identifier?: string }
+    options?: { identifier?: string; context?: object }
   ) => VmModule & { setExport(name: string, value: unknown): void };
+  createContext(sandbox: object): object;
+  runInContext(code: string, context: object): unknown;
 }
 
 let vmApiPromise: Promise<VmApi | null> | undefined;
@@ -199,7 +204,12 @@ async function withRemoteCreateRequire(
   };
 }
 
-function createSyntheticModule(vm: VmApi, specifier: string, namespace: unknown): VmModule {
+function createSyntheticModule(
+  vm: VmApi,
+  specifier: string,
+  namespace: unknown,
+  context?: object
+): VmModule {
   const source =
     namespace && typeof namespace === 'object'
       ? (namespace as Record<string, unknown>)
@@ -221,7 +231,7 @@ function createSyntheticModule(vm: VmApi, specifier: string, namespace: unknown)
         }
       }
     },
-    { identifier: `mf-shared:${specifier}` }
+    { identifier: `mf-shared:${specifier}`, context }
   );
   return syntheticModule;
 }
@@ -333,6 +343,7 @@ function getHttpModule(vm: VmApi, url: string, options: VmStrategyOptions): Prom
     options.fetchMaxBytes ?? DEFAULT_SSR_FETCH_MAX_BYTES,
     options.versionKey,
     url,
+    options.context && getContextId(options.context),
   ]);
   addVmCacheOwner(httpModuleCacheOwners, cacheKey, options.rootEntryUrl);
   if (!httpModuleCache.has(cacheKey)) {
@@ -342,6 +353,7 @@ function getHttpModule(vm: VmApi, url: string, options: VmStrategyOptions): Prom
         const code = await fetchModuleSource(url, options.fetchTimeoutMs, options.fetchMaxBytes);
         return new vm.SourceTextModule(code, {
           identifier: url,
+          context: options.context,
           initializeImportMeta(meta) {
             meta.url = url;
           },
@@ -366,7 +378,12 @@ async function linkModule(
 ): Promise<VmModule> {
   const url = resolveSpecifierUrl(specifier, referencingModule.identifier);
   if (url) return getHttpModule(vm, url, options);
-  return createSyntheticModule(vm, specifier, await loadBareModule(specifier, options));
+  return createSyntheticModule(
+    vm,
+    specifier,
+    await loadBareModule(specifier, options),
+    options.context
+  );
 }
 
 async function prepareModuleGraph(
@@ -438,6 +455,37 @@ async function importDynamically(
 }
 
 /**
+ * A fresh realm for one entry graph, so globals the remote creates are freed
+ * with it instead of accumulating on the host's `globalThis`. It sees the
+ * host's Node globals (`process`, `fetch`, timers, ...) and the federation
+ * globals, but not other `__`-prefixed host globals: a bundled framework copy
+ * would otherwise push into e.g. the host's `__VUE_INSTANCE_SETTERS__`.
+ */
+function createIsolatedContext(vm: VmApi): object {
+  const context = vm.createContext({});
+  const builtins = new Set(
+    vm.runInContext('Reflect.ownKeys(globalThis)', context) as PropertyKey[]
+  );
+  for (const key of Reflect.ownKeys(globalThis)) {
+    if (builtins.has(key) || key === 'global') continue;
+    if (typeof key === 'string' && key.startsWith('__') && !SHARED_GLOBALS.has(key)) continue;
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, key)!;
+    // Node's lazy globals (e.g. `crypto`) read `undefined` with the context as receiver.
+    if (descriptor.get) descriptor.get = descriptor.get.bind(globalThis);
+    if (descriptor.set) descriptor.set = descriptor.set.bind(globalThis);
+    Object.defineProperty(context, key, descriptor);
+  }
+  vm.runInContext('globalThis.global = globalThis', context);
+  return context;
+}
+
+const SHARED_GLOBALS = new Set([
+  '__FEDERATION__',
+  '__mf_module_cache__',
+  '__mf_module_cache_react_server__',
+]);
+
+/**
  * Load and evaluate a remote SSR entry as a `vm.SourceTextModule` graph and
  * return its namespace (the federation container with `init`/`get`).
  * Returns null when the vm module APIs are unavailable.
@@ -457,8 +505,9 @@ export async function loadViaVmStrategy(
     namespaceCache.set(
       cacheKey,
       (async () => {
-        const entryModule = await getHttpModule(vm, entryUrl, graphOptions);
-        await linkModuleGraph(vm, entryModule, graphOptions);
+        const graph = { ...graphOptions, context: createIsolatedContext(vm) };
+        const entryModule = await getHttpModule(vm, entryUrl, graph);
+        await linkModuleGraph(vm, entryModule, graph);
         if (entryModule.status === 'linked') await entryModule.evaluate();
         return entryModule.namespace;
       })().catch((error) => {

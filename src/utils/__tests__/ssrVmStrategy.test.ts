@@ -209,7 +209,8 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
 
     expect(first.result).toBe('first-shared');
     expect(second.result).toBe('second-shared');
-    expect(global.fetch).toHaveBeenCalledTimes(4);
+    // Each entry graph has its own vm.Context, so the shared chunks load once per graph.
+    expect(global.fetch).toHaveBeenCalledTimes(6);
   });
 
   it('links bare shared imports through the host federation share scope', async () => {
@@ -235,6 +236,36 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(loadShare).toHaveBeenCalledWith('shared-lib');
     expect(namespace.val).toBe(42);
     expect(namespace.def.name).toBe('host-shared');
+  });
+
+  it('keeps remote globals off the host globalThis', async () => {
+    global.fetch = makeFetchMock({
+      'http://localhost:5001/remoteEntry.ssr.js': {
+        ok: true,
+        text:
+          'import { v } from "./chunk.js";' +
+          'globalThis.remoteGlobal = v; (globalThis.__X_SETTERS__ ||= []).push(v);' +
+          'export const seen = [typeof process, typeof setTimeout, typeof globalThis.__FEDERATION__, global === globalThis, crypto.randomUUID().length];',
+      },
+      'http://localhost:5001/chunk.js': { ok: true, text: 'export { v } from "shared-lib";' },
+    }) as unknown as typeof globalThis.fetch;
+    const loadShare = vi.fn(async () => () => ({ v: 42 }));
+    (globalThis as Record<string, unknown>).__FEDERATION__ = {
+      __INSTANCES__: [{ options: { shared: { 'shared-lib': {} } }, loadShare }],
+    };
+    const hostSetters: unknown[] = [];
+    (globalThis as Record<string, unknown>).__X_SETTERS__ = hostSetters;
+    const strategy = await freshStrategy();
+
+    const namespace = (await strategy.loadViaVmStrategy(
+      'http://localhost:5001/remoteEntry.ssr.js',
+      { ...baseOptions }
+    )) as { seen: unknown[] };
+
+    expect(namespace.seen).toEqual(['object', 'function', 'object', true, 36]);
+    expect('remoteGlobal' in globalThis).toBe(false);
+    expect(hostSetters).toEqual([]);
+    delete (globalThis as Record<string, unknown>).__X_SETTERS__;
   });
 
   it('lets share initialization load concurrent remote graphs in the same context', async () => {
@@ -274,7 +305,7 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
       options
     )) as { value: string };
     expect(namespace.value).toBe('nested');
-    expect(global.fetch).toHaveBeenCalledTimes(5);
+    expect(global.fetch).toHaveBeenCalledTimes(7);
   }, 1000);
 
   it('continues linking other graphs after a link failure', async () => {
@@ -326,7 +357,8 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
       strategy.loadViaVmStrategy('http://localhost:5001/entry.js', options)
     ).resolves.toMatchObject({ value: 'recovered' });
     expect(loadShare).toHaveBeenCalledTimes(2);
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    // The retry links in a fresh vm.Context.
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   it('links cyclic static module graphs', async () => {
@@ -917,7 +949,7 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
       'http://localhost:5001/b/remoteEntry.ssr.js',
       optionsB
     )) as { marker: string };
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
 
     responses['http://localhost:5001/a/remoteEntry.ssr.js'] = {
       ok: true,
@@ -943,7 +975,7 @@ describe.skipIf(!hasVmModules)('ssrVmStrategy — module graph evaluation', () =
     expect(nextA.marker).toBe('a-v2');
     // Remote B still owns the shared module and its own entry: no re-fetch.
     expect(cachedB).toBe(firstB);
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(5);
 
     strategy.clearVmStrategyCaches('http://localhost:5001/b/remoteEntry.js');
     const nextB = (await strategy.loadViaVmStrategy(

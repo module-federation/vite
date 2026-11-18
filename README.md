@@ -358,6 +358,8 @@ federation({
 
 The `"vm"` strategy requires Node.js to run with `--experimental-vm-modules`. When unavailable, the loader warns once and falls back to `"temp-file"`. Vite 8 development uses `ModuleRunner`; this option primarily affects build and preview SSR entry loading.
 
+`"vm"` evaluates each remote build in its own `vm.Context`, which gets the host's Node and federation globals but not other `__`-prefixed host globals. Builtins such as `Array` come from that context, so `instanceof` checks between host and remote values can fail.
+
 `ssrEntryLoader` also accepts network and cache options:
 
 ```ts
