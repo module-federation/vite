@@ -103,8 +103,9 @@ it.each(['build', 'serve'] as const)(
             };
 
             window.loadWidget = async () => {
-              const { value } = await import('middle/Widget');
-              document.querySelector('#result').textContent = value;
+              // Keep the namespace so Vite 5/6 don't destructure before federation resolves the remote.
+              const widget = await import('middle/Widget');
+              document.querySelector('#result').textContent = widget.value;
             };
           `,
         }
