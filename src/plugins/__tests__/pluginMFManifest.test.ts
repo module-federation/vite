@@ -18,6 +18,7 @@ import type {
   Rollup,
 } from 'vite';
 import { callHook } from '../../utils/__tests__/viteHookHelpers';
+import { normalizeRemotes } from '../../utils/normalizeModuleFederationOptions';
 import packageJson from '../../../package.json' with { type: 'json' };
 
 import manifestPlugin, { getBuildVersion } from '../pluginMFManifest';
@@ -641,31 +642,42 @@ describe('pluginMFManifest', () => {
       federationContainerName: 'catalogContainer',
       moduleName: 'Product',
       alias: 'catalog',
-      entry: '*',
+      entry: 'https://cdn.example.com/remoteEntry.js',
     });
   });
 
-  it('reports entryGlobalName for string-form remotes', async () => {
+  it('reports the container name and URL from a string-form remote', async () => {
     const emitted = await runGenerateBundleWithManifest(true, {
-      remotes: {
-        remote1: {
-          name: 'remote1',
-          entryGlobalName: 'Button',
-          entry: 'https://cdn.example.com/remoteEntry.js',
-          type: 'var',
-        },
-      },
+      remotes: normalizeRemotes({
+        remote1: '@catalog/remote@https://cdn.example.com/@catalog/mf-manifest.json?tag=beta',
+      }),
       usedRemotes: { remote1: new Set(['remote1/Button']) },
     });
 
     const manifest = JSON.parse(emitted['mf-manifest.json']);
 
     expect(manifest.remotes).toContainEqual({
-      federationContainerName: 'Button',
+      federationContainerName: '@catalog/remote',
       moduleName: 'Button',
       alias: 'remote1',
-      entry: '*',
+      entry: 'https://cdn.example.com/@catalog/mf-manifest.json?tag=beta',
     });
+  });
+
+  it('falls back to a wildcard when a remote entry is empty', async () => {
+    const emitted = await runGenerateBundleWithManifest(true, {
+      remotes: { catalog: { name: 'catalogContainer', entry: '', type: 'module' } },
+      usedRemotes: { catalog: new Set(['catalog/Product']) },
+    });
+
+    expect(JSON.parse(emitted['mf-manifest.json']).remotes).toEqual([
+      {
+        federationContainerName: 'catalogContainer',
+        moduleName: 'Product',
+        alias: 'catalog',
+        entry: '*',
+      },
+    ]);
   });
 
   it('points Nuxt dev ssrRemoteEntry at the SSR middleware path', async () => {
@@ -714,7 +726,7 @@ describe('pluginMFManifest', () => {
     expect(manifest.exposes[0].assets.js.sync).toEqual(['remoteEntry.js']);
   });
 
-  it('serves hash-pattern dev remoteEntry through stable manifest filename', async () => {
+  it('serves the stable hash-pattern entry and configured dependency entry in dev', async () => {
     getNormalizeModuleFederationOptions.mockReturnValue({
       name: 'basicRemote',
       filename: 'remoteEntry-[hash]',
@@ -722,7 +734,9 @@ describe('pluginMFManifest', () => {
       varFilename: undefined,
       manifest: true,
       exposes: { './exposed': { import: './src/exposed.js' } },
-      remotes: {},
+      remotes: {
+        catalog: { name: 'catalogContainer', entry: '/catalog/mf-manifest.json', type: 'module' },
+      },
       shared: {},
       publicPath: 'auto',
       bundleAllCSS: false,
@@ -734,7 +748,7 @@ describe('pluginMFManifest', () => {
       moduleParseTimeout: 10,
       ignoreOrigin: false,
     });
-    getUsedRemotesMap.mockReturnValue(new Map());
+    getUsedRemotesMap.mockReturnValue({ catalog: new Set(['catalog/Product']) });
     getUsedShares.mockReturnValue(new Set());
 
     const [servePlugin, buildPlugin] = manifestPlugin();
@@ -788,6 +802,14 @@ describe('pluginMFManifest', () => {
     expect(manifest.metaData.pluginVersion).toBe(packageJson.version);
     expect(manifest.metaData.ssrRemoteEntry.name).toBe('remoteEntry.ssr.js');
     expect(manifest.exposes[0].assets.js.sync).toEqual(['remoteEntry.js']);
+    expect(manifest.remotes).toEqual([
+      {
+        federationContainerName: 'catalogContainer',
+        moduleName: 'Product',
+        alias: 'catalog',
+        entry: '/catalog/mf-manifest.json',
+      },
+    ]);
   });
 
   it('serves hash-pattern dev remoteEntry through stable filename without manifest', () => {

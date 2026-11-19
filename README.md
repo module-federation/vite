@@ -259,6 +259,10 @@ You can specify the place the host initialization file is injected with the **ho
 The **moduleParseTimeout** option allows you to configure the maximum time to wait for module parsing during the build process.
 The **moduleParseIdleTimeout** option is an alternative that resets the timer on every parsed module. It only fires when there has been no module activity for the configured duration, making it suitable for large codebases where the total build time exceeds the fixed timeout.
 
+In build and dev manifests, each detected remote module's `remotes[].entry` contains the configured URL. Vite's remote configuration accepts entries by URL and has no version-based remote option. If the entry is missing or empty, the manifest uses `"*"`.
+
+The manifest lists remote modules Vite detects through imports. When an app only loads a remote through a runtime wrapper such as `myLoader('catalog/Product')` calling `loadRemote`, that dependency can be absent from `remotes` even when `catalog` is configured.
+
 ## Preload hints with server-rendered documents
 
 Client builds with Vite's `build.manifest` enabled (`true` or a custom path)

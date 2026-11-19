@@ -646,7 +646,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
           federationContainerName: getRemoteContainerName(remoteKey, remote),
           moduleName: moduleKey.replace(remoteKey, '').replace('/', ''),
           alias: remoteKey,
-          entry: '*',
+          entry: remote.entry || '*',
         }));
       }
     );
