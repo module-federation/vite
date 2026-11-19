@@ -278,8 +278,7 @@ function getTreeShakingBuildInfo(options: ReturnType<typeof getNormalizeModuleFe
   };
 }
 
-function getRemoteContainerName(remoteKey: string, remote: RemoteObjectConfig | undefined) {
-  if (!remote) return remoteKey;
+function getRemoteContainerName(remoteKey: string, remote: RemoteObjectConfig) {
   // Object-form remotes default entryGlobalName to the alias during
   // normalization, while string-form remotes use it for `Name@entry`.
   const entryGlobalName = remote.entryGlobalName;
@@ -647,7 +646,7 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
           federationContainerName: getRemoteContainerName(remoteKey, remote),
           moduleName: moduleKey.replace(remoteKey, '').replace('/', ''),
           alias: remoteKey,
-          entry: remote?.entry || '*',
+          entry: remote.entry || '*',
         }));
       }
     );

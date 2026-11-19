@@ -664,10 +664,10 @@ describe('pluginMFManifest', () => {
     });
   });
 
-  it('falls back to a wildcard when a used remote has no entry', async () => {
+  it('falls back to a wildcard when a remote entry is empty', async () => {
     const emitted = await runGenerateBundleWithManifest(true, {
       remotes: { catalog: { name: 'catalogContainer', entry: '', type: 'module' } },
-      usedRemotes: { catalog: new Set(['catalog/Product']), missing: new Set(['missing/Widget']) },
+      usedRemotes: { catalog: new Set(['catalog/Product']) },
     });
 
     expect(JSON.parse(emitted['mf-manifest.json']).remotes).toEqual([
@@ -677,7 +677,6 @@ describe('pluginMFManifest', () => {
         alias: 'catalog',
         entry: '*',
       },
-      { federationContainerName: 'missing', moduleName: 'Widget', alias: 'missing', entry: '*' },
     ]);
   });
 
