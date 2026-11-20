@@ -34,7 +34,9 @@ export async function serveDirectory(root: string): Promise<StaticServer> {
         ? 'text/html'
         : filePath.endsWith('.js')
           ? 'application/javascript'
-          : 'application/octet-stream';
+          : filePath.endsWith('.css')
+            ? 'text/css'
+            : 'application/octet-stream';
       response.writeHead(200, {
         'access-control-allow-origin': '*',
         'content-type': contentType,

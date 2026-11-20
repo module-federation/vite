@@ -288,7 +288,7 @@ Do not copy complex OriginJS `shared` configuration mechanically.
 | `packagePath`                              | Review manually. It is an OriginJS package-resolution option without a direct `@module-federation/vite` configuration field.                                                                      |
 | `generate: false`                          | Review manually. Do not assume that `@module-federation/vite` omits the same fallback artifact.                                                                                                   |
 | `modulePreload`                            | Review the application build and loading behavior manually. It has no direct equivalent in the `@module-federation/vite` shared options.                                                          |
-| `dontAppendStylesToHead`                   | There is no direct equivalent. If the exposed module uses Shadow DOM, manage its stylesheet URLs or styles explicitly and inject them into the `ShadowRoot`. `bundleAllCSS` is not a replacement. |
+| `dontAppendStylesToHead`                   | There is no direct equivalent. Import the styles with `?url` instead of reading `window["css__{name}__{exposeKey}"]`, and build the remote with a relative or absolute `base`; see [CSS inside Shadow DOM](../README.md#css-inside-shadow-dom). |
 
 When the host and remote use React within the same rendering boundary, verify compatible versions and configure `react` and `react-dom` as singletons. Also verify subpath imports that cross the boundary, such as `react/jsx-runtime` and `react-dom/client`.
 
