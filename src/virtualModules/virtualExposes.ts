@@ -21,8 +21,11 @@ export function generateExposes(
   command = 'build',
   reactIslandExposes: ReadonlySet<string> = new Set()
 ) {
+  const manualCssExposes = Object.keys(options.exposes).filter(
+    (key) => options.exposes[key].cssInjection === 'manual'
+  );
   return `
-    const cssAssetMap = ${JSON.stringify(options.bundleAllCSS ? EXPOSES_CSS_MAP_PLACEHOLDER : {})};
+    const cssAssetMap = ${JSON.stringify(options.bundleAllCSS || manualCssExposes.length ? EXPOSES_CSS_MAP_PLACEHOLDER : {})};
     const injectedCssHrefs = new Set();
     const exposeLoadPromises = new Map();
 
@@ -50,7 +53,19 @@ export function generateExposes(
 
       // Replaced at build time with expose -> css asset paths.
       const cssAssets = cssAssetMap[exposeKey] || [];
-
+${
+  manualCssExposes.length
+    ? `
+      // cssInjection: 'manual' leaves placement to the expose (e.g. a ShadowRoot).
+      if (${JSON.stringify(manualCssExposes)}.includes(exposeKey)) {
+        window[${JSON.stringify(`css__${options.name}__`)} + exposeKey] = cssAssets.map(
+          (cssAsset) => new URL(cssAsset, import.meta.url).href
+        );
+        return;
+      }
+${options.bundleAllCSS ? '' : '      return;\n'}`
+    : ''
+}
       await Promise.all(
         cssAssets.map((cssAsset) => {
           const href = new URL(cssAsset, import.meta.url).href;

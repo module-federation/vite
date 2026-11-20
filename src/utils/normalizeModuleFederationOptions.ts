@@ -35,8 +35,10 @@ import { getCommonSharedSubpaths } from './pathNormalization';
 import { findSharedKey } from './sharedKeyMatcher';
 import { normalizePathForImport } from './buildPaths';
 
+type CssInjection = 'head' | 'manual';
 interface ExposesItem {
   import: string;
+  cssInjection?: CssInjection;
 }
 export interface NormalizedShared {
   [key: string]: ShareItem;
@@ -64,13 +66,16 @@ function warnOnReservedInternalNamePrefix(name: string, kind: 'containerName' | 
   );
 }
 
-function normalizeExposesItem(item: string | { import: string }): ExposesItem {
+function normalizeExposesItem(
+  item: string | { import: string; cssInjection?: CssInjection }
+): ExposesItem {
   let importPath: string = '';
   if (typeof item === 'string') {
     importPath = item;
   }
   if (typeof item === 'object') {
     importPath = item.import;
+    if (item.cssInjection) return { import: importPath, cssInjection: item.cssInjection };
   }
   return {
     import: importPath,
@@ -78,7 +83,7 @@ function normalizeExposesItem(item: string | { import: string }): ExposesItem {
 }
 
 function normalizeExposes(
-  exposes: Record<string, string | { import: string }> | undefined
+  exposes: Record<string, string | { import: string; cssInjection?: CssInjection }> | undefined
 ): Record<string, ExposesItem> {
   if (!exposes) return {};
   const res: Record<string, ExposesItem> = {};
@@ -673,7 +678,24 @@ function normalizeSsrEnvironment(name: string | undefined): string | undefined {
 }
 
 export type ModuleFederationOptions = {
-  exposes?: Record<string, string | { import: string }> | undefined;
+  exposes?:
+    | Record<
+        string,
+        | string
+        | {
+            import: string;
+            /**
+             * Where this expose's CSS is applied when it loads (build only).
+             * - 'head' (default): stylesheets are appended to `document.head`.
+             * - 'manual': nothing is appended to `document.head` (nor listed in `mf-manifest.json`);
+             *   the final CSS URLs are published on `window["css__{name}__{exposeKey}"]`
+             *   (e.g. `css__remote__./Button`) before the expose runs, so it can attach them
+             *   to a ShadowRoot itself.
+             */
+            cssInjection?: CssInjection;
+          }
+      >
+    | undefined;
   filename?: string;
   /**
    * Exact file name of the SSR remote entry emitted next to `filename`.

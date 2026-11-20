@@ -719,6 +719,9 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
         (_command === 'serve' && resolvedRemoteEntryFile
           ? createRemoteEntryAssetMap(resolvedRemoteEntryFile)
           : createEmptyAssetMap());
+      // The MF runtime appends a manifest expose's CSS to document.head; 'manual' exposes
+      // publish theirs on window instead.
+      const manualCss = value.cssInjection === 'manual';
 
       return {
         id: `${name}:${formatKey}`,
@@ -729,8 +732,8 @@ const Manifest = (providedOptions?: NormalizedModuleFederationOptions): Plugin[]
             sync: assets.js.sync,
           },
           css: {
-            async: assets.css.async,
-            sync: assets.css.sync,
+            async: manualCss ? [] : assets.css.async,
+            sync: manualCss ? [] : assets.css.sync,
           },
         },
         path: key,

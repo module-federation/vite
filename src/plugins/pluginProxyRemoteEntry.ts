@@ -9,6 +9,7 @@ import {
 import {
   addCssAssetsToAllExports,
   collectCssAssets,
+  collectStaticChunks,
   createEmptyAssetMap,
   processModuleAssets,
 } from '../utils/cssModuleHelpers';
@@ -42,6 +43,54 @@ function resolveAbsoluteDevRemoteEntryUrl(publicPath: string, fileName: string):
   const base = new URL(publicPath);
   base.pathname = ensureTrailingSlash(base.pathname);
   return new URL(fileName, base).href;
+}
+
+const MAP_DEPS_LOOKUP = ')))=>i.map(i=>d[i])';
+
+/**
+ * Stops Vite's `__vitePreload` from appending the CSS of `cssInjection: 'manual'` exposes to
+ * `document.head`: drops from every preload deps table the CSS that only those exposes load (not the
+ * remote's own app entries, nor `head` exposes).
+ */
+function dropCssPreloadDeps(
+  bundle: Record<string, any>,
+  manualExposeChunks: string[],
+  headExposeChunks: string[]
+) {
+  const isRemoteEntry = (file: string) => bundle[file]?.name === 'remoteEntry';
+  const reach = (starts: string[], stop = isRemoteEntry) => {
+    const seen = new Set<string>();
+    const queue = [...starts];
+    while (queue.length) {
+      const file = queue.pop()!;
+      const chunk = bundle[file];
+      if (seen.has(file) || chunk?.type !== 'chunk' || stop(file)) continue;
+      seen.add(file);
+      queue.push(...chunk.imports, ...chunk.dynamicImports);
+    }
+    return seen;
+  };
+  const cssOf = (chunks: Set<string>) =>
+    new Set(
+      [...chunks].flatMap((file) =>
+        [...(bundle[file].viteMetadata?.importedCss ?? [])].map((css) => path.posix.basename(css))
+      )
+    );
+  // Expose chunks are entries too; only entries the remote entry does not load are the app's.
+  const remoteChunks = reach(Object.keys(bundle).filter(isRemoteEntry), () => false);
+  const appEntries = Object.keys(bundle).filter(
+    (file) => bundle[file].isEntry && !remoteChunks.has(file)
+  );
+  const headCss = cssOf(reach([...appEntries, ...headExposeChunks]));
+  const manualOnlyCss = [...cssOf(reach(manualExposeChunks))].filter((css) => !headCss.has(css));
+  if (!manualOnlyCss.length) return;
+  // Basenames are content-hashed, so a suffix match also covers base- or renderBuiltUrl-prefixed deps.
+  const filter = `.filter(u=>!${JSON.stringify(manualOnlyCss)}.some(f=>u===f||u.endsWith("/"+f)))`;
+  for (const chunk of Object.values(bundle)) {
+    if (chunk.type !== 'chunk' || !chunk.code.includes(MAP_DEPS_LOOKUP)) continue;
+    if (!manualOnlyCss.some((css) => chunk.code.includes(css))) continue;
+    chunk.code = chunk.code.replace(MAP_DEPS_LOOKUP, MAP_DEPS_LOOKUP + filter);
+  }
 }
 
 export default function ({
@@ -256,71 +305,92 @@ export default function ({
 
       return mapCodeToCodeWithSourcemap(transformedCode);
     },
-    generateBundle(_, bundle) {
-      if (_command !== 'build') return;
+    // Post: dropCssPreloadDeps rewrites the `__vite__mapDeps` table Vite emits in its own generateBundle.
+    generateBundle: {
+      order: 'post',
+      handler(_, bundle) {
+        if (_command !== 'build') return;
 
-      const filesMap: Record<
-        string,
-        {
-          js: { sync: string[]; async: string[] };
-          css: { sync: string[]; async: string[] };
-        }
-      > = {};
-      const exposeEntries = Object.entries(options.exposes);
-      const allCssAssets = options.bundleAllCSS ? collectCssAssets(bundle) : new Set<string>();
+        const filesMap: Record<
+          string,
+          {
+            js: { sync: string[]; async: string[] };
+            css: { sync: string[]; async: string[] };
+          }
+        > = {};
+        const exposeEntries = Object.entries(options.exposes);
+        const allCssAssets = options.bundleAllCSS ? collectCssAssets(bundle) : new Set<string>();
 
-      processModuleAssets(
-        bundle,
-        filesMap,
-        (modulePath) => {
-          const matchedExpose = exposeEntries.find(([_, exposeOptions]) => {
-            const exposePath = path.resolve(root, exposeOptions.import);
-            return modulePath === exposePath;
-          });
+        processModuleAssets(
+          bundle,
+          filesMap,
+          (modulePath) => {
+            const matchedExpose = exposeEntries.find(([_, exposeOptions]) => {
+              const exposePath = path.resolve(root, exposeOptions.import);
+              return modulePath === exposePath;
+            });
 
-          return matchedExpose?.[1].import;
-        },
-        { root, stripKnownJsExtensions: true }
-      );
-
-      if (options.bundleAllCSS) {
-        addCssAssetsToAllExports(filesMap, allCssAssets);
-      }
-
-      const ensureRelativeImportPath = (fromFile: string, toFile: string) => {
-        let relativePath = normalizePathForImport(path.relative(path.dirname(fromFile), toFile));
-        if (!relativePath.startsWith('.')) {
-          relativePath = `./${relativePath}`;
-        }
-        return relativePath;
-      };
-
-      const placeholderValue = getExposesCssMapPlaceholder();
-      const placeholderPatterns = [
-        JSON.stringify(placeholderValue),
-        `'${placeholderValue}'`,
-        `\`${placeholderValue}\``,
-      ];
-      for (const file of Object.values(bundle)) {
-        if (file.type !== 'chunk' || !file.code.includes(placeholderValue)) continue;
-
-        // virtualExposes can be wrapped into helper chunks, so patch every chunk
-        // that still carries the placeholder.
-        const cssAssetMap = exposeEntries.reduce<Record<string, string[]>>(
-          (acc, [exposeKey, expose]) => {
-            const assets = filesMap[expose.import] || createEmptyAssetMap();
-            acc[exposeKey] = [...assets.css.sync, ...assets.css.async].map((cssAsset) =>
-              ensureRelativeImportPath(file.fileName, cssAsset)
-            );
-            return acc;
+            return matchedExpose?.[1].import;
           },
-          {}
+          { root, stripKnownJsExtensions: true }
         );
 
-        for (const placeholderPattern of placeholderPatterns) {
-          file.code = file.code.replace(placeholderPattern, JSON.stringify(cssAssetMap));
+        if (options.bundleAllCSS) {
+          addCssAssetsToAllExports(filesMap, allCssAssets);
         }
-      }
+
+        const exposeChunks = (cssInjection: 'head' | 'manual') =>
+          exposeEntries
+            .filter(([, expose]) => (expose.cssInjection ?? 'head') === cssInjection)
+            .flatMap(([, expose]) => filesMap[expose.import]?.js.sync ?? []);
+        const manualExposeChunks = exposeChunks('manual');
+        if (manualExposeChunks.length) {
+          dropCssPreloadDeps(bundle, manualExposeChunks, exposeChunks('head'));
+        }
+
+        const ensureRelativeImportPath = (fromFile: string, toFile: string) => {
+          let relativePath = normalizePathForImport(path.relative(path.dirname(fromFile), toFile));
+          if (!relativePath.startsWith('.')) {
+            relativePath = `./${relativePath}`;
+          }
+          return relativePath;
+        };
+
+        const placeholderValue = getExposesCssMapPlaceholder();
+        const placeholderPatterns = [
+          JSON.stringify(placeholderValue),
+          `'${placeholderValue}'`,
+          `\`${placeholderValue}\``,
+        ];
+        for (const file of Object.values(bundle)) {
+          if (file.type !== 'chunk' || !file.code.includes(placeholderValue)) continue;
+
+          // virtualExposes can be wrapped into helper chunks, so patch every chunk
+          // that still carries the placeholder.
+          const cssAssetMap = exposeEntries.reduce<Record<string, string[]>>(
+            (acc, [exposeKey, expose]) => {
+              const assets = filesMap[expose.import] || createEmptyAssetMap();
+              // CSS of every chunk the expose loads, including static deps of its lazy chunks.
+              const css = new Set([...assets.css.sync, ...assets.css.async]);
+              for (const chunk of collectStaticChunks(bundle, [
+                ...assets.js.sync,
+                ...assets.js.async,
+              ])) {
+                for (const cssFile of chunk.viteMetadata?.importedCss ?? []) css.add(cssFile);
+              }
+              acc[exposeKey] = [...css].map((cssAsset) =>
+                ensureRelativeImportPath(file.fileName, cssAsset)
+              );
+              return acc;
+            },
+            {}
+          );
+
+          for (const placeholderPattern of placeholderPatterns) {
+            file.code = file.code.replace(placeholderPattern, JSON.stringify(cssAssetMap));
+          }
+        }
+      },
     },
   };
 }
