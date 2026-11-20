@@ -358,6 +358,19 @@ describe('normalizeModuleFederationOption', () => {
         },
       });
     });
+
+    it('should keep an expose cssInjection', () => {
+      expect(
+        normalizeModuleFederationOptions({
+          ...minimalOptions,
+          exposes: {
+            './Card': { import: 'src/Card.js', cssInjection: 'manual' },
+          },
+        }).exposes
+      ).toEqual({
+        './Card': { import: 'src/Card.js', cssInjection: 'manual' },
+      });
+    });
   });
 
   describe('remotes', () => {

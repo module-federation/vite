@@ -66,6 +66,24 @@ describe('virtualExposes', () => {
     expect(cssBundleCode).toContain(`const cssAssetMap = "${getExposesCssMapPlaceholder()}";`);
   });
 
+  it('publishes CSS URLs on window only for cssInjection manual exposes', () => {
+    const code = generateExposes(
+      getDefaultMockOptions({
+        name: 'remote',
+        exposes: {
+          './Button': { import: './src/Button.ts', cssInjection: 'manual' },
+          './Card': { import: './src/Card.ts', cssInjection: 'head' },
+        },
+      })
+    );
+
+    expect(code).toContain(`const cssAssetMap = "${getExposesCssMapPlaceholder()}";`);
+    expect(code).toContain('if (["./Button"].includes(exposeKey)) {');
+    expect(code).toContain('window["css__remote__" + exposeKey] = cssAssets.map(');
+    // Without bundleAllCSS, `head` exposes keep Vite's own CSS loading.
+    expect(code).toMatch(/return;\n      }\n      return;\n/);
+  });
+
   it('adds a lazy browser hydration capability without changing the default export', async () => {
     const code = generateExposes(
       getDefaultMockOptions({

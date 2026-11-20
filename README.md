@@ -183,6 +183,19 @@ export function mount(shadowRoot) {
 
 Build the remote with `base: "./"` (or an absolute `base` such as `https://cdn.example.com/remote/`). With the default `base: "/"`, the URL is `/assets/...` and resolves against the host's origin. Use `?inline` instead to get the CSS as a string, for example for `adoptedStyleSheets`.
 
+When the CSS comes from imports you don't control, such as a component library, set `cssInjection: "manual"` on the expose. Its CSS, including the CSS of its lazy chunks, is then not appended to `document.head` and is left out of `mf-manifest.json`. Instead, the final content-hashed URLs are set on `window["css__{name}__{exposeKey}"]` before the exposed module runs, the same contract as OriginJS `dontAppendStylesToHead`:
+
+```js
+// remote vite.config: exposes: { "./Card": { import: "./src/Card", cssInjection: "manual" } }
+export async function init(shadowRoot) {
+  for (const href of window["css__remote__./Card"] ?? []) {
+    shadowRoot.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href }));
+  }
+}
+```
+
+A stylesheet that the remote's own app or another expose also loads is still appended to `document.head`. `cssInjection` applies to builds only.
+
 ## The Host Application configuration
 
 file **host/vite.config.ts**

@@ -124,7 +124,7 @@ With Vite's default build settings, the same `filename` produces a different rem
 
 To keep the existing `/assets/remoteEntry.js` URL, set `filename: 'assets/remoteEntry.js'`. Otherwise, update the host's `entry` URL to the new location.
 
-If an OriginJS expose uses object form, carry over only its `import` value. The OriginJS `name` and `dontAppendStylesToHead` options have no direct equivalents and cannot be copied unchanged. If you use `dontAppendStylesToHead`, follow the CSS guidance in [Step 5](#step-5-review-shared-dependencies-and-css).
+If an OriginJS expose uses object form, carry over its `import` value. The OriginJS `name` option has no direct equivalent. `dontAppendStylesToHead: true` maps to `cssInjection: 'manual'` on the same expose, see [Step 5](#step-5-review-shared-dependencies-and-css).
 
 ## Step 3: Migrate a Vite host
 
@@ -288,7 +288,7 @@ Do not copy complex OriginJS `shared` configuration mechanically.
 | `packagePath`                              | Review manually. It is an OriginJS package-resolution option without a direct `@module-federation/vite` configuration field.                                                                      |
 | `generate: false`                          | Review manually. Do not assume that `@module-federation/vite` omits the same fallback artifact.                                                                                                   |
 | `modulePreload`                            | Review the application build and loading behavior manually. It has no direct equivalent in the `@module-federation/vite` shared options.                                                          |
-| `dontAppendStylesToHead`                   | There is no direct equivalent. Import the styles with `?url` instead of reading `window["css__{name}__{exposeKey}"]`, and build the remote with a relative or absolute `base`; see [CSS inside Shadow DOM](../README.md#css-inside-shadow-dom). |
+| `dontAppendStylesToHead`                   | `cssInjection: 'manual'` on the expose. CSS is kept out of `document.head` and its URLs are set on the same `window["css__{name}__{exposeKey}"]`; see [CSS inside Shadow DOM](../README.md#css-inside-shadow-dom). |
 
 When the host and remote use React within the same rendering boundary, verify compatible versions and configure `react` and `react-dom` as singletons. Also verify subpath imports that cross the boundary, such as `react/jsx-runtime` and `react-dom/client`.
 
