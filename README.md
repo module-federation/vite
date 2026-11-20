@@ -166,6 +166,23 @@ shared: {
 },
 ```
 
+### CSS inside Shadow DOM
+
+A CSS file imported normally by an exposed module is appended to `document.head`, where it does not style elements inside a shadow root. To place it in a `ShadowRoot` instead, import it with Vite's `?url` suffix: Vite emits the processed, content-hashed stylesheet and returns its URL without injecting it anywhere.
+
+```js
+import stylesHref from "./styles.css?url";
+
+export function mount(shadowRoot) {
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = stylesHref;
+  shadowRoot.appendChild(link);
+}
+```
+
+Build the remote with `base: "./"` (or an absolute `base` such as `https://cdn.example.com/remote/`). With the default `base: "/"`, the URL is `/assets/...` and resolves against the host's origin. Use `?inline` instead to get the CSS as a string, for example for `adoptedStyleSheets`.
+
 ## The Host Application configuration
 
 file **host/vite.config.ts**
