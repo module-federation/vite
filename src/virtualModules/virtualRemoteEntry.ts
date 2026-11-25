@@ -4,6 +4,7 @@ import {
   hasRemotes,
   hasShared,
   isExplicitSharedKey,
+  isPathImport,
   isRemoteContainer,
   NormalizedModuleFederationOptions,
   ShareItem,
@@ -450,10 +451,17 @@ export function generateLocalSharedImportMap(options?: NormalizedModuleFederatio
 }
 
 /** Expand `pkg/` → package root (if importable) + matching usedShares; never returns the prefix string. */
-export function expandSharedPrefixKey(prefixKey: string, used: Iterable<string>): string[] {
+export function expandSharedPrefixKey(
+  prefixKey: string,
+  used: Iterable<string>,
+  skipPnpmStore = false
+): string[] {
   const base = prefixKey.slice(0, -1);
   // The base becomes `import * as x from "<base>"` for eager hosts: it must exist and export ".".
-  const baseImportable = isPackageInstalled(base) && isPackageExportAvailable(base);
+  const packageLookupOptions = skipPnpmStore ? { skipPnpmStore: true } : undefined;
+  const baseImportable =
+    isPackageInstalled(base, packageLookupOptions) &&
+    isPackageExportAvailable(base, packageLookupOptions);
   const expanded = new Set<string>(baseImportable ? [base] : []);
   for (const pkg of used) {
     if (pkg.endsWith('/')) continue;
@@ -476,7 +484,11 @@ function getOrderedUsedShares(options: NormalizedModuleFederationOptions) {
   });
   for (const [pkg, share] of Object.entries(options.shared ?? {})) {
     if (share.shareConfig?.eager && getSharedRequest(pkg, share).endsWith('/')) {
-      for (const concrete of expandSharedPrefixKey(getSharedRequest(pkg, share), used)) {
+      for (const concrete of expandSharedPrefixKey(
+        getSharedRequest(pkg, share),
+        used,
+        isPathImport(share.shareConfig.import)
+      )) {
         addShare(concrete);
       }
     }
@@ -496,7 +508,12 @@ function getMaterializedShares(options: NormalizedModuleFederationOptions) {
     if (!share.shareConfig?.eager) continue;
     const request = getSharedRequest(pkg, share);
     if (request.endsWith('/')) {
-      for (const concrete of expandSharedPrefixKey(request, usedForEager)) shares.add(concrete);
+      for (const concrete of expandSharedPrefixKey(
+        request,
+        usedForEager,
+        isPathImport(share.shareConfig.import)
+      ))
+        shares.add(concrete);
     } else {
       shares.add(pkg);
     }
@@ -528,6 +545,7 @@ function getMaterializedShares(options: NormalizedModuleFederationOptions) {
       }
     }
     const packageName = getPackageName(pkg);
+    if (localImports.has(pkg)) continue;
     const packageJson =
       getInstalledPackageJson(pkg)?.packageJson ??
       (pkg !== packageName ? getInstalledPackageJson(packageName)?.packageJson : undefined);

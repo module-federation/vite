@@ -119,6 +119,30 @@ describe('getInstalledPackageJson', () => {
     );
   });
 
+  it('can skip pnpm store lookup for local-source package detection', () => {
+    const packageName = 'mf-test-local-source';
+    const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-pnpm-skip-'));
+    tempDirs.push(root);
+
+    mkdirSync(
+      path.join(root, `node_modules/.pnpm/${packageName}@1.0.0/node_modules/${packageName}`),
+      { recursive: true }
+    );
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'host' }));
+    writeFileSync(
+      path.join(
+        root,
+        `node_modules/.pnpm/${packageName}@1.0.0/node_modules/${packageName}/package.json`
+      ),
+      JSON.stringify({ name: packageName, version: '1.0.0' })
+    );
+
+    expect(
+      getInstalledPackageJson(packageName, { cwd: root, skipPnpmStore: true })
+    ).toBeUndefined();
+    expect(getInstalledPackageJson(packageName, { cwd: root })?.packageJson.version).toBe('1.0.0');
+  });
+
   it('reuses one pnpm store index for different package names', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'mf-vite-pnpm-index-'));
     const packageRoot = path.join(root, 'node_modules/.pnpm');

@@ -73,6 +73,7 @@ type PackageEntryConditions = {
   conditions?: string[];
   resolveSubpathWithRequire?: boolean;
   fromResolvedEntry?: string;
+  skipPnpmStore?: boolean;
 };
 
 const DEFAULT_EXPORT_CONDITIONS = ['browser', 'import', 'module', 'default'];
@@ -640,7 +641,7 @@ export function getInstalledPackageJson(
 ): InstalledPackageJson | undefined {
   const cwd = opts?.cwd || getPackageDetectionCwd();
   const packageName = opts?.packageName || getPackageName(pkg);
-  const cacheKey = `${cwd}\0${pkg}\0${packageName}\0${opts?.fromResolvedEntry ?? ''}`;
+  const cacheKey = `${cwd}\0${pkg}\0${packageName}\0${opts?.fromResolvedEntry ?? ''}\0${opts?.skipPnpmStore ? 'skip-pnpm-store' : ''}`;
   if (installedPackageJsonCache.has(cacheKey)) {
     return installedPackageJsonCache.get(cacheKey);
   }
@@ -706,9 +707,9 @@ function resolveInstalledPackageJson(
     if (directCandidate) return directCandidate;
   }
 
-  return (
-    findPackageInDependents(packageName, cwd)?.copy ?? findPackageInPnpmStore(packageName, cwd)
-  );
+  const dependent = findPackageInDependents(packageName, cwd)?.copy;
+  if (dependent || opts?.skipPnpmStore) return dependent;
+  return findPackageInPnpmStore(packageName, cwd);
 }
 
 function readDirEntries(dir: string) {
