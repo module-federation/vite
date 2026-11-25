@@ -36,6 +36,7 @@ import {
   getPackageName,
   getPackageNameFromNodeModulePath,
   hasPackageDependency,
+  isPackageInstalled,
   resolveModulePath,
   setPackageDetectionCwd,
 } from '../utils/packageUtils';
@@ -579,6 +580,11 @@ export function isSharedPackageRuntimeDependency(
   );
 }
 
+// Only the first federation instance of a build resolves a shared import, so it hands the share to
+// the remote containers built next to it: they materialize what is imported, as it does (#1586).
+type SharedImportObserver = (shareSource: string, aliasedImport: string | undefined) => void;
+const sharedImportObservers = new WeakMap<ResolvedConfig, Set<SharedImportObserver>>();
+
 export function proxySharedModule(options: {
   shared?: NormalizedShared;
   federationOptions: NormalizedModuleFederationOptions;
@@ -649,6 +655,24 @@ export function proxySharedModule(options: {
     root: _config?.root || getPackageDetectionCwd(),
     conditions: getRuntimeDependencyConditions(context, resolveOptions),
   }));
+  const materializeLoadShare = (shareSource: string, key: string) => {
+    materializedLoadShareSources.add(shareSource);
+    writeLoadShareModule(shareSource, shared[key], _command, federationOptions);
+    if (shared[key].shareConfig.import !== false) {
+      writePreBuildLibPath(shareSource, shared[key], federationOptions);
+    }
+    addUsedShares(shareSource, federationOptions);
+    writeLocalSharedImportMap(federationOptions);
+    refreshHostAutoInit(federationOptions);
+  };
+  const observeSharedImport: SharedImportObserver = (shareSource, aliasedImport) => {
+    const key = findSharedKey(shareSource, shared);
+    if (!key || materializedLoadShareSources.has(shareSource)) return;
+    if (aliasedImport && shared[key].shareConfig.import === undefined) {
+      shared[key].shareConfig.import = aliasedImport;
+    }
+    materializeLoadShare(shareSource, key);
+  };
   const refreshTreeShakingForEnvironment = (context: unknown) =>
     refreshTreeShakingModules(federationOptions, _command, getEnvironmentConditions(context));
 
@@ -787,6 +811,11 @@ export function proxySharedModule(options: {
           ? [...config.ssr.resolve.conditions]
           : undefined;
         ssrTarget = config.ssr?.target ?? 'node';
+        if (_command === 'build' && isRemoteContainer(federationOptions)) {
+          let observers = sharedImportObservers.get(config);
+          if (!observers) sharedImportObservers.set(config, (observers = new Set()));
+          observers.add(observeSharedImport);
+        }
 
         // Write virtual module files and register provider metadata eagerly.
         // Materialization stays tied to imports observed by resolveId below.
@@ -795,15 +824,11 @@ export function proxySharedModule(options: {
         // is now prevented by adding prebuild IDs to optimizeDeps.include
         // in the config hook (createEarlyVirtualModulesPlugin), so Vite
         // pre-bundles them upfront without triggering re-optimization.
-        const registerConfiguredShare =
-          _command === 'build' && isRemoteContainer(federationOptions)
-            ? addUsedShares
-            : addConfiguredShare;
         Object.keys(shared).forEach((key) => {
           if (key.endsWith('/') || getSharedRequest(key, shared[key]).endsWith('/')) return;
           const runtimeKey = getSharedRuntimeKey(key, shared[key]);
           if (useDirectReactImport && runtimeKey === 'react') {
-            registerConfiguredShare(runtimeKey, federationOptions);
+            addConfiguredShare(runtimeKey, federationOptions);
             return;
           }
           writeLoadShareModule(runtimeKey, shared[key], _command, federationOptions);
@@ -812,7 +837,7 @@ export function proxySharedModule(options: {
           if (shared[key].shareConfig.import !== false) {
             writePreBuildLibPath(runtimeKey, shared[key], federationOptions);
           }
-          registerConfiguredShare(runtimeKey, federationOptions);
+          addConfiguredShare(runtimeKey, federationOptions);
         });
         writeLocalSharedImportMap(federationOptions);
         refreshHostAutoInit(federationOptions);
@@ -1019,15 +1044,26 @@ export function proxySharedModule(options: {
             return tryResolveFromProjectRoot(localSource) || localSource;
           }
           const loadSharePath = getLoadShareModulePath(shareSource, federationOptions);
-          if (!materializedLoadShareSources.has(shareSource)) {
-            materializedLoadShareSources.add(shareSource);
-            writeLoadShareModule(shareSource, shared[key], _command, federationOptions);
-            if (shared[key].shareConfig.import !== false) {
-              writePreBuildLibPath(shareSource, shared[key], federationOptions);
+          // A share that only an alias or tsconfig `paths` resolves has no package for the
+          // virtual fallback modules to import by name, and they have no location on disk for an
+          // importer-relative resolver. Import the file this importer resolves it to (#1587).
+          // Every overlapping call awaits its own lookup, so none returns the stale wrapper.
+          let aliasedImport: string | undefined;
+          if (
+            shareSource === key &&
+            shared[key].shareConfig.import === undefined &&
+            !isPackageInstalled(key, { cwd: _config?.root })
+          ) {
+            const resolved = await resolveInternally(this, source, importer, resolveOptions);
+            if (resolved && !resolved.external && path.isAbsolute(resolved.id)) {
+              aliasedImport = shared[key].shareConfig.import = resolved.id;
             }
-            addUsedShares(shareSource, federationOptions);
-            writeLocalSharedImportMap(federationOptions);
-            refreshHostAutoInit(federationOptions);
+          }
+          if (!materializedLoadShareSources.has(shareSource)) {
+            materializeLoadShare(shareSource, key);
+            for (const observe of (_config && sharedImportObservers.get(_config)) || []) {
+              if (observe !== observeSharedImport) observe(shareSource, aliasedImport);
+            }
           }
           return this.resolve(loadSharePath, importer, { skipSelf: true });
         },

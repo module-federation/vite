@@ -27,6 +27,7 @@ const {
   getInstalledPackageEntryMock,
   getPackageExportSpecifiersForFileMock,
   findPackageInDependentsMock,
+  isPackageInstalledMock,
   hasTreeShakingSharedProviderMock,
   getTreeShakingSharedProviderImportIdMock,
   getTreeShakingSharedProviderNameMock,
@@ -40,6 +41,7 @@ const {
     isFile: () => true,
   })),
   addUsedSharesMock: vi.fn<(pkg: string) => void>(),
+  isPackageInstalledMock: vi.fn<(pkg: string) => boolean>(() => true),
   refreshHostAutoInitMock: vi.fn<() => void>(),
   writeLoadShareModuleMock: vi.fn(),
   writeLocalSharedImportMapMock: vi.fn<() => void>(),
@@ -101,7 +103,7 @@ vi.mock('../../utils/packageUtils', async (importOriginal) => ({
   hasPackageDependency: hasPackageDependencyMock,
   getInstalledPackageEntry: getInstalledPackageEntryMock,
   isPackageExportAvailable: () => true,
-  isPackageInstalled: () => true,
+  isPackageInstalled: isPackageInstalledMock,
   getPackageExportSpecifiersForFile: getPackageExportSpecifiersForFileMock,
   findPackageInDependents: findPackageInDependentsMock,
   getInstalledPackageJson: vi.fn((pkg: string) => {
@@ -684,6 +686,8 @@ describe('pluginProxySharedModule_preBuild', () => {
     getPackageExportSpecifiersForFileMock.mockReset();
     getPackageExportSpecifiersForFileMock.mockReturnValue([]);
     findPackageInDependentsMock.mockReset();
+    isPackageInstalledMock.mockReset();
+    isPackageInstalledMock.mockReturnValue(true);
     hasTreeShakingSharedProviderMock.mockReset();
     hasTreeShakingSharedProviderMock.mockReturnValue(false);
     getTreeShakingSharedProviderImportIdMock.mockClear();
@@ -2717,10 +2721,9 @@ describe('pluginProxySharedModule_preBuild', () => {
     expect(addUsedSharesMock).not.toHaveBeenCalled();
   });
 
-  it('materializes configured providers for exposing builds', () => {
-    const shared = makeShared();
+  it('does not materialize unused providers of an exposing build during setup', () => {
     const plugins = proxySharedModule({
-      shared,
+      shared: makeShared(),
       federationOptions: { exposes: { './App': { import: './src/App' } } } as any,
     });
     const proxyPlugin = getProxyPlugin(plugins);
@@ -2740,7 +2743,52 @@ describe('pluginProxySharedModule_preBuild', () => {
       { experimental: { rolldownDev: false } } as unknown as ResolvedConfig
     );
 
-    expect(addUsedSharesMock).toHaveBeenCalledTimes(Object.keys(shared).length);
+    expect(addUsedSharesMock).not.toHaveBeenCalled();
+  });
+
+  it('imports the file an alias-only share resolves to from its importer', async () => {
+    hasPackageDependencyMock.mockReturnValue(false);
+    isPackageInstalledMock.mockReturnValue(false);
+    const shared = makeShared();
+    shared['@acme/logger'] = {
+      ...shared.transitive,
+      name: '@acme/logger',
+      shareConfig: { ...shared.transitive.shareConfig, import: undefined },
+    };
+    const plugins = proxySharedModule({
+      federationOptions: getNormalizeModuleFederationOptions(),
+      shared,
+    });
+    callHook(
+      getProxyPlugin(plugins).config,
+      {
+        meta: createPluginMeta(),
+        resolve: async (id: string) => ({ id: `/resolved/${id}` }),
+      } as unknown as ConfigPluginContext,
+      { resolve: { alias: [] } },
+      { command: 'build', mode: 'production' } as ConfigEnv
+    );
+
+    await callHook(
+      getSharedResolvePlugin(plugins).resolveId,
+      {
+        resolve: async (id: string) => ({
+          id: id === '@acme/logger' ? '/repo/libs/logger/src/index.ts' : id,
+        }),
+      } as any,
+      '@acme/logger',
+      '/repo/apps/remote/src/main.ts',
+      { isEntry: false }
+    );
+
+    expect(shared['@acme/logger'].shareConfig.import).toBe('/repo/libs/logger/src/index.ts');
+    expect(writeLoadShareModuleMock).toHaveBeenCalledWith(
+      '@acme/logger',
+      expect.objectContaining({
+        shareConfig: expect.objectContaining({ import: '/repo/libs/logger/src/index.ts' }),
+      }),
+      'build'
+    );
   });
 
   it.each([
