@@ -1000,6 +1000,30 @@ describe('normalizeModuleFederationOption', () => {
         }
       });
 
+      it('does not look up the pnpm store for a share imported from a project path (#1588)', () => {
+        writeFixture({});
+        const storeDir = path.join(
+          fixtureRoot,
+          'node_modules/.pnpm/@acme+shared@1.0.0/node_modules/@acme/shared'
+        );
+        fs.mkdirSync(storeDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(storeDir, 'package.json'),
+          JSON.stringify({ name: '@acme/shared', version: '1.0.0' })
+        );
+        const normalize = (shared: Record<string, object>) =>
+          normalizeModuleFederationOptions({ ...minimalOptions, shared }).shared;
+
+        expect(normalize({ '@acme/shared/logger': {} })['@acme/shared/logger'].version).toBe(
+          '1.0.0'
+        );
+        expect(
+          normalize({ '@acme/shared/logger': { import: path.join(fixtureRoot, 'logger.ts') } })[
+            '@acme/shared/logger'
+          ].version
+        ).toBeUndefined();
+      });
+
       it('ignores non-semver dependency ranges from package.json', () => {
         for (const range of ['latest', 'next', 'facebook/react', 'github:facebook/react']) {
           writeFixture({ react: range });

@@ -16,6 +16,7 @@ const {
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
+  localSourcePackages: new Set(),
   getInstalledPackageEntry: getInstalledPackageEntryMock,
   getPackageDetectionCwd: vi.fn(() => '/repo'),
   resolveImportPath: vi.fn((specifier: string) => `/repo/node_modules/${specifier}/index.js`),
