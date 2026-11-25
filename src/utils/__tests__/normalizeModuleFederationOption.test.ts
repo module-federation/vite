@@ -6,7 +6,7 @@ import {
   RemoteObjectConfig,
   resolveSharedVersions,
 } from '../normalizeModuleFederationOptions';
-import { setPackageDetectionCwd } from '../packageUtils';
+import { getInstalledPackageJson, setPackageDetectionCwd } from '../packageUtils';
 
 const { mfErrorSpy, mfWarnSpy } = vi.hoisted(() => ({
   mfErrorSpy: vi.fn(),
@@ -998,6 +998,33 @@ describe('normalizeModuleFederationOption', () => {
           expect.soft(shared.react.version, localImport).toBe('19.2.7');
           expect.soft(shared.react.shareConfig.requiredVersion, localImport).toBe('^19.0.0');
         }
+      });
+
+      it('does not look up the pnpm store for a share imported from a project path (#1588)', () => {
+        writeFixture({});
+        const storeDir = path.join(
+          fixtureRoot,
+          'node_modules/.pnpm/@acme+shared@1.0.0/node_modules/@acme/shared'
+        );
+        fs.mkdirSync(storeDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(storeDir, 'package.json'),
+          JSON.stringify({ name: '@acme/shared', version: '1.0.0' })
+        );
+        const normalize = (shared: Record<string, object>) =>
+          normalizeModuleFederationOptions({ ...minimalOptions, shared }).shared;
+
+        expect(normalize({ '@acme/shared/logger': {} })['@acme/shared/logger'].version).toBe(
+          '1.0.0'
+        );
+        expect(
+          normalize({ '@acme/shared/logger': { import: path.join(fixtureRoot, 'logger.ts') } })[
+            '@acme/shared/logger'
+          ].version
+        ).toBeUndefined();
+        // another federation instance normalizing must not forget this one's local sources
+        normalize({});
+        expect(getInstalledPackageJson('@acme/shared/logger')).toBeUndefined();
       });
 
       it('ignores non-semver dependency ranges from package.json', () => {

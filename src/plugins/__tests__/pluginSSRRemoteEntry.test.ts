@@ -16,6 +16,7 @@ const { getIsRolldownMock, hasPackageDependencyMock, isNuxtProjectRootMock } = v
 }));
 
 vi.mock('../../utils/packageUtils', () => ({
+  localSourcePackages: new Set(),
   getIsRolldown: getIsRolldownMock,
   hasPackageDependency: hasPackageDependencyMock,
   isNuxtProjectRoot: isNuxtProjectRootMock,

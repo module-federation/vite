@@ -29,6 +29,7 @@ import {
   getInstalledPackageJson,
   getPackageDetectionCwd,
   getPackageName,
+  localSourcePackages,
   resolveImportPath,
 } from './packageUtils';
 import { getCommonSharedSubpaths } from './pathNormalization';
@@ -558,6 +559,13 @@ function normalizeShared(
       if (isModuleFederationRuntimePackage(key)) return;
       const normalizedKey = normalizeSharedKey(key);
       const value = shared[key] as any;
+      // Updated per package, never cleared: another federation instance keeps its own entries.
+      localSourcePackages[
+        typeof value?.import === 'string' &&
+        (value.import.startsWith('.') || path.isAbsolute(value.import))
+          ? 'add'
+          : 'delete'
+      ](getPackageName(normalizedKey));
       const hadConfiguredPackageSubpath =
         (result[normalizedKey]?.shareConfig as any)?.__mfConfiguredPackageSubpath === true;
       result[normalizedKey] = normalizeShareItem(normalizedKey, value, defaultShareScope);

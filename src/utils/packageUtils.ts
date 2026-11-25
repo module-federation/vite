@@ -39,6 +39,9 @@ const reachableDependencyNames = new Map<string, Set<string>>();
 // every store entry once per name is still quadratic in a large workspace. Only
 // candidate package.json paths are kept, in scan order, and read on lookup.
 const pnpmStorePackageIndexCache = new Map<string, Map<string, string[]>>();
+// Packages of shares whose `import` is a project path. They are local source, never a pnpm store
+// entry, so a lookup that misses must not index the whole store for them (#1588).
+export const localSourcePackages = new Set<string>();
 
 export function setPackageDetectionCwd(cwd: string) {
   packageDetectionCwd = cwd;
@@ -640,7 +643,7 @@ export function getInstalledPackageJson(
 ): InstalledPackageJson | undefined {
   const cwd = opts?.cwd || getPackageDetectionCwd();
   const packageName = opts?.packageName || getPackageName(pkg);
-  const cacheKey = `${cwd}\0${pkg}\0${packageName}\0${opts?.fromResolvedEntry ?? ''}`;
+  const cacheKey = `${cwd}\0${pkg}\0${packageName}\0${opts?.fromResolvedEntry ?? ''}\0${localSourcePackages.has(packageName)}`;
   if (installedPackageJsonCache.has(cacheKey)) {
     return installedPackageJsonCache.get(cacheKey);
   }
@@ -707,7 +710,8 @@ function resolveInstalledPackageJson(
   }
 
   return (
-    findPackageInDependents(packageName, cwd)?.copy ?? findPackageInPnpmStore(packageName, cwd)
+    findPackageInDependents(packageName, cwd)?.copy ??
+    (localSourcePackages.has(packageName) ? undefined : findPackageInPnpmStore(packageName, cwd))
   );
 }
 

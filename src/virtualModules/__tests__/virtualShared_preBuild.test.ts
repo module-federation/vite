@@ -109,6 +109,7 @@ vi.mock('../../utils/logger', () => ({
 type PackageUtils = typeof import('../../utils/packageUtils');
 
 vi.mock('../../utils/packageUtils', async (importOriginal) => ({
+  localSourcePackages: new Set(),
   // The shared-cache key format must come from the real module; copies here drift from it.
   getSharedCacheDescriptor: (await importOriginal<PackageUtils>()).getSharedCacheDescriptor,
   sharedCacheHelperCode: (await importOriginal<PackageUtils>()).sharedCacheHelperCode,
