@@ -538,7 +538,6 @@ function normalizeShared(
   defaultShareScope = 'default'
 ): NormalizedShared {
   explicitSharedKeys = new Set();
-  localSourcePackages.clear();
   if (!shared) return {};
   const result: NormalizedShared = {};
   const sourceEntries: Array<[string, string | Record<string, any>]> = [];
@@ -560,12 +559,13 @@ function normalizeShared(
       if (isModuleFederationRuntimePackage(key)) return;
       const normalizedKey = normalizeSharedKey(key);
       const value = shared[key] as any;
-      if (
+      // Updated per package, never cleared: another federation instance keeps its own entries.
+      localSourcePackages[
         typeof value?.import === 'string' &&
         (value.import.startsWith('.') || path.isAbsolute(value.import))
-      ) {
-        localSourcePackages.add(getPackageName(normalizedKey));
-      }
+          ? 'add'
+          : 'delete'
+      ](getPackageName(normalizedKey));
       const hadConfiguredPackageSubpath =
         (result[normalizedKey]?.shareConfig as any)?.__mfConfiguredPackageSubpath === true;
       result[normalizedKey] = normalizeShareItem(normalizedKey, value, defaultShareScope);

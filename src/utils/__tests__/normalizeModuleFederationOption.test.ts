@@ -6,7 +6,7 @@ import {
   RemoteObjectConfig,
   resolveSharedVersions,
 } from '../normalizeModuleFederationOptions';
-import { setPackageDetectionCwd } from '../packageUtils';
+import { getInstalledPackageJson, setPackageDetectionCwd } from '../packageUtils';
 
 const { mfErrorSpy, mfWarnSpy } = vi.hoisted(() => ({
   mfErrorSpy: vi.fn(),
@@ -1022,6 +1022,9 @@ describe('normalizeModuleFederationOption', () => {
             '@acme/shared/logger'
           ].version
         ).toBeUndefined();
+        // another federation instance normalizing must not forget this one's local sources
+        normalize({});
+        expect(getInstalledPackageJson('@acme/shared/logger')).toBeUndefined();
       });
 
       it('ignores non-semver dependency ranges from package.json', () => {
