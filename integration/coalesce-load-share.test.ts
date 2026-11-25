@@ -155,12 +155,17 @@ describe('loadShare wrapper coalescing', () => {
   it('gives each federation instance in one build its own merged chunk', async () => {
     const output = await buildFixture({
       fixture: 'react-skew-remote',
-      mfOptions: ['instanceA', 'instanceB'].map((name) => ({
+      // The first instance resolves the imports of the shares it configures, so each instance
+      // gets wrappers only for the imports it is the first to share.
+      mfOptions: [
+        { name: 'instanceA', shared: { react: SHARED.react } },
+        { name: 'instanceB', shared: SHARED },
+      ].map(({ name, shared }) => ({
         name,
         filename: `${name}.js`,
         exposes: { './Module': resolve(FIXTURES, 'react-skew-remote', 'exposed-module.js') },
         shareStrategy: 'loaded-first' as const,
-        shared: SHARED,
+        shared,
         dts: false,
       })),
     });
