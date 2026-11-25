@@ -541,9 +541,6 @@ vi.mock('../../utils/normalizeModuleFederationOptions', () => {
   return {
     getNormalizeModuleFederationOptions: vi.fn(() => normalizedOptionsMock),
     isExplicitSharedKey: (key: string) => key in normalizedSharedMock(),
-    isPathImport: (importSource: unknown) =>
-      typeof importSource === 'string' &&
-      (importSource.startsWith('.') || importSource.startsWith('/')),
     hasRemotes: (options: { remotes?: object }) => Object.keys(options?.remotes ?? {}).length > 0,
     hasShared: (options: { shared?: object }) => Object.keys(options?.shared ?? {}).length > 0,
     isRemoteContainer: (options: { exposes?: object }) =>

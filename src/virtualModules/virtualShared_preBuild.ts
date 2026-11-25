@@ -19,7 +19,6 @@ import { mfWarn } from '../utils/logger';
 import {
   getNormalizeModuleFederationOptions,
   hasRemotes,
-  isPathImport,
   isLocalOnlyContainer,
   isRemoteContainer,
   isRemoteOnlyContainer,
@@ -109,12 +108,11 @@ export function setWorkspaceEntryConditions(conditions: string[]) {
   workspaceEntryConditions = conditions;
 }
 
-function getPackageEsmEntryPath(pkg: string, skipPnpmStore = false): string | undefined {
+function getPackageEsmEntryPath(pkg: string): string | undefined {
   return (
     getInstalledPackageEntry(pkg, {
       conditions: workspaceEntryConditions,
       resolveSubpathWithRequire: false,
-      skipPnpmStore,
     }) || resolvePackageEntryFromProjectRoot(pkg)
   );
 }
@@ -928,40 +926,32 @@ export function getSharedNamedExports(
   return getPackageNamedExports(pkg, exportConditions);
 }
 
-export function getLocalProviderImportPath(pkg: string, skipPnpmStore = false): string | undefined {
+export function getLocalProviderImportPath(pkg: string): string | undefined {
   try {
     const resolved = resolveWorkspaceEsmEntry(
       pkg,
-      resolveModulePath(pkg, path.join(getPackageDetectionCwd(), 'package.json')),
-      getPackageDetectionCwd(),
-      skipPnpmStore
+      resolveModulePath(pkg, path.join(getPackageDetectionCwd(), 'package.json'))
     );
     return isWorkspaceFilePath(resolved) ? resolved : undefined;
   } catch {
     const resolved = getInstalledPackageEntry(pkg, {
       conditions: workspaceEntryConditions,
       resolveSubpathWithRequire: false,
-      skipPnpmStore,
     });
     return isWorkspaceFilePath(resolved) ? resolved : undefined;
   }
 }
 
-export function getProjectResolvedImportPath(
-  pkg: string,
-  skipPnpmStore = false
-): string | undefined {
+export function getProjectResolvedImportPath(pkg: string): string | undefined {
   if (pkg === getPackageName(pkg)) {
-    const esmEntry = getPackageEsmEntryPath(pkg, skipPnpmStore);
+    const esmEntry = getPackageEsmEntryPath(pkg);
     if (esmEntry) return esmEntry;
   }
 
   try {
     return resolveWorkspaceEsmEntry(
       pkg,
-      resolveModulePath(pkg, path.join(getPackageDetectionCwd(), 'package.json')),
-      getPackageDetectionCwd(),
-      skipPnpmStore
+      resolveModulePath(pkg, path.join(getPackageDetectionCwd(), 'package.json'))
     );
   } catch {
     return undefined;
@@ -989,42 +979,32 @@ function isWorkspaceFilePath(resolved: string | undefined): resolved is string {
 function resolveWorkspaceEsmEntry(
   pkg: string,
   resolved: string,
-  cwd = getPackageDetectionCwd(),
-  skipPnpmStore = false
+  cwd = getPackageDetectionCwd()
 ): string {
   if (!isWorkspaceFilePath(resolved)) return resolved;
   const esmEntry = getInstalledPackageEntry(pkg, {
     cwd,
     conditions: workspaceEntryConditions,
     resolveSubpathWithRequire: false,
-    skipPnpmStore,
   });
   if (esmEntry && isWorkspaceFilePath(esmEntry)) return esmEntry;
   return resolved;
 }
 
-function isWorkspacePackageEntry(
-  pkg: string,
-  resolved: string | undefined,
-  skipPnpmStore = false
-): resolved is string {
+function isWorkspacePackageEntry(pkg: string, resolved: string | undefined): resolved is string {
   if (!resolved || !path.isAbsolute(resolved) || !isWorkspaceFilePath(resolved)) return false;
   return !!getInstalledPackageJson(pkg, {
     packageName: getPackageName(pkg),
     fromResolvedEntry: resolved,
-    skipPnpmStore,
   });
 }
 
-function getWorkspacePackageJson(pkg: string, skipPnpmStore = false) {
-  const resolved =
-    getLocalProviderImportPath(pkg, skipPnpmStore) ||
-    getProjectResolvedImportPath(pkg, skipPnpmStore);
-  if (!isWorkspacePackageEntry(pkg, resolved, skipPnpmStore)) return;
+function getWorkspacePackageJson(pkg: string) {
+  const resolved = getLocalProviderImportPath(pkg) || getProjectResolvedImportPath(pkg);
+  if (!isWorkspacePackageEntry(pkg, resolved)) return;
   return getInstalledPackageJson(pkg, {
     packageName: getPackageName(pkg),
     fromResolvedEntry: resolved,
-    skipPnpmStore,
   })?.packageJson;
 }
 
@@ -1032,24 +1012,19 @@ function getWorkspacePackageJson(pkg: string, skipPnpmStore = false) {
 // failed resolves (exports-hidden or uninstalled packages) are the costly part.
 const sharedDependencyGraphPackageJsonCache = new Map<string, any>();
 
-function getSharedDependencyGraphPackageJson(
-  pkg: string,
-  options: NormalizedModuleFederationOptions
-) {
-  const skipPnpmStore = isPathImport(options.shared?.[pkg]?.shareConfig.import);
-  const cacheKey = `${getPackageDetectionCwd()}\0${pkg}\0${skipPnpmStore ? 'skip-pnpm-store' : ''}`;
+function getSharedDependencyGraphPackageJson(pkg: string) {
+  const cacheKey = `${getPackageDetectionCwd()}\0${pkg}`;
   if (sharedDependencyGraphPackageJsonCache.has(cacheKey)) {
     return sharedDependencyGraphPackageJsonCache.get(cacheKey);
   }
-  const packageJson = resolveSharedDependencyGraphPackageJson(pkg, skipPnpmStore);
+  const packageJson = resolveSharedDependencyGraphPackageJson(pkg);
   sharedDependencyGraphPackageJsonCache.set(cacheKey, packageJson);
   return packageJson;
 }
 
-function resolveSharedDependencyGraphPackageJson(pkg: string, skipPnpmStore = false) {
+function resolveSharedDependencyGraphPackageJson(pkg: string) {
   const installedPackageJson = getInstalledPackageJson(pkg, {
     packageName: getPackageName(pkg),
-    skipPnpmStore,
   })?.packageJson;
   if (installedPackageJson) return installedPackageJson;
   try {
@@ -1061,7 +1036,7 @@ function resolveSharedDependencyGraphPackageJson(pkg: string, skipPnpmStore = fa
   } catch {
     // Fall back to workspace detection below.
   }
-  return getWorkspacePackageJson(pkg, skipPnpmStore);
+  return getWorkspacePackageJson(pkg);
 }
 
 // Unshared packages are only edges of the walk below. Read each one where its
@@ -1146,18 +1121,13 @@ function computeSharedSingletonConsumedByPeer(
     });
 
   type GraphNode = { name: string; packageJson?: Record<string, unknown>; dir: string };
-  const sharedNode = (key: string): GraphNode => {
-    const skipPnpmStore = isPathImport(options.shared?.[key]?.shareConfig.import);
-    return {
-      name: key,
-      packageJson: getSharedDependencyGraphPackageJson(key, options),
-      dir:
-        getInstalledPackageJson(key, {
-          packageName: getPackageName(key),
-          skipPnpmStore,
-        })?.dir ?? getPackageDetectionCwd(),
-    };
-  };
+  const sharedNode = (key: string): GraphNode => ({
+    name: key,
+    packageJson: getSharedDependencyGraphPackageJson(key),
+    dir:
+      getInstalledPackageJson(key, { packageName: getPackageName(key) })?.dir ??
+      getPackageDetectionCwd(),
+  });
   const dependencyNode = (dependency: string, from: GraphNode): GraphNode => {
     const sharedDependency = sharedKeyByPackageName.get(dependency);
     if (sharedDependency) return sharedNode(sharedDependency);
@@ -2285,17 +2255,11 @@ export function writeLoadShareModule(
   const concreteSharedImportSource = getConcreteSharedImportSource(pkg, shareItem);
   const sharedImportSource = concreteSharedImportSource || getPreBuildLibImportId(pkg, options);
   const devImportSource = concreteSharedImportSource || pkg;
-  const localProviderPath = isPathImport(concreteSharedImportSource)
-    ? undefined
-    : getLocalProviderImportPath(pkg);
+  const localProviderPath = getLocalProviderImportPath(pkg);
   const coherentLocalSource = concreteSharedImportSource || localProviderPath || devImportSource;
   const isWorkspacePackage =
     isWorkspacePackageEntry(pkg, localProviderPath) ||
-    isWorkspacePackageEntry(
-      pkg,
-      concreteSharedImportSource,
-      isPathImport(concreteSharedImportSource)
-    );
+    isWorkspacePackageEntry(pkg, concreteSharedImportSource);
   const lazyLocalFallbackSource =
     command !== 'build'
       ? concreteSharedImportSource || localProviderPath || devImportSource

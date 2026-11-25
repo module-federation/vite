@@ -1,6 +1,5 @@
 import {
   hasRemotes,
-  isPathImport,
   NormalizedModuleFederationOptions,
   ShareItem,
 } from '../utils/normalizeModuleFederationOptions';
@@ -71,11 +70,7 @@ function getSsrSharedSingletons(
     if (!share.shareConfig.singleton) continue;
     const request = getSharedRequest(pkg, share);
     if (request.endsWith('/')) {
-      for (const concrete of expandSharedPrefixKey(
-        request,
-        used,
-        isPathImport(share.shareConfig.import)
-      )) {
+      for (const concrete of expandSharedPrefixKey(request, used)) {
         result[getSharedRuntimeKey(concrete, share)] = { ...share, name: concrete };
       }
       continue;

@@ -188,11 +188,7 @@ export interface TreeShakingConfig {
  * @param {string} sharedName
  * @returns {string | undefined}
  */
-function searchPackageVersion(
-  sharedName: string,
-  cwd: string,
-  skipPnpmStore = false
-): string | undefined {
+function searchPackageVersion(sharedName: string, cwd: string): string | undefined {
   // Let getInstalledPackageJson derive the bare package name from the shared
   // key via its default `getPackageName(pkg)` behavior. Forcing
   // `packageName: sharedName` here broke version resolution for any shared
@@ -200,7 +196,7 @@ function searchPackageVersion(
   // package.json whose `name` field equals `packageName`, but no real
   // package is named "@scope/foo/bar", so the walk always misses and
   // `version` stays undefined. The bare package name "@scope/foo" matches.
-  const installed = getInstalledPackageJson(sharedName, { cwd, skipPnpmStore });
+  const installed = getInstalledPackageJson(sharedName, { cwd });
   const version = installed?.packageJson.version;
   return typeof version === 'string' ? version : undefined;
 }
@@ -291,13 +287,6 @@ function isBareSpecifier(specifier: string): boolean {
   );
 }
 
-export function isPathImport(importSource: unknown): importSource is string {
-  return (
-    typeof importSource === 'string' &&
-    (importSource.startsWith('.') || path.isAbsolute(importSource))
-  );
-}
-
 type ProjectPackageJsonCache = Map<string, Record<string, any> | undefined>;
 
 // Reads only `${cwd}/package.json`, no upward walk: a workspace-root
@@ -317,12 +306,11 @@ function readProjectPackageJson(
   return packageJson;
 }
 
-function getLitExportSubpathShares(sharedName: string, skipPnpmStore = false): string[] {
+function getLitExportSubpathShares(sharedName: string): string[] {
   if (sharedName !== 'lit') return [];
 
   const installedPackageJson = getInstalledPackageJson(sharedName, {
     packageName: sharedName,
-    skipPnpmStore,
   });
   const exportsField = installedPackageJson?.packageJson.exports;
   if (!exportsField || typeof exportsField === 'string') return [];
@@ -357,7 +345,7 @@ function resolveSharedVersion(
   // Consume-only shares also need a version for runtime validation.
   const version =
     config.version ||
-    searchPackageVersion(source, cwd, isPathImport(config.import)) ||
+    searchPackageVersion(source, cwd) ||
     inferVersionFromRequiredVersion(config.requiredVersion) ||
     fallbackVersion;
   let requiredVersion = config.requiredVersion;
@@ -583,8 +571,7 @@ function normalizeShared(
   }
 
   sourceEntries.forEach(([key, value]) => {
-    const importSource = typeof value === 'object' ? value.import : undefined;
-    for (const subpathShare of getLitExportSubpathShares(key, isPathImport(importSource))) {
+    for (const subpathShare of getLitExportSubpathShares(key)) {
       if (result[subpathShare]) continue;
       result[subpathShare] = normalizeShareItem(subpathShare, value as any, defaultShareScope);
     }

@@ -21,12 +21,7 @@ export function getLocalShareSourceFile(
   const importSource = shareItem?.shareConfig?.import;
   if (typeof importSource !== 'string') return undefined;
   if (!importSource.startsWith('.') && !path.isAbsolute(importSource)) return undefined;
-  if (
-    getInstalledPackageJson(getPackageName(pkg), {
-      skipPnpmStore: true,
-    }) !== undefined
-  )
-    return undefined;
+  if (getInstalledPackageJson(getPackageName(pkg)) !== undefined) return undefined;
   return resolveConfiguredImportPath(importSource);
 }
 
