@@ -2,6 +2,8 @@ const REGEX_PREFIX_KEYWORDS = new Set([
   'await',
   'case',
   'delete',
+  'do',
+  'else',
   'in',
   'instanceof',
   'new',

@@ -29,6 +29,16 @@ describe('createCodePositionMap', () => {
     expect(positions[source.lastIndexOf('export')]).toBe(1);
   });
 
+  it.each([
+    ['else', "if (a) b(); else /'/.test(c); export const answer = 1; // it's done"],
+    ['do', "do /'/.test(c); while (0); export const answer = 1; // it's done"],
+  ])('masks a regular expression after `%s`', (_keyword, source) => {
+    const positions = createCodePositionMap(source);
+
+    expect(positions[source.indexOf('/')]).toBe(0);
+    expect(positions[source.indexOf('export')]).toBe(1);
+  });
+
   it('reports only actual comment ranges, preserving the original position map', () => {
     const source =
       'export/* block\ncomment */const text = "/* literal */", template = `// literal`, pattern = /[/*]/; // line\nexport { text };';
