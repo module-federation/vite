@@ -39,6 +39,17 @@ describe('createCodePositionMap', () => {
     expect(positions[source.indexOf('export')]).toBe(1);
   });
 
+  it.each(['else', 'do', 'in', 'new', 'delete', 'return'])(
+    'treats a slash after a `.%s` member as division',
+    (keyword) => {
+      const source = `const ratio = a.${keyword} / 2; const text = 'x/y'; export const answer = 1;`;
+      const positions = createCodePositionMap(source);
+
+      expect(positions[source.indexOf('/')]).toBe(1);
+      expect(positions[source.indexOf('export')]).toBe(1);
+    }
+  );
+
   it('reports only actual comment ranges, preserving the original position map', () => {
     const source =
       'export/* block\ncomment */const text = "/* literal */", template = `// literal`, pattern = /[/*]/; // line\nexport { text };';
