@@ -50,6 +50,17 @@ describe('createCodePositionMap', () => {
     }
   );
 
+  it.each(['await', 'new', 'typeof', 'void'])(
+    'masks a regular expression after a spread `...%s`',
+    (keyword) => {
+      const source = `const list = [...${keyword} /'/.exec(s)]; export const answer = 1; // it's done`;
+      const positions = createCodePositionMap(source);
+
+      expect(positions[source.indexOf('/')]).toBe(0);
+      expect(positions[source.indexOf('export')]).toBe(1);
+    }
+  );
+
   it('reports only actual comment ranges, preserving the original position map', () => {
     const source =
       'export/* block\ncomment */const text = "/* literal */", template = `// literal`, pattern = /[/*]/; // line\nexport { text };';
