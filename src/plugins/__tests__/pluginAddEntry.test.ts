@@ -693,6 +693,14 @@ describe('pluginAddEntry', () => {
     const childRoute = path.join(tempDir, 'src/routes/child.tsx');
     const rootRouteInput = `${rootRoute}?__react-router-build-client-route`;
     const childRouteInput = `${childRoute}?__react-router-build-client-route`;
+    // `splitRouteModules` inputs (#1594)
+    const splitRouteInputs = [
+      'main',
+      'clientLoader',
+      'clientAction',
+      'clientMiddleware',
+      'HydrateFallback',
+    ].map((chunk) => `${childRoute}?route-chunk=${chunk}`);
     const plugins = addEntry({
       entryName: 'hostInit',
       entryPath: '/virtual/hostInit.js',
@@ -706,7 +714,7 @@ describe('pluginAddEntry', () => {
       {
         build: {
           rollupOptions: {
-            input: [clientEntry, rootRouteInput, childRouteInput],
+            input: [clientEntry, rootRouteInput, childRouteInput, ...splitRouteInputs],
           },
         },
       },
@@ -717,7 +725,7 @@ describe('pluginAddEntry', () => {
       base: '/',
       build: {
         rollupOptions: {
-          input: [clientEntry, rootRouteInput, childRouteInput],
+          input: [clientEntry, rootRouteInput, childRouteInput, ...splitRouteInputs],
         },
       },
     } as unknown as ResolvedConfig);
@@ -728,6 +736,9 @@ describe('pluginAddEntry', () => {
     expect(
       await runTransform(buildPlugin, 'export const route = true;', childRouteInput)
     ).toBeUndefined();
+    for (const input of splitRouteInputs) {
+      expect(await runTransform(buildPlugin, 'export const route = true;', input)).toBeUndefined();
+    }
 
     const result = (await runTransform(
       buildPlugin,

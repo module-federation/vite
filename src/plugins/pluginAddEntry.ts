@@ -259,7 +259,7 @@ function getFirstHtmlEntryFile(entryFiles: string[]): string | undefined {
 }
 
 function isReactRouterClientRouteInput(file: string) {
-  return /[?&]__react-router-build-client-route(?:[=&]|$)/.test(file);
+  return /[?&](?:__react-router-build-client-route(?:[=&]|$)|route-chunk=)/.test(file);
 }
 
 export function getBuildInput(config: any): Environment['config']['input'] {
