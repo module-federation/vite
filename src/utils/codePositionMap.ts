@@ -2,6 +2,8 @@ const REGEX_PREFIX_KEYWORDS = new Set([
   'await',
   'case',
   'delete',
+  'do',
+  'else',
   'in',
   'instanceof',
   'new',
@@ -196,15 +198,16 @@ export function createCodePositionMap(
       const start = index++;
       while (isIdentifierPart(code[index])) index++;
       const word = code.slice(start, index);
+      let previous = start - 1;
+      while (previous >= 0 && (isWhitespace(code[previous]) || !positions[previous])) previous--;
+      // A property named `if`/`else`/etc. is not a keyword: `a.else / 2` is a division.
+      const isProperty = code[previous] === '.';
       if (CONTROL_PAREN_KEYWORDS.has(word)) {
-        let previous = start - 1;
-        while (previous >= 0 && (isWhitespace(code[previous]) || !positions[previous])) previous--;
-        // A method named `if`/`while`/etc. still ends an expression when called.
-        if (code[previous] !== '.') pendingControlParen = word;
+        if (!isProperty) pendingControlParen = word;
       } else if (word === 'await' && controlKeyword === 'for') {
         pendingControlParen = controlKeyword;
       }
-      canStartRegex = REGEX_PREFIX_KEYWORDS.has(word);
+      canStartRegex = !isProperty && REGEX_PREFIX_KEYWORDS.has(word);
       continue;
     }
     if (isAsciiDigit(char.charCodeAt(0))) {
