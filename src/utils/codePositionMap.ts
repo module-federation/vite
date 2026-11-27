@@ -198,16 +198,17 @@ export function createCodePositionMap(
       const start = index++;
       while (isIdentifierPart(code[index])) index++;
       const word = code.slice(start, index);
-      let previous = start - 1;
-      while (previous >= 0 && (isWhitespace(code[previous]) || !positions[previous])) previous--;
-      // A property named `if`/`else`/etc. is not a keyword: `a.else / 2` is a division.
-      const isProperty = code[previous] === '.';
-      if (CONTROL_PAREN_KEYWORDS.has(word)) {
-        if (!isProperty) pendingControlParen = word;
-      } else if (word === 'await' && controlKeyword === 'for') {
-        pendingControlParen = controlKeyword;
+      const isControlParen = CONTROL_PAREN_KEYWORDS.has(word);
+      canStartRegex = REGEX_PREFIX_KEYWORDS.has(word);
+      if (isControlParen || canStartRegex) {
+        let previous = start - 1;
+        while (previous >= 0 && (isWhitespace(code[previous]) || !positions[previous])) previous--;
+        // A property named `if`/`else`/etc. is not a keyword: `a.else / 2` is a division.
+        // A spread (`...await /re/`) keeps the keyword.
+        if (code[previous] === '.' && code[previous - 1] !== '.') canStartRegex = false;
+        else if (isControlParen) pendingControlParen = word;
+        else if (word === 'await' && controlKeyword === 'for') pendingControlParen = controlKeyword;
       }
-      canStartRegex = !isProperty && REGEX_PREFIX_KEYWORDS.has(word);
       continue;
     }
     if (isAsciiDigit(char.charCodeAt(0))) {
