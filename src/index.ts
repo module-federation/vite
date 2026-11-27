@@ -541,10 +541,10 @@ function isFile(candidate: string): boolean {
 }
 
 // React Router's build plugin appends a synthetic `?__react-router-build-client-route`
-// entry per route that isn't a real module on disk, so it must be excluded before this
-// scan tries to read it as a source file.
+// (or `?route-chunk=<name>` with `splitRouteModules`) entry per route that isn't a real
+// module on disk, so it must be excluded before this scan tries to read it as a source file.
 function isReactRouterBuildClientRouteInput(entry: string): boolean {
-  return /[?&]__react-router-build-client-route(?:[=&]|$)/.test(entry);
+  return /[?&](?:__react-router-build-client-route(?:[=&]|$)|route-chunk=)/.test(entry);
 }
 
 /**
